@@ -1043,8 +1043,10 @@ function renderClientsTable(clients, views, leads) {
       '<td>' + clientLeads + '</td>' +
       '<td><span class="badge ' + statusClass + '"><span class="badge-dot"></span>' + (c.status||'active') + '</span></td>' +
       '<td>' +
-        '<button class="tbl-btn" onclick="openTopupForClient('' + c.id + '','' + c.business_name.replace(/'/g,"\'") + '',' + bal + ')">Top-up</button>' +
-        '<button class="tbl-btn primary" onclick="copyClientLoginLink('' + c.email + '')">Login link</button>' +
+        '<button class="tbl-btn" onclick="openTopupForClient(this)" data-id="' + c.id + '" data-bal="' + bal + '">Top-up</button>' +
+        'Top-up</button>' +
+        '<button class="tbl-btn primary" onclick="copyClientLoginLink(\"' + c.email + '\"")">' +
+        'Login link</button>' +
       '</td>' +
     '</tr>';
   }).join('');
@@ -1073,8 +1075,8 @@ function renderCampaignsTable(campaigns, clients) {
       '<td><span class="badge brand">' + platforms + '</span></td>' +
       '<td><span class="badge ' + (cam.status==='active'?'active':'paused') + '"><span class="badge-dot"></span>' + cam.status + '</span></td>' +
       '<td>' +
-        '<button class="tbl-btn" onclick="copyAdURL('' + (cam.client_id||'') + '','' + cam.id + '','' + (cam.platforms||['facebook'])[0] + '')">Copy URL</button>' +
-        '<button class="tbl-btn danger" onclick="toggleCampaignStatus('' + cam.id + '','' + cam.status + '')">' + (cam.status==='active'?'Pause':'Resume') + '</button>' +
+        '<button class="tbl-btn" onclick="copyAdURL(this)" data-client="' + (cam.client_id||'') + '" data-campaign="' + cam.id + '" data-platform="' + (cam.platforms||['facebook'])[0] + '">Copy URL</button>' +
+        '<button class="tbl-btn danger" onclick="toggleCampaignStatus(this)" data-id="' + cam.id + '" data-status="' + cam.status + '">' + (cam.status==='active'?'Pause':'Resume') + '</button>' +
       '</td>' +
     '</tr>';
   }).join('');
@@ -1128,10 +1130,12 @@ function renderActivityFeed(views, leads, clients) {
   }).join('');
 }
 
-function openTopupForClient(clientId, name, currentBalance) {
+function openTopupForClient(el) {
+  var clientId       = (typeof el === 'string') ? el : (el.dataset.id  || '');
+  var currentBalance = (typeof el === 'string') ? 0  : (parseInt(el.dataset.bal) || 0);
   openModal('topupModal');
   window._topupClientId = clientId;
-  window._topupClientBalance = parseInt(currentBalance) || 0;
+  window._topupClientBalance = currentBalance;
 }
 
 async function doTopup() {
@@ -1216,7 +1220,9 @@ async function saveCampaign() {
   loadAdminData();
 }
 
-async function toggleCampaignStatus(id, currentStatus) {
+async function toggleCampaignStatus(el) {
+  var id            = el.dataset.id     || el;
+  var currentStatus = el.dataset.status || 'active';
   var newStatus = currentStatus === 'active' ? 'paused' : 'active';
   await sbAdmin('/rest/v1/campaigns?id=eq.' + id, {
     method: 'PATCH',
@@ -1226,7 +1232,10 @@ async function toggleCampaignStatus(id, currentStatus) {
   loadAdminData();
 }
 
-function copyAdURL(clientId, campaignId, platform) {
+function copyAdURL(el) {
+  var clientId   = el.dataset.client   || '';
+  var campaignId = el.dataset.campaign  || '';
+  var platform   = el.dataset.platform  || 'facebook';
   var url = 'https://adviuzdev.netlify.app?client_id=' + clientId + '&campaign_id=' + campaignId + '&utm_source=' + platform.toLowerCase();
   if (navigator.clipboard) navigator.clipboard.writeText(url).catch(function(){});
   toast('Ad URL copied!');
