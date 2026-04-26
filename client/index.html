@@ -725,7 +725,7 @@ textarea.fld{resize:none;height:80px;}
       <input type="password" id="loginPass" placeholder="••••••••" value="demo123">
     </div>
     <button class="login-btn" onclick="doLogin()">Sign in to panel →</button>
-    <div class="login-error" id="loginError">Invalid email or password. Try demo@adviuz.com / demo123</div>
+    <div class="login-error" id="loginError">Invalid email or password. Please try again.</div>
   </div>
 </div>
 
@@ -914,23 +914,23 @@ textarea.fld{resize:none;height:80px;}
         <div class="stats-grid">
           <div class="stat-card">
             <div class="stat-label">Total views</div>
-            <div class="stat-val">3,820</div>
-            <div class="stat-sub"><span class="stat-badge up">↑ 14%</span> this month</div>
+            <div class="stat-val" id="stat-total-views">—</div>
+            <div class="stat-sub">this account</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">Views balance</div>
-            <div class="stat-val" style="color:var(--warning)">1,180</div>
-            <div class="stat-sub"><span class="stat-badge neu">24% remaining</span></div>
+            <div class="stat-val" id="stat-view-balance">—</div>
+            <div class="stat-sub">views remaining</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">Leads generated</div>
-            <div class="stat-val">42</div>
-            <div class="stat-sub"><span class="stat-badge up">↑ 6</span> this week</div>
+            <div class="stat-val" id="stat-leads-count">—</div>
+            <div class="stat-sub">total leads</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">Active ads</div>
-            <div class="stat-val">2</div>
-            <div class="stat-sub"><span class="stat-badge neu">of 3 total</span></div>
+            <div class="stat-val" id="stat-active-ads">—</div>
+            <div class="stat-sub">running now</div>
           </div>
         </div>
 
@@ -1484,25 +1484,413 @@ function maybeShowIOSHint() {
   }
 }
 
+// ══════════════════════════════════════════════
+// SUPABASE CONFIG
+// ══════════════════════════════════════════════
+const SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
+
+// Supabase session stored in memory (not localStorage for security)
+let SB_SESSION = null;
+let CURRENT_CLIENT = null;
+
+// Core fetch wrapper — handles auth headers automatically
+async function sbFetch(path, opts = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    'apikey': SB_KEY,
+    ...opts.headers
+  };
+  if (SB_SESSION) {
+    headers['Authorization'] = `Bearer ${SB_SESSION.access_token}`;
+  } else {
+    headers['Authorization'] = `Bearer ${SB_KEY}`;
+  }
+  const r = await fetch(`${SB_URL}${path}`, { ...opts, headers });
+  return r;
+}
+
 // ── LOGIN ──
-function doLogin(){
-  const e=document.getElementById('loginEmail').value.trim();
-  const p=document.getElementById('loginPass').value.trim();
-  if(e==='demo@adviuz.com'&&p==='demo123'){
-    document.getElementById('loginScreen').style.display='none';
-    const app=document.getElementById('appShell');
-    app.style.flex='1';
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass  = document.getElementById('loginPass').value.trim();
+  const btn   = document.querySelector('.login-btn');
+  const err   = document.getElementById('loginError');
+
+  if (!email || !pass) { err.style.display='block'; err.textContent='Please enter email and password.'; return; }
+
+  btn.textContent = 'Signing in…';
+  btn.disabled = true;
+  err.style.display = 'none';
+
+  try {
+    // Supabase Auth sign-in
+    const r = await fetch(`${SB_URL}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SB_KEY },
+      body: JSON.stringify({ email, password: pass })
+    });
+
+    const data = await r.json();
+
+    if (!r.ok) {
+      err.style.display = 'block';
+      err.textContent = data.error_description || data.msg || 'Invalid email or password.';
+      btn.textContent = 'Sign in to panel →';
+      btn.disabled = false;
+      return;
+    }
+
+    // Store session
+    SB_SESSION = data;
+
+    // Load client profile linked to this auth user
+    await loadClientProfile();
+
+    // Show the app
+    document.getElementById('loginScreen').style.display = 'none';
+    const app = document.getElementById('appShell');
+    app.style.flex = '1';
     app.classList.add('visible');
     maybeShowIOSHint();
-  } else {
-    document.getElementById('loginError').style.display='block';
+
+    // Load all live data
+    await loadAllData();
+
+  } catch(e) {
+    err.style.display = 'block';
+    err.textContent = 'Network error. Please check your connection.';
+    btn.textContent = 'Sign in to panel →';
+    btn.disabled = false;
   }
 }
-document.getElementById('loginPass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
 
-function doLogout(){
-  document.getElementById('loginScreen').style.display='flex';
+document.getElementById('loginPass').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+async function doLogout() {
+  // Sign out from Supabase
+  if (SB_SESSION) {
+    await fetch(`${SB_URL}/auth/v1/logout`, {
+      method: 'POST',
+      headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_SESSION.access_token}` }
+    }).catch(() => {});
+  }
+  SB_SESSION = null;
+  CURRENT_CLIENT = null;
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('loginEmail').value = '';
+  document.getElementById('loginPass').value = '';
   document.getElementById('appShell').classList.remove('visible');
+}
+
+// ══════════════════════════════════════════════
+// LOAD CLIENT PROFILE
+// ══════════════════════════════════════════════
+async function loadClientProfile() {
+  const r = await sbFetch('/rest/v1/clients?auth_user_id=eq.' + SB_SESSION.user.id + '&limit=1');
+  if (!r.ok) return;
+  const rows = await r.json();
+  if (!rows[0]) return;
+  CURRENT_CLIENT = rows[0];
+
+  // Update sidebar with real client name
+  const nameEl = document.getElementById('sideClientName');
+  if (nameEl) nameEl.textContent = CURRENT_CLIENT.business_name || 'My Business';
+}
+
+// ══════════════════════════════════════════════
+// LOAD ALL LIVE DATA
+// ══════════════════════════════════════════════
+async function loadAllData() {
+  if (!CURRENT_CLIENT) return;
+  const cid = CURRENT_CLIENT.id;
+
+  // Load in parallel
+  const [ads, campaigns, leads, viewEvents, meetings] = await Promise.all([
+    sbFetch(`/rest/v1/ads?client_id=eq.${cid}&order=created_at.desc`).then(r => r.ok ? r.json() : []),
+    sbFetch(`/rest/v1/campaigns?client_id=eq.${cid}&order=created_at.desc`).then(r => r.ok ? r.json() : []),
+    sbFetch(`/rest/v1/leads?client_id=eq.${cid}&order=submitted_at.desc&limit=50`).then(r => r.ok ? r.json() : []),
+    sbFetch(`/rest/v1/view_events?client_id=eq.${cid}&order=viewed_at.desc&limit=200`).then(r => r.ok ? r.json() : []),
+    sbFetch(`/rest/v1/meetings?client_id=eq.${cid}&order=scheduled_at.asc`).then(r => r.ok ? r.json() : []),
+  ]);
+
+  renderCampaignPanel(ads, campaigns, viewEvents);
+  renderLeadsPanel(leads);
+  renderFollowupsPanel(leads);
+  renderMeetingsPanel(meetings);
+  renderReportsPanel(leads, viewEvents, campaigns);
+  updateSidebarBalance(CURRENT_CLIENT);
+}
+
+// ══════════════════════════════════════════════
+// CAMPAIGN PANEL — live data
+// ══════════════════════════════════════════════
+function renderCampaignPanel(ads, campaigns, viewEvents) {
+  const c = CURRENT_CLIENT;
+  const totalViews  = viewEvents.length;
+  const balance     = c.view_balance || 0;
+  const totalBudget = campaigns.reduce((s, cam) => s + (cam.view_budget || 0), 0);
+  const pct         = totalBudget > 0 ? Math.round((totalViews / totalBudget) * 100) : 0;
+
+  // Update stat cards
+  setEl('stat-total-views',   totalViews.toLocaleString());
+  setEl('stat-view-balance',  balance.toLocaleString());
+  setEl('stat-leads-count',   '—'); // updated by renderLeadsPanel
+  setEl('stat-active-ads',    ads.filter(a => a.status === 'active').length.toString());
+
+  // Update balance colour
+  const balEl = document.getElementById('stat-view-balance');
+  if (balEl && balance < 500) balEl.style.color = 'var(--warning)';
+
+  // Sidebar balance
+  updateSidebarBalance(c);
+
+  // Render ad rows
+  const adList = document.getElementById('adList');
+  if (adList && ads.length > 0) {
+    adList.innerHTML = ads.map((ad, i) => {
+      const used   = ad.views_used || 0;
+      const budget = ad.view_budget || 0;
+      const adPct  = budget > 0 ? Math.round(used / budget * 100) : 0;
+      const isActive = ad.status === 'active';
+      return `
+        <div class="ad-row" id="adrow-${ad.id}" data-id="${ad.id}" data-status="${ad.status}">
+          <div class="ad-row-inner">
+            <input type="checkbox" class="ad-chk" onchange="adCheckChange()" style="width:16px;height:16px;cursor:pointer;accent-color:var(--brand);flex-shrink:0">
+            <div class="ad-thumb" style="background:linear-gradient(135deg,${ad.brand_color || '#1A56DB'}22,${ad.brand_color || '#1A56DB'})">
+              <span style="font-family:'Instrument Serif',serif;font-style:italic;color:#fff;font-size:13px">${(ad.logo_letter || ad.business_name?.[0] || 'A')}</span>
+            </div>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${ad.business_name || 'Ad ' + (i+1)}</div>
+              <div style="font-size:11px;color:var(--muted)">${used.toLocaleString()} / ${budget.toLocaleString()} views · ${adPct}%</div>
+              <div class="progress-bar" style="margin-top:4px"><div class="progress-fill" style="width:${adPct}%;${adPct > 85 ? 'background:var(--danger)' : ''}"></div></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end;flex-shrink:0">
+              <span class="badge ${isActive ? 'active' : 'paused'}" id="badge-${ad.id}">
+                <span class="badge-dot"></span>${isActive ? 'Active' : 'Paused'}
+              </span>
+              <div style="display:flex;gap:4px">
+                <button class="btn-sm" onclick="previewAd('https://adviuzdev.netlify.app?ad_id=${ad.ad_slug}')">👁 Preview</button>
+                <button class="btn-sm ${isActive ? '' : 'primary'}" id="toggleBtn-${ad.id}" onclick="toggleAdLive('${ad.id}', '${ad.status}')">${isActive ? '⏸ Pause' : '▶ Start'}</button>
+              </div>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+  } else if (adList) {
+    adList.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">No ads yet. Contact Adviuz to create your first ad.</div>';
+  }
+}
+
+// ══════════════════════════════════════════════
+// LEADS PANEL — live data
+// ══════════════════════════════════════════════
+function renderLeadsPanel(leads) {
+  // Update lead count on campaign panel
+  setEl('stat-leads-count', leads.length.toString());
+
+  // Update nav badge
+  const newLeads = leads.filter(l => l.stage === 'New').length;
+  document.querySelectorAll('.nav-badge').forEach(b => {
+    if (b.closest('.nav-item')?.getAttribute('onclick')?.includes('leads')) {
+      b.textContent = newLeads;
+    }
+  });
+
+  const list = document.getElementById('leadsList');
+  if (!list) return;
+  if (leads.length === 0) {
+    list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">No leads yet. Your first lead will appear here when someone submits the inquiry form.</div>';
+    return;
+  }
+
+  const stageClass = { 'New':'new','Contacted':'info','Interested':'warm','Quote sent':'pending','Won':'won','Lost':'lost' };
+  list.innerHTML = leads.slice(0, 20).map(l => {
+    const initials = (l.name || 'UN').split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2);
+    const ago = timeAgo(l.submitted_at);
+    const sc  = stageClass[l.stage] || 'new';
+    return `
+      <div class="lead-card" onclick="openLeadDetail('${l.name}','${l.phone}','${l.email || ''}','${l.source || 'direct'}','${l.stage}','${l.id}')">
+        <div class="lead-avatar">${initials}</div>
+        <div>
+          <div class="lead-name">${l.name || 'Unknown'}</div>
+          <div class="lead-meta">${l.phone || ''} · ${l.source || 'direct'} · ${ago}</div>
+        </div>
+        <div class="lead-actions">
+          <span class="badge ${sc}"><span class="badge-dot"></span>${l.stage}</span>
+          <button class="btn-sm primary" onclick="event.stopPropagation();openLeadDetail('${l.name}','${l.phone}','${l.email || ''}','${l.source || 'direct'}','${l.stage}','${l.id}')">View</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════
+// FOLLOWUPS PANEL — leads needing follow-up
+// ══════════════════════════════════════════════
+function renderFollowupsPanel(leads) {
+  const pending = leads.filter(l => l.next_followup && l.stage !== 'Won' && l.stage !== 'Lost');
+  const today   = leads.filter(l => l.stage === 'New' || l.stage === 'Contacted');
+
+  // Update nav badge
+  document.querySelectorAll('.nav-badge.warn').forEach(b => {
+    b.textContent = today.length;
+  });
+}
+
+// ══════════════════════════════════════════════
+// MEETINGS PANEL — live meetings
+// ══════════════════════════════════════════════
+function renderMeetingsPanel(meetings) {
+  const now = new Date();
+  const upcoming = meetings.filter(m => new Date(m.scheduled_at) >= now && m.status === 'scheduled');
+
+  const statEl = document.querySelector('#panel-meetings .stat-card .stat-val');
+  if (statEl) statEl.textContent = upcoming.length;
+}
+
+// ══════════════════════════════════════════════
+// REPORTS PANEL — live analytics
+// ══════════════════════════════════════════════
+function renderReportsPanel(leads, viewEvents, campaigns) {
+  const total  = leads.length;
+  const won    = leads.filter(l => l.stage === 'Won').length;
+  const views  = viewEvents.length;
+  const conv   = views > 0 ? (total / views * 100).toFixed(2) : '0.00';
+  const close  = total > 0 ? (won / total * 100).toFixed(1) : '0.0';
+
+  setEl('rpt-total-leads',  total.toString());
+  setEl('rpt-conversion',   conv + '%');
+  setEl('rpt-close-rate',   close + '%');
+}
+
+// ══════════════════════════════════════════════
+// SIDEBAR BALANCE
+// ══════════════════════════════════════════════
+function updateSidebarBalance(client) {
+  const bal    = client.view_balance || 0;
+  const valEl  = document.querySelector('.balance-val');
+  const subEl  = document.querySelector('.balance-sub');
+  const fillEl = document.querySelector('.balance-fill');
+
+  if (valEl) valEl.textContent = bal.toLocaleString();
+  if (subEl) subEl.textContent = `views remaining · $${(bal * 5).toLocaleString()} CAD value`;
+
+  // Estimate % of last package (assume 1000 view packages for now)
+  const pct = Math.min(100, Math.round(bal / 10));
+  if (fillEl) {
+    fillEl.style.width = pct + '%';
+    fillEl.className = 'balance-fill' + (bal < 500 ? ' low' : '');
+  }
+}
+
+// ══════════════════════════════════════════════
+// TOGGLE AD STATUS (live Supabase update)
+// ══════════════════════════════════════════════
+async function toggleAdLive(adId, currentStatus) {
+  const newStatus = currentStatus === 'active' ? 'paused' : 'active';
+  const r = await sbFetch(`/rest/v1/ads?id=eq.${adId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: newStatus, updated_at: new Date().toISOString() })
+  });
+  if (r.ok) {
+    const badge = document.getElementById('badge-' + adId);
+    const btn   = document.getElementById('toggleBtn-' + adId);
+    const row   = document.getElementById('adrow-' + adId);
+    if (badge) { badge.className = `badge ${newStatus === 'active' ? 'active' : 'paused'}`; badge.innerHTML = `<span class="badge-dot"></span>${newStatus === 'active' ? 'Active' : 'Paused'}`; }
+    if (btn)   { btn.className = `btn-sm ${newStatus === 'active' ? '' : 'primary'}`; btn.textContent = newStatus === 'active' ? '⏸ Pause' : '▶ Start'; }
+    if (row)   { row.dataset.status = newStatus; }
+    toast(newStatus === 'active' ? 'Ad started' : 'Ad paused');
+  } else {
+    toast('Could not update ad status');
+  }
+}
+
+// ══════════════════════════════════════════════
+// SAVE LEAD (stage + notes to Supabase)
+// ══════════════════════════════════════════════
+let currentLeadId = null;
+async function saveLead() {
+  if (!currentLeadId) return;
+  const stage = document.getElementById('lm-stage').value;
+  const notes = document.getElementById('lm-notes') ? document.getElementById('lm-notes').value : '';
+  const r = await sbFetch(`/rest/v1/leads?id=eq.${currentLeadId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ stage, notes, updated_at: new Date().toISOString() })
+  });
+  if (r.ok) {
+    closeModal('leadModal');
+    toast('Lead updated!');
+    // Refresh leads
+    const leads = await sbFetch(`/rest/v1/leads?client_id=eq.${CURRENT_CLIENT.id}&order=submitted_at.desc&limit=50`).then(r2 => r2.ok ? r2.json() : []);
+    renderLeadsPanel(leads);
+  }
+}
+
+// Override openLeadDetail to store lead ID
+const _origOpenLeadDetail = openLeadDetail;
+function openLeadDetail(name, phone, email, source, stage, leadId) {
+  currentLeadId = leadId || null;
+  document.getElementById('lm-name').value   = name  || '';
+  document.getElementById('lm-phone').value  = phone || '';
+  document.getElementById('lm-email').value  = email || '';
+  document.getElementById('lm-source').value = source|| '';
+  document.getElementById('lm-stage').value  = stage || 'New';
+  document.getElementById('leadModalName').textContent = name || 'Lead details';
+  openModal('leadModal');
+}
+
+// ══════════════════════════════════════════════
+// SAVE MEETING (to Supabase)
+// ══════════════════════════════════════════════
+async function saveMeeting() {
+  if (!CURRENT_CLIENT) { closeModal('meetingModal'); return; }
+  const dateEl = document.querySelector('#meetingModal input[type=date]');
+  const timeEl = document.querySelector('#meetingModal input[type=time]');
+  const typeEl = document.querySelector('#meetingModal select');
+  const noteEl = document.querySelector('#meetingModal textarea');
+
+  if (!dateEl || !dateEl.value) { toast('Please select a date'); return; }
+
+  const scheduledAt = new Date(`${dateEl.value}T${timeEl?.value || '10:00'}`).toISOString();
+  const r = await sbFetch('/rest/v1/meetings', {
+    method: 'POST',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({
+      client_id:    CURRENT_CLIENT.id,
+      meeting_type: typeEl?.value || 'phone',
+      scheduled_at: scheduledAt,
+      notes:        noteEl?.value || '',
+      status:       'scheduled'
+    })
+  });
+  if (r.ok) {
+    closeModal('meetingModal');
+    toast('Meeting scheduled!');
+  } else {
+    toast('Could not save meeting');
+  }
+}
+
+// ══════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════
+function setEl(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+
+function timeAgo(ts) {
+  if (!ts) return '';
+  const diff = Date.now() - new Date(ts).getTime();
+  const mins  = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days  = Math.floor(diff / 86400000);
+  if (mins < 2)   return 'just now';
+  if (mins < 60)  return mins + 'm ago';
+  if (hours < 24) return hours + 'h ago';
+  return days + 'd ago';
 }
 
 // ── PANELS ──
