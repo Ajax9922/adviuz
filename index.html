@@ -420,6 +420,7 @@ body {
 .view-toast { position:fixed; bottom:100px; left:50%; transform:translateX(-50%) translateY(16px); background:#111; color:#fff; font-size:13px; font-weight:600; padding:11px 20px; border-radius:40px; opacity:0; pointer-events:none; z-index:1500; transition:opacity 0.35s,transform 0.35s; white-space:nowrap; border:1px solid rgba(255,255,255,0.1); }
 .view-toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
 </style>
+<script src="/adviuz-supabase-connect.js"></script>
 </head>
 <body>
 
@@ -690,18 +691,14 @@ body {
 ══════════════════════════════════════════════ -->
 <script>
 // ── CONFIGURATION ──────────────────────────────
-const CONFIG = {
-  VIEW_SECONDS: 25,
-  // API endpoints — uncomment and set your backend URLs
-  // VIEW_API:  '/api/view-counted',
-  // LEADS_API: '/api/leads',
-};
+const CONFIG = { VIEW_SECONDS: 25 };
 
 // ── READ URL PARAMS (set by ad platform) ───────
 const params = new URLSearchParams(window.location.search);
 const AD_CONTEXT = {
   ad_id:       params.get('ad_id')       || 'demo-001',
   client_id:   params.get('client_id')   || 'demo-client',
+  campaign_id: params.get('campaign_id') || null,
   utm_source:  params.get('utm_source')  || 'direct',
   utm_medium:  params.get('utm_medium')  || '',
   utm_campaign:params.get('utm_campaign')|| '',
@@ -731,19 +728,19 @@ function timerTick() {
   else if (remaining <= 15) fill.style.background = '#FF8C42';
 }
 
-function countView() {
+async function countView() {
   if (viewCounted) return;
   viewCounted = true;
 
-  const payload = {
-    ...AD_CONTEXT,
-    viewed_at: new Date().toISOString(),
-    duration:  CONFIG.VIEW_SECONDS,
-  };
-
-  // Uncomment to enable billing:
-  // if (CONFIG.VIEW_API) navigator.sendBeacon(CONFIG.VIEW_API, JSON.stringify(payload));
-  console.log('[Adviuz] ✅ View counted:', payload);
+  // Fire to Supabase — deducts from client view balance automatically via trigger
+  await countViewLive({
+    ad_id:       AD_CONTEXT.ad_id,
+    client_id:   AD_CONTEXT.client_id,
+    campaign_id: AD_CONTEXT.campaign_id,
+    utm_source:  AD_CONTEXT.utm_source,
+    utm_medium:  AD_CONTEXT.utm_medium,
+    utm_campaign:AD_CONTEXT.utm_campaign,
+  });
 
   // Optional: Facebook Pixel view event
   // if (window.fbq) fbq('trackCustom', 'AdViewed', { ad_id: AD_CONTEXT.ad_id });
@@ -776,36 +773,33 @@ function closeBg(e) {
   if (e.target === document.getElementById('formSheet')) closeForm();
 }
 
-function submitForm() {
+async function submitForm() {
   const name  = document.getElementById('f-name').value.trim();
   const phone = document.getElementById('f-phone').value.trim();
 
   if (!name)  { alert('Please enter your full name.'); return; }
   if (!phone) { alert('Please enter your mobile number.'); return; }
 
-  const lead = {
-    ...AD_CONTEXT,
+  // Disable button to prevent double submit
+  const submitBtn = document.querySelector('.btn-submit');
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Sending…'; }
+
+  // Save lead to Supabase — appears instantly in client panel
+  await submitLeadLive({
+    ad_id:       AD_CONTEXT.ad_id,
+    client_id:   AD_CONTEXT.client_id,
+    campaign_id: AD_CONTEXT.campaign_id,
     name,
     phone,
-    email:        document.getElementById('f-email').value.trim(),
-    interest:     document.getElementById('f-interest').value,
-    message:      document.getElementById('f-msg').value.trim(),
-    submitted_at: new Date().toISOString(),
-  };
-
-  // Uncomment to enable lead capture:
-  // if (CONFIG.LEADS_API) {
-  //   fetch(CONFIG.LEADS_API, {
-  //     method: 'POST',
-  //     headers: { 'Content-Type': 'application/json' },
-  //     body: JSON.stringify(lead),
-  //   });
-  // }
+    email:    document.getElementById('f-email').value.trim(),
+    interest: document.getElementById('f-interest').value,
+    message:  document.getElementById('f-msg').value.trim(),
+    source:   AD_CONTEXT.utm_source,
+    utm_campaign: AD_CONTEXT.utm_campaign,
+  });
 
   // Optional: Facebook Pixel lead event
   // if (window.fbq) fbq('track', 'Lead', { content_name: AD_CONTEXT.ad_id });
-
-  console.log('[Adviuz] 📋 Lead captured:', lead);
 
   document.getElementById('formBody').style.display = 'none';
   document.getElementById('successBlock').style.display = 'flex';
