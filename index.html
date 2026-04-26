@@ -416,6 +416,56 @@ body {
 .success-block { display:none; flex-direction:column; align-items:center; text-align:center; padding:20px 0 8px; gap:12px; }
 .success-icon { width:56px; height:56px; border-radius:50%; background:rgba(29,185,84,0.12); display:flex; align-items:center; justify-content:center; font-size:24px; }
 
+
+/* ── CALL CHOICE POPUP ── */
+.call-popup-overlay {
+  display:none; position:fixed; inset:0; z-index:3000;
+  background:rgba(0,0,0,0.5); backdrop-filter:blur(4px);
+  align-items:flex-end; justify-content:center;
+}
+.call-popup-overlay.open { display:flex; }
+.call-popup {
+  background:#fff; border-radius:24px 24px 0 0;
+  padding:28px 22px 44px; width:100%; max-width:480px;
+  transform:translateY(40px);
+  animation:slideUp 0.32s cubic-bezier(0.34,1.4,0.64,1) forwards;
+}
+@keyframes slideUp { to { transform:translateY(0); } }
+.call-popup-handle { width:38px; height:4px; background:#E0DDD8; border-radius:2px; margin:0 auto 20px; }
+.call-popup-title { font-family:'Fraunces',serif; font-size:18px; font-weight:900; color:#111; margin-bottom:6px; }
+.call-popup-sub   { font-size:13px; color:#888; margin-bottom:20px; }
+.call-option {
+  display:flex; align-items:center; gap:14px;
+  padding:15px 16px; border-radius:14px;
+  border:1px solid rgba(0,0,0,0.08);
+  margin-bottom:10px; text-decoration:none;
+  background:#fff; cursor:pointer;
+  transition:background 0.15s, border-color 0.15s;
+  -webkit-tap-highlight-color:transparent;
+}
+.call-option:active { background:#f5f5f5; }
+.call-option-icon {
+  width:44px; height:44px; border-radius:50%;
+  background:var(--brand); display:flex;
+  align-items:center; justify-content:center; flex-shrink:0;
+}
+.call-option-icon svg { width:20px; height:20px; color:#fff; }
+.call-option-label { font-size:14px; font-weight:700; color:#111; }
+.call-option-num   { font-size:12px; color:#888; margin-top:1px; font-family:monospace; }
+.call-popup-cancel {
+  width:100%; background:none; border:1px solid rgba(0,0,0,0.1);
+  border-radius:50px; padding:13px; font-size:14px; font-weight:600;
+  color:#888; cursor:pointer; margin-top:4px;
+  font-family:'Plus Jakarta Sans',sans-serif;
+}
+
+/* ── DYNAMIC FORM FIELD TYPES ── */
+.field input[type=date],
+.field input[type=time] {
+  color:var(--dark); font-family:'Plus Jakarta Sans',sans-serif;
+}
+.field .appt-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
 /* TOAST */
 .view-toast { position:fixed; bottom:100px; left:50%; transform:translateX(-50%) translateY(16px); background:#111; color:#fff; font-size:13px; font-weight:600; padding:11px 20px; border-radius:40px; opacity:0; pointer-events:none; z-index:1500; transition:opacity 0.35s,transform 0.35s; white-space:nowrap; border:1px solid rgba(255,255,255,0.1); }
 .view-toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
@@ -433,25 +483,11 @@ body {
   <div class="form-panel">
     <div class="form-handle"></div>
     <div id="formBody">
-      <div class="form-title">Send an Inquiry</div>
-      <!-- CUSTOMIZE: update business name below -->
-      <div class="form-sub">We'll reach out within a few hours</div>
-      <div class="field"><label>Full name</label><input type="text" id="f-name" placeholder="Rahul Sharma" autocomplete="name"></div>
-      <div class="field"><label>Mobile number</label><input type="tel" id="f-phone" placeholder="+91 98765 43210" autocomplete="tel"></div>
-      <div class="field"><label>Email (optional)</label><input type="email" id="f-email" placeholder="rahul@email.com" autocomplete="email"></div>
-      <div class="field">
-        <label>Interested in</label>
-        <!-- CUSTOMIZE: update options to match your business -->
-        <select id="f-interest">
-          <option value="">Select…</option>
-          <option>Product demo</option>
-          <option>Pricing / quote</option>
-          <option>General inquiry</option>
-          <option>Partnership</option>
-        </select>
-      </div>
-      <div class="field"><label>Message (optional)</label><textarea id="f-msg" placeholder="Tell us more…"></textarea></div>
-      <button class="btn-submit" onclick="submitForm()">Submit Inquiry →</button>
+      <div class="form-title" id="formTitle">Send an Inquiry</div>
+      <div class="form-sub" id="formSub">We'll reach out within a few hours</div>
+      <!-- Dynamic fields rendered by renderForm() -->
+      <div id="formFields"></div>
+      <button class="btn-submit" onclick="submitForm()">Submit →</button>
     </div>
     <div class="success-block" id="successBlock">
       <div class="success-icon">✓</div>
@@ -459,6 +495,20 @@ body {
       <p style="font-size:13px;color:var(--muted);max-width:240px">The team will reach out to you shortly.</p>
       <button class="btn-submit" style="max-width:200px;margin-top:4px" onclick="closeForm()">Close</button>
     </div>
+  </div>
+</div>
+
+
+<!-- ══ CALL CHOICE POPUP ══ -->
+<div class="call-popup-overlay" id="callPopup" onclick="if(event.target===this)closeCallPopup()">
+  <div class="call-popup">
+    <div class="call-popup-handle"></div>
+    <div class="call-popup-title">How can we help?</div>
+    <div class="call-popup-sub" id="callPopupSub">Choose who you'd like to speak with</div>
+    <div id="callOptions">
+      <!-- Filled dynamically by JS from AD_CONFIG.call_numbers -->
+    </div>
+    <button class="call-popup-cancel" onclick="closeCallPopup()">Cancel</button>
   </div>
 </div>
 
@@ -476,11 +526,10 @@ body {
   <a class="fab-btn fab-wa" data-tip="WhatsApp" href="https://wa.me/919876543210?text=Hi%2C%20I%20saw%20your%20ad%20on%20Adviuz%20and%20I%27m%20interested!" target="_blank" rel="noopener" aria-label="Chat on WhatsApp">
     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
   </a>
-  <!-- Call Now — bottom -->
-  <!-- CUSTOMIZE: replace phone number -->
-  <a class="fab-btn fab-call" data-tip="Call Now" href="tel:+919876543210" aria-label="Call now">
+  <!-- Call Now — bottom (smart: single = direct dial, multiple = popup) -->
+  <button class="fab-btn fab-call" data-tip="Call Now" aria-label="Call now" onclick="handleCallClick()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 11 19.79 19.79 0 01.11 2.38 2 2 0 012.11.5h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 8.09a16 16 0 006 6l.66-.65a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
-  </a>
+  </button>
 </div>
 
 <!-- ══════════════════════════════════════════════
@@ -498,10 +547,10 @@ body {
     </div>
   </a>
   <!-- CUSTOMIZE: phone number -->
-  <a href="tel:+919876543210" class="header-phone">
+  <button onclick="handleCallClick()" class="header-phone" style="border:none;cursor:pointer">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 11 19.79 19.79 0 01.11 2.38 2 2 0 012.11.5h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 8.09a16 16 0 006 6l.66-.65a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
-    +91 98765 43210
-  </a>
+    Call Now
+  </button>
 </header>
 
 <!-- 3. HERO -->
@@ -734,7 +783,7 @@ async function sbInsert(table, data) {
 // ── CONFIGURATION ──────────────────────────────
 const CONFIG = { VIEW_SECONDS: 25 };
 
-// ── READ URL PARAMS (set by ad platform) ───────
+// ── READ URL PARAMS ─────────────────────────────
 const params = new URLSearchParams(window.location.search);
 const AD_CONTEXT = {
   ad_id:       params.get('ad_id')       || 'demo-001',
@@ -744,6 +793,180 @@ const AD_CONTEXT = {
   utm_medium:  params.get('utm_medium')  || '',
   utm_campaign:params.get('utm_campaign')|| '',
 };
+
+// ── AD CONFIG ───────────────────────────────────
+// This is set per ad in Supabase → ads table → form_fields / call_numbers columns.
+// The ad page fetches it on load. Falls back to defaults if not set.
+//
+// FORM FIELDS — each object:
+//   { id, label, type, required, placeholder, options[] }
+//   types: text | tel | email | select | date | time | appointment | textarea
+//
+// CALL NUMBERS — array:
+//   [] = no numbers set (hide call button)
+//   [{ label, number }] = single number, direct dial, no popup
+//   [{ label, number }, ...] = multiple, show choice popup
+//
+const AD_CONFIG = {
+  form_title:   'Send an Inquiry',
+  form_sub:     'We'll reach out within a few hours',
+  cta_text:     'Submit →',
+  call_numbers: [
+    // Single number → direct dial (no popup)
+    { label: 'Call us', number: '+19876543210' }
+    // TWO numbers example (uncomment to test popup):
+    // { label: 'Book appointment', number: '+14165550100' },
+    // { label: 'Existing clients', number: '+14165550200' }
+  ],
+  form_fields: [
+    { id:'name',     label:'Full name',      type:'text',     required:true,  placeholder:'John Smith',         autocomplete:'name' },
+    { id:'phone',    label:'Phone number',   type:'tel',      required:true,  placeholder:'+1 416-555-0100',    autocomplete:'tel' },
+    { id:'email',    label:'Email',          type:'email',    required:false, placeholder:'john@email.com',     autocomplete:'email' },
+    { id:'interest', label:'Interested in',  type:'select',   required:false, options:['Product demo','Pricing / quote','General inquiry','Partnership'] },
+    { id:'message',  label:'Message',        type:'textarea', required:false, placeholder:'Tell us more…' }
+    // APPOINTMENT EXAMPLE:
+    // { id:'appt', label:'Preferred appointment', type:'appointment', required:false }
+    // DATE ONLY EXAMPLE:
+    // { id:'date', label:'Preferred date', type:'date', required:false }
+  ]
+};
+
+// ── FETCH AD CONFIG FROM SUPABASE (overrides defaults above) ──
+async function loadAdConfig() {
+  if (!AD_CONTEXT.ad_id || AD_CONTEXT.ad_id === 'demo-001') {
+    applyAdConfig(AD_CONFIG);
+    return;
+  }
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/ads?ad_slug=eq.${AD_CONTEXT.ad_id}&select=form_fields,call_numbers,form_title,form_sub,cta_text`,
+      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+    );
+    if (r.ok) {
+      const rows = await r.json();
+      if (rows[0]) {
+        if (rows[0].form_fields)   AD_CONFIG.form_fields   = rows[0].form_fields;
+        if (rows[0].call_numbers)  AD_CONFIG.call_numbers  = rows[0].call_numbers;
+        if (rows[0].form_title)    AD_CONFIG.form_title    = rows[0].form_title;
+        if (rows[0].form_sub)      AD_CONFIG.form_sub      = rows[0].form_sub;
+        if (rows[0].cta_text)      AD_CONFIG.cta_text      = rows[0].cta_text;
+      }
+    }
+  } catch(e) { console.warn('[Adviuz] Could not load ad config, using defaults'); }
+  applyAdConfig(AD_CONFIG);
+}
+
+function applyAdConfig(cfg) {
+  // Update form title/sub
+  const ft = document.getElementById('formTitle');
+  const fs = document.getElementById('formSub');
+  const sb = document.querySelector('.btn-submit');
+  if (ft) ft.textContent = cfg.form_title || 'Send an Inquiry';
+  if (fs) fs.textContent = cfg.form_sub   || 'We'll reach out within a few hours';
+  if (sb) sb.textContent = cfg.cta_text   || 'Submit →';
+  renderForm(cfg.form_fields || []);
+  setupCallButton(cfg.call_numbers || []);
+}
+
+// ── RENDER DYNAMIC FORM ─────────────────────────
+function renderForm(fields) {
+  const container = document.getElementById('formFields');
+  if (!container) return;
+  container.innerHTML = fields.map(f => {
+    const req = f.required ? '<span style="color:var(--brand)">*</span>' : '';
+    switch(f.type) {
+      case 'select':
+        const opts = (f.options || []).map(o => `<option value="${o}">${o}</option>`).join('');
+        return `<div class="field">
+          <label>${f.label} ${req}</label>
+          <select id="ff-${f.id}"><option value="">Select…</option>${opts}</select>
+        </div>`;
+      case 'textarea':
+        return `<div class="field">
+          <label>${f.label} ${req}</label>
+          <textarea id="ff-${f.id}" placeholder="${f.placeholder||''}" rows="3"></textarea>
+        </div>`;
+      case 'appointment':
+        return `<div class="field">
+          <label>${f.label} ${req}</label>
+          <div class="appt-row">
+            <input type="date" id="ff-${f.id}-date" min="${new Date().toISOString().split('T')[0]}">
+            <input type="time" id="ff-${f.id}-time" value="10:00">
+          </div>
+        </div>`;
+      case 'date':
+        return `<div class="field">
+          <label>${f.label} ${req}</label>
+          <input type="date" id="ff-${f.id}" min="${new Date().toISOString().split('T')[0]}">
+        </div>`;
+      case 'time':
+        return `<div class="field">
+          <label>${f.label} ${req}</label>
+          <input type="time" id="ff-${f.id}" value="10:00">
+        </div>`;
+      default:
+        return `<div class="field">
+          <label>${f.label} ${req}</label>
+          <input type="${f.type}" id="ff-${f.id}"
+            placeholder="${f.placeholder||''}"
+            autocomplete="${f.autocomplete||'off'}"
+            ${f.required?'required':''}>
+        </div>`;
+    }
+  }).join('');
+}
+
+// ── SMART CALL BUTTON ───────────────────────────
+function setupCallButton(numbers) {
+  // numbers = [] → hide call button entirely
+  // numbers = [one] → direct dial
+  // numbers = [two+] → show popup
+  const fab  = document.querySelector('.fab-call');
+  const hdr  = document.querySelector('.header-phone');
+  if (!numbers || numbers.length === 0) {
+    if (fab) fab.style.display = 'none';
+    if (hdr) hdr.style.display = 'none';
+    return;
+  }
+  if (numbers.length === 1) {
+    // direct dial — replace onclick with tel: link behaviour
+    const num = numbers[0].number;
+    if (fab) fab.onclick = () => window.location.href = 'tel:' + num;
+    if (hdr) hdr.onclick = () => window.location.href = 'tel:' + num;
+    if (hdr) hdr.querySelector && (hdr.textContent = numbers[0].label || 'Call Now');
+    return;
+  }
+  // Multiple — build popup options
+  const container = document.getElementById('callOptions');
+  if (container) {
+    container.innerHTML = numbers.map(n => `
+      <a class="call-option" href="tel:${n.number}">
+        <div class="call-option-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 11 19.79 19.79 0 01.11 2.38 2 2 0 012.11.5h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 8.09a16 16 0 006 6l.66-.65a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/>
+          </svg>
+        </div>
+        <div>
+          <div class="call-option-label">${n.label}</div>
+          <div class="call-option-num">${n.number}</div>
+        </div>
+      </a>`).join('');
+  }
+}
+
+function handleCallClick() {
+  const nums = AD_CONFIG.call_numbers || [];
+  if (nums.length === 0) return;
+  if (nums.length === 1) {
+    window.location.href = 'tel:' + nums[0].number;
+    return;
+  }
+  document.getElementById('callPopup').classList.add('open');
+}
+
+function closeCallPopup() {
+  document.getElementById('callPopup').classList.remove('open');
+}
 
 // ── TIMER ───────────────────────────────────────
 let remaining   = CONFIG.VIEW_SECONDS;
@@ -773,6 +996,24 @@ async function countView() {
   if (viewCounted) return;
   viewCounted = true;
 
+  // ── 24-hour duplicate prevention ──────────────
+  // Store a fingerprint: ad_id + client_id + date
+  // If same user views same ad again within 24h, timer still runs
+  // but billing event does NOT fire (protects client budget)
+  const dedupKey = `adviuz_view_${AD_CONTEXT.ad_id}_${AD_CONTEXT.client_id}`;
+  const lastView = localStorage.getItem(dedupKey);
+  const now      = Date.now();
+  const hours24  = 24 * 60 * 60 * 1000;
+
+  if (lastView && (now - parseInt(lastView)) < hours24) {
+    console.log('[Adviuz] ⏭ Duplicate view within 24h — not billed');
+    showToast('✓ Ad viewed (already counted today)');
+    return; // Exit without billing
+  }
+
+  // Mark this view in localStorage
+  localStorage.setItem(dedupKey, now.toString());
+
   const ok = await sbInsert('view_events', {
     ad_id:       AD_CONTEXT.ad_id,
     client_id:   AD_CONTEXT.client_id,
@@ -798,9 +1039,11 @@ function pauseTimer() { clearInterval(timerIv); timerIv = null; }
 // Pause timer when tab is not visible
 document.addEventListener('visibilitychange', () => {
   document.hidden ? pauseTimer() : startTimer();
+loadAdConfig();
 });
 
 startTimer();
+loadAdConfig();
 
 // ── TOAST ────────────────────────────────────────
 function showToast(msg) {
@@ -818,30 +1061,55 @@ function closeBg(e) {
 }
 
 async function submitForm() {
-  const name  = document.getElementById('f-name').value.trim();
-  const phone = document.getElementById('f-phone').value.trim();
+  // Get name and phone from dynamic field IDs
+  const nameEl  = document.getElementById('ff-name')  || document.getElementById('f-name');
+  const phoneEl = document.getElementById('ff-phone') || document.getElementById('f-phone');
+  const name    = nameEl  ? nameEl.value.trim()  : '';
+  const phone   = phoneEl ? phoneEl.value.trim() : '';
 
   if (!name)  { alert('Please enter your full name.'); return; }
-  if (!phone) { alert('Please enter your mobile number.'); return; }
+  if (!phone) { alert('Please enter your phone number.'); return; }
+
+  // Validate required fields
+  const reqFailed = (AD_CONFIG.form_fields || []).some(f => {
+    if (!f.required) return false;
+    const el = document.getElementById(`ff-${f.id}`);
+    return el && !el.value.trim();
+  });
+  if (reqFailed) { alert('Please fill in all required fields.'); return; }
 
   // Disable button to prevent double submit
   const submitBtn = document.querySelector('.btn-submit');
   if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Sending…'; }
 
+  // Collect all dynamic field values into a single JSON blob
+  const extraFields = {};
+  (AD_CONFIG.form_fields || []).forEach(f => {
+    if (['name','phone'].includes(f.id)) return; // already captured
+    if (f.type === 'appointment') {
+      const d = document.getElementById(`ff-${f.id}-date`);
+      const t = document.getElementById(`ff-${f.id}-time`);
+      if (d && d.value) extraFields[f.id] = (d.value || '') + (t && t.value ? ' ' + t.value : '');
+    } else {
+      const el = document.getElementById(`ff-${f.id}`);
+      if (el && el.value.trim()) extraFields[f.id] = el.value.trim();
+    }
+  });
+
   await sbInsert('leads', {
-    ad_id:       AD_CONTEXT.ad_id,
-    client_id:   AD_CONTEXT.client_id,
-    campaign_id: AD_CONTEXT.campaign_id || undefined,
-    name:        name,
-    phone:       phone,
-    email:       document.getElementById('f-email').value.trim()    || undefined,
-    interest:    document.getElementById('f-interest').value        || undefined,
-    message:     document.getElementById('f-msg').value.trim()      || undefined,
-    source:      AD_CONTEXT.utm_source,
-    utm_campaign:AD_CONTEXT.utm_campaign || undefined,
-    billing_model: 'views',
-    stage:       'New',
-    ai_call_status: 'pending',
+    ad_id:        AD_CONTEXT.ad_id,
+    client_id:    AD_CONTEXT.client_id,
+    campaign_id:  AD_CONTEXT.campaign_id || undefined,
+    name:         name,
+    phone:        phone,
+    email:        extraFields.email    || undefined,
+    interest:     extraFields.interest || undefined,
+    message:      extraFields.message  || undefined,
+    source:       AD_CONTEXT.utm_source,
+    utm_campaign: AD_CONTEXT.utm_campaign || undefined,
+    billing_model:'views',
+    stage:        'New',
+    ai_call_status:'pending',
     submitted_at: new Date().toISOString()
   });
 
