@@ -717,7 +717,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
               <div class="form-group"><label class="fld">Assign to client</label><select class="fld"><option>Skyline Properties</option><option>Mehta Jewellers</option><option>FreshMart</option><option>Raj Motors</option></select></div>
               <div class="form-group"><label class="fld">View budget</label><input class="fld" type="number" value="5000" placeholder="Number of paid views"></div>
             </div>
-            <button class="btn-save" style="width:100%;padding:12px" onclick="toast('Ad page published! URL copied to clipboard.')">Publish Ad Page →</button>
+            <button class="btn-save" style="width:100%;padding:12px" onclick="publishAd()">Publish Ad Page →</button>
           </div>
         </div>
 
@@ -998,13 +998,15 @@ async function sbAdmin(path, opts) {
 
 async function loadAdminData() {
   try {
-    const [clients, viewEvents, leads, campaigns, transactions] = await Promise.all([
+    const [clients, viewEvents, leads, campaigns, transactions, ads] = await Promise.all([
       sbAdmin('/rest/v1/clients?order=created_at.desc').then(r => r.ok ? r.json() : []),
       sbAdmin('/rest/v1/view_events?order=viewed_at.desc&limit=500').then(r => r.ok ? r.json() : []),
       sbAdmin('/rest/v1/leads?order=submitted_at.desc&limit=200').then(r => r.ok ? r.json() : []),
       sbAdmin('/rest/v1/campaigns?order=created_at.desc').then(r => r.ok ? r.json() : []),
       sbAdmin('/rest/v1/transactions?order=created_at.desc').then(r => r.ok ? r.json() : []),
+      sbAdmin('/rest/v1/ads?order=created_at.desc').then(r => r.ok ? r.json() : []),
     ]);
+    window._allAds = ads;
     renderAdminDashboard(clients, viewEvents, leads, campaigns, transactions);
     renderClientsTable(clients, viewEvents, leads);
     renderCampaignsTable(campaigns, clients);
@@ -1031,6 +1033,16 @@ function renderClientsTable(clients, views, leads) {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">No clients yet. Click New Client to add your first.</td></tr>';
     return;
   }
+
+  // Populate client dropdowns in Campaign modal and Ad Builder
+  var clientOpts = realClients.map(function(c) {
+    return '<option value="' + c.id + '">' + c.business_name + '</option>';
+  }).join('');
+  document.querySelectorAll('#campaignModal select, #panel-adbuilder select').forEach(function(sel) {
+    if (sel.options.length <= 4) { // Only the client/small selects, not platform
+      sel.innerHTML = '<option value="">Select client…</option>' + clientOpts;
+    }
+  });
   tbody.innerHTML = realClients.map(function(c) {
     var bal = c.view_balance || 0;
     var clientLeads = leads.filter(function(l){ return l.client_id === c.id; }).length;
@@ -1059,6 +1071,16 @@ function renderCampaignsTable(campaigns, clients) {
     tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--muted)">No campaigns yet.</td></tr>';
     return;
   }
+  // Populate ad select in campaign modal
+  if (window._allAds && window._allAds.length > 0) {
+    var adSels = document.querySelectorAll('#campaignModal select');
+    if (adSels[1]) {
+      adSels[1].innerHTML = '<option value="">Select ad…</option>' + window._allAds.map(function(a) {
+        return '<option value="' + a.id + '">' + (a.ad_slug || a.business_name) + '</option>';
+      }).join('');
+    }
+  }
+
   tbody.innerHTML = campaigns.map(function(cam) {
     var client = clients.find(function(c){ return c.id === cam.client_id; });
     var used   = cam.views_used || 0;
@@ -1179,26 +1201,65 @@ async function saveClient() {
   var views = parseInt(viewsEl ? viewsEl.value : 0) || 0;
 
   if (!email || !pass || !biz) { toast('Fill in business name, email and password'); return; }
+  if (pass.length < 6) { toast('Password must be at least 6 characters'); return; }
 
-  var authR = await sbAdmin('/auth/v1/admin/users', {
+  var btn = document.querySelector('#clientModal .btn-save');
+  if (btn) { btn.textContent = 'Creating…'; btn.disabled = true; }
+
+  // Step 1: Create Supabase auth user via signup endpoint (works with anon key)
+  var authR = await fetch(SB_URL + '/auth/v1/signup', {
     method: 'POST',
-    body: JSON.stringify({ email:email, password:pass, email_confirm:true, user_metadata:{ business_name:biz } })
+    headers: { 'Content-Type': 'application/json', 'apikey': SB_KEY },
+    body: JSON.stringify({
+      email: email,
+      password: pass,
+      data: { business_name: biz, contact_name: name }
+    })
   });
-  if (!authR.ok) {
-    var err = await authR.json();
-    toast('Auth error: ' + (err.message || 'Could not create user'));
+
+  var authData = await authR.json();
+
+  if (!authR.ok || authData.error) {
+    toast('Error: ' + (authData.error_description || authData.msg || authData.error || 'Could not create account'));
+    if (btn) { btn.textContent = 'Create client'; btn.disabled = false; }
     return;
   }
-  var authUser = await authR.json();
 
-  await sbAdmin('/rest/v1/clients', {
+  var authUserId = authData.user ? authData.user.id : (authData.id || null);
+  if (!authUserId) {
+    toast('Account created — confirm email first, then this client will appear after login');
+    closeModal('clientModal');
+    if (btn) { btn.textContent = 'Create client'; btn.disabled = false; }
+    return;
+  }
+
+  // Step 2: Create client record in our clients table
+  var clientR = await sbAdmin('/rest/v1/clients', {
     method: 'POST',
     headers: { Prefer: 'return=minimal' },
-    body: JSON.stringify({ business_name:biz, contact_name:name, email:email, phone:phone, auth_user_id:authUser.id, billing_model:'views', view_balance:views, role:'client', status:'active' })
+    body: JSON.stringify({
+      business_name: biz,
+      contact_name:  name,
+      email:         email,
+      phone:         phone,
+      auth_user_id:  authUserId,
+      billing_model: 'views',
+      view_balance:  views,
+      role:          'client',
+      status:        'active'
+    })
   });
 
+  if (btn) { btn.textContent = 'Create client'; btn.disabled = false; }
   closeModal('clientModal');
-  toast('Client created! Email: ' + email);
+
+  if (clientR.ok) {
+    toast('✅ Client created! Login: ' + email + ' / password you set');
+  } else {
+    var err = await clientR.json();
+    // Auth user was created — just client record had issue
+    toast('Auth user created. Client record issue: ' + (err.message || 'check Supabase'));
+  }
   loadAdminData();
 }
 
@@ -1206,18 +1267,114 @@ async function saveCampaign() {
   var nameEl     = document.querySelector('#campaignModal input[placeholder*="Diwali"]');
   var budgetEl   = document.querySelector('#campaignModal input[type=number]');
   var platformEl = document.querySelector('#campaignModal select:last-of-type');
-  var name   = nameEl     ? nameEl.value.trim()     : '';
-  var budget = parseInt(budgetEl ? budgetEl.value : 0) || 0;
+  var clientSel  = document.querySelector('#campaignModal select:first-of-type');
+  var adSel      = document.querySelectorAll('#campaignModal select')[1];
+
+  var name     = nameEl     ? nameEl.value.trim()     : '';
+  var budget   = parseInt(budgetEl ? budgetEl.value : 0) || 0;
   var platform = platformEl ? platformEl.value.toLowerCase() : 'facebook';
+  var clientId = clientSel  ? clientSel.value          : '';
+  var adId     = adSel      ? adSel.value              : '';
+
   if (!name) { toast('Enter a campaign name'); return; }
-  await sbAdmin('/rest/v1/campaigns', {
+
+  // Get the ad slug to build the UTM source
+  var utmCampaign = name.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'');
+
+  var r = await sbAdmin('/rest/v1/campaigns', {
     method: 'POST',
-    headers: { Prefer: 'return=minimal' },
-    body: JSON.stringify({ name:name, view_budget:budget, billing_model:'views', platforms:[platform], status:'active' })
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({
+      name:          name,
+      client_id:     clientId   || null,
+      ad_id:         adId       || null,
+      view_budget:   budget,
+      billing_model: 'views',
+      platforms:     [platform],
+      utm_source:    platform,
+      utm_campaign:  utmCampaign,
+      status:        'active'
+    })
   });
+
   closeModal('campaignModal');
-  toast('Campaign created!');
+  if (r.ok) {
+    toast('Campaign created!');
+  } else {
+    var err = await r.json();
+    toast('Campaign error: ' + (err.message || JSON.stringify(err)));
+  }
   loadAdminData();
+}
+
+// ── PUBLISH AD — saves to Supabase ads table ──
+async function publishAd() {
+  var bName  = document.getElementById('b-name')?.value.trim()  || '';
+  var bTag   = document.getElementById('b-tag')?.value.trim()   || '';
+  var bPhone = document.getElementById('b-phone')?.value.trim() || '';
+  var bWa    = document.getElementById('b-wa')?.value.trim()    || '';
+  var bColor = document.getElementById('b-color')?.value        || '#C8102E';
+  var bH1    = document.getElementById('b-h1')?.value.trim()    || '';
+  var bH1b   = document.getElementById('b-h1b')?.value.trim()   || '';
+  var bH2    = document.getElementById('b-h2')?.value.trim()    || '';
+  var bP     = document.getElementById('b-p')?.value.trim()     || '';
+  var bCta   = document.getElementById('b-cta')?.value.trim()   || 'Get Free Inquiry';
+  var bS1v   = document.getElementById('b-s1v')?.value.trim()   || '1998';
+  var bS1l   = document.getElementById('b-s1l')?.value.trim()   || 'Est. since';
+  var bS2v   = document.getElementById('b-s2v')?.value.trim()   || '1000+';
+  var bS2l   = document.getElementById('b-s2l')?.value.trim()   || 'Happy clients';
+  var bS3v   = document.getElementById('b-s3v')?.value.trim()   || 'Global';
+  var bS3l   = document.getElementById('b-s3l')?.value.trim()   || 'Reach';
+
+  // Client + budget from Assign section
+  var clientSel  = document.querySelector('#panel-adbuilder select:first-of-type');
+  var budgetInp  = document.querySelector('#panel-adbuilder input[type=number]');
+  var clientId   = clientSel ? clientSel.value : '';
+  var budget     = parseInt(budgetInp ? budgetInp.value : 0) || 0;
+
+  if (!bName) { toast('Enter a business name'); return; }
+
+  // Generate a slug from business name
+  var slug = bName.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'') + '-' + Date.now().toString(36);
+
+  var btn = document.querySelector('#panel-adbuilder .btn-save');
+  if (btn) { btn.textContent = 'Publishing…'; btn.disabled = true; }
+
+  var r = await sbAdmin('/rest/v1/ads', {
+    method: 'POST',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({
+      client_id:    clientId || null,
+      ad_slug:      slug,
+      business_name: bName,
+      logo_letter:  bName[0]?.toUpperCase() || 'A',
+      brand_color:  bColor,
+      headline_1:   bH1,
+      headline_2:   bH1b,
+      body_text:    bP,
+      cta_text:     bCta,
+      phone:        bPhone,
+      whatsapp:     bWa,
+      stat_1_val:   bS1v, stat_1_label: bS1l,
+      stat_2_val:   bS2v, stat_2_label: bS2l,
+      stat_3_val:   bS3v, stat_3_label: bS3l,
+      view_budget:  budget,
+      status:       'active'
+    })
+  });
+
+  if (btn) { btn.textContent = 'Publish Ad Page →'; btn.disabled = false; }
+
+  if (r.ok) {
+    var ad = (await r.json())[0];
+    var url = 'https://adviuzdev.netlify.app?ad_id=' + ad.ad_slug + (clientId ? '&client_id=' + clientId : '') + '&utm_source=facebook';
+    if (navigator.clipboard) navigator.clipboard.writeText(url).catch(function(){});
+    toast('✅ Ad published! URL copied: ' + ad.ad_slug);
+    loadAdminData();
+  } else {
+    var err = await r.json();
+    toast('Ad error: ' + (err.message || JSON.stringify(err)));
+  }
 }
 
 async function toggleCampaignStatus(el) {
