@@ -451,6 +451,46 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
 .sidebar-overlay.open{display:block;}
 @media(max-width:768px){.mob-menu-btn{display:flex;align-items:center;}}
 
+
+/* ── CAMPAIGN BULK BAR ── */
+.bulk-action-btn {
+  background: rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.3);
+  color: #fff; padding: 5px 12px;
+  border-radius: 8px; font-size: 11px;
+  font-weight: 600; cursor: pointer;
+  font-family: var(--font);
+  transition: background 0.15s;
+}
+.bulk-action-btn:hover { background: rgba(255,255,255,0.28); }
+
+/* ── CAMPAIGN TOGGLE ── */
+.cam-toggle {
+  position: relative;
+  display: inline-block;
+  width: 34px; height: 18px;
+}
+.cam-toggle input { opacity: 0; width: 0; height: 0; }
+.cam-toggle-slider {
+  position: absolute; cursor: pointer; inset: 0;
+  background: #ccc; border-radius: 18px;
+  transition: 0.25s;
+}
+.cam-toggle input:checked + .cam-toggle-slider { background: var(--brand); }
+.cam-toggle-slider::before {
+  content: "";
+  position: absolute;
+  width: 14px; height: 14px;
+  left: 2px; bottom: 2px;
+  background: #fff; border-radius: 50%;
+  transition: 0.25s;
+}
+.cam-toggle input:checked + .cam-toggle-slider::before { transform: translateX(16px); }
+
+/* Clickable column headers */
+#campaignsTable th[onclick] { user-select: none; }
+#campaignsTable th[onclick]:hover { color: var(--brand); }
+
 /* ── RESPONSIVE ── */
 @media(max-width:900px){
   .sidebar{width:60px;min-width:60px;}
@@ -640,7 +680,28 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
     <div class="panel" id="panel-clients">
       <div class="search-wrap">
         <div class="search-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
-        <input type="text" placeholder="Search clients by name, email or phone…" oninput="filterClients(this.value)">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input type="text" placeholder="Search clients by name, email or phone…" oninput="filterClients(this.value)" style="flex:1;min-width:200px;padding:9px 14px;border:1px solid var(--border);border-radius:10px;font-size:13px;font-family:var(--font);background:var(--surface)">
+          <select onchange="sortClients(this.value)" style="padding:9px 14px;border:1px solid var(--border);border-radius:10px;font-size:13px;font-family:var(--font);background:var(--surface)">
+            <option value="">Sort: Default</option>
+            <option value="name">Sort: Name A-Z</option>
+            <option value="balance-desc">Sort: Balance ↓</option>
+            <option value="balance-asc">Sort: Balance ↑</option>
+            <option value="leads-desc">Sort: Most leads</option>
+          </select>
+          <select onchange="filterClientsByProduct(this.value)" style="padding:9px 14px;border:1px solid var(--border);border-radius:10px;font-size:13px;font-family:var(--font);background:var(--surface)">
+            <option value="">All products</option>
+            <option value="views">Views only</option>
+            <option value="leads">Leads only</option>
+            <option value="both">Both</option>
+          </select>
+          <select onchange="filterClientsByStatus(this.value)" style="padding:9px 14px;border:1px solid var(--border);border-radius:10px;font-size:13px;font-family:var(--font);background:var(--surface)">
+            <option value="">All statuses</option>
+            <option value="active">Active</option>
+            <option value="paused">Paused</option>
+            <option value="suspended">Suspended</option>
+          </select>
+        </div>
       </div>
       <div class="table-wrap">
         <table>
@@ -678,35 +739,114 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
 
     <!-- ═══════════ CAMPAIGNS ═══════════ -->
     <div class="panel" id="panel-campaigns">
-      <div class="sec-header">
+
+      <!-- TOP BAR: title + new campaign button -->
+      <div class="sec-header" style="flex-wrap:wrap;gap:10px">
         <div class="sec-title">All campaigns</div>
         <button class="top-btn" onclick="openModal('campaignModal')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           New Campaign
         </button>
       </div>
+
+      <!-- FILTER + SORT BAR -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;padding:12px 16px;background:var(--surface);border-radius:12px;border:1px solid var(--border)">
+        <input type="text" id="cam-search" placeholder="Search campaigns…" oninput="filterCampaigns()"
+          style="flex:1;min-width:160px;padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:var(--font);background:#fff">
+        <select id="cam-sort" onchange="filterCampaigns()"
+          style="padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:var(--font);background:#fff">
+          <option value="">Sort: Default</option>
+          <option value="name-asc">Name A–Z</option>
+          <option value="views-desc">Views used ↓</option>
+          <option value="balance-desc">Balance remaining ↓</option>
+          <option value="balance-asc">Balance remaining ↑</option>
+          <option value="impressions-desc">Impressions ↓</option>
+          <option value="date-desc">Newest first</option>
+          <option value="date-asc">Oldest first</option>
+        </select>
+        <select id="cam-filter-status" onchange="filterCampaigns()"
+          style="padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:var(--font);background:#fff">
+          <option value="">All statuses</option>
+          <option value="active">Active</option>
+          <option value="paused">Paused</option>
+          <option value="low">Low balance</option>
+          <option value="completed">Finished</option>
+        </select>
+        <select id="cam-filter-client" onchange="filterCampaigns()"
+          style="padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:var(--font);background:#fff">
+          <option value="">All clients</option>
+        </select>
+        <input type="date" id="cam-filter-from" onchange="filterCampaigns()"
+          style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:var(--font);background:#fff" title="From date">
+        <input type="date" id="cam-filter-to" onchange="filterCampaigns()"
+          style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:var(--font);background:#fff" title="To date">
+        <button onclick="clearCampaignFilters()"
+          style="padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:var(--font);background:#fff;cursor:pointer;color:var(--muted)">
+          Clear
+        </button>
+      </div>
+
+      <!-- BULK ACTION BAR (shows when rows selected) -->
+      <div id="cam-bulk-bar" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 14px;background:var(--brand);border-radius:10px;margin-bottom:12px">
+        <span id="cam-bulk-count" style="font-size:12px;font-weight:700;color:#fff">0 selected</span>
+        <button class="bulk-action-btn" onclick="bulkCampaign('start')">▶ Start all</button>
+        <button class="bulk-action-btn" onclick="bulkCampaign('pause')">⏸ Pause all</button>
+        <button class="bulk-action-btn" onclick="bulkCampaign('notify-low')">🔔 Notify low balance</button>
+        <button class="bulk-action-btn" onclick="bulkCampaign('copy-urls')">🔗 Copy all URLs</button>
+        <button class="bulk-action-btn" onclick="bulkCampaign('export')">↓ Export CSV</button>
+        <button class="bulk-action-btn" onclick="bulkCampaign('refresh-impressions')">↻ Sync impressions</button>
+        <div style="margin-left:auto">
+          <button onclick="clearCampaignSelection()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:5px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:var(--font)">✕ Clear</button>
+        </div>
+      </div>
+
+      <!-- CAMPAIGNS TABLE -->
       <div class="table-wrap" style="margin-bottom:24px">
-        <table>
-          <thead><tr><th>Campaign name</th><th>Client</th><th>Ad page</th><th>Views used / budget</th><th>Distribution</th><th>Status</th><th>Actions</th></tr></thead>
-          <tbody>
-            <tr><td class="td-name">Luxury Apartments</td><td>Skyline Properties</td><td><span class="td-mono" style="font-size:11px">ad-001</span></td><td><div style="font-family:var(--mono);font-size:12px;margin-bottom:4px">3,820 / 5,000</div><div class="progress-bar"><div class="progress-fill" style="width:76%"></div></div></td><td><span class="badge brand">Facebook</span></td><td><span class="badge active"><span class="badge-dot"></span>Active</span></td><td><button class="tbl-btn" onclick="copyURL()">Copy URL</button><button class="tbl-btn danger" onclick="toast('Campaign paused')">Pause</button></td></tr>
-            <tr><td class="td-name">Gold Diwali Sale</td><td>Mehta Jewellers</td><td><span class="td-mono" style="font-size:11px">ad-002</span></td><td><div style="font-family:var(--mono);font-size:12px;margin-bottom:4px">1,240 / 2,000</div><div class="progress-bar"><div class="progress-fill" style="width:62%"></div></div></td><td><span class="badge brand">Instagram</span></td><td><span class="badge active"><span class="badge-dot"></span>Active</span></td><td><button class="tbl-btn" onclick="copyURL()">Copy URL</button><button class="tbl-btn danger" onclick="toast('Campaign paused')">Pause</button></td></tr>
-            <tr><td class="td-name">Fresh Groceries</td><td>FreshMart</td><td><span class="td-mono" style="font-size:11px">ad-003</span></td><td><div style="font-family:var(--mono);font-size:12px;margin-bottom:4px">4,520 / 5,000</div><div class="progress-bar"><div class="progress-fill" style="width:90%;background:#C8102E"></div></div></td><td><span class="badge brand">Google</span></td><td><span class="badge pending"><span class="badge-dot"></span>Low balance</span></td><td><button class="tbl-btn" onclick="copyURL()">Copy URL</button><button class="tbl-btn danger">Pause</button></td></tr>
-            <tr><td class="td-name">Test Drive Offer</td><td>Raj Motors</td><td><span class="td-mono" style="font-size:11px">ad-004</span></td><td><div style="font-family:var(--mono);font-size:12px;margin-bottom:4px">800 / 3,000</div><div class="progress-bar"><div class="progress-fill" style="width:27%"></div></div></td><td><span class="badge brand">WhatsApp</span></td><td><span class="badge paused"><span class="badge-dot"></span>Paused</span></td><td><button class="tbl-btn" onclick="copyURL()">Copy URL</button><button class="tbl-btn primary" onclick="toast('Campaign resumed!')">Resume</button></td></tr>
+        <table id="campaignsTable">
+          <thead>
+            <tr>
+              <th style="width:36px">
+                <input type="checkbox" id="cam-select-all" onchange="toggleAllCampaigns(this.checked)"
+                  style="width:15px;height:15px;accent-color:var(--brand);cursor:pointer">
+              </th>
+              <th style="width:44px">On/Off</th>
+              <th onclick="setCamSort('name-asc')" style="cursor:pointer">Campaign ↕</th>
+              <th onclick="setCamSort('impressions-desc')" style="cursor:pointer">Impressions ↕</th>
+              <th onclick="setCamSort('views-desc')" style="cursor:pointer">Views (25s) ↕</th>
+              <th onclick="setCamSort('balance-desc')" style="cursor:pointer">Balance left ↕</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="campaignTableBody">
+            <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted)">Loading campaigns…</td></tr>
           </tbody>
         </table>
       </div>
 
+      <!-- UTM LINK GENERATOR -->
       <div class="card" style="margin-bottom:0">
         <div class="card-title">UTM link generator</div>
         <div class="form-grid">
-          <div class="form-group"><label class="fld">Client</label><select class="fld" id="utm-client"><option>Skyline Properties</option><option>Mehta Jewellers</option><option>FreshMart</option><option>Raj Motors</option></select></div>
-          <div class="form-group"><label class="fld">Platform / Source</label><select class="fld" id="utm-source"><option>Facebook</option><option>Instagram</option><option>Google</option><option>WhatsApp</option><option>YouTube</option></select></div>
-          <div class="form-group"><label class="fld">Ad ID</label><input class="fld" id="utm-ad" value="ad-001" oninput="buildURL()"></div>
-          <div class="form-group"><label class="fld">Campaign name</label><input class="fld" id="utm-campaign" value="luxury-apartments" oninput="buildURL()"></div>
+          <div class="form-group"><label class="fld">Client</label>
+            <select class="fld" id="utm-client" onchange="buildURL()"><option value="">Select client…</option></select>
+          </div>
+          <div class="form-group"><label class="fld">Platform / Source</label>
+            <select class="fld" id="utm-source" onchange="buildURL()">
+              <option>Facebook</option><option>Instagram</option><option>Google</option><option>WhatsApp</option><option>YouTube</option>
+            </select>
+          </div>
+          <div class="form-group"><label class="fld">Ad ID / Slug</label>
+            <input class="fld" id="utm-ad" value="ad-001" oninput="buildURL()">
+          </div>
+          <div class="form-group"><label class="fld">Campaign name</label>
+            <input class="fld" id="utm-campaign" value="campaign-jan-2025" oninput="buildURL()">
+          </div>
         </div>
         <label class="fld" style="display:block;margin-bottom:6px">Generated ad URL</label>
-        <div class="url-box"><span id="urlOutput">https://adviuz.com/ad?ad_id=ad-001&client_id=skyline&utm_source=facebook&utm_campaign=luxury-apartments</span><button class="copy-btn" onclick="copyURL()">Copy</button></div>
+        <div class="url-box"><span id="urlOutput">https://adviuzdev.netlify.app?ad_id=ad-001&utm_source=facebook&utm_campaign=campaign-jan-2025</span>
+          <button class="copy-btn" onclick="copyURL()">Copy</button>
+        </div>
       </div>
     </div>
 
@@ -1223,15 +1363,22 @@ async function sbAdmin(path, opts) {
 
 async function loadAdminData() {
   try {
-    const [clients, viewEvents, leads, campaigns, transactions, ads] = await Promise.all([
+    const [clients, viewEvents, leads, campaigns, transactions, ads, impressions] = await Promise.all([
       sbAdmin('/rest/v1/clients?order=created_at.desc').then(r => r.ok ? r.json() : []),
       sbAdmin('/rest/v1/view_events?order=viewed_at.desc&limit=500').then(r => r.ok ? r.json() : []),
       sbAdmin('/rest/v1/leads?order=submitted_at.desc&limit=200').then(r => r.ok ? r.json() : []),
       sbAdmin('/rest/v1/campaigns?order=created_at.desc').then(r => r.ok ? r.json() : []),
       sbAdmin('/rest/v1/transactions?order=created_at.desc').then(r => r.ok ? r.json() : []),
       sbAdmin('/rest/v1/ads?order=created_at.desc').then(r => r.ok ? r.json() : []),
+      sbAdmin('/rest/v1/impressions?order=sync_date.desc').then(r => r.ok ? r.json() : []),
     ]);
     window._allAds = ads;
+    // Merge impressions into campaigns (sum FB + Google per campaign)
+    campaigns.forEach(function(cam) {
+      var camImps = impressions.filter(function(i){ return i.campaign_id === cam.id; });
+      cam.fb_impressions     = camImps.filter(function(i){ return i.platform === 'facebook'; }).reduce(function(s,i){ return s + (i.impressions||0); }, 0);
+      cam.google_impressions = camImps.filter(function(i){ return i.platform === 'google'; }).reduce(function(s,i){ return s + (i.impressions||0); }, 0);
+    });
     renderAdminDashboard(clients, viewEvents, leads, campaigns, transactions);
     renderClientsTable(clients, viewEvents, leads);
     renderCampaignsTable(campaigns, clients);
@@ -1271,66 +1418,229 @@ function renderClientsTable(clients, views, leads) {
   // Populate Ad Builder client dropdown
   var builderClientSel = document.getElementById('builder-client-sel');
   if (builderClientSel) builderClientSel.innerHTML = '<option value="">Select client…</option>' + clientOpts;
-  tbody.innerHTML = realClients.map(function(c) {
-    var bal = c.view_balance || 0;
+  // Store all clients for sort/filter
+  window._allClients = realClients;
+  window._allLeads   = leads;
+  renderClientRows(realClients, leads);
+}
+
+function renderClientRows(clients, leads) {
+  var tbody = document.getElementById('clientTableBody');
+  if (!tbody) return;
+  leads = leads || window._allLeads || [];
+  if (clients.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--muted)">No clients match your filter.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = clients.map(function(c) {
+    var bal         = c.view_balance || 0;
     var clientLeads = leads.filter(function(l){ return l.client_id === c.id; }).length;
-    var statusClass = c.status === 'active' ? 'active' : 'paused';
-    var balColor = bal < 500 ? 'style="color:var(--danger);font-weight:700"' : '';
-    return '<tr>' +
-      '<td><div class="td-name">' + (c.contact_name||c.business_name) + '</div><div class="td-email">' + c.email + '</div></td>' +
+    var statusClass = c.status === 'active' ? 'active' : (c.status === 'suspended' ? 'danger' : 'paused');
+    var balColor    = bal < 500 && c.billing_model !== 'leads' ? 'color:var(--danger);font-weight:700' : '';
+    var roleTag     = c.role === 'agency' ? '<span class="badge info" style="font-size:10px;padding:2px 6px;margin-left:4px">Agency</span>' :
+                      c.role === 'corporate' ? '<span class="badge brand" style="font-size:10px;padding:2px 6px;margin-left:4px">Corporate</span>' : '';
+    var productTag  = c.billing_model === 'leads' ? '<span class="badge warn" style="font-size:10px;padding:2px 6px;margin-left:4px">Leads</span>' :
+                      c.billing_model === 'both'   ? '<span class="badge" style="font-size:10px;padding:2px 6px;margin-left:4px">Both</span>' : '';
+    var balDisplay  = c.billing_model === 'leads'
+      ? (c.leads_purchased || 0) + ' leads pkg'
+      : bal.toLocaleString() + ' views';
+    return '<tr data-client-id="' + c.id + '" data-search="' + (c.business_name + ' ' + c.email + ' ' + (c.contact_name||'')).toLowerCase() + '">' +
+      '<td><div class="td-name">' + (c.contact_name||c.business_name) + roleTag + productTag + '</div><div class="td-email">' + c.email + '</div></td>' +
       '<td>' + c.business_name + '</td>' +
-      '<td class="td-mono" ' + balColor + '>' + bal.toLocaleString() + '</td>' +
+      '<td class="td-mono" style="' + balColor + '">' + balDisplay + '</td>' +
       '<td>' + clientLeads + '</td>' +
       '<td><span class="badge ' + statusClass + '"><span class="badge-dot"></span>' + (c.status||'active') + '</span></td>' +
-      '<td>' +
+      '<td style="display:flex;gap:4px;flex-wrap:wrap">' +
         '<button class="tbl-btn" onclick="openTopupForClient(this)" data-id="' + c.id + '" data-bal="' + bal + '">Top-up</button>' +
-        'Top-up</button>' +
-        '<button class="tbl-btn primary" onclick="copyClientLoginLink(\"' + c.email + '\"")">' +
-        'Login link</button>' +
+        '<button class="tbl-btn primary" onclick="copyClientLoginLink(\"' + c.email + '\")">Login link</button>' +
+        '<button class="tbl-btn" onclick="openEditClient(\"\"" + c.id + "\")">Edit</button>' +
       '</td>' +
     '</tr>';
   }).join('');
 }
 
 function renderCampaignsTable(campaigns, clients) {
-  var tbody = document.querySelector('#panel-campaigns table tbody');
-  if (!tbody) return;
-  if (campaigns.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--muted)">No campaigns yet.</td></tr>';
-    return;
+  // Store globally for filter/sort
+  window._allCampaigns = campaigns;
+  window._camClients   = clients;
+
+  // Populate client filter + UTM dropdown
+  var clientOpts = clients.filter(function(c){ return c.role !== 'super_admin'; }).map(function(c){
+    return '<option value="' + c.id + '">' + c.business_name + '</option>';
+  }).join('');
+  var camClientFilter = document.getElementById('cam-filter-client');
+  if (camClientFilter) camClientFilter.innerHTML = '<option value="">All clients</option>' + clientOpts;
+  var utmClientSel = document.getElementById('utm-client');
+  if (utmClientSel) utmClientSel.innerHTML = '<option value="">Select client…</option>' + clientOpts;
+
+  filterCampaigns(); // render with current filter state
+}
+
+function filterCampaigns() {
+  var campaigns = (window._allCampaigns || []).slice();
+  var clients   = window._camClients   || [];
+
+  // Search
+  var q = (document.getElementById('cam-search')?.value || '').toLowerCase();
+  if (q) campaigns = campaigns.filter(function(c){
+    var client = clients.find(function(cl){ return cl.id === c.client_id; });
+    return (c.name + ' ' + (client ? client.business_name : '')).toLowerCase().includes(q);
+  });
+
+  // Status filter
+  var statusF = document.getElementById('cam-filter-status')?.value || '';
+  if (statusF === 'low') {
+    campaigns = campaigns.filter(function(c){
+      var bal = (c.view_budget||0) - (c.views_used||0);
+      return bal < 200 && c.status === 'active';
+    });
+  } else if (statusF) {
+    campaigns = campaigns.filter(function(c){ return c.status === statusF; });
   }
-  // Populate ad select in campaign modal
-  if (window._allAds && window._allAds.length > 0) {
-    var adSels = document.querySelectorAll('#campaignModal select');
-    if (adSels[1]) {
-      adSels[1].innerHTML = '<option value="">Select ad…</option>' + window._allAds.map(function(a) {
-        return '<option value="' + a.id + '">' + (a.ad_slug || a.business_name) + '</option>';
-      }).join('');
-    }
+
+  // Client filter
+  var clientF = document.getElementById('cam-filter-client')?.value || '';
+  if (clientF) campaigns = campaigns.filter(function(c){ return c.client_id === clientF; });
+
+  // Date range filter (created_at)
+  var fromDate = document.getElementById('cam-filter-from')?.value;
+  var toDate   = document.getElementById('cam-filter-to')?.value;
+  if (fromDate) campaigns = campaigns.filter(function(c){ return c.created_at >= fromDate; });
+  if (toDate)   campaigns = campaigns.filter(function(c){ return c.created_at <= toDate + 'T23:59:59'; });
+
+  // Sort
+  var sort = document.getElementById('cam-sort')?.value || '';
+  if (sort === 'name-asc')           campaigns.sort(function(a,b){ return a.name.localeCompare(b.name); });
+  if (sort === 'views-desc')         campaigns.sort(function(a,b){ return (b.views_used||0) - (a.views_used||0); });
+  if (sort === 'balance-desc')       campaigns.sort(function(a,b){ return ((b.view_budget||0)-(b.views_used||0)) - ((a.view_budget||0)-(a.views_used||0)); });
+  if (sort === 'balance-asc')        campaigns.sort(function(a,b){ return ((a.view_budget||0)-(a.views_used||0)) - ((b.view_budget||0)-(b.views_used||0)); });
+  if (sort === 'impressions-desc')   campaigns.sort(function(a,b){ return ((b.fb_impressions||0)+(b.google_impressions||0)) - ((a.fb_impressions||0)+(a.google_impressions||0)); });
+  if (sort === 'date-desc')          campaigns.sort(function(a,b){ return new Date(b.created_at) - new Date(a.created_at); });
+  if (sort === 'date-asc')           campaigns.sort(function(a,b){ return new Date(a.created_at) - new Date(b.created_at); });
+
+  renderCampaignRows(campaigns, clients);
+}
+
+function setCamSort(val) {
+  var sel = document.getElementById('cam-sort');
+  if (sel) sel.value = val;
+  filterCampaigns();
+}
+
+function clearCampaignFilters() {
+  ['cam-search','cam-filter-from','cam-filter-to'].forEach(function(id){
+    var el = document.getElementById(id); if(el) el.value = '';
+  });
+  ['cam-sort','cam-filter-status','cam-filter-client'].forEach(function(id){
+    var el = document.getElementById(id); if(el) el.selectedIndex = 0;
+  });
+  filterCampaigns();
+}
+
+function renderCampaignRows(campaigns, clients) {
+  var tbody = document.getElementById('campaignTableBody');
+  if (!tbody) return;
+
+  if (campaigns.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted)">No campaigns match your filters.</td></tr>';
+    return;
   }
 
   tbody.innerHTML = campaigns.map(function(cam) {
-    var client = clients.find(function(c){ return c.id === cam.client_id; });
-    var used   = cam.views_used || 0;
-    var budget = cam.view_budget || 0;
-    var pct    = budget > 0 ? Math.round(used/budget*100) : 0;
-    var fillColor = pct > 85 ? 'background:var(--danger)' : '';
-    var platforms = (cam.platforms||['—']).join(', ');
-    return '<tr>' +
-      '<td class="td-name">' + cam.name + '</td>' +
-      '<td>' + (client ? client.business_name : '—') + '</td>' +
-      '<td><span class="td-mono" style="font-size:11px">' + cam.id.slice(0,8) + '…</span></td>' +
-      '<td><div style="font-family:var(--mono);font-size:12px;margin-bottom:4px">' + used.toLocaleString() + ' / ' + budget.toLocaleString() + '</div>' +
-        '<div class="progress-bar"><div class="progress-fill" style="width:' + pct + '%;' + fillColor + '"></div></div></td>' +
-      '<td><span class="badge brand">' + platforms + '</span></td>' +
-      '<td><span class="badge ' + (cam.status==='active'?'active':'paused') + '"><span class="badge-dot"></span>' + cam.status + '</span></td>' +
+    var client   = clients.find(function(c){ return c.id === cam.client_id; });
+    var used     = cam.views_used  || 0;
+    var budget   = cam.view_budget || 0;
+    var balance  = Math.max(0, budget - used);
+    var pct      = budget > 0 ? Math.min(100, Math.round(used / budget * 100)) : 0;
+    var fbImp    = cam.fb_impressions     || 0;
+    var gImp     = cam.google_impressions || 0;
+    var totalImp = fbImp + gImp;
+
+    // Status logic
+    var status = cam.status || 'active';
+    if (status === 'active' && balance < 200 && budget > 0) status = 'low';
+    if (balance === 0 && budget > 0) status = 'completed';
+
+    var statusConfig = {
+      active:    { label: 'Active',       cls: 'active' },
+      paused:    { label: 'Paused',       cls: 'paused' },
+      low:       { label: 'Low balance',  cls: 'pending' },
+      completed: { label: 'Finished',     cls: 'danger'  },
+      archived:  { label: 'Archived',     cls: 'muted'   }
+    };
+    var sc = statusConfig[status] || statusConfig['active'];
+
+    // Progress bar color
+    var barColor = pct >= 100 ? 'var(--danger)' : pct >= 85 ? 'var(--warning)' : 'var(--brand)';
+
+    // Live ad URL
+    var liveUrl = 'https://adviuzdev.netlify.app?campaign_id=' + cam.id
+                + (cam.client_id ? '&client_id=' + cam.client_id : '')
+                + '&utm_source=facebook';
+
+    // Impressions display
+    var impDisplay = totalImp > 0
+      ? '<div style="font-weight:700;font-size:13px">' + totalImp.toLocaleString() + '</div>'
+        + '<div style="font-size:10px;color:var(--muted)">'
+        + (fbImp > 0 ? 'FB&nbsp;' + fbImp.toLocaleString() : '')
+        + (fbImp > 0 && gImp > 0 ? '&nbsp;·&nbsp;' : '')
+        + (gImp > 0 ? 'GG&nbsp;' + gImp.toLocaleString() : '')
+        + '</div>'
+      : '<span style="color:var(--muted);font-size:11px">—</span>';
+
+    var isActive = cam.status === 'active';
+
+    return '<tr data-id="' + cam.id + '" data-status="' + cam.status + '">' +
+      // Checkbox
+      '<td><input type="checkbox" class="cam-chk" data-id="' + cam.id + '" onchange="camCheckChange()" style="width:15px;height:15px;accent-color:var(--brand);cursor:pointer"></td>' +
+      // Toggle
       '<td>' +
-        '<button class="tbl-btn" onclick="copyAdURL(this)" data-client="' + (cam.client_id||'') + '" data-campaign="' + cam.id + '" data-platform="' + (cam.platforms||['facebook'])[0] + '">Copy URL</button>' +
-        '<button class="tbl-btn danger" onclick="toggleCampaignStatus(this)" data-id="' + cam.id + '" data-status="' + cam.status + '">' + (cam.status==='active'?'Pause':'Resume') + '</button>' +
+        '<label class="cam-toggle" title="' + (isActive ? 'Pause' : 'Start') + ' campaign">' +
+          '<input type="checkbox" ' + (isActive ? 'checked' : '') + ' data-id="' + cam.id + '" onchange="toggleCampaignLive(this.dataset.id,this.checked)">' +
+          '<span class="cam-toggle-slider"></span>' +
+        '</label>' +
+      '</td>' +
+      // Campaign name (clickable) + client
+      '<td>' +
+        '<div style="font-weight:600;font-size:13px;cursor:pointer;color:var(--brand)" onclick="window.open(\"' + liveUrl + '\",\'_blank\')" title="Open live ad in new tab">' +
+          cam.name +
+          ' <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:middle"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>' +
+        '</div>' +
+        '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + (client ? client.business_name : '—') + '</div>' +
+      '</td>' +
+      // Impressions
+      '<td>' + impDisplay + '</td>' +
+      // Views (25s)
+      '<td>' +
+        '<div style="font-weight:700;font-size:13px">' + used.toLocaleString() + '</div>' +
+        '<div style="font-size:10px;color:var(--muted)">of ' + budget.toLocaleString() + ' allotted</div>' +
+        '<div style="height:4px;background:var(--surface2);border-radius:2px;margin-top:4px;width:80px">' +
+          '<div style="height:100%;width:' + pct + '%;background:' + barColor + ';border-radius:2px;transition:width 0.4s"></div>' +
+        '</div>' +
+      '</td>' +
+      // Balance remaining
+      '<td>' +
+        '<div style="font-weight:700;font-size:13px;' + (balance < 200 ? 'color:var(--danger)' : '') + '">' + balance.toLocaleString() + '</div>' +
+        '<div style="font-size:10px;color:var(--muted)">' + pct + '% used</div>' +
+      '</td>' +
+      // Status
+      '<td><span class="badge ' + sc.cls + '"><span class="badge-dot"></span>' + sc.label + '</span></td>' +
+      // Actions
+      '<td style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">' +
+        '<button class="tbl-btn primary" onclick="openEditCampaign(this)" ' +
+          'data-id="' + cam.id + '" data-name="' + cam.name.replace(/"/g,'&quot;') + '" ' +
+          'data-budget="' + budget + '" data-used="' + used + '" data-status="' + cam.status + '" ' +
+          'title="Edit campaign — adjust views, name, status">Edit</button>' +
+        '<button class="tbl-btn" data-camid="' + cam.id + '" data-camname="' + cam.name.replace(/"/g,'&quot;') + '" ' +
+          'onclick="viewCampaignLeads(this.dataset.camid, this.dataset.camname)" title="View leads for this campaign">Leads</button>' +
+        '<button class="tbl-btn" onclick="copyAdURL(this)" ' +
+          'data-client="' + (cam.client_id||'') + '" data-campaign="' + cam.id + '" data-platform="facebook" ' +
+          'title="Copy ad URL">URL</button>' +
       '</td>' +
     '</tr>';
   }).join('');
 }
+
 
 function renderBillingPanel(transactions, clients) {
   var total = transactions.reduce(function(s,t){ return s + parseFloat(t.amount_cad||0); }, 0);
@@ -1726,6 +2036,13 @@ function selectPackage(el,views,amount){
 }
 
 function filterClients(q){
+  if (!q) { renderClientRows(window._allClients||[], window._allLeads||[]); return; }
+  var filtered = (window._allClients||[]).filter(function(c) {
+    return (c.business_name+' '+c.email+' '+(c.contact_name||'')).toLowerCase().includes(q.toLowerCase());
+  });
+  renderClientRows(filtered, window._allLeads||[]);
+}
+function _filterClientsOLD(q){
   const rows=document.querySelectorAll('#clientTableBody tr');
   rows.forEach(r=>{
     r.style.display=r.textContent.toLowerCase().includes(q.toLowerCase())?'':'none';
@@ -1868,6 +2185,284 @@ function setPreviewMode(mode) {
 function openPreviewInTab() {
   var url = window._currentPreviewUrl || 'https://adviuzdev.netlify.app';
   window.open(url, '_blank');
+}
+
+
+
+// ── EDIT CAMPAIGN ──
+function openEditCampaign(btn) {
+  window._editCampaignId = btn.dataset.id;
+  var modal = `
+    <div class="modal-overlay open" id="editCampaignModal" onclick="if(event.target===this)this.remove()">
+      <div class="modal" style="max-width:480px">
+        <div class="modal-head"><div class="modal-title">Edit campaign</div>
+          <button class="modal-close" onclick="document.getElementById('editCampaignModal').remove()">×</button></div>
+        <div class="modal-body">
+          <div class="form-group"><label class="fld">Campaign name</label>
+            <input class="fld" id="ecam-name" value="${btn.dataset.name}"></div>
+          <div class="form-grid">
+            <div class="form-group"><label class="fld">Total views allotted</label>
+              <input class="fld" type="number" id="ecam-budget" value="${btn.dataset.budget}"></div>
+            <div class="form-group"><label class="fld">Views used (editable)</label>
+              <input class="fld" type="number" id="ecam-used" value="${btn.dataset.used}">
+              <div style="font-size:11px;color:var(--muted);margin-top:4px">Set to 0 to remove test views</div></div>
+          </div>
+          <div class="form-group"><label class="fld">Status</label>
+            <select class="fld" id="ecam-status">
+              <option value="active" ${btn.dataset.status==='active'?'selected':''}>Active</option>
+              <option value="paused" ${btn.dataset.status==='paused'?'selected':''}>Paused</option>
+              <option value="completed" ${btn.dataset.status==='completed'?'selected':''}>Completed</option>
+            </select></div>
+          <div class="form-group"><label class="fld">FB preview URL</label>
+            <input class="fld" id="ecam-fb" placeholder="https://facebook.com/ads/library/…"></div>
+          <div class="form-group"><label class="fld">Google preview URL</label>
+            <input class="fld" id="ecam-google" placeholder="https://adstransparency.google.com/…"></div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn-cancel" onclick="document.getElementById('editCampaignModal').remove()">Cancel</button>
+          <button class="btn-save" onclick="saveCampaignEdit()">Save changes</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', modal);
+}
+
+async function saveCampaignEdit() {
+  var id     = window._editCampaignId;
+  var name   = document.getElementById('ecam-name')?.value.trim();
+  var budget = parseInt(document.getElementById('ecam-budget')?.value || 0);
+  var used   = parseInt(document.getElementById('ecam-used')?.value   || 0);
+  var status = document.getElementById('ecam-status')?.value;
+  var fbUrl  = document.getElementById('ecam-fb')?.value.trim();
+  var ggUrl  = document.getElementById('ecam-google')?.value.trim();
+  if (!id) return;
+  var payload = { name:name, view_budget:budget, views_used:used, status:status };
+  if (fbUrl)  payload.fb_preview_url     = fbUrl;
+  if (ggUrl)  payload.google_preview_url = ggUrl;
+  var r = await sbAdmin('/rest/v1/campaigns?id=eq.' + id, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  });
+  document.getElementById('editCampaignModal')?.remove();
+  toast(r.ok ? 'Campaign updated!' : 'Update failed');
+  loadAdminData();
+}
+
+// ── VIEW CAMPAIGN LEADS ──
+function viewCampaignLeads(campaignId, campaignName) {
+  showPanel('leads');
+  // Filter leads by this campaign
+  var allLeads = window._adminLeads || [];
+  var filtered = allLeads.filter(function(l){ return l.campaign_id === campaignId; });
+  renderFilteredLeads(filtered, window._adminClients || []);
+  // Update title
+  var title = document.querySelector('#panel-leads .sec-title');
+  if (title) title.textContent = 'Leads — ' + campaignName;
+  toast('Showing leads for: ' + campaignName);
+}
+
+// ── CLIENT SORT & FILTER ──
+function sortClients(by) {
+  var clients = (window._allClients || []).slice();
+  var leads   = window._allLeads || [];
+  if (by === 'name')         clients.sort(function(a,b){ return a.business_name.localeCompare(b.business_name); });
+  if (by === 'balance-desc') clients.sort(function(a,b){ return (b.view_balance||0) - (a.view_balance||0); });
+  if (by === 'balance-asc')  clients.sort(function(a,b){ return (a.view_balance||0) - (b.view_balance||0); });
+  if (by === 'leads-desc')   clients.sort(function(a,b){
+    var la = leads.filter(function(l){ return l.client_id === a.id; }).length;
+    var lb = leads.filter(function(l){ return l.client_id === b.id; }).length;
+    return lb - la;
+  });
+  renderClientRows(clients, leads);
+}
+
+function filterClientsByProduct(val) {
+  var filtered = val ? (window._allClients||[]).filter(function(c){ return c.billing_model === val; }) : window._allClients||[];
+  renderClientRows(filtered, window._allLeads||[]);
+}
+
+function filterClientsByStatus(val) {
+  var filtered = val ? (window._allClients||[]).filter(function(c){ return c.status === val; }) : window._allClients||[];
+  renderClientRows(filtered, window._allLeads||[]);
+}
+
+// ── EDIT CLIENT MODAL ──
+function openEditClient(clientId) {
+  var c = (window._allClients||[]).find(function(x){ return x.id === clientId; });
+  if (!c) { toast('Client not found'); return; }
+  window._editClientId = clientId;
+  // Reuse the client modal for editing
+  var title = document.querySelector('#clientModal h2');
+  if (title) title.textContent = 'Edit client';
+  var n = document.querySelector('#clientModal input[placeholder*="Ravi"]');
+  var b = document.querySelector('#clientModal input[placeholder*="Skyline"]');
+  var e = document.querySelector('#clientModal input[type=email]');
+  var p = document.querySelector('#clientModal input[placeholder*="416"]');
+  if (n) n.value = c.contact_name || '';
+  if (b) b.value = c.business_name || '';
+  if (e) { e.value = c.email || ''; e.disabled = true; } // can't change email
+  if (p) p.value = c.phone || '';
+  var billing = document.getElementById('new-client-billing');
+  var role    = document.getElementById('new-client-role');
+  if (billing) billing.value = c.billing_model || 'views';
+  if (role)    role.value    = c.role           || 'client';
+  // Hide password field for edits
+  var passGroup = document.querySelector('#clientModal input[type=password]')?.closest('.form-group');
+  if (passGroup) passGroup.style.display = 'none';
+  // Change button text
+  var btn = document.querySelector('#clientModal .btn-save');
+  if (btn) { btn.textContent = 'Save changes'; btn.onclick = function(){ saveClientEdit(); }; }
+  openModal('clientModal');
+}
+
+async function saveClientEdit() {
+  var cid = window._editClientId;
+  if (!cid) return;
+  var n = document.querySelector('#clientModal input[placeholder*="Ravi"]')?.value.trim();
+  var b = document.querySelector('#clientModal input[placeholder*="Skyline"]')?.value.trim();
+  var p = document.querySelector('#clientModal input[placeholder*="416"]')?.value.trim();
+  var billing = document.getElementById('new-client-billing')?.value;
+  var role    = document.getElementById('new-client-role')?.value;
+  var r = await sbAdmin('/rest/v1/clients?id=eq.' + cid, {
+    method: 'PATCH',
+    body: JSON.stringify({ contact_name:n, business_name:b, phone:p, billing_model:billing, role:role })
+  });
+  // Reset modal
+  var passGroup = document.querySelector('#clientModal input[type=password]')?.closest('.form-group');
+  if (passGroup) passGroup.style.display = '';
+  var e = document.querySelector('#clientModal input[type=email]');
+  if (e) e.disabled = false;
+  var btn = document.querySelector('#clientModal .btn-save');
+  if (btn) { btn.textContent = 'Create client'; btn.onclick = function(){ saveClient(); }; }
+  window._editClientId = null;
+  closeModal('clientModal');
+  toast(r.ok ? 'Client updated!' : 'Update failed');
+  loadAdminData();
+}
+
+
+// ══════════════════════════════════════════════
+// CAMPAIGN TOGGLE (live Supabase update)
+// ══════════════════════════════════════════════
+async function toggleCampaignLive(id, shouldBeActive) {
+  var newStatus = shouldBeActive ? 'active' : 'paused';
+  var r = await sbAdmin('/rest/v1/campaigns?id=eq.' + id, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: newStatus, updated_at: new Date().toISOString() })
+  });
+  if (r.ok) {
+    // Also update the ad's status to match
+    var cam = (window._allCampaigns||[]).find(function(c){ return c.id === id; });
+    if (cam && cam.ad_id) {
+      await sbAdmin('/rest/v1/ads?id=eq.' + cam.ad_id, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: newStatus })
+      });
+    }
+    toast(newStatus === 'active' ? '▶ Campaign started' : '⏸ Campaign paused');
+    loadAdminData();
+  } else {
+    toast('Could not update campaign');
+    loadAdminData(); // revert toggle state
+  }
+}
+
+// Keep old function name working
+async function toggleCampaignStatus(el) {
+  var id = el.dataset ? el.dataset.id : el;
+  var currentStatus = el.dataset ? el.dataset.status : 'active';
+  await toggleCampaignLive(id, currentStatus !== 'active');
+}
+
+// ══════════════════════════════════════════════
+// CAMPAIGN BULK SELECT
+// ══════════════════════════════════════════════
+function camCheckChange() {
+  var checked = document.querySelectorAll('.cam-chk:checked');
+  var bar     = document.getElementById('cam-bulk-bar');
+  var count   = document.getElementById('cam-bulk-count');
+  var selAll  = document.getElementById('cam-select-all');
+  var total   = document.querySelectorAll('.cam-chk').length;
+
+  if (bar)    bar.style.display    = checked.length > 0 ? 'flex' : 'none';
+  if (count)  count.textContent    = checked.length + ' selected';
+  if (selAll) selAll.indeterminate = checked.length > 0 && checked.length < total;
+  if (selAll) selAll.checked       = checked.length === total && total > 0;
+}
+
+function toggleAllCampaigns(checked) {
+  document.querySelectorAll('.cam-chk').forEach(function(chk){ chk.checked = checked; });
+  camCheckChange();
+}
+
+function clearCampaignSelection() {
+  document.querySelectorAll('.cam-chk').forEach(function(chk){ chk.checked = false; });
+  var selAll = document.getElementById('cam-select-all');
+  if (selAll) selAll.checked = false;
+  camCheckChange();
+}
+
+function getSelectedCampaignIds() {
+  return Array.from(document.querySelectorAll('.cam-chk:checked')).map(function(chk){ return chk.dataset.id; });
+}
+
+async function bulkCampaign(action) {
+  var ids = getSelectedCampaignIds();
+  if (ids.length === 0) { toast('Select campaigns first'); return; }
+
+  if (action === 'start') {
+    for (var i = 0; i < ids.length; i++) await toggleCampaignLive(ids[i], true);
+    toast('▶ ' + ids.length + ' campaign(s) started');
+
+  } else if (action === 'pause') {
+    for (var i = 0; i < ids.length; i++) await toggleCampaignLive(ids[i], false);
+    toast('⏸ ' + ids.length + ' campaign(s) paused');
+
+  } else if (action === 'notify-low') {
+    // Mark for low balance notification (stores in activity or sends email)
+    toast('🔔 Low balance notification queued for ' + ids.length + ' campaign(s)');
+    // Future: trigger Supabase edge function to send email
+    console.log('[Adviuz] Low balance notify for campaigns:', ids);
+
+  } else if (action === 'copy-urls') {
+    var campaigns = window._allCampaigns || [];
+    var urls = ids.map(function(id) {
+      var cam = campaigns.find(function(c){ return c.id === id; });
+      if (!cam) return '';
+      return cam.name + ': https://adviuzdev.netlify.app?campaign_id=' + cam.id
+           + (cam.client_id ? '&client_id=' + cam.client_id : '') + '&utm_source=facebook';
+    }).filter(Boolean).join('\n');
+    if (navigator.clipboard) navigator.clipboard.writeText(urls).catch(function(){});
+    toast('🔗 ' + ids.length + ' URLs copied to clipboard');
+
+  } else if (action === 'export') {
+    var campaigns = window._allCampaigns || [];
+    var clients   = window._camClients   || [];
+    var selected  = campaigns.filter(function(c){ return ids.indexOf(c.id) >= 0; });
+    var csv = 'Campaign,Client,Views Used,Budget,Balance,Impressions,Status,Created\n';
+    csv += selected.map(function(cam) {
+      var client  = clients.find(function(c){ return c.id === cam.client_id; });
+      var balance = (cam.view_budget||0) - (cam.views_used||0);
+      var totalImp = (cam.fb_impressions||0) + (cam.google_impressions||0);
+      return [
+        cam.name, client ? client.business_name : '',
+        cam.views_used||0, cam.view_budget||0, balance, totalImp,
+        cam.status, cam.created_at ? cam.created_at.slice(0,10) : ''
+      ].map(function(v){ return '"' + v + '"'; }).join(',');
+    }).join('\n');
+    var blob = new Blob([csv], { type: 'text/csv' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'adviuz-campaigns-' + new Date().toISOString().slice(0,10) + '.csv';
+    a.click();
+    toast('↓ ' + selected.length + ' campaigns exported');
+
+  } else if (action === 'refresh-impressions') {
+    toast('↻ Impression sync queued — connect Facebook & Google API in Settings to enable auto-sync');
+    console.log('[Adviuz] Sync impressions for campaigns:', ids);
+  }
+
+  clearCampaignSelection();
 }
 
 // ── MOBILE SIDEBAR TOGGLE ──
