@@ -504,6 +504,67 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
 </head>
 <body>
 
+<!-- ══ ADMIN LOGIN OVERLAY ══ -->
+<div id="adminLoginOverlay" style="
+  display:flex; position:fixed; inset:0; z-index:9999;
+  background:#0F0F0F; align-items:center; justify-content:center;
+  font-family:'Instrument Sans',sans-serif;
+">
+  <div style="
+    background:#1a1a1a; border:1px solid rgba(255,255,255,0.08);
+    border-radius:20px; padding:48px 40px; width:360px; max-width:90vw;
+    box-shadow:0 32px 80px rgba(0,0,0,0.6);
+  ">
+    <!-- Logo -->
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:32px">
+      <div style="width:40px;height:40px;background:#C8102E;border-radius:10px;display:flex;align-items:center;justify-content:center;font-family:serif;font-size:20px;font-weight:900;color:#fff">A</div>
+      <div>
+        <div style="font-size:17px;font-weight:700;color:#fff;letter-spacing:-0.03em">Adviuz</div>
+        <div style="font-size:11px;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:0.06em">Admin panel</div>
+      </div>
+    </div>
+
+    <div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:6px">Sign in</div>
+    <div style="font-size:13px;color:rgba(255,255,255,0.4);margin-bottom:28px">Use your Adviuz admin account</div>
+
+    <!-- Email -->
+    <div style="margin-bottom:14px">
+      <label style="display:block;font-size:11px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:rgba(255,255,255,0.35);margin-bottom:6px">Email</label>
+      <input id="adminLoginEmail" type="email" placeholder="admin@adviuz.ca"
+        style="width:100%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:12px 14px;font-size:14px;color:#fff;font-family:'Instrument Sans',sans-serif;box-sizing:border-box;outline:none;"
+        onfocus="this.style.borderColor='rgba(200,16,46,0.6)'" onblur="this.style.borderColor='rgba(255,255,255,0.12)'">
+    </div>
+
+    <!-- Password -->
+    <div style="margin-bottom:20px">
+      <label style="display:block;font-size:11px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:rgba(255,255,255,0.35);margin-bottom:6px">Password</label>
+      <input id="adminLoginPass" type="password" placeholder="••••••••••"
+        style="width:100%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:12px 14px;font-size:14px;color:#fff;font-family:'Instrument Sans',sans-serif;box-sizing:border-box;outline:none;"
+        onfocus="this.style.borderColor='rgba(200,16,46,0.6)'" onblur="this.style.borderColor='rgba(255,255,255,0.12)'">
+    </div>
+
+    <!-- Error -->
+    <div id="adminLoginError" style="display:none;background:rgba(200,16,46,0.15);border:1px solid rgba(200,16,46,0.3);border-radius:8px;padding:10px 14px;font-size:13px;color:#FF8095;margin-bottom:16px"></div>
+
+    <!-- Button -->
+    <button id="adminLoginBtn" onclick="doAdminLogin()" style="
+      width:100%;background:#C8102E;color:#fff;border:none;
+      border-radius:50px;padding:14px;font-size:14px;font-weight:700;
+      cursor:pointer;font-family:'Instrument Sans',sans-serif;
+      transition:opacity 0.15s;
+    " onmouseover="this.style.opacity='0.88'" onmouseout="this.style.opacity='1'">
+      Sign in to admin panel →
+    </button>
+
+    <div style="margin-top:20px;text-align:center;font-size:11px;color:rgba(255,255,255,0.2)">
+      Access restricted to authorised administrators only
+    </div>
+  </div>
+</div>
+
+<!-- ══ ADMIN APP (hidden until login) ══ -->
+<div id="adminApp" style="display:none;flex:1;width:100%">
+
 <!-- SIDEBAR -->
 <aside class="sidebar">
   <div class="sidebar-logo">
@@ -1346,22 +1407,139 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
 
 <script>
 
-const SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
-const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
+const SB_URL  = 'https://crhvvfomwkrgwlnfruad.supabase.co';
+const SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
+const ADMIN_UUID = 'b108e23f-bdc9-43b7-8f87-6b70ac94f9d0';
 
+// Admin JWT — set after login, cleared on logout
+// Never stored in localStorage — memory only
+let ADMIN_JWT = null;
+
+// ── SECURE ADMIN FETCH ─────────────────────────────────────
+// Uses the admin's real JWT from login — not the anon key.
+// RLS verifies auth.uid() === ADMIN_UUID server-side.
 async function sbAdmin(path, opts) {
   opts = opts || {};
+  if (!ADMIN_JWT) {
+    console.error('[Adviuz] No admin JWT — please log in');
+    showAdminLogin();
+    return { ok: false, json: () => Promise.resolve([]) };
+  }
   const r = await fetch(SB_URL + path, Object.assign({}, opts, {
     headers: Object.assign({
       'Content-Type': 'application/json',
-      'apikey': SB_KEY,
-      'Authorization': 'Bearer ' + SB_KEY
+      'apikey': SB_ANON,           // identifies the project
+      'Authorization': 'Bearer ' + ADMIN_JWT  // proves who you are
     }, opts.headers || {})
   }));
+  // If JWT expired, force re-login
+  if (r.status === 401) {
+    ADMIN_JWT = null;
+    showAdminLogin();
+  }
   return r;
 }
 
+// ── ADMIN LOGIN ────────────────────────────────────────────
+async function doAdminLogin() {
+  const email = document.getElementById('adminLoginEmail').value.trim();
+  const pass  = document.getElementById('adminLoginPass').value.trim();
+  const err   = document.getElementById('adminLoginError');
+  const btn   = document.getElementById('adminLoginBtn');
+
+  if (!email || !pass) { err.textContent = 'Enter email and password.'; err.style.display = 'block'; return; }
+
+  btn.textContent = 'Signing in…'; btn.disabled = true;
+  err.style.display = 'none';
+
+  try {
+    const r = await fetch(SB_URL + '/auth/v1/token?grant_type=password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SB_ANON },
+      body: JSON.stringify({ email, password: pass })
+    });
+
+    const data = await r.json();
+
+    if (!r.ok) {
+      err.textContent = data.error_description || 'Invalid credentials.';
+      err.style.display = 'block';
+      btn.textContent = 'Sign in'; btn.disabled = false;
+      return;
+    }
+
+    // Verify this is the admin UUID
+    if (data.user.id !== ADMIN_UUID) {
+      err.textContent = 'Access denied — not an admin account.';
+      err.style.display = 'block';
+      btn.textContent = 'Sign in'; btn.disabled = false;
+      return;
+    }
+
+    // Store JWT in memory
+    ADMIN_JWT = data.access_token;
+
+    // Schedule token refresh before it expires (default 1 hour)
+    const expiresIn = (data.expires_in || 3600) - 60; // refresh 60s early
+    setTimeout(refreshAdminToken, expiresIn * 1000);
+
+    // Hide login, show app
+    document.getElementById('adminLoginOverlay').style.display = 'none';
+    document.getElementById('adminApp').style.display = 'flex';
+
+    // Load all data now that we have a valid JWT
+    loadAdminData();
+
+  } catch(e) {
+    err.textContent = 'Network error. Check your connection.';
+    err.style.display = 'block';
+    btn.textContent = 'Sign in'; btn.disabled = false;
+  }
+}
+
+async function refreshAdminToken() {
+  if (!ADMIN_JWT) return;
+  // Supabase refresh — keeps session alive
+  const r = await fetch(SB_URL + '/auth/v1/token?grant_type=refresh_token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'apikey': SB_ANON },
+    body: JSON.stringify({ refresh_token: window._adminRefreshToken })
+  });
+  if (r.ok) {
+    const d = await r.json();
+    ADMIN_JWT = d.access_token;
+    window._adminRefreshToken = d.refresh_token;
+    const expiresIn = (d.expires_in || 3600) - 60;
+    setTimeout(refreshAdminToken, expiresIn * 1000);
+  } else {
+    ADMIN_JWT = null;
+    showAdminLogin();
+  }
+}
+
+function showAdminLogin() {
+  document.getElementById('adminLoginOverlay').style.display = 'flex';
+  document.getElementById('adminApp').style.display = 'none';
+}
+
+function doAdminLogout() {
+  ADMIN_JWT = null;
+  window._adminRefreshToken = null;
+  showAdminLogin();
+  toast('Signed out');
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  // Show login screen on load — never auto-login
+  showAdminLogin();
+  document.getElementById('adminLoginPass').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') doAdminLogin();
+  });
+});
+
+let _autoRefreshStarted = false;
 async function loadAdminData() {
+  if (!_autoRefreshStarted) { _autoRefreshStarted = true; startAdminAutoRefresh(); }
   try {
     const [clients, viewEvents, leads, campaigns, transactions, ads, impressions] = await Promise.all([
       sbAdmin('/rest/v1/clients?order=created_at.desc').then(r => r.ok ? r.json() : []),
@@ -2004,10 +2182,13 @@ function timeAgoAdmin(ts) {
   return days + 'd ago';
 }
 
-window.addEventListener('DOMContentLoaded', function() {
-  loadAdminData();
-  setInterval(loadAdminData, 60000);
-});
+// Data loads only after admin login — see doAdminLogin()
+// Auto-refresh every 60s while logged in
+function startAdminAutoRefresh() {
+  setInterval(function() {
+    if (ADMIN_JWT) loadAdminData();
+  }, 60000);
+}
 
 
 const panels={dashboard:'Dashboard',clients:'Clients',campaigns:'Campaigns',leads:'Leads',adbuilder:'Ad Builder',billing:'Billing',settings:'Settings'};
@@ -2600,5 +2781,6 @@ function exportLeadsCSV() {
 
 </script>
 <div class="sidebar-overlay" id="adminSidebarOverlay" onclick="toggleAdminSidebar()"></div>
+</div><!-- /adminApp -->
 </body>
 </html>
