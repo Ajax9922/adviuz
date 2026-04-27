@@ -1321,7 +1321,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div class="form-grid">
         <div class="form-group full"><label class="fld">Campaign name</label><input class="fld" placeholder="e.g. Diwali Offer 2025"></div>
         <div class="form-group"><label class="fld">Assign to client</label><select class="fld"><option>Skyline Properties</option><option>Mehta Jewellers</option><option>FreshMart</option><option>Raj Motors</option></select></div>
-        <div class="form-group"><label class="fld">Ad page</label><select class="fld"><option>ad-001 — Luxury Apartments</option><option>ad-002 — Gold Diwali Sale</option><option>ad-003 — Fresh Groceries</option></select></div>
+        <div class="form-group"><label class="fld">Ad page</label><select class="fld" id="cam-ad-sel"><option value="">Select ad…</option></select></div>
         <div class="form-group"><label class="fld">View budget</label><input class="fld" type="number" placeholder="e.g. 5000"></div>
         <div class="form-group"><label class="fld">Product type</label>
           <select class="fld" id="cam-product-type">
@@ -1390,7 +1390,7 @@ async function loadAdminData() {
 
 function renderAdminDashboard(clients, views, leads, campaigns, txns) {
   const revenue = txns.reduce(function(s,t){ return s + parseFloat(t.amount_cad||0); }, 0);
-  const activeClients   = clients.filter(function(c){ return c.role === 'client' && c.status === 'active'; }).length;
+  const activeClients   = clients.filter(function(c){ return c.role !== 'super_admin' && (c.status === 'active' || !c.status); }).length;
   const activeCampaigns = campaigns.filter(function(c){ return c.status === 'active'; }).length;
   setAdminEl('dash-views',     views.length.toLocaleString());
   setAdminEl('dash-revenue',   'CAD $' + revenue.toLocaleString('en-CA', {minimumFractionDigits:0}));
@@ -1401,7 +1401,7 @@ function renderAdminDashboard(clients, views, leads, campaigns, txns) {
 function renderClientsTable(clients, views, leads) {
   var tbody = document.getElementById('clientTableBody');
   if (!tbody) return;
-  var realClients = clients.filter(function(c){ return c.role === 'client' || c.billing_model; });
+  var realClients = clients.filter(function(c){ return c.role !== 'super_admin'; });
   if (realClients.length === 0) {
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">No clients yet. Click New Client to add your first.</td></tr>';
     return;
@@ -1414,6 +1414,17 @@ function renderClientsTable(clients, views, leads) {
   // Populate New Campaign client dropdown
   var camClientSel = document.querySelector('#campaignModal select:first-of-type');
   if (camClientSel) camClientSel.innerHTML = '<option value="">Select client…</option>' + clientOpts;
+
+  // Populate the ad dropdown from real ads data
+  var camAdSel = document.getElementById('cam-ad-sel');
+  if (camAdSel && window._allAds && window._allAds.length > 0) {
+    camAdSel.innerHTML = '<option value="">Select ad (optional)…</option>' +
+      window._allAds.map(function(a) {
+        return '<option value="' + a.id + '">' + (a.ad_slug || a.business_name || a.id.slice(0,8)) + '</option>';
+      }).join('');
+  } else if (camAdSel) {
+    camAdSel.innerHTML = '<option value="">No ads yet — create one in Ad Builder</option>';
+  }
 
   // Populate Ad Builder client dropdown
   var builderClientSel = document.getElementById('builder-client-sel');
@@ -1472,6 +1483,9 @@ function renderCampaignsTable(campaigns, clients) {
   if (camClientFilter) camClientFilter.innerHTML = '<option value="">All clients</option>' + clientOpts;
   var utmClientSel = document.getElementById('utm-client');
   if (utmClientSel) utmClientSel.innerHTML = '<option value="">Select client…</option>' + clientOpts;
+
+  // buildURL whenever client changes
+  if (utmClientSel) utmClientSel.onchange = buildURL;
 
   filterCampaigns(); // render with current filter state
 }
@@ -1803,17 +1817,18 @@ async function saveClient() {
 }
 
 async function saveCampaign() {
-  var nameEl     = document.querySelector('#campaignModal input[placeholder*="Diwali"]');
-  var budgetEl   = document.querySelector('#campaignModal input[type=number]');
-  var platformEl = document.querySelector('#campaignModal select:last-of-type');
-  var clientSel  = document.querySelector('#campaignModal select:first-of-type');
-  var adSel      = document.querySelectorAll('#campaignModal select')[1];
+  var nameEl    = document.querySelector('#campaignModal input[placeholder*="Diwali"]');
+  var budgetEl  = document.querySelector('#campaignModal input[type=number]');
+  var clientSel = document.querySelector('#campaignModal select:first-of-type');
+  var adSel     = document.getElementById('cam-ad-sel');
+  var typeSel   = document.getElementById('cam-product-type');
 
-  var name     = nameEl     ? nameEl.value.trim()     : '';
+  var name     = nameEl    ? nameEl.value.trim()    : '';
   var budget   = parseInt(budgetEl ? budgetEl.value : 0) || 0;
-  var platform = platformEl ? platformEl.value.toLowerCase() : 'facebook';
-  var clientId = clientSel  ? clientSel.value          : '';
-  var adId     = adSel      ? adSel.value              : '';
+  var clientId = clientSel ? clientSel.value        : '';
+  var adId     = adSel     ? adSel.value            : '';   // This is now a real UUID
+  var prodType = typeSel   ? typeSel.value          : 'views';
+  var platform = 'facebook'; // default; clients run ads on multiple platforms
 
   if (!name) { toast('Enter a campaign name'); return; }
 
@@ -1827,10 +1842,9 @@ async function saveCampaign() {
       name:          name,
       client_id:     clientId   || null,
       ad_id:         adId       || null,
-      view_budget:   budget,
-      billing_model: 'views',
-      platforms:     [platform],
-      utm_source:    platform,
+      view_budget:   prodType === 'views' ? budget : 0,
+      leads_target:  prodType === 'leads' ? budget : 0,
+      billing_model: prodType,
       utm_campaign:  utmCampaign,
       status:        'active'
     })
