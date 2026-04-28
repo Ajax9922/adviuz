@@ -839,12 +839,20 @@ async function loadAdConfig() {
   }
   try {
     const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/ads?ad_slug=eq.${AD_CONTEXT.ad_id}&select=form_fields,call_numbers,form_title,form_sub,cta_text`,
+      `${SUPABASE_URL}/rest/v1/ads?ad_slug=eq.${AD_CONTEXT.ad_id}&select=id,client_id,form_fields,call_numbers,form_title,form_sub,cta_text`,
       { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
     );
     if (r.ok) {
       const rows = await r.json();
       if (rows[0]) {
+        // Update AD_CONTEXT with real UUIDs from the database
+        // This ensures view_events and leads get the correct foreign keys
+        if (rows[0].client_id && AD_CONTEXT.client_id === 'demo-client') {
+          AD_CONTEXT.client_id = rows[0].client_id;
+        }
+        if (rows[0].id) {
+          AD_CONTEXT.ad_uuid = rows[0].id;  // store the real UUID separately
+        }
         if (rows[0].form_fields)   AD_CONFIG.form_fields   = rows[0].form_fields;
         if (rows[0].call_numbers)  AD_CONFIG.call_numbers  = rows[0].call_numbers;
         if (rows[0].form_title)    AD_CONFIG.form_title    = rows[0].form_title;
@@ -1000,7 +1008,7 @@ async function countView() {
   // Store a fingerprint: ad_id + client_id + date
   // If same user views same ad again within 24h, timer still runs
   // but billing event does NOT fire (protects client budget)
-  const dedupKey = `adviuz_view_${AD_CONTEXT.ad_id}_${AD_CONTEXT.client_id}`;
+  const dedupKey = `adviuz_view_${AD_CONTEXT.ad_uuid || AD_CONTEXT.ad_id}_${AD_CONTEXT.client_id}`;
   const lastView = localStorage.getItem(dedupKey);
   const now      = Date.now();
   const hours24  = 24 * 60 * 60 * 1000;
@@ -1014,9 +1022,10 @@ async function countView() {
   // Mark this view in localStorage
   localStorage.setItem(dedupKey, now.toString());
 
+  // Use real UUID from DB if available, otherwise fall back to slug
   const ok = await sbInsert('view_events', {
-    ad_id:       AD_CONTEXT.ad_id,
-    client_id:   AD_CONTEXT.client_id,
+    ad_id:       AD_CONTEXT.ad_uuid   || AD_CONTEXT.ad_id,
+    client_id:   AD_CONTEXT.client_id !== 'demo-client' ? AD_CONTEXT.client_id : null,
     campaign_id: AD_CONTEXT.campaign_id || undefined,
     utm_source:  AD_CONTEXT.utm_source,
     utm_medium:  AD_CONTEXT.utm_medium  || undefined,
