@@ -505,6 +505,22 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
 <body>
 
 <!-- ══ ADMIN LOGIN OVERLAY ══ -->
+<script>
+// Immediately hide login if valid session exists — prevents flash
+(function() {
+  try {
+    var jwt = sessionStorage.getItem('adviuz_admin_jwt');
+    if (jwt) {
+      document.addEventListener('DOMContentLoaded', function() {
+        var ov = document.getElementById('adminLoginOverlay');
+        var ap = document.getElementById('adminApp');
+        if (ov) ov.style.display = 'none';
+        if (ap) ap.style.display = 'flex';
+      });
+    }
+  } catch(e) {}
+})();
+</script>
 <div id="adminLoginOverlay" style="
   display:flex; position:fixed; inset:0; z-index:9999;
   background:#0F0F0F; align-items:center; justify-content:center;
@@ -621,11 +637,18 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
 
   <div class="sidebar-footer">
     <div class="admin-pill">
-      <div class="admin-avatar">SA</div>
-      <div>
-        <div class="admin-name">Super Admin</div>
-        <div class="admin-role">adviuz.com</div>
+      <div class="admin-avatar" id="adminAvatarInitials">SA</div>
+      <div style="flex:1;min-width:0">
+        <div class="admin-name" id="adminDisplayName">Super Admin</div>
+        <div class="admin-role">Adviuz Admin</div>
       </div>
+      <button onclick="doAdminLogout()" title="Sign out"
+        style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
+        onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,0.35)'">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+      </button>
     </div>
   </div>
 </aside>
@@ -728,10 +751,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
         <table>
           <thead><tr><th>Campaign</th><th>Client</th><th>Views used</th><th>Budget</th><th>Status</th><th>Platform</th></tr></thead>
           <tbody>
-            <tr><td class="td-name">Luxury Apartments</td><td>Skyline Properties</td><td class="td-mono">3,820 / 5,000</td><td class="td-mono">$19,100</td><td><span class="badge active"><span class="badge-dot"></span>Active</span></td><td><span class="badge brand">Facebook</span></td></tr>
-            <tr><td class="td-name">Gold Diwali Sale</td><td>Mehta Jewellers</td><td class="td-mono">1,240 / 2,000</td><td class="td-mono">$6,200</td><td><span class="badge active"><span class="badge-dot"></span>Active</span></td><td><span class="badge brand">Instagram</span></td></tr>
-            <tr><td class="td-name">Fresh Groceries</td><td>FreshMart</td><td class="td-mono">4,520 / 5,000</td><td class="td-mono">$22,600</td><td><span class="badge pending"><span class="badge-dot"></span>Low balance</span></td><td><span class="badge brand">Google</span></td></tr>
-            <tr><td class="td-name">Test Drive Offer</td><td>Raj Motors</td><td class="td-mono">800 / 3,000</td><td class="td-mono">$15,000</td><td><span class="badge paused"><span class="badge-dot"></span>Paused</span></td><td><span class="badge brand">WhatsApp</span></td></tr>
+            <tr id="topCampaignsPlaceholder"><td colspan="6" style="text-align:center;padding:20px;color:var(--muted)">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -772,8 +792,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
           <thead><tr><th>Client</th><th>Business</th><th>Views balance</th><th>Campaigns</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody id="clientTableBody">
             <!-- Populated by renderClientRows() -->
-            <tr><td><div class="td-name">Suresh Raj</div><div class="td-email">suresh@rajmotors.in</div></td><td>Raj Motors</td><td class="td-mono">2,200</td><td>1</td><td><span class="badge paused"><span class="badge-dot"></span>Paused</span></td><td><button class="tbl-btn" onclick="openModal('topupModal')">Top-up</button><button class="tbl-btn primary">View</button></td></tr>
-            <tr><td><div class="td-name">Priya Sharma</div><div class="td-email">priya@sharmaedu.com</div></td><td>Sharma Education</td><td class="td-mono">3,400</td><td>4</td><td><span class="badge active"><span class="badge-dot"></span>Active</span></td><td><button class="tbl-btn" onclick="openModal('topupModal')">Top-up</button><button class="tbl-btn primary">View</button></td></tr>
+<!-- populated by renderClientRows() -->
           </tbody>
         </table>
       </div>
@@ -870,9 +889,11 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
               </th>
               <th style="width:44px">On/Off</th>
               <th onclick="setCamSort('name-asc')" style="cursor:pointer">Campaign ↕</th>
+              <th onclick="setCamSort('name-asc')" style="cursor:pointer">Client ↕</th>
               <th onclick="setCamSort('impressions-desc')" style="cursor:pointer">Impressions ↕</th>
               <th onclick="setCamSort('views-desc')" style="cursor:pointer">Views (25s) ↕</th>
               <th onclick="setCamSort('balance-desc')" style="cursor:pointer">Balance left ↕</th>
+              <th>Leads</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
@@ -1217,7 +1238,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
 
         <div class="card">
           <div class="card-title">Manual top-up</div>
-          <div class="form-group"><label class="fld">Select client</label><select class="fld"><option>Skyline Properties (1,180 views)</option><option>Mehta Jewellers (760 views)</option><option>FreshMart (480 views)</option><option>Raj Motors (2,200 views)</option></select></div>
+          <div class="form-group"><label class="fld">Select client</label><select class="fld" id="topup-client-sel2"><option value="">Select client…</option></select></div>
           <div class="form-group"><label class="fld">Add views</label><input class="fld" type="number" value="1000" placeholder="Number of views to add"></div>
           <div class="form-group"><label class="fld">Amount collected ($)</label><input class="fld" type="number" value="5000" placeholder="$ received from client"></div>
           <div class="form-group"><label class="fld">Payment reference</label><input class="fld" placeholder="UPI / Bank ref. number"></div>
@@ -1230,10 +1251,10 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
         <table>
           <thead><tr><th>Date</th><th>Client</th><th>Views added</th><th>Amount</th><th>Rate</th><th>Reference</th><th>By</th></tr></thead>
           <tbody>
-            <tr><td class="td-mono">2025-01-22</td><td>Skyline Properties</td><td class="td-mono">+2,000</td><td class="td-mono" style="color:var(--success);font-weight:600">$10,000</td><td class="td-mono">$5.00</td><td class="td-mono">UPI-9283748</td><td>Admin</td></tr>
-            <tr><td class="td-mono">2025-01-20</td><td>Sharma Education</td><td class="td-mono">+1,000</td><td class="td-mono" style="color:var(--success);font-weight:600">$4,500</td><td class="td-mono">$4.50</td><td class="td-mono">NEFT-28374</td><td>Admin</td></tr>
-            <tr><td class="td-mono">2025-01-18</td><td>FreshMart</td><td class="td-mono">+5,000</td><td class="td-mono" style="color:var(--success);font-weight:600">$17,500</td><td class="td-mono">$3.50</td><td class="td-mono">UPI-7364829</td><td>Admin</td></tr>
-            <tr><td class="td-mono">2025-01-15</td><td>Mehta Jewellers</td><td class="td-mono">+2,000</td><td class="td-mono" style="color:var(--success);font-weight:600">$9,000</td><td class="td-mono">$4.50</td><td class="td-mono">CASH-001</td><td>Admin</td></tr>
+            
+            
+            
+            
           </tbody>
         </table>
       </div>
@@ -1331,8 +1352,8 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal('clientModal')">Cancel</button>
-      <button class="btn-save" onclick="saveClient()">Create client</button>
+      <button class="btn-cancel" onclick="window._clientModalMode='create';window._editClientId=null;closeModal('clientModal')">Cancel</button>
+      <button class="btn-save" onclick="window._clientModalMode==='edit' ? saveClientEdit() : saveClient()">Create client</button>
     </div>
   </div>
 </div>
@@ -1492,6 +1513,12 @@ async function doAdminLogin() {
 
     // Load all data now that we have a valid JWT
     loadAdminData();
+    startAdminAutoRefresh();
+    // Restore last active panel
+    try {
+      var lastPanel = sessionStorage.getItem('adviuz_admin_panel');
+      if (lastPanel && document.getElementById('panel-' + lastPanel)) showPanel(lastPanel);
+    } catch(e) {}
 
   } catch(e) {
     err.textContent = 'Network error. Check your connection.';
@@ -1558,6 +1585,12 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('adminLoginOverlay').style.display = 'none';
             document.getElementById('adminApp').style.display = 'flex';
             loadAdminData();
+            try {
+              var lastPanel = sessionStorage.getItem('adviuz_admin_panel');
+              if (lastPanel && document.getElementById('panel-' + lastPanel)) {
+                setTimeout(function(){ showPanel(lastPanel); }, 100);
+              }
+            } catch(e) {}
           } else {
             showAdminLogin();
           }
@@ -1598,6 +1631,7 @@ async function loadAdminData() {
     renderCampaignsTable(campaigns, clients);
     renderBillingPanel(transactions, clients);
     renderActivityFeed(viewEvents, leads, clients);
+    window._adminLeads = leads;
     renderAdminLeads(leads, clients);
   } catch(e) { console.error('[Adviuz Admin] Load error:', e); }
 }
@@ -1610,6 +1644,36 @@ function renderAdminDashboard(clients, views, leads, campaigns, txns) {
   setAdminEl('dash-revenue',   'CAD $' + revenue.toLocaleString('en-CA', {minimumFractionDigits:0}));
   setAdminEl('dash-campaigns', activeCampaigns.toString());
   setAdminEl('dash-clients',   activeClients.toString());
+
+  // Top campaigns table — real data
+  var topCampaignsBody = document.getElementById('topCampaignsPlaceholder');
+  if (topCampaignsBody) {
+    var tbody = topCampaignsBody.parentNode;
+    var topCams = campaigns.slice().sort(function(a,b){ return (b.views_used||0)-(a.views_used||0); }).slice(0,5);
+    if (topCams.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">No campaigns yet</td></tr>';
+    } else {
+      tbody.innerHTML = topCams.map(function(cam) {
+        var client = clients.find(function(c){ return c.id === cam.client_id; });
+        var used = cam.views_used||0, budget = cam.view_budget||0;
+        var pct = budget>0 ? Math.round(used/budget*100) : 0;
+        var statusCls = cam.status==='active' ? 'active' : cam.status==='paused' ? 'paused' : 'pending';
+        var camLeads = leads.filter(function(l){ return l.campaign_id === cam.id; }).length;
+        var liveUrl = 'https://adviuzdev.netlify.app?campaign_id=' + cam.id
+                    + (cam.client_id ? '&client_id=' + cam.client_id : '') + '&utm_source=facebook';
+        return '<tr>' +
+          '<td><div class="td-name" style="cursor:pointer;color:var(--brand)" onclick="window.open(this.dataset.url,\'_blank\')" data-url="' + liveUrl + '">' + cam.name + ' ↗</div></td>' +
+          '<td>' + (client ? client.business_name : '—') + '</td>' +
+          '<td class="td-mono">' + used.toLocaleString() + ' / ' + budget.toLocaleString() + '</td>' +
+          '<td>' + camLeads + '</td>' +
+          '<td><span class="badge ' + statusCls + '"><span class="badge-dot"></span>' + (cam.status||'active') + '</span></td>' +
+        '</tr>';
+      }).join('');
+    }
+  }
+
+  // Activity feed
+  renderActivityFeed(views, leads, clients);
 }
 
 function renderClientsTable(clients, views, leads) {
@@ -1807,8 +1871,10 @@ function renderCampaignRows(campaigns, clients) {
     var barColor = pct >= 100 ? 'var(--danger)' : pct >= 85 ? 'var(--warning)' : 'var(--brand)';
 
     // Live ad URL
+    var adSlugParam = window._allAds ? (window._allAds.find(function(a){return a.id===cam.ad_id;}) || {}).ad_slug : '';
     var liveUrl = 'https://adviuzdev.netlify.app?campaign_id=' + cam.id
                 + (cam.client_id ? '&client_id=' + cam.client_id : '')
+                + (adSlugParam ? '&ad_id=' + adSlugParam : '')
                 + '&utm_source=facebook';
 
     // Impressions display
@@ -1823,6 +1889,7 @@ function renderCampaignRows(campaigns, clients) {
 
     var isActive = cam.status === 'active';
 
+    var camLeads = (window._adminLeads||[]).filter(function(l){ return l.campaign_id === cam.id; }).length;
     return '<tr data-id="' + cam.id + '" data-status="' + cam.status + '">' +
       // Checkbox
       '<td><input type="checkbox" class="cam-chk" data-id="' + cam.id + '" onchange="camCheckChange()" style="width:15px;height:15px;accent-color:var(--brand);cursor:pointer"></td>' +
@@ -1833,13 +1900,18 @@ function renderCampaignRows(campaigns, clients) {
           '<span class="cam-toggle-slider"></span>' +
         '</label>' +
       '</td>' +
-      // Campaign name (clickable) + client
+      // Campaign name column (click → open live ad)
       '<td>' +
-        '<div style="font-weight:600;font-size:13px;cursor:pointer;color:var(--brand)" onclick="window.open(\"' + liveUrl + '\",\'_blank\')" title="Open live ad in new tab">' +
+        '<div style="font-weight:600;font-size:13px;cursor:pointer;color:var(--brand)" onclick="window.open(\"' + liveUrl + '\",\'_blank\')" title="Click to open live ad with 25s timer">' +
           cam.name +
           ' <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:middle"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>' +
         '</div>' +
-        '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + (client ? client.business_name : '—') + '</div>' +
+      '</td>' +
+      // Client name column (click → open edit client)
+      '<td>' +
+        '<div style="font-size:13px;cursor:pointer;color:var(--text);font-weight:500" onclick="openEditClientById(this.dataset.cid)" data-cid="' + (cam.client_id||'') + '" title="Click to edit client">' +
+          (client ? client.business_name : '—') +
+        '</div>' +
       '</td>' +
       // Impressions
       '<td>' + impDisplay + '</td>' +
@@ -1856,19 +1928,20 @@ function renderCampaignRows(campaigns, clients) {
         '<div style="font-weight:700;font-size:13px;' + (balance < 200 ? 'color:var(--danger)' : '') + '">' + balance.toLocaleString() + '</div>' +
         '<div style="font-size:10px;color:var(--muted)">' + pct + '% used</div>' +
       '</td>' +
+      // Leads count column
+      '<td style="text-align:center">' +
+        '<span style="font-weight:700;font-size:14px;color:' + (camLeads>0?'var(--brand)':'var(--muted)') + '">' + camLeads + '</span>' +
+      '</td>' +
       // Status
       '<td><span class="badge ' + sc.cls + '"><span class="badge-dot"></span>' + sc.label + '</span></td>' +
-      // Actions
+      // Actions — Edit and Leads only, no URL button
       '<td style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">' +
         '<button class="tbl-btn primary" onclick="openEditCampaign(this)" ' +
           'data-id="' + cam.id + '" data-name="' + cam.name.replace(/"/g,'&quot;') + '" ' +
           'data-budget="' + budget + '" data-used="' + used + '" data-status="' + cam.status + '" ' +
-          'title="Edit campaign — adjust views, name, status">Edit</button>' +
+          'title="Edit campaign">Edit</button>' +
         '<button class="tbl-btn" data-camid="' + cam.id + '" data-camname="' + cam.name.replace(/"/g,'&quot;') + '" ' +
-          'onclick="viewCampaignLeads(this.dataset.camid, this.dataset.camname)" title="View leads for this campaign">Leads</button>' +
-        '<button class="tbl-btn" onclick="copyAdURL(this)" ' +
-          'data-client="' + (cam.client_id||'') + '" data-campaign="' + cam.id + '" data-platform="facebook" ' +
-          'title="Copy ad URL">URL</button>' +
+          'onclick="viewCampaignLeads(this.dataset.camid, this.dataset.camname)" title="View leads">Leads</button>' +
       '</td>' +
     '</tr>';
   }).join('');
@@ -2240,6 +2313,8 @@ function showPanel(id){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   document.getElementById('panel-'+id).classList.add('active');
   document.getElementById('pageTitle').textContent=panels[id]||id;
+  // Remember active panel across refreshes
+  try { sessionStorage.setItem('adviuz_admin_panel', id); } catch(e) {}
   document.querySelectorAll('.nav-item').forEach(n=>{
     if(n.getAttribute('onclick')&&n.getAttribute('onclick').includes("'"+id+"'"))n.classList.add('active');
   });
@@ -2367,8 +2442,7 @@ function syncColor(hex){
 /* Balance bars */
 const clients=[
   // populated by renderBalanceOverview()
-  {name:'Raj Motors',views:2200,max:3000},
-  {name:'Sharma Edu',views:3400,max:5000},
+  // populated from real data
 ];
 
 function renderBalanceBars(){
@@ -2587,6 +2661,13 @@ function filterClientsByStatus(val) {
 }
 
 // ── EDIT CLIENT MODAL ──
+
+function openEditClientById(clientId) {
+  if (!clientId) return;
+  var btn = { dataset: { id: clientId } };
+  openEditClient(btn);
+}
+
 function openEditClient(el) {
   var clientId = (typeof el === 'object' && el.dataset) ? el.dataset.id : el;
   var c = (window._allClients||[]).find(function(x){ return x.id === clientId; });
@@ -2610,9 +2691,10 @@ function openEditClient(el) {
   // Hide password field for edits
   var passGroup = document.querySelector('#clientModal input[type=password]')?.closest('.form-group');
   if (passGroup) passGroup.style.display = 'none';
-  // Change button text
+  // Switch modal to edit mode
+  window._clientModalMode = 'edit';
   var btn = document.querySelector('#clientModal .btn-save');
-  if (btn) { btn.textContent = 'Save changes'; btn.onclick = function(){ saveClientEdit(); }; }
+  if (btn) btn.textContent = 'Save changes';
   openModal('clientModal');
 }
 
@@ -2636,6 +2718,7 @@ async function saveClientEdit() {
   var btn = document.querySelector('#clientModal .btn-save');
   if (btn) { btn.textContent = 'Create client'; btn.onclick = function(){ saveClient(); }; }
   window._editClientId = null;
+  window._clientModalMode = 'create';
   closeModal('clientModal');
   toast(r.ok ? 'Client updated!' : 'Update failed');
   loadAdminData();
