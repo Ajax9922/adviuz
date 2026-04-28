@@ -876,10 +876,21 @@ textarea.fld{resize:none;height:80px;}
 
     <div class="sidebar-bottom">
       <div class="balance-pill">
-        <div class="balance-label">View balance</div>
-        <div class="balance-val">1,180</div>
-        <div class="balance-sub">views remaining · $5,900 CAD value</div>
-        <div class="balance-bar"><div class="balance-fill low"></div></div>
+        <div class="balance-label">View wallet</div>
+        <div class="balance-val" id="sidebar-balance-val">—</div>
+        <div class="balance-sub" id="sidebar-balance-sub">views remaining</div>
+        <!-- Allotted breakdown -->
+        <div id="sidebar-allot-breakdown" style="margin-top:8px;display:none">
+          <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:4px">
+            <span style="color:rgba(255,255,255,0.4)">Allotted to campaigns</span>
+            <span style="color:rgba(255,255,255,0.7);font-weight:600" id="sidebar-allotted">—</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:10px">
+            <span style="color:rgba(255,255,255,0.4)">Unallotted (free)</span>
+            <span style="color:rgba(255,255,255,0.7);font-weight:600" id="sidebar-unallotted">—</span>
+          </div>
+        </div>
+        <div class="balance-bar" style="margin-top:8px"><div class="balance-fill" id="sidebar-balance-fill"></div></div>
       </div>
       <button class="logout-btn" onclick="doLogout()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -913,24 +924,24 @@ textarea.fld{resize:none;height:80px;}
       <div class="panel active" id="panel-campaign">
         <div class="stats-grid">
           <div class="stat-card">
-            <div class="stat-label">Total views</div>
-            <div class="stat-val" id="stat-total-views">—</div>
-            <div class="stat-sub">this account</div>
-          </div>
-          <div class="stat-card">
             <div class="stat-label">Views balance</div>
             <div class="stat-val" id="stat-view-balance">—</div>
-            <div class="stat-sub">views remaining</div>
+            <div class="stat-sub">total remaining</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Allotted to campaigns</div>
+            <div class="stat-val" id="stat-allotted">—</div>
+            <div class="stat-sub">assigned views</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Unallotted</div>
+            <div class="stat-val" id="stat-unallotted" style="color:var(--success)">—</div>
+            <div class="stat-sub">free to assign</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">Leads generated</div>
             <div class="stat-val" id="stat-leads-count">—</div>
             <div class="stat-sub">total leads</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Active ads</div>
-            <div class="stat-val" id="stat-active-ads">—</div>
-            <div class="stat-sub">running now</div>
           </div>
         </div>
 
@@ -1616,12 +1627,13 @@ async function loadAllData() {
     sbFetch(`/rest/v1/meetings?client_id=eq.${cid}&order=scheduled_at.asc`).then(r => r.ok ? r.json() : []),
   ]);
 
+  window._clientCampaigns = campaigns;
   renderCampaignPanel(ads, campaigns, viewEvents);
   renderLeadsPanel(leads);
   renderFollowupsPanel(leads);
   renderMeetingsPanel(meetings);
   renderReportsPanel(leads, viewEvents, campaigns);
-  updateSidebarBalance(CURRENT_CLIENT);
+  updateSidebarBalance(CURRENT_CLIENT, window._clientCampaigns || []);
 }
 
 // ══════════════════════════════════════════════
@@ -1635,9 +1647,15 @@ function renderCampaignPanel(ads, campaigns, viewEvents) {
   const pct         = totalBudget > 0 ? Math.round((totalViews / totalBudget) * 100) : 0;
 
   // Update stat cards
+  const totalAllotted   = campaigns.reduce(function(s,c){ return s+(c.view_budget||0); }, 0);
+  const totalUsed       = campaigns.reduce(function(s,c){ return s+(c.views_used||0); }, 0);
+  const unallottedBal   = Math.max(0, balance - totalAllotted + totalUsed);
+
   setEl('stat-total-views',   totalViews.toLocaleString());
   setEl('stat-view-balance',  balance.toLocaleString());
-  setEl('stat-leads-count',   '—'); // updated by renderLeadsPanel
+  setEl('stat-allotted',      totalAllotted.toLocaleString());
+  setEl('stat-unallotted',    unallottedBal.toLocaleString());
+  setEl('stat-leads-count',   '—');
   setEl('stat-active-ads',    ads.filter(a => a.status === 'active').length.toString());
 
   // Update balance colour
