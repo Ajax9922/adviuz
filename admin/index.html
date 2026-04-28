@@ -1795,9 +1795,13 @@ function renderAdminDashboard(clients, views, leads, campaigns, txns) {
         var statusCls = cam.status==='active' ? 'active' : cam.status==='paused' ? 'paused' : 'pending';
         var camLeads = leads.filter(function(l){ return l.campaign_id === cam.id; }).length;
         var liveUrl = 'https://adviuzdev.netlify.app?campaign_id=' + cam.id
-                    + (cam.client_id ? '&client_id=' + cam.client_id : '') + '&utm_source=facebook';
+                    + (cam.client_id ? '&client_id=' + cam.client_id : '')
+                    + '&utm_source=facebook';
+        var isClickable = cam.ad_id || cam.client_id; // clickable if has ad or client
         return '<tr>' +
-          '<td><div class="td-name" style="cursor:pointer;color:var(--brand)" onclick="window.open(this.dataset.url,\'_blank\')" data-url="' + liveUrl + '">' + cam.name + ' ↗</div></td>' +
+          '<td><div class="td-name" style="cursor:' + (isClickable?'pointer':'default') + ';color:var(--brand)" '
+            + (isClickable ? 'onclick="window.open(this.dataset.url,\'_blank\')" data-url="' + liveUrl + '"' : 'title="Add an ad page to make this clickable"')
+            + '>' + cam.name + (isClickable ? ' ↗' : '') + '</div></td>' +
           '<td>' + (client ? client.business_name : '—') + '</td>' +
           '<td class="td-mono">' + used.toLocaleString() + ' / ' + budget.toLocaleString() + '</td>' +
           '<td>' + camLeads + '</td>' +
@@ -2006,11 +2010,13 @@ function renderCampaignRows(campaigns, clients) {
     var barColor = pct >= 100 ? 'var(--danger)' : pct >= 85 ? 'var(--warning)' : 'var(--brand)';
 
     // Live ad URL
-    var adSlugParam = window._allAds ? (window._allAds.find(function(a){return a.id===cam.ad_id;}) || {}).ad_slug : '';
+    var adObj      = window._allAds ? (window._allAds.find(function(a){return a.id===cam.ad_id;}) || {}) : {};
+    var adSlugParam = adObj.ad_slug || '';
     var liveUrl = 'https://adviuzdev.netlify.app?campaign_id=' + cam.id
-                + (cam.client_id ? '&client_id=' + cam.client_id : '')
-                + (adSlugParam ? '&ad_id=' + adSlugParam : '')
+                + (cam.client_id  ? '&client_id=' + cam.client_id   : '')
+                + (adSlugParam    ? '&ad_id='     + adSlugParam      : '')
                 + '&utm_source=facebook';
+    var hasAd = !!cam.ad_id;
 
     // Impressions display
     var impDisplay = totalImp > 0
@@ -2037,10 +2043,11 @@ function renderCampaignRows(campaigns, clients) {
       '</td>' +
       // Campaign name column (click → open live ad)
       '<td>' +
-        '<div style="font-weight:600;font-size:13px;cursor:pointer;color:var(--brand)" onclick="window.open(\"' + liveUrl + '\",\'_blank\')" title="Click to open live ad with 25s timer">' +
-          cam.name +
-          ' <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:middle"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>' +
-        '</div>' +
+        '<div style="font-weight:600;font-size:13px;cursor:' + (hasAd?'pointer':'default') + ';color:var(--brand)"'
+          + (hasAd ? ' onclick="window.open(this.dataset.url,\'_blank\')" data-url="' + liveUrl + '" title="Open live ad — 25s timer runs"' : ' title="Edit campaign to add an ad page first"')
+          + '>' + cam.name
+          + (hasAd ? ' <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:middle"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>' : ' ⚠')
+          + '</div>' +
       '</td>' +
       // Client name column (click → open edit client)
       '<td>' +
