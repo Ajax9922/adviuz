@@ -2162,9 +2162,12 @@ async function saveClient() {
   var errEl = document.getElementById('cm-error');
   if (errEl) errEl.style.display = 'none';
 
-  // ── STEP 1: Create auth user via secure SQL RPC function ─
-  // create_client_user() is a SECURITY DEFINER function in Supabase
-  // It verifies is_admin() then inserts directly into auth.users
+  // ── STEP 1: Create auth user ────────────────────────────
+  // Try RPC function first, fall back to direct signup if needed
+  var authUserId = null;
+
+  // First try: RPC function (most secure — no email confirmation required)
+  console.log('[Adviuz] Attempting RPC create_client_user...');
   var authR = await sbAdmin('/rest/v1/rpc/create_client_user', {
     method: 'POST',
     body: JSON.stringify({
@@ -2175,33 +2178,71 @@ async function saveClient() {
     })
   });
 
-  var authUserId = null;
+  console.log('[Adviuz] RPC status:', authR.status);
 
-  if (!authR.ok) {
+  if (authR.ok) {
+    // RPC succeeded — get the UUID
+    var rpcResult = await authR.json().catch(function(){ return null; });
+    authUserId = typeof rpcResult === 'string' ? rpcResult
+               : (rpcResult && rpcResult.id ? rpcResult.id : null);
+    console.log('[Adviuz] RPC auth user created:', authUserId);
+
+  } else {
+    // RPC failed — log the error and try fallback
     var errBody = await authR.json().catch(function(){ return {}; });
-    var errMsg  = errBody.message || errBody.error || errBody.hint || '';
+    var errMsg  = errBody.message || errBody.error || errBody.hint || JSON.stringify(errBody);
+    console.warn('[Adviuz] RPC failed (' + authR.status + '):', errMsg);
 
-    if (errMsg.toLowerCase().includes('unique') || errMsg.toLowerCase().includes('already')) {
+    // Check for duplicate email first
+    if (errMsg.toLowerCase().includes('already registered') || errMsg.toLowerCase().includes('unique')) {
       showClientError('This email is already registered. Edit the existing client instead.');
       return;
     }
-    if (authR.status === 404) {
-      // RPC function not created yet — show clear instruction
-      showClientError(
-        'Setup needed: run the create_client_user SQL function in Supabase first. ' +
-        'Check the setup guide for the SQL.'
-      );
+
+    // Fallback: use /auth/v1/signup with email auto-confirm via admin JWT
+    // This works because Supabase auto-confirms when called with admin credentials
+    console.log('[Adviuz] Trying fallback: /auth/v1/signup...');
+    var signupR = await fetch(SB_URL + '/auth/v1/signup', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SB_ANON,
+        'Authorization': 'Bearer ' + ADMIN_JWT  // admin JWT = auto-confirm
+      },
+      body: JSON.stringify({
+        email:    email,
+        password: pass,
+        data: { business_name: biz, contact_name: name || '' }
+      })
+    });
+
+    console.log('[Adviuz] Signup status:', signupR.status);
+    var signupData = await signupR.json().catch(function(){ return {}; });
+    console.log('[Adviuz] Signup response:', JSON.stringify(signupData).slice(0, 200));
+
+    if (signupR.ok && signupData.user && signupData.user.id) {
+      authUserId = signupData.user.id;
+      console.log('[Adviuz] Signup auth user created:', authUserId);
+
+      // Auto-confirm the email via a direct update if not already confirmed
+      if (!signupData.user.email_confirmed_at) {
+        await sbAdmin('/rest/v1/rpc/confirm_client_email', {
+          method: 'POST',
+          body: JSON.stringify({ p_user_id: authUserId })
+        }).catch(function(){});
+      }
+
+    } else if (signupData.error || !signupR.ok) {
+      var signupErr = signupData.error_description || signupData.msg || signupData.error || '';
+      if (signupErr.toLowerCase().includes('already') || signupErr.toLowerCase().includes('registered')) {
+        showClientError('This email is already registered. Edit the existing client instead.');
+      } else {
+        showClientError('Could not create login: ' + signupErr + ' — creating client record only (no login).');
+        await createClientRecord(null, biz, name, email, phone, billing, role, notes);
+      }
       return;
     }
-    // Other error — still create client record so you can link later
-    showClientError('Auth user error (' + authR.status + '): ' + errMsg + '. Creating client record only.');
-    await createClientRecord(null, biz, name, email, phone, billing, role, notes);
-    return;
   }
-
-  // RPC returns the new user UUID directly
-  var rpcResult = await authR.json().catch(function(){ return null; });
-  authUserId = typeof rpcResult === 'string' ? rpcResult : (rpcResult && rpcResult.id ? rpcResult.id : null);
 
   // ── STEP 2: Create client record linked to auth user ─────
   await createClientRecord(authUserId, biz, name, email, phone, billing, role, notes);
