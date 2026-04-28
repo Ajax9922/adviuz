@@ -906,7 +906,14 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
 
       <!-- UTM LINK GENERATOR -->
       <div class="card" style="margin-bottom:0">
-        <div class="card-title">UTM link generator</div>
+        <div class="card-title" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between" onclick="toggleUTM()">
+          <span>UTM link generator <span style="font-size:11px;font-weight:400;color:var(--muted)">(advanced — campaign URL is auto-generated)</span></span>
+          <span id="utm-toggle-icon">▾</span>
+        </div>
+        <div id="utm-body" style="display:none">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:14px;padding:10px;background:var(--surface2);border-radius:8px">
+          Campaign URLs are created automatically when you create a campaign above. Use this only if you need a custom URL for a specific platform or tracking parameter.
+        </div>
         <div class="form-grid">
           <div class="form-group"><label class="fld">Client</label>
             <select class="fld" id="utm-client" onchange="buildURL()"><option value="">Select client…</option></select>
@@ -927,6 +934,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
         <div class="url-box"><span id="urlOutput">https://adviuzdev.netlify.app?ad_id=ad-001&utm_source=facebook&utm_campaign=campaign-jan-2025</span>
           <button class="copy-btn" onclick="copyURL()">Copy</button>
         </div>
+        </div><!-- /utm-body -->
       </div>
     </div>
 
@@ -999,15 +1007,30 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
 
           <div class="card">
             <div class="card-title">Assign & publish</div>
+            <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;color:var(--muted);line-height:1.5">
+              <strong style="color:var(--text)">Step 2 of 3.</strong> Assign this ad to a client and publish. 
+              You will set the view budget when creating a Campaign in Step 3.
+            </div>
             <div class="form-grid">
-              <div class="form-group"><label class="fld">Assign to client</label><select class="fld" id="builder-client-sel"><option value="">Select client…</option></select></div>
+              <div class="form-group"><label class="fld">Assign to client <span style="color:var(--danger)">*</span></label>
+                <select class="fld" id="builder-client-sel" onchange="showClientBalance()">
+                  <option value="">Select client…</option>
+                </select>
+              </div>
               <div class="form-group"><label class="fld">Product type</label>
-                <select class="fld" id="builder-product-type" onchange="updateBuilderAllot()">
-                  <option value="views">Views package</option>
-                  <option value="leads">Lead package</option>
-                </select></div>
-              <div class="form-group full"><label class="fld" id="builder-allot-label">Views to allot</label>
-                <input class="fld" id="builder-allot" type="number" value="1000" placeholder="e.g. 1000"></div>
+                <select class="fld" id="builder-product-type">
+                  <option value="views">Digital Flyers (pay per 25s view)</option>
+                  <option value="leads">Lead Engine (pay per lead)</option>
+                </select>
+              </div>
+            </div>
+            <!-- Client balance preview -->
+            <div id="builder-balance-preview" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:14px">
+              <div style="font-size:12px;color:var(--muted);margin-bottom:2px">Client wallet balance</div>
+              <div style="display:flex;align-items:baseline;gap:8px">
+                <span id="builder-balance-val" style="font-size:22px;font-weight:700;color:var(--brand)">0</span>
+                <span style="font-size:13px;color:var(--muted)">views available · budget set in Campaign</span>
+              </div>
             </div>
             <!-- Call numbers config -->
             <div class="form-group" style="margin-top:8px">
@@ -1474,7 +1497,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal('campaignModal')">Cancel</button>
+      <button class="btn-cancel" onclick="resetCampaignModal();closeModal('campaignModal')">Cancel</button>
       <button class="btn-save" onclick="saveCampaign()">Create campaign</button>
     </div>
   </div>
@@ -1752,7 +1775,7 @@ function renderClientsTable(clients, views, leads) {
     return '<option value="' + c.id + '">' + c.business_name + '</option>';
   }).join('');
   // Populate New Campaign client dropdown
-  var camClientSel = document.querySelector('#campaignModal select:first-of-type');
+  var camClientSel = document.getElementById('cam-client-sel2');
   if (camClientSel) camClientSel.innerHTML = '<option value="">Select client…</option>' + clientOpts;
 
   // Populate the ad dropdown from real ads data
@@ -2281,20 +2304,20 @@ async function createClientRecord(authUserId, biz, name, email, phone, billing, 
 }
 
 async function saveCampaign() {
-  var nameEl    = document.querySelector('#campaignModal input[placeholder*="Diwali"]');
-  var budgetEl  = document.querySelector('#campaignModal input[type=number]');
-  var clientSel = document.querySelector('#campaignModal select:first-of-type');
-  var adSel     = document.getElementById('cam-ad-sel');
-  var typeSel   = document.getElementById('cam-product-type');
+  var name     = (document.getElementById('cam-name-input')?.value   || '').trim();
+  var budget   = parseInt(document.getElementById('cam-views-input')?.value || 0) || 0;
+  var clientId = document.getElementById('cam-client-sel2')?.value   || '';
+  var adId     = document.getElementById('cam-ad-sel')?.value        || '';
+  var prodType = document.getElementById('cam-product-type')?.value  || 'views';
+  var notes    = document.getElementById('cam-notes-input')?.value   || '';
 
-  var name     = nameEl    ? nameEl.value.trim()    : '';
-  var budget   = parseInt(budgetEl ? budgetEl.value : 0) || 0;
-  var clientId = clientSel ? clientSel.value        : '';
-  var adId     = adSel     ? adSel.value            : '';   // This is now a real UUID
-  var prodType = typeSel   ? typeSel.value          : 'views';
-  var platform = 'facebook'; // default; clients run ads on multiple platforms
-
-  if (!name) { toast('Enter a campaign name'); return; }
+  if (!name)     { toast('Enter a campaign name'); return; }
+  if (!clientId) { toast('Select a client'); return; }
+  if (!adId)     { toast('Select an ad page'); return; }
+  if (!budget)   { toast('Enter how many views to assign'); return; }
+  if (budget > (window._camClientBalance || 0)) {
+    toast('Views assigned exceeds client wallet balance'); return;
+  }
 
   // Get the ad slug to build the UTM source
   var utmCampaign = name.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'');
@@ -2310,6 +2333,7 @@ async function saveCampaign() {
       leads_target:  prodType === 'leads' ? budget : 0,
       billing_model: prodType,
       utm_campaign:  utmCampaign,
+      notes:         notes || null,
       status:        'active'
     })
   });
@@ -2403,7 +2427,7 @@ async function publishAd() {
       stat_1_val:   bS1v, stat_1_label: bS1l,
       stat_2_val:   bS2v, stat_2_label: bS2l,
       stat_3_val:   bS3v, stat_3_label: bS3l,
-      view_budget:  productType === 'views' ? budget : 0,
+      view_budget:  0,  // set in Campaign, not here
       call_numbers: callNums.length > 0 ? callNums : null,
       form_fields:  formFields.length > 0 ? formFields : null,
       status:       'active'
@@ -2536,6 +2560,26 @@ function _filterClientsOLD(q){
 // viewClient() replaced by openTopupForClient in live version
 
 // copyURL() — use copyAdURL() from live integration above
+
+
+function resetCampaignModal() {
+  ['cam-name-input','cam-views-input','cam-notes-input'].forEach(function(id){
+    var el = document.getElementById(id); if(el) el.value = '';
+  });
+  ['cam-client-sel2','cam-ad-sel'].forEach(function(id){
+    var el = document.getElementById(id); if(el) el.selectedIndex = 0;
+  });
+  var info = document.getElementById('cam-wallet-info');
+  if (info) info.style.display = 'none';
+  window._camClientBalance = 0;
+}
+
+function toggleUTM() {
+  var body = document.getElementById('utm-body');
+  var icon = document.getElementById('utm-toggle-icon');
+  if (body) body.style.display = body.style.display === 'none' ? 'block' : 'none';
+  if (icon) icon.textContent = body && body.style.display !== 'none' ? '▴' : '▾';
+}
 
 function buildURL(){
   const client=(document.getElementById('utm-client')?.value||'').toLowerCase().replace(/\s+/g,'-');
@@ -3029,6 +3073,86 @@ function toggleAdminSidebar() {
   var ov = document.getElementById('adminSidebarOverlay');
   if (sb) sb.classList.toggle('open');
   if (ov) ov.classList.toggle('open');
+}
+
+
+// ── AD BUILDER: show client balance on select ──
+function showClientBalance() {
+  var sel = document.getElementById('builder-client-sel');
+  var preview = document.getElementById('builder-balance-preview');
+  var valEl   = document.getElementById('builder-balance-val');
+  if (!sel || !sel.value) {
+    if (preview) preview.style.display = 'none';
+    return;
+  }
+  var client = (window._allClients||[]).find(function(c){ return c.id === sel.value; });
+  if (client && preview) {
+    preview.style.display = 'block';
+    if (valEl) {
+      valEl.textContent = (client.view_balance||0).toLocaleString();
+      valEl.style.color = (client.view_balance||0) < 200 ? 'var(--danger)' : 'var(--brand)';
+    }
+  }
+}
+
+// ── CAMPAIGN MODAL: client selected → show wallet ──
+function onCamClientChange() {
+  var sel    = document.getElementById('cam-client-sel2');
+  var info   = document.getElementById('cam-wallet-info');
+  var total  = document.getElementById('cam-wallet-total');
+  var remain = document.getElementById('cam-wallet-remain');
+  var bar    = document.getElementById('cam-wallet-bar');
+
+  if (!sel || !sel.value) {
+    if (info) info.style.display = 'none';
+    return;
+  }
+  var client = (window._allClients||[]).find(function(c){ return c.id === sel.value; });
+  if (!client) return;
+
+  var bal = client.view_balance || 0;
+  window._camClientBalance = bal;
+
+  if (info)   info.style.display = 'block';
+  if (total)  total.textContent  = bal.toLocaleString();
+  if (remain) remain.textContent = bal.toLocaleString();
+  if (bar)    bar.style.width    = '0%';
+
+  // Filter ad dropdown to this client's ads
+  var adSel = document.getElementById('cam-ad-sel');
+  if (adSel && window._allAds) {
+    var clientAds = window._allAds.filter(function(a){ return a.client_id === sel.value; });
+    if (clientAds.length > 0) {
+      adSel.innerHTML = '<option value="">Select ad…</option>' +
+        clientAds.map(function(a) {
+          var label = a.business_name || 'Ad';
+          if (a.headline_1) label += ' — ' + a.headline_1;
+          label += ' (' + a.ad_slug + ')';
+          return '<option value="' + a.id + '">' + label + '</option>';
+        }).join('');
+    } else {
+      adSel.innerHTML = '<option value="">No ads for this client — create one first</option>';
+    }
+  }
+
+  updateCamWalletPreview();
+}
+
+function updateCamWalletPreview() {
+  var input   = document.getElementById('cam-views-input');
+  var remain  = document.getElementById('cam-wallet-remain');
+  var bar     = document.getElementById('cam-wallet-bar');
+  var warning = document.getElementById('cam-wallet-warning');
+  var bal     = window._camClientBalance || 0;
+  var assign  = parseInt(input ? input.value : 0) || 0;
+  var left    = bal - assign;
+  var pct     = bal > 0 ? Math.min(100, Math.round(assign / bal * 100)) : 0;
+
+  if (remain)  remain.textContent    = left >= 0 ? left.toLocaleString() : '0';
+  if (remain)  remain.style.color    = left < 0 ? 'var(--danger)' : 'var(--text)';
+  if (bar)     bar.style.width       = pct + '%';
+  if (bar)     bar.style.background  = left < 0 ? 'var(--danger)' : (pct > 85 ? 'var(--warning)' : 'var(--brand)');
+  if (warning) warning.style.display = left < 0 ? 'block' : 'none';
 }
 
 // ── AD BUILDER HELPERS ──
