@@ -878,52 +878,57 @@ async function loadAdConfig() {
     applyAdConfig(AD_CONFIG);
     return;
   }
+
+  // Step 1: Try to get ad record by slug (anon key reads ads table)
   try {
-    const r = await fetch(
-      `${SUPABASE_URL}/rest/v1/ads?ad_slug=eq.${AD_CONTEXT.ad_id}&select=id,client_id,status,form_fields,call_numbers,form_title,form_sub,cta_text`,
-      { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
-    );
-    if (r.ok) {
-      const rows = await r.json();
-      if (rows[0]) {
-        // Check if ad is paused — show message to viewer
-        if (rows[0].status === 'paused') {
-          document.body.innerHTML = `
-            <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;
-              background:#0D0D0D;font-family:'Plus Jakarta Sans',sans-serif;text-align:center;padding:40px">
-              <div>
-                <div style="width:64px;height:64px;background:rgba(200,16,46,0.15);border-radius:50%;
-                  display:flex;align-items:center;justify-content:center;margin:0 auto 20px">
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#C8102E" stroke-width="2">
-                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
-                    <line x1="12" y1="16" x2="12.01" y2="16"/>
-                  </svg>
-                </div>
-                <h2 style="color:#fff;font-size:22px;font-weight:700;margin-bottom:10px">
-                  This ad is currently paused
-                </h2>
-                <p style="color:rgba(255,255,255,0.45);font-size:15px;max-width:320px;line-height:1.6">
-                  This campaign is temporarily unavailable. Please check back later or contact the advertiser directly.
-                </p>
-              </div>
-            </div>`;
-          return;
-        }
-        // Update AD_CONTEXT with real UUIDs from the database
-        if (rows[0].client_id && AD_CONTEXT.client_id === 'demo-client') {
-          AD_CONTEXT.client_id = rows[0].client_id;
-        }
-        if (rows[0].id) {
-          AD_CONTEXT.ad_uuid = rows[0].id;
-        }
-        if (rows[0].form_fields)   AD_CONFIG.form_fields   = rows[0].form_fields;
-        if (rows[0].call_numbers)  AD_CONFIG.call_numbers  = rows[0].call_numbers;
-        if (rows[0].form_title)    AD_CONFIG.form_title    = rows[0].form_title;
-        if (rows[0].form_sub)      AD_CONFIG.form_sub      = rows[0].form_sub;
-        if (rows[0].cta_text)      AD_CONFIG.cta_text      = rows[0].cta_text;
-      }
+    const url = `${SUPABASE_URL}/rest/v1/ads?ad_slug=eq.${encodeURIComponent(AD_CONTEXT.ad_id)}&select=id,client_id,status,form_fields,call_numbers,form_title,form_sub,cta_text`;
+    console.log('[Adviuz] Fetching ad slug:', AD_CONTEXT.ad_id);
+    const r = await fetch(url, { headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY } });
+    console.log('[Adviuz] Ads fetch status:', r.status);
+    const rows = r.ok ? await r.json() : [];
+    console.log('[Adviuz] Rows returned:', rows.length);
+
+    if (rows.length > 0 && rows[0].id) {
+      var row = rows[0];
+      if (row.status === 'paused') { showPausedScreen('This ad'); return; }
+      AD_CONTEXT.ad_uuid = row.id;
+      if (row.client_id && AD_CONTEXT.client_id === 'demo-client') AD_CONTEXT.client_id = row.client_id;
+      if (row.form_fields)  AD_CONFIG.form_fields  = row.form_fields;
+      if (row.call_numbers) AD_CONFIG.call_numbers = row.call_numbers;
+      if (row.form_title)   AD_CONFIG.form_title   = row.form_title;
+      if (row.form_sub)     AD_CONFIG.form_sub     = row.form_sub;
+      if (row.cta_text)     AD_CONFIG.cta_text     = row.cta_text;
+      console.log('[Adviuz] ad_uuid set from slug:', row.id);
     }
-  } catch(e) { console.warn('[Adviuz] Could not load ad config, using defaults'); }
+  } catch(e) {
+    console.error('[Adviuz] Slug fetch error:', e);
+  }
+
+  // Step 2: If still no UUID, get ad_id from campaign record
+  if (!AD_CONTEXT.ad_uuid && AD_CONTEXT.campaign_id) {
+    try {
+      console.log('[Adviuz] No UUID from slug, trying campaign:', AD_CONTEXT.campaign_id);
+      const cr = await fetch(
+        `${SUPABASE_URL}/rest/v1/campaigns?id=eq.${AD_CONTEXT.campaign_id}&select=ad_id,client_id,status`,
+        { headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY } }
+      );
+      const crows = cr.ok ? await cr.json() : [];
+      console.log('[Adviuz] Campaign rows:', crows.length);
+      if (crows.length > 0) {
+        var cam = crows[0];
+        if (cam.status === 'paused') { showPausedScreen('This campaign'); return; }
+        if (cam.ad_id) {
+          AD_CONTEXT.ad_uuid = cam.ad_id;
+          console.log('[Adviuz] ad_uuid from campaign:', cam.ad_id);
+        }
+        if (cam.client_id && AD_CONTEXT.client_id === 'demo-client') AD_CONTEXT.client_id = cam.client_id;
+      }
+    } catch(e) {
+      console.error('[Adviuz] Campaign fetch error:', e);
+    }
+  }
+
+  console.log('[Adviuz] Ready — ad_uuid:', AD_CONTEXT.ad_uuid, '| client_id:', AD_CONTEXT.client_id);
   applyAdConfig(AD_CONFIG);
 }
 
