@@ -716,15 +716,19 @@ textarea.fld{resize:none;height:80px;}
     </div>
     <div class="login-title">Client portal</div>
     <div class="login-sub">Sign in to manage your campaigns and leads</div>
+    <form id="loginForm" onsubmit="event.preventDefault();doLogin()" autocomplete="on">
     <div class="login-field">
       <label>Email address</label>
-      <input type="email" id="loginEmail" placeholder="you@business.com" value="demo@adviuz.com">
+      <input type="email" id="loginEmail" name="email" placeholder="you@business.com"
+        autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false">
     </div>
     <div class="login-field">
       <label>Password</label>
-      <input type="password" id="loginPass" placeholder="••••••••" value="demo123">
+      <input type="password" id="loginPass" name="password" placeholder="••••••••"
+        autocomplete="current-password">
     </div>
-    <button class="login-btn" onclick="doLogin()">Sign in to panel →</button>
+    <button type="submit" class="login-btn">Sign in to panel →</button>
+    </form>
     <div class="login-error" id="loginError">Invalid email or password. Please try again.</div>
   </div>
 </div>
@@ -1340,9 +1344,28 @@ function maybeShowIOSHint() {
 const SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
-// Supabase session stored in memory (not localStorage for security)
+// Session — persisted in localStorage so refresh keeps user logged in
 let SB_SESSION = null;
 let CURRENT_CLIENT = null;
+
+// Try restore session on page load
+(function restoreSession() {
+  try {
+    var saved = localStorage.getItem('adviuz_client_session');
+    if (saved) {
+      var parsed = JSON.parse(saved);
+      // Check token not expired
+      var exp = parsed.expires_at || 0;
+      if (Date.now() / 1000 < exp - 60) {
+        SB_SESSION = parsed;
+        console.log('[Client] Session restored from storage');
+      } else {
+        localStorage.removeItem('adviuz_client_session');
+        console.log('[Client] Stored session expired');
+      }
+    }
+  } catch(e) {}
+})();
 
 // Core fetch wrapper — handles auth headers automatically
 async function sbFetch(path, opts = {}) {
@@ -1493,8 +1516,11 @@ async function doLogin() {
       return;
     }
 
-    // Store session
+    // Store session — persists across refresh
     SB_SESSION = data;
+    try {
+      localStorage.setItem('adviuz_client_session', JSON.stringify(data));
+    } catch(e) {}
 
     // Load client profile linked to this auth user
     await loadClientProfile();
@@ -1517,8 +1543,35 @@ async function doLogin() {
   }
 }
 
-document.getElementById('loginPass').addEventListener('keydown', e => {
+document.getElementById('loginPass').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') doLogin();
+});
+
+// On page load — if valid session exists, skip login
+document.addEventListener('DOMContentLoaded', async function() {
+  if (SB_SESSION && SB_SESSION.access_token) {
+    console.log('[Client] Auto-login from stored session');
+    // Verify token is still valid
+    try {
+      var r = await fetch(SB_URL + '/auth/v1/user', {
+        headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_SESSION.access_token }
+      });
+      if (r.ok) {
+        // Valid — skip login screen
+        document.getElementById('loginScreen').style.display = 'none';
+        var app = document.getElementById('appShell');
+        if (app) { app.style.flex = '1'; app.classList.add('visible'); }
+        await loadClientProfile();
+        await loadAllData();
+        return;
+      }
+    } catch(e) {}
+    // Token invalid — clear and show login
+    SB_SESSION = null;
+    try { localStorage.removeItem('adviuz_client_session'); } catch(e2) {}
+  }
+  // Show login screen normally
+  document.getElementById('loginScreen').style.display = 'flex';
 });
 
 async function doLogout() {
@@ -1531,6 +1584,7 @@ async function doLogout() {
   }
   SB_SESSION = null;
   CURRENT_CLIENT = null;
+  try { localStorage.removeItem('adviuz_client_session'); } catch(e) {}
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('loginEmail').value = '';
   document.getElementById('loginPass').value = '';
@@ -1676,8 +1730,11 @@ function renderCampaignPanel(ads, campaigns, viewEvents) {
     const letter = ad.logo_letter || (ad.business_name || 'A')[0].toUpperCase();
     const name = ad.business_name || 'Ad';
 
-    // Find matching campaign for this ad
-    const cam = campaigns.find(function(c){ return c.ad_id === ad.id; });
+    // Find matching campaign for this ad (by ad_id UUID)
+    var cam = campaigns.find(function(c){ return c.ad_id === ad.id; });
+    // Fallback: if no ad_id match, show first campaign for this client
+    if (!cam && campaigns.length === 1) cam = campaigns[0];
+    var camName = cam ? cam.name : '';
     const used   = cam ? (cam.views_used   || 0) : 0;
     const budget = cam ? (cam.view_budget  || 0) : 0;
     const adPct  = budget > 0 ? Math.min(100, Math.round(used / budget * 100)) : 0;
@@ -1705,6 +1762,7 @@ function renderCampaignPanel(ads, campaigns, viewEvents) {
         // Name + progress
         '<div style="flex:1;min-width:0">' +
           '<div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)">' + name + '</div>' +
+          (camName ? '<div style="font-size:10px;color:var(--muted);margin-top:1px">Campaign: ' + camName + '</div>' : '') +
           '<div style="font-size:11px;color:var(--muted);margin-top:2px">' +
             (cam ? used.toLocaleString() + ' / ' + budget.toLocaleString() + ' views · ' + adPct + '%' : 'No campaign assigned') +
           '</div>' +
