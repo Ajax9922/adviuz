@@ -1595,32 +1595,45 @@ async function doLogout() {
 // LOAD CLIENT PROFILE
 // ══════════════════════════════════════════════
 async function loadClientProfile() {
-  console.log('[Client] Loading profile for user:', SB_SESSION.user.id);
-  const r = await sbFetch('/rest/v1/clients?auth_user_id=eq.' + SB_SESSION.user.id + '&limit=1');
-  console.log('[Client] Profile fetch status:', r.status);
-  if (!r.ok) {
-    const errText = await r.text().catch(() => '');
-    console.error('[Client] Profile fetch error:', errText);
-    return;
-  }
-  const rows = await r.json();
-  console.log('[Client] Profile rows:', rows.length);
-  if (!rows[0]) {
-    console.warn('[Client] No client record found for auth_user_id:', SB_SESSION.user.id);
-    return;
-  }
-  CURRENT_CLIENT = rows[0];
-  console.log('[Client] Loaded client:', CURRENT_CLIENT.business_name, '| balance:', CURRENT_CLIENT.view_balance);
+  const uid = SB_SESSION && SB_SESSION.user ? SB_SESSION.user.id : 'unknown';
+  console.log('[Client] Loading profile for user:', uid);
 
+  const r = await sbFetch('/rest/v1/clients?auth_user_id=eq.' + uid + '&limit=1');
+  console.log('[Client] Profile status:', r.status);
+
+  if (!r.ok) {
+    const errText = await r.text().catch(function(){ return ''; });
+    console.error('[Client] Profile error:', r.status, errText);
+    showDataError('Cannot load profile (' + r.status + '). Run the RLS policies in Supabase.');
+    return;
+  }
+
+  const rows = await r.json();
+  console.log('[Client] Profile rows:', rows.length, rows[0] ? rows[0].business_name : 'none');
+
+  if (!rows[0]) {
+    console.warn('[Client] No client record for auth_user_id:', uid);
+    showDataError('No client record linked to this login. Check that auth_user_id is set in the clients table.');
+    return;
+  }
+
+  CURRENT_CLIENT = rows[0];
   const nameEl = document.getElementById('sideClientName');
   if (nameEl) nameEl.textContent = CURRENT_CLIENT.business_name || 'My Business';
 
-  // Also update the header greeting
   const greetEl = document.getElementById('clientGreeting');
   if (greetEl) {
     const hour = new Date().getHours();
     const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
     greetEl.textContent = greeting + ', ' + (CURRENT_CLIENT.contact_name || CURRENT_CLIENT.business_name) + '.';
+  }
+}
+
+function showDataError(msg) {
+  var adList = document.getElementById('adList');
+  if (adList) {
+    adList.innerHTML = '<div style="padding:20px;background:#fff0f2;border-radius:10px;margin:16px;font-size:13px;color:#C8102E;border:1px solid rgba(200,16,46,0.2)">' +
+      '<strong>Setup needed:</strong> ' + msg + '</div>';
   }
 }
 
@@ -1635,13 +1648,25 @@ async function loadAllData() {
   try {
     const [ads, campaigns, leads, viewEvents] = await Promise.all([
       sbFetch(`/rest/v1/ads?client_id=eq.${cid}&order=created_at.desc`)
-        .then(r => { console.log('[Client] ads:', r.status); return r.ok ? r.json() : []; }),
+        .then(async function(r) {
+          if (!r.ok) { var e = await r.text(); console.error('[Client] ads error:', r.status, e.slice(0,100)); return []; }
+          var d = await r.json(); console.log('[Client] ads:', d.length); return d;
+        }),
       sbFetch(`/rest/v1/campaigns?client_id=eq.${cid}&order=created_at.desc`)
-        .then(r => { console.log('[Client] campaigns:', r.status); return r.ok ? r.json() : []; }),
+        .then(async function(r) {
+          if (!r.ok) { var e = await r.text(); console.error('[Client] campaigns error:', r.status, e.slice(0,100)); return []; }
+          var d = await r.json(); console.log('[Client] campaigns:', d.length, d.map(function(c){return c.name;})); return d;
+        }),
       sbFetch(`/rest/v1/leads?client_id=eq.${cid}&order=submitted_at.desc&limit=50`)
-        .then(r => { console.log('[Client] leads:', r.status); return r.ok ? r.json() : []; }),
+        .then(async function(r) {
+          if (!r.ok) { var e = await r.text(); console.error('[Client] leads error:', r.status, e.slice(0,100)); return []; }
+          var d = await r.json(); console.log('[Client] leads:', d.length); return d;
+        }),
       sbFetch(`/rest/v1/view_events?client_id=eq.${cid}&order=viewed_at.desc&limit=200`)
-        .then(r => { console.log('[Client] view_events:', r.status); return r.ok ? r.json() : []; }),
+        .then(async function(r) {
+          if (!r.ok) { var e = await r.text(); console.error('[Client] view_events error:', r.status, e.slice(0,100)); return []; }
+          var d = await r.json(); console.log('[Client] view_events:', d.length); return d;
+        }),
     ]);
 
     console.log('[Client] Loaded — ads:', ads.length, 'campaigns:', campaigns.length, 'leads:', leads.length, 'views:', viewEvents.length);
@@ -1656,6 +1681,7 @@ async function loadAllData() {
 
   } catch(e) {
     console.error('[Client] loadAllData error:', e);
+    showDataError('Data load error: ' + e.message);
   }
 }
 
@@ -1770,9 +1796,9 @@ function renderCampaignPanel(ads, campaigns, viewEvents) {
         '</div>' +
 
         // Right controls
-        '<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0">' +
+        '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;flex-shrink:0;min-width:130px">' +
 
-          // Status badge + toggle
+          // Status badge + toggle on same row
           '<div style="display:flex;align-items:center;gap:8px">' +
             '<span class="badge ' + (isActive ? 'active' : 'paused') + '" id="badge-' + ad.id + '">' +
               '<span class="badge-dot"></span>' + (isActive ? 'Active' : 'Paused') +
@@ -1785,9 +1811,7 @@ function renderCampaignPanel(ads, campaigns, viewEvents) {
           '</div>' +
 
           // Single "Ad Preview" button — opens modal with all previews
-          '<button class="btn-sm" style="font-size:11px;font-weight:600" data-adid="' + ad.id + '" data-name="' + encodeURIComponent(name) + '" data-live="' + encodeURIComponent(liveUrl) + '" data-fb="' + encodeURIComponent(fbPreviewUrl||'') + '" data-gg="' + encodeURIComponent(ggPreviewUrl||'') + '" onclick="openAdPreviewModal(this.dataset.adid,this.dataset.name,decodeURIComponent(this.dataset.live),decodeURIComponent(this.dataset.fb),decodeURIComponent(this.dataset.gg))">' +
-            '&#128065; Ad Preview' +
-          '</button>' +            '👁 Ad Preview' +
+          '<button class="btn-sm" style="font-size:11px;font-weight:600;display:flex;align-items:center;gap:4px" data-adid="' + ad.id + '" data-name="' + encodeURIComponent(name) + '" data-live="' + encodeURIComponent(liveUrl) + '" data-fb="' + encodeURIComponent(fbPreviewUrl||'') + '" data-gg="' + encodeURIComponent(ggPreviewUrl||'') + '" onclick="openAdPreviewModal(this.dataset.adid,this.dataset.name,decodeURIComponent(this.dataset.live),decodeURIComponent(this.dataset.fb),decodeURIComponent(this.dataset.gg))">&#128065; Ad Preview</button>' +            '👁 Ad Preview' +
           '</button>' +
 
         '</div>' +
