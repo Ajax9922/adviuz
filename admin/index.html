@@ -2370,10 +2370,12 @@ function renderAdBuilderPanel() {
     var camName = cam ? cam.name : '—';
     var letter  = (ad.logo_letter || (ad.business_name || 'A')[0]).toUpperCase();
     var color   = ad.brand_color || '#C8102E';
-    var liveUrl = 'https://adviuzdev.netlify.app?ad_id=' + encodeURIComponent(ad.ad_slug || '') +
+    var liveUrl = ad.live_url ||
+      ('https://adviuzdev.netlify.app?ad_id=' + encodeURIComponent(ad.ad_slug || '') +
       (cam ? '&campaign_id=' + cam.id : '') +
       (ad.client_id ? '&client_id=' + ad.client_id : '') +
-      '&utm_source=preview';
+      '&utm_source=preview');
+    var subLabel = ad.live_url ? ad.live_url.replace('https://','') : null;
 
     return '<tr>' +
       '<td style="padding:10px 14px">' +
@@ -2382,6 +2384,7 @@ function renderAdBuilderPanel() {
           '<div>' +
             '<div style="font-weight:600;font-size:13px">' + (ad.business_name || '—') + '</div>' +
             '<div style="font-size:11px;color:var(--muted);font-family:var(--mono)">' + (ad.ad_slug || ad.id.slice(0,8)) + '</div>' +
+            (subLabel ? '<div style="font-size:10px;font-weight:600;color:var(--brand);margin-top:2px">🌐 ' + subLabel + '</div>' : '') +
           '</div>' +
         '</div>' +
       '</td>' +
@@ -2511,9 +2514,98 @@ async function savePastedCode() {
   if (saveBtn) { saveBtn.textContent = isEdit ? 'Update ad →' : 'Save & create ad →'; saveBtn.disabled = false; }
   closeModal('pasteCodeModal');
   window._editingAdId = null;
-  toast(r.ok ? (isEdit ? '✅ Ad updated!' : '✅ Ad saved! Now create a campaign to run it.') : 'Save failed: ' + r.status);
+
+  if (r.ok) {
+    var liveUrl = await deployAdToSubdomain(adSlug, name, injected);
+    if (liveUrl) {
+      // Save live_url back to the ad record
+      var rows = await sbAdmin('/rest/v1/ads?ad_slug=eq.' + adSlug + '&select=id', {});
+      if (rows.ok) {
+        var ads = await rows.json();
+        if (ads[0]) {
+          await sbAdmin('/rest/v1/ads?id=eq.' + ads[0].id, {
+            method: 'PATCH',
+            headers: { 'Prefer': 'return=minimal' },
+            body: JSON.stringify({ live_url: liveUrl })
+          });
+        }
+      }
+    }
+  } else {
+    toast('Save failed: ' + r.status);
+  }
   await loadAdminData();
   renderAdBuilderPanel();
+}
+
+// ══════════════════════════════════════════════
+// GITHUB AUTO-DEPLOY
+// ══════════════════════════════════════════════
+var GH_TOKEN  = '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';
+var GH_USER   = 'Ajax9922';
+var GH_REPO   = 'adviuz';
+var GH_BASE   = 'https://api.github.com/repos/' + GH_USER + '/' + GH_REPO;
+var AD_DOMAIN = 'adviuz.ca';
+
+async function ghFetch(path, method, body) {
+  return fetch(GH_BASE + path, {
+    method:  method || 'GET',
+    headers: {
+      'Authorization':        'Bearer ' + GH_TOKEN,
+      'Accept':               'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type':         'application/json'
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+}
+
+async function ghGetSha(path) {
+  var r = await ghFetch('/contents/' + path);
+  if (r.status === 200) { var d = await r.json(); return d.sha || null; }
+  return null;
+}
+
+async function ghPutFile(path, content, message, sha) {
+  var encoded = btoa(unescape(encodeURIComponent(content)));
+  var body = { message: message, content: encoded };
+  if (sha) body.sha = sha;
+  var r = await ghFetch('/contents/' + path, 'PUT', body);
+  return r.ok;
+}
+
+async function updateRedirects(subdomain) {
+  var newLine = 'https://' + subdomain + '.' + AD_DOMAIN + '/* /ads/' + subdomain + '/:splat 200';
+  var r = await ghFetch('/contents/_redirects');
+  var sha = null, existing = '';
+  if (r.status === 200) {
+    var d = await r.json();
+    sha = d.sha;
+    existing = decodeURIComponent(escape(atob(d.content.replace(/\n/g,''))));
+  }
+  if (existing.includes('/ads/' + subdomain + '/')) return; // already there
+  var updated = existing.trim() + (existing.trim() ? '\n' : '') + newLine + '\n';
+  await ghPutFile('_redirects', updated, 'Add redirect: ' + subdomain + '.' + AD_DOMAIN, sha);
+}
+
+async function deployAdToSubdomain(adSlug, adName, htmlContent) {
+  var sub = adSlug.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  var filePath = 'ads/' + sub + '/index.html';
+  var liveUrl  = 'https://' + sub + '.' + AD_DOMAIN;
+
+  toast('⏳ Deploying to ' + sub + '.' + AD_DOMAIN + '…');
+  try {
+    var sha  = await ghGetSha(filePath);
+    var ok   = await ghPutFile(filePath, htmlContent, 'Deploy: ' + adName, sha);
+    if (!ok) { toast('❌ GitHub push failed — check token permissions'); return null; }
+    await updateRedirects(sub);
+    toast('✅ Live at ' + liveUrl + ' in ~30 seconds');
+    return liveUrl;
+  } catch(e) {
+    toast('❌ Deploy error: ' + e.message);
+    console.error('[Deploy]', e);
+    return null;
+  }
 }
 
 function injectAdviuzTracking(htmlStr, adSlug) {
