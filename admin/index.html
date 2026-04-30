@@ -1873,16 +1873,33 @@ function renderClientRows(clients, leads) {
     var balDisplay  = c.billing_model === 'leads'
       ? (c.leads_purchased || 0) + ' leads pkg'
       : bal.toLocaleString() + ' views';
+    // Count campaigns for this client
+    var clientCampaigns = (window._allCampaigns||[]).filter(function(cam){ return cam.client_id === c.id; });
+    var activeCams = clientCampaigns.filter(function(cam){ return cam.status === 'active'; }).length;
+    var totalCams  = clientCampaigns.length;
+    var totalViews = clientCampaigns.reduce(function(s,cam){ return s+(cam.views_used||0); }, 0);
+
     return '<tr data-client-id="' + c.id + '" data-search="' + (c.business_name + ' ' + c.email + ' ' + (c.contact_name||'')).toLowerCase() + '">' +
-      '<td><div class="td-name">' + (c.contact_name||c.business_name) + roleTag + productTag + '</div><div class="td-email">' + c.email + '</div></td>' +
+      '<td>' +
+        '<div class="td-name">' + (c.contact_name||c.business_name) + roleTag + productTag + '</div>' +
+        '<div class="td-email">' + c.email + '</div>' +
+      '</td>' +
       '<td>' + c.business_name + '</td>' +
-      '<td class="td-mono" style="' + balColor + '">' + balDisplay + '</td>' +
+      '<td class="td-mono" style="' + balColor + '">' +
+        '<div style="font-weight:700">' + balDisplay + '</div>' +
+        (totalViews > 0 ? '<div style="font-size:10px;color:var(--muted)">' + totalViews.toLocaleString() + ' used</div>' : '') +
+      '</td>' +
+      '<td>' +
+        '<span style="font-weight:700;cursor:pointer;color:var(--brand)" data-cid="' + c.id + '" onclick="filterCampaignsByClient(this.dataset.cid)" title="Click to view campaigns">' +
+          totalCams + (activeCams > 0 ? ' (' + activeCams + ' active)' : '') +
+        '</span>' +
+      '</td>' +
       '<td>' + clientLeads + '</td>' +
       '<td><span class="badge ' + statusClass + '"><span class="badge-dot"></span>' + (c.status||'active') + '</span></td>' +
-      '<td style="display:flex;gap:4px;flex-wrap:wrap">' +
+      '<td style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">' +
         '<button class="tbl-btn" onclick="openTopupForClient(this)" data-id="' + c.id + '" data-bal="' + bal + '">Top-up</button>' +
-        '<button class="tbl-btn primary" onclick="copyClientLoginLink(this)" data-email="' + c.email + '">Login link</button>' +
         '<button class="tbl-btn" onclick="openEditClient(this)" data-id="' + c.id + '">Edit</button>' +
+        '<button class="tbl-btn primary" onclick="copyClientLoginLink(this)" data-email="' + c.email + '" title="Copy login URL + email">Login link</button>' +
       '</td>' +
     '</tr>';
   }).join('');
@@ -2625,6 +2642,14 @@ function resetCampaignModal() {
   window._camClientBalance = 0;
 }
 
+function filterCampaignsByClient(clientId) {
+  showPanel('campaigns');
+  setTimeout(function() {
+    var sel = document.getElementById('cam-filter-client');
+    if (sel) { sel.value = clientId; filterCampaigns(); }
+  }, 150);
+}
+
 function copyShortUrl(code) {
   var url = 'https://adviuzdev.netlify.app/go/' + code;
   if (navigator.clipboard) navigator.clipboard.writeText(url).catch(function(){});
@@ -2774,60 +2799,132 @@ function openPreviewInTab() {
 // ── EDIT CAMPAIGN ──
 function openEditCampaign(btn) {
   window._editCampaignId = btn.dataset.id;
-  var modal = `
-    <div class="modal-overlay open" id="editCampaignModal" onclick="if(event.target===this)this.remove()">
-      <div class="modal" style="max-width:480px">
-        <div class="modal-head"><div class="modal-title">Edit campaign</div>
-          <button class="modal-close" onclick="document.getElementById('editCampaignModal').remove()">×</button></div>
-        <div class="modal-body">
-          <div class="form-group"><label class="fld">Campaign name</label>
-            <input class="fld" id="ecam-name" value="${btn.dataset.name}"></div>
-          <div class="form-grid">
-            <div class="form-group"><label class="fld">Total views allotted</label>
-              <input class="fld" type="number" id="ecam-budget" value="${btn.dataset.budget}"></div>
-            <div class="form-group"><label class="fld">Views used (editable)</label>
-              <input class="fld" type="number" id="ecam-used" value="${btn.dataset.used}">
-              <div style="font-size:11px;color:var(--muted);margin-top:4px">Set to 0 to remove test views</div></div>
-          </div>
-          <div class="form-group"><label class="fld">Status</label>
-            <select class="fld" id="ecam-status">
-              <option value="active" ${btn.dataset.status==='active'?'selected':''}>Active</option>
-              <option value="paused" ${btn.dataset.status==='paused'?'selected':''}>Paused</option>
-              <option value="completed" ${btn.dataset.status==='completed'?'selected':''}>Completed</option>
-            </select></div>
-          <div class="form-group"><label class="fld">FB preview URL</label>
-            <input class="fld" id="ecam-fb" placeholder="https://facebook.com/ads/library/…"></div>
-          <div class="form-group"><label class="fld">Google preview URL</label>
-            <input class="fld" id="ecam-google" placeholder="https://adstransparency.google.com/…"></div>
-        </div>
-        <div class="modal-foot">
-          <button class="btn-cancel" onclick="document.getElementById('editCampaignModal').remove()">Cancel</button>
-          <button class="btn-save" onclick="saveCampaignEdit()">Save changes</button>
-        </div>
-      </div>
-    </div>`;
+
+  // Get current campaign data
+  var cam = (window._allCampaigns||[]).find(function(c){ return c.id === btn.dataset.id; });
+  var currentClientId = cam ? (cam.client_id || '') : '';
+  var currentAdId     = cam ? (cam.ad_id     || '') : '';
+  var currentFbUrl    = cam ? (cam.fb_preview_url     || '') : '';
+  var currentGgUrl    = cam ? (cam.google_preview_url || '') : '';
+
+  // Build client options
+  var clientOpts = (window._allClients||[]).map(function(c) {
+    return '<option value="' + c.id + '"' + (c.id === currentClientId ? ' selected' : '') + '>' + c.business_name + '</option>';
+  }).join('');
+
+  // Build ad options filtered to selected client
+  var adOpts = '<option value="">Select ad page…</option>' +
+    (window._allAds||[]).map(function(a) {
+      var label = (a.business_name || 'Ad') + (a.ad_slug ? ' (' + a.ad_slug + ')' : '');
+      return '<option value="' + a.id + '"' + (a.id === currentAdId ? ' selected' : '') + '>' + label + '</option>';
+    }).join('');
+
+  var modal = '<div class="modal-overlay open" id="editCampaignModal" onclick="if(event.target===this)this.remove()">' +
+    '<div class="modal" style="max-width:520px">' +
+      '<div class="modal-head"><div class="modal-title">Edit campaign</div>' +
+        '<button class="modal-close" onclick="document.getElementById(\'editCampaignModal\').remove()">×</button></div>' +
+      '<div class="modal-body">' +
+
+        '<div class="form-group"><label class="fld">Campaign name</label>' +
+          '<input class="fld" id="ecam-name" value="' + (btn.dataset.name||'') + '"></div>' +
+
+        '<div class="form-grid">' +
+          '<div class="form-group"><label class="fld">Client</label>' +
+            '<select class="fld" id="ecam-client" onchange="filterEcamAds(this.value)">' +
+              '<option value="">Select client…</option>' + clientOpts +
+            '</select></div>' +
+          '<div class="form-group"><label class="fld">Ad page</label>' +
+            '<select class="fld" id="ecam-ad">' + adOpts + '</select></div>' +
+        '</div>' +
+
+        '<div class="form-grid">' +
+          '<div class="form-group"><label class="fld">Views allotted</label>' +
+            '<input class="fld" type="number" id="ecam-budget" value="' + (btn.dataset.budget||0) + '"></div>' +
+          '<div class="form-group"><label class="fld">Views used</label>' +
+            '<input class="fld" type="number" id="ecam-used" value="' + (btn.dataset.used||0) + '">' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:3px">Set to 0 to clear test views</div></div>' +
+        '</div>' +
+
+        '<div class="form-group"><label class="fld">Status</label>' +
+          '<select class="fld" id="ecam-status">' +
+            '<option value="active"' + (btn.dataset.status==='active'?' selected':'') + '>Active</option>' +
+            '<option value="paused"' + (btn.dataset.status==='paused'?' selected':'') + '>Paused</option>' +
+            '<option value="completed"' + (btn.dataset.status==='completed'?' selected':'') + '>Completed</option>' +
+          '</select></div>' +
+
+        '<div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:14px">' +
+          '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Ad preview URLs</div>' +
+          '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Paste the ad preview links from Facebook Ads Manager and Google Ads. These show the client their live ads.</div>' +
+          '<div class="form-group" style="margin-bottom:10px"><label class="fld">Facebook preview URL</label>' +
+            '<input class="fld" id="ecam-fb" value="' + currentFbUrl + '" placeholder="https://facebook.com/ads/library/…"></div>' +
+          '<div class="form-group" style="margin-bottom:0"><label class="fld">Google preview URL</label>' +
+            '<input class="fld" id="ecam-google" value="' + currentGgUrl + '" placeholder="https://adstransparency.google.com/…"></div>' +
+        '</div>' +
+
+      '</div>' +
+      '<div class="modal-footer">' +
+        '<button class="btn-cancel" onclick="document.getElementById(\'editCampaignModal\').remove()">Cancel</button>' +
+        '<button class="btn-save" onclick="saveCampaignEdit()">Save changes</button>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+
   document.body.insertAdjacentHTML('beforeend', modal);
 }
 
+function filterEcamAds(clientId) {
+  var adSel = document.getElementById('ecam-ad');
+  if (!adSel) return;
+  var filtered = clientId
+    ? (window._allAds||[]).filter(function(a){ return a.client_id === clientId; })
+    : (window._allAds||[]);
+  adSel.innerHTML = '<option value="">Select ad page…</option>' +
+    filtered.map(function(a) {
+      var label = (a.business_name||'Ad') + (a.ad_slug ? ' (' + a.ad_slug + ')' : '');
+      return '<option value="' + a.id + '">' + label + '</option>';
+    }).join('');
+}
+
 async function saveCampaignEdit() {
-  var id     = window._editCampaignId;
-  var name   = document.getElementById('ecam-name')?.value.trim();
-  var budget = parseInt(document.getElementById('ecam-budget')?.value || 0);
-  var used   = parseInt(document.getElementById('ecam-used')?.value   || 0);
-  var status = document.getElementById('ecam-status')?.value;
-  var fbUrl  = document.getElementById('ecam-fb')?.value.trim();
-  var ggUrl  = document.getElementById('ecam-google')?.value.trim();
+  var id       = window._editCampaignId;
+  var name     = (document.getElementById('ecam-name')?.value   || '').trim();
+  var budget   = parseInt(document.getElementById('ecam-budget')?.value || 0);
+  var used     = parseInt(document.getElementById('ecam-used')?.value   || 0);
+  var status   = document.getElementById('ecam-status')?.value || 'active';
+  var clientId = document.getElementById('ecam-client')?.value || null;
+  var adId     = document.getElementById('ecam-ad')?.value     || null;
+  var fbUrl    = (document.getElementById('ecam-fb')?.value     || '').trim();
+  var ggUrl    = (document.getElementById('ecam-google')?.value || '').trim();
   if (!id) return;
-  var payload = { name:name, view_budget:budget, views_used:used, status:status };
-  if (fbUrl)  payload.fb_preview_url     = fbUrl;
-  if (ggUrl)  payload.google_preview_url = ggUrl;
+
+  var saveBtn = document.querySelector('#editCampaignModal .btn-save');
+  if (saveBtn) { saveBtn.textContent = 'Saving…'; saveBtn.disabled = true; }
+
+  var payload = {
+    name:        name,
+    view_budget: budget,
+    views_used:  used,
+    status:      status
+  };
+  if (clientId) payload.client_id       = clientId;
+  if (adId)     payload.ad_id           = adId;
+  // Always save URLs — empty string clears them
+  payload.fb_preview_url     = fbUrl || null;
+  payload.google_preview_url = ggUrl || null;
+
   var r = await sbAdmin('/rest/v1/campaigns?id=eq.' + id, {
     method: 'PATCH',
+    headers: { 'Prefer': 'return=minimal' },
     body: JSON.stringify(payload)
   });
   document.getElementById('editCampaignModal')?.remove();
-  toast(r.ok ? 'Campaign updated!' : 'Update failed');
-  loadAdminData();
+  if (r.ok) {
+    toast('✅ Campaign updated!');
+  } else {
+    var err = await r.json().catch(function(){ return {}; });
+    toast('Update failed: ' + (err.message || r.status));
+  }
+  await loadAdminData();
 }
 
 // ── VIEW CAMPAIGN LEADS ──
@@ -2964,9 +3061,18 @@ function openEditClient(el) {
   var role    = document.getElementById('new-client-role');
   if (billing) billing.value = c.billing_model || 'views';
   if (role)    role.value    = c.role           || 'client';
-  // Hide password field for edits
+  // Replace password field with password reset option for edits
   var passGroup = document.getElementById('cm-pass-group');
-  if (passGroup) passGroup.style.display = 'none';
+  if (passGroup) {
+    passGroup.style.display = 'block';
+    passGroup.innerHTML =
+      '<label class="fld">Reset password <span style="color:var(--muted);font-weight:400">(leave blank to keep current)</span></label>' +
+      '<div style="display:flex;gap:6px">' +
+        '<input class="fld" id="cm-pass" type="text" placeholder="Enter new password to reset" autocomplete="new-password" style="flex:1;font-family:monospace">' +
+        '<button type="button" onclick="generatePassword()" style="padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:var(--font)">⚡ Generate</button>' +
+      '</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:4px">If you reset the password, share the new one with the client securely.</div>';
+  }
   // Update modal title and button
   var titleEl = document.getElementById('clientModalTitle');
   if (titleEl) titleEl.textContent = 'Edit client';
@@ -2989,6 +3095,19 @@ async function saveClientEdit() {
 
   var saveBtn = document.getElementById('cm-submit-btn');
   if (saveBtn) { saveBtn.textContent = 'Saving…'; saveBtn.disabled = true; }
+
+  // If password entered, reset it via RPC
+  var newPass = (document.getElementById('cm-pass')?.value || '').trim();
+  if (newPass && newPass.length >= 8) {
+    // Get the auth_user_id for this client
+    var clientData = (window._allClients||[]).find(function(cl){ return cl.id === cid; });
+    if (clientData && clientData.auth_user_id) {
+      await sbAdmin('/rest/v1/rpc/reset_client_password', {
+        method: 'POST',
+        body: JSON.stringify({ p_user_id: clientData.auth_user_id, p_password: newPass })
+      }).catch(function(){});
+    }
+  }
 
   var r = await sbAdmin('/rest/v1/clients?id=eq.' + cid, {
     method: 'PATCH',
