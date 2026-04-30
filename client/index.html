@@ -1691,9 +1691,12 @@ async function loadAllData() {
 function renderCampaignPanel(ads, campaigns, viewEvents) {
   const c = CURRENT_CLIENT;
   const balance       = c.view_balance || 0;
-  const totalAllotted = campaigns.reduce(function(s,cam){ return s+(cam.view_budget||0); }, 0);
-  const totalUsed     = campaigns.reduce(function(s,cam){ return s+(cam.views_used||0); }, 0);
-  const unallotted    = Math.max(0, balance - totalAllotted + totalUsed);
+  // Use real view_events count for total views used (more accurate than campaigns.views_used)
+  const totalRealViews = viewEvents.length;
+  const totalAllotted  = campaigns.reduce(function(s,cam){ return s+(cam.view_budget||0); }, 0);
+  // Unallotted = balance remaining that isn't assigned to any campaign
+  const totalBudgeted  = campaigns.reduce(function(s,cam){ return s+(cam.view_budget||0); }, 0);
+  const unallotted     = Math.max(0, balance - totalBudgeted + totalRealViews);
 
   // Stat cards
   setEl('stat-view-balance', balance.toLocaleString());
@@ -1763,9 +1766,14 @@ function renderCampaignPanel(ads, campaigns, viewEvents) {
     var camName = cam ? cam.name : '';
 
     // Count real views from view_events for accuracy
-    var realViews = viewEvents.filter(function(v){
-      return v.ad_id === ad.id || (cam && v.campaign_id === cam.id);
-    }).length;
+    // Match by campaign_id first (most reliable), then ad_id as fallback
+    var realViews = cam
+      ? viewEvents.filter(function(v){ return v.campaign_id === cam.id; }).length
+      : viewEvents.filter(function(v){ return v.ad_id === ad.id; }).length;
+    // If still 0, count all views for this client (fallback)
+    if (realViews === 0 && viewEvents.length > 0 && campaigns.length === 1) {
+      realViews = viewEvents.length;
+    }
     const used   = cam ? (cam.views_used   || 0) : 0;
     const budget = cam ? (cam.view_budget  || 0) : 0;
     const adPct  = budget > 0 ? Math.min(100, Math.round(used / budget * 100)) : 0;
