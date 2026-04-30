@@ -1,3 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Adviuz — Admin Panel</title>
+<link rel="manifest" id="adminPwaManifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Adviuz Admin">
+<meta name="theme-color" content="#0F0F0F">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+:root {
+  --brand:#C8102E; --brand2:#FF3A57; --success:#1a7a4a; --warning:#b45309; --danger:#C8102E;
+  --dark:#0F0F0F; --sidebar:#141414; --surface:#F7F5F2; --surface2:#EDEAE5;
+  --text:#1A1A1A; --muted:#6B6B6B; --border:#E5E2DC; --white:#FFFFFF;
+  --font:'Instrument Sans',sans-serif; --mono:'SF Mono','Fira Code',monospace;
+  --radius:12px;
+}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;font-family:var(--font);background:var(--surface);color:var(--text);}
+body{display:flex;flex-direction:column;}
+
+/* ── LAYOUT ── */
+.app-shell{display:flex;height:100vh;overflow:hidden;}
+.sidebar{width:220px;min-width:220px;background:var(--sidebar);display:flex;flex-direction:column;border-right:1px solid rgba(255,255,255,0.06);transition:transform 0.28s ease;}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.content{flex:1;overflow-y:auto;padding:20px 24px;}
+
+/* ── SIDEBAR ── */
+.logo-row{padding:20px 16px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;}
+.logo-box{width:34px;height:34px;background:var(--brand);border-radius:9px;display:flex;align-items:center;justify-content:center;font-family:'Instrument Serif',serif;font-size:18px;font-weight:900;color:#fff;flex-shrink:0;}
+.logo-name{font-size:15px;font-weight:700;color:#fff;letter-spacing:-0.03em;}
+.logo-tag{font-size:10px;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:0.05em;}
+.nav-section{padding:8px 10px 4px;font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:rgba(255,255,255,0.2);}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 14px;border-radius:9px;margin:2px 8px;cursor:pointer;color:rgba(255,255,255,0.5);font-size:13px;font-weight:500;transition:background 0.15s,color 0.15s;position:relative;}
+.nav-item:hover{background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.8);}
+.nav-item.active{background:rgba(200,16,46,0.18);color:#fff;}
+.nav-item svg{width:16px;height:16px;flex-shrink:0;}
+.nav-badge{margin-left:auto;background:var(--brand);color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;min-width:20px;text-align:center;}
+.nav-badge.warn{background:var(--warning);}
+.sidebar-footer{padding:12px 10px;border-top:1px solid rgba(255,255,255,0.06);margin-top:auto;}
+.admin-pill{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;}
+.admin-avatar{width:32px;height:32px;background:var(--brand);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;flex-shrink:0;}
+.admin-name{font-size:13px;font-weight:600;color:#fff;}
+.admin-role{font-size:10px;color:rgba(255,255,255,0.35);}
+
+/* ── TOPBAR ── */
+.topbar{height:56px;background:var(--white);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.page-title{font-size:18px;font-weight:700;color:var(--text);letter-spacing:-0.02em;}
+.topbar-right{display:flex;align-items:center;gap:8px;}
+.top-btn{display:flex;align-items:center;gap:6px;padding:8px 16px;border-radius:50px;border:1px solid var(--border);background:var(--white);font-size:13px;font-weight:600;cursor:pointer;color:var(--text);font-family:var(--font);transition:background 0.15s;}
+.top-btn:hover{background:var(--surface);}
+.top-btn.primary{background:var(--brand);color:#fff;border-color:var(--brand);}
+.top-btn.primary:hover{opacity:0.88;}
+.top-btn svg{width:13px;height:13px;}
+.notif-btn{width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:var(--white);display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative;}
+.notif-dot{width:8px;height:8px;background:var(--brand);border-radius:50%;position:absolute;top:6px;right:6px;border:2px solid var(--white);}
+
+/* ── PANELS ── */
+.panel{display:none;animation:fadeIn 0.18s ease;}
+.panel.active{display:block;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+/* ── CARDS ── */
+.card{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:18px;}
+.card-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:14px;display:flex;align-items:center;gap:6px;}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;}
+
+/* ── STAT CARDS ── */
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;}
+.stat-card{background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:18px;}
+.stat-label{font-size:11px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:var(--muted);margin-bottom:8px;}
+.stat-val{font-family:'Instrument Serif',serif;font-size:28px;font-style:italic;font-weight:900;color:var(--text);line-height:1;}
+.stat-sub{font-size:11px;color:var(--muted);margin-top:5px;display:flex;align-items:center;gap:4px;}
+.stat-badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;background:rgba(26,122,74,0.1);color:var(--success);}
+.stat-badge.neu{background:var(--surface2);color:var(--muted);}
+
+/* ── TABLE ── */
+.table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);background:var(--white);}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+thead{background:var(--surface);}
+th{padding:10px 14px;text-align:left;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap;}
+td{padding:12px 14px;border-bottom:1px solid var(--border);vertical-align:middle;}
+tr:last-child td{border-bottom:none;}
+.td-name{font-weight:600;color:var(--text);}
+.td-email{font-size:11px;color:var(--muted);margin-top:2px;}
+.td-mono{font-family:var(--mono);font-size:12px;}
+.td-bold{font-weight:600;}
+
+/* ── BADGES ── */
+.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;}
+.badge-dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0;}
+.badge.active{background:rgba(26,122,74,0.1);color:var(--success);}
+.badge.paused{background:rgba(107,107,107,0.1);color:var(--muted);}
+.badge.pending{background:rgba(180,83,9,0.1);color:var(--warning);}
+.badge.danger{background:rgba(200,16,46,0.1);color:var(--danger);}
+.badge.info{background:rgba(29,78,216,0.1);color:#1d4ed8;}
+.badge.brand{background:rgba(200,16,46,0.08);color:var(--brand);}
+.badge.warn{background:rgba(180,83,9,0.1);color:var(--warning);}
+.badge.new{background:rgba(29,78,216,0.1);color:#1d4ed8;}
+.badge.won{background:rgba(26,122,74,0.1);color:var(--success);}
+.badge.lost{background:rgba(200,16,46,0.1);color:var(--danger);}
+.badge.warm{background:rgba(180,83,9,0.1);color:var(--warning);}
+
+/* ── BUTTONS ── */
+.tbl-btn{padding:5px 12px;border-radius:8px;border:1px solid var(--border);background:var(--white);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font);transition:background 0.15s;white-space:nowrap;}
+.tbl-btn:hover{background:var(--surface);}
+.tbl-btn.primary{background:var(--brand);color:#fff;border-color:var(--brand);}
+.tbl-btn.primary:hover{opacity:0.88;}
+.tbl-btn.danger{background:rgba(200,16,46,0.08);color:var(--danger);border-color:rgba(200,16,46,0.2);}
+.btn-sm{padding:4px 10px;border-radius:7px;border:1px solid var(--border);background:var(--white);font-size:11px;font-weight:600;cursor:pointer;font-family:var(--font);}
+.btn-sm.primary{background:var(--brand);color:#fff;border-color:var(--brand);}
+
+/* ── FORM ── */
+.fld{display:block;width:100%;padding:10px 13px;border:1px solid var(--border);border-radius:10px;font-family:var(--font);font-size:13px;color:var(--text);background:var(--surface);outline:none;transition:border-color 0.2s;}
+.fld:focus{border-color:var(--brand);}
+select.fld{cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236B6B6B'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;}
+textarea.fld{resize:vertical;min-height:72px;}
+.form-group{margin-bottom:14px;}
+.form-group>.fld{margin-top:4px;}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.form-group.full{grid-column:1/-1;}
+
+/* ── MODAL ── */
+.modal-overlay{display:none;position:fixed;inset:0;z-index:500;background:rgba(0,0,0,0.45);backdrop-filter:blur(4px);align-items:center;justify-content:center;}
+.modal-overlay.open{display:flex;}
+.modal{background:var(--white);border-radius:20px;width:540px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 24px 60px rgba(0,0,0,0.2);}
+.modal-head{padding:18px 22px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);}
+.modal-title{font-size:16px;font-weight:700;color:var(--text);}
+.modal-close{background:none;border:none;cursor:pointer;color:var(--muted);font-size:18px;line-height:1;padding:2px;}
+.modal-body{padding:18px 22px;}
+.modal-footer{padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;}
+.btn-cancel{padding:9px 20px;border-radius:50px;border:1px solid var(--border);background:var(--white);font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);}
+.btn-save{padding:9px 22px;border-radius:50px;background:var(--brand);color:#fff;border:none;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);transition:opacity 0.15s;}
+.btn-save:hover{opacity:0.88;}
+.btn-save:disabled{opacity:0.5;cursor:not-allowed;}
+
+/* ── PROGRESS ── */
+.progress-bar{height:4px;background:var(--surface2);border-radius:2px;overflow:hidden;}
+.progress-fill{height:100%;background:var(--brand);border-radius:2px;transition:width 0.4s;}
+.progress-fill.low{background:var(--danger);}
+
+/* ── ACTIVITY ── */
+.activity-list{display:flex;flex-direction:column;gap:10px;}
+.activity-item{display:flex;align-items:center;gap:10px;font-size:13px;}
+.activity-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.activity-text{flex:1;color:var(--text);}
+.activity-time{color:var(--muted);font-size:11px;white-space:nowrap;}
+
+/* ── SEC HEADER ── */
+.sec-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+.sec-title{font-size:15px;font-weight:700;color:var(--text);}
+
+/* ── TOPUP ── */
+.topup-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;}
+.topup-card{border:2px solid var(--border);border-radius:12px;padding:14px;text-align:center;cursor:pointer;transition:border-color 0.2s,background 0.2s;}
+.topup-card:hover{border-color:var(--brand);background:rgba(200,16,46,0.03);}
+.topup-card.selected{border-color:var(--brand);background:rgba(200,16,46,0.06);}
+.topup-views{font-size:18px;font-weight:800;color:var(--text);}
+.topup-price{font-size:14px;font-weight:700;color:var(--brand);margin:3px 0;}
+.topup-tag{font-size:10px;color:var(--muted);}
+
+/* ── BUILDER ── */
+.builder-wrap{display:grid;grid-template-columns:1fr 300px;gap:20px;align-items:start;}
+.preview-phone{width:260px;margin:0 auto;}
+
+/* ── URL BOX ── */
+.url-box{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px;font-size:12px;font-family:var(--mono);color:var(--muted);word-break:break-all;}
+.copy-btn{padding:5px 12px;border-radius:7px;border:1px solid var(--border);background:var(--white);font-size:12px;font-weight:600;cursor:pointer;flex-shrink:0;font-family:var(--font);}
+
+/* ── CAMPAIGN BULK ── */
+.bulk-action-btn{background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.3);color:#fff;padding:5px 12px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;font-family:var(--font);transition:background 0.15s;}
+.bulk-action-btn:hover{background:rgba(255,255,255,0.28);}
+.cam-toggle{position:relative;display:inline-block;width:34px;height:18px;}
+.cam-toggle input{opacity:0;width:0;height:0;}
+.cam-toggle-slider{position:absolute;cursor:pointer;inset:0;background:#ccc;border-radius:18px;transition:0.25s;}
+.cam-toggle input:checked + .cam-toggle-slider{background:var(--brand);}
+.cam-toggle-slider::before{content:"";position:absolute;width:14px;height:14px;left:2px;bottom:2px;background:#fff;border-radius:50%;transition:0.25s;}
+.cam-toggle input:checked + .cam-toggle-slider::before{transform:translateX(16px);}
+
+/* ── MOBILE ── */
+.mob-menu-btn{display:none;background:none;border:none;cursor:pointer;padding:6px;border-radius:8px;color:var(--text);}
+.mob-menu-btn svg{width:20px;height:20px;}
+.sidebar-overlay{display:none;position:fixed;inset:0;z-index:299;background:rgba(0,0,0,0.4);}
+.sidebar-overlay.open{display:block;}
+@media(max-width:768px){
+  .mob-menu-btn{display:flex;align-items:center;}
+  .sidebar{position:fixed;top:0;left:0;height:100%;z-index:300;transform:translateX(-100%);width:220px!important;min-width:220px!important;}
+  .sidebar.open{transform:translateX(0);}
+  .stats-grid{grid-template-columns:repeat(2,1fr)!important;gap:10px;}
+  .grid2{grid-template-columns:1fr!important;}
+  .table-wrap{overflow-x:auto;}
+  table{min-width:560px;}
+  .builder-wrap{grid-template-columns:1fr!important;}
+  .form-grid{grid-template-columns:1fr!important;}
+  .topup-grid{grid-template-columns:1fr 1fr!important;}
+  .modal-overlay{align-items:flex-end;}
+  .modal{width:100%!important;max-width:100%!important;border-radius:20px 20px 0 0;max-height:90vh;}
+}
+
+/* ── TOAST ── */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(16px);background:#111;color:#fff;font-size:13px;font-weight:600;padding:12px 22px;border-radius:40px;opacity:0;pointer-events:none;z-index:9000;transition:opacity 0.3s,transform 0.3s;white-space:nowrap;display:flex;align-items:center;gap:8px;max-width:90vw;}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+.toast-icon{width:16px;height:16px;color:#1DB954;flex-shrink:0;}
+
+/* ── CHART ── */
+.chart-bars{display:flex;align-items:flex-end;gap:4px;height:120px;padding:0 4px;}
+.chart-bar{flex:1;background:rgba(200,16,46,0.15);border-radius:4px 4px 0 0;min-width:8px;transition:background 0.2s;cursor:pointer;}
+.chart-bar:hover{background:var(--brand);}
+.chart-bar.today{background:var(--brand);}
+.chart-labels{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:6px;padding:0 4px;}
+
+/* ── PREVIEW ── */
+.preview-mobile-frame{display:block;}
+.preview-desktop-frame{display:none;}
+#prev-btn-mobile,#prev-btn-desktop{padding:5px 14px;border-radius:8px;border:none;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font);}
+</style>
+</head>
+<body>
+<script>
+// Immediately hide login if valid session exists — prevents flash
+(function() {
+  try {
+    var jwt = sessionStorage.getItem('adviuz_admin_jwt');
+    if (jwt) {
+      document.addEventListener('DOMContentLoaded', function() {
+        var ov = document.getElementById('adminLoginOverlay');
+        var ap = document.getElementById('adminApp');
+        if (ov) ov.style.display = 'none';
+        if (ap) ap.style.display = 'flex';
+      });
+    }
+  } catch(e) {}
+})();
+</script>
+
+<!-- ══ ADMIN LOGIN OVERLAY ══ -->
+<div id="adminLoginOverlay" style="display:flex;position:fixed;inset:0;z-index:9999;background:#0F0F0F;align-items:center;justify-content:center;font-family:'Instrument Sans',sans-serif;">
+  <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.08);border-radius:20px;padding:48px 40px;width:360px;max-width:90vw;box-shadow:0 32px 80px rgba(0,0,0,0.6);">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:32px">
+      <div style="width:40px;height:40px;background:#C8102E;border-radius:10px;display:flex;align-items:center;justify-content:center;font-family:serif;font-size:20px;font-weight:900;color:#fff">A</div>
+      <div><div style="font-size:17px;font-weight:700;color:#fff;letter-spacing:-0.03em">Adviuz</div><div style="font-size:11px;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:0.06em">Admin panel</div></div>
+    </div>
+    <div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:6px">Sign in</div>
+    <div style="font-size:13px;color:rgba(255,255,255,0.4);margin-bottom:28px">Use your Adviuz admin account</div>
+    <div style="margin-bottom:14px">
+      <label style="display:block;font-size:11px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:rgba(255,255,255,0.35);margin-bottom:6px">Email</label>
+      <input id="adminLoginEmail" type="email" placeholder="admin@adviuz.ca" style="width:100%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:12px 14px;font-size:14px;color:#fff;font-family:'Instrument Sans',sans-serif;box-sizing:border-box;outline:none;" onfocus="this.style.borderColor='rgba(200,16,46,0.6)'" onblur="this.style.borderColor='rgba(255,255,255,0.12)'">
+    </div>
+    <div style="margin-bottom:20px">
+      <label style="display:block;font-size:11px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:rgba(255,255,255,0.35);margin-bottom:6px">Password</label>
+      <input id="adminLoginPass" type="password" placeholder="••••••••••" style="width:100%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:12px 14px;font-size:14px;color:#fff;font-family:'Instrument Sans',sans-serif;box-sizing:border-box;outline:none;" onfocus="this.style.borderColor='rgba(200,16,46,0.6)'" onblur="this.style.borderColor='rgba(255,255,255,0.12)'">
+    </div>
+    <div id="adminLoginError" style="display:none;background:rgba(200,16,46,0.15);border:1px solid rgba(200,16,46,0.3);border-radius:8px;padding:10px 14px;font-size:13px;color:#FF8095;margin-bottom:16px"></div>
+    <button id="adminLoginBtn" onclick="doAdminLogin()" style="width:100%;background:#C8102E;color:#fff;border:none;border-radius:50px;padding:14px;font-size:14px;font-weight:700;cursor:pointer;font-family:'Instrument Sans',sans-serif;transition:opacity 0.15s;" onmouseover="this.style.opacity='0.88'" onmouseout="this.style.opacity='1'">Sign in to admin panel →</button>
+    <div style="margin-top:20px;text-align:center;font-size:11px;color:rgba(255,255,255,0.2)">Access restricted to authorised administrators only</div>
+  </div>
+</div>
+
+<!-- ══ ADMIN APP ══ -->
+<div id="adminApp" style="display:none;flex:1;width:100%">
+<div class="app-shell">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="adminSidebar">
+    <div class="logo-row" onclick="showPanel('dashboard')">
+      <div class="logo-box">A</div>
+      <div><div class="logo-name">Adviuz</div><div class="logo-tag">Admin Panel</div></div>
+    </div>
+
+    <div class="nav-section">Main</div>
+    <div class="nav-item active" id="nav-dashboard" onclick="showPanel('dashboard')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      <span>Dashboard</span>
+    </div>
+    <div class="nav-item" id="nav-clients" onclick="showPanel('clients')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+      <span>Clients</span>
+      <span class="nav-badge" id="nav-clients-count">0</span>
+    </div>
+    <div class="nav-item" id="nav-campaigns" onclick="showPanel('campaigns')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      <span>Campaigns</span>
+    </div>
+    <div class="nav-item" id="nav-leads" onclick="showPanel('leads')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+      <span>Leads</span>
+      <span class="nav-badge" id="admin-leads-badge">0</span>
+    </div>
+    <div class="nav-item" id="nav-adbuilder" onclick="showPanel('adbuilder')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
+      <span>Ad Builder</span>
+    </div>
+
+    <div class="nav-section">Finance</div>
+    <div class="nav-item" id="nav-billing" onclick="showPanel('billing')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 100 7h5a3.5 3.5 0 110 7H6"/></svg>
+      <span>Billing</span>
+    </div>
+
+    <div class="nav-section">System</div>
+    <div class="nav-item" id="nav-settings" onclick="showPanel('settings')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      <span>Settings</span>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="admin-pill">
+        <div class="admin-avatar" id="adminAvatarInitials">SA</div>
+        <div style="flex:1;min-width:0"><div class="admin-name" id="adminDisplayName">Super Admin</div><div class="admin-role">Adviuz Admin</div></div>
+        <button onclick="doAdminLogout()" title="Sign out" style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,0.35)'">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="mob-menu-btn" onclick="toggleAdminSidebar()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+        <div class="page-title" id="pageTitle">Dashboard</div>
+      </div>
+      <div class="topbar-right">
+        <button class="top-btn" onclick="showPanel('adbuilder')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          New Ad
+        </button>
+        <button class="top-btn primary" onclick="openModal('clientModal')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          New Client
+        </button>
+        <button class="notif-btn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg><div class="notif-dot"></div></button>
+      </div>
+    </div>
+
+    <div class="content">
+      <!-- ═══════════ DASHBOARD ═══════════ -->
+      <div class="panel active" id="panel-dashboard">
+        <div class="stats-grid">
+          <div class="stat-card"><div class="stat-label">Total views</div><div class="stat-val" id="dash-views">—</div><div class="stat-sub"><span class="stat-badge">↑ 12%</span> vs last month</div></div>
+          <div class="stat-card"><div class="stat-label">Revenue (CAD)</div><div class="stat-val" id="dash-revenue">—</div><div class="stat-sub"><span class="stat-badge">↑ 8%</span> vs last month</div></div>
+          <div class="stat-card"><div class="stat-label">Active Campaigns</div><div class="stat-val" id="dash-campaigns">—</div><div class="stat-sub">active now</div></div>
+          <div class="stat-card"><div class="stat-label">Total Clients</div><div class="stat-val" id="dash-clients">—</div><div class="stat-sub">active clients</div></div>
+        </div>
+        <div class="grid2" style="margin-bottom:20px">
+          <div class="card">
+            <div class="card-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Views — last 14 days</div>
+            <div class="chart-bars" id="dashChart"></div>
+            <div class="chart-labels"><span>14d ago</span><span>7d ago</span><span>Today</span></div>
+          </div>
+          <div class="card">
+            <div class="card-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Recent activity</div>
+            <div class="activity-list" id="activityFeed"><div class="activity-item"><div class="activity-dot" style="background:var(--muted)"></div><div class="activity-text" style="color:var(--muted)">Loading activity…</div><div class="activity-time"></div></div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="sec-header"><div class="sec-title">Top campaigns</div><a onclick="showPanel('campaigns')" style="font-size:13px;color:var(--brand);cursor:pointer;font-weight:600;text-decoration:none">View all →</a></div>
+          <div class="table-wrap"><table><thead><tr><th>Campaign</th><th>Client</th><th>Views used</th><th>Leads</th><th>Status</th></tr></thead><tbody id="topCampaignsPlaceholder"><tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted)">Loading…</td></tr></tbody></table></div>
+        </div>
+      </div>
+
+      <!-- ═══════════ CLIENTS ═══════════ -->
+      <div class="panel" id="panel-clients">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
+          <div style="position:relative;flex:1;min-width:200px">
+            <svg style="position:absolute;left:11px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:#9ca3af;pointer-events:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" placeholder="Search clients by name, email or phone…" oninput="filterClients(this.value)" style="padding:9px 14px 9px 36px;width:100%;border:1px solid var(--border);border-radius:10px;font-size:13px;font-family:var(--font);background:var(--surface)">
+          </div>
+          <select onchange="sortClients(this.value)" style="padding:9px 14px;border:1px solid var(--border);border-radius:10px;font-size:13px;font-family:var(--font);background:var(--surface)">
+            <option value="">Sort: Default</option><option value="name">Sort: Name A-Z</option><option value="balance-desc">Sort: Balance ↓</option><option value="balance-asc">Sort: Balance ↑</option><option value="leads-desc">Sort: Most leads</option><option value="date-desc">Newest first</option>
+          </select>
+          <select onchange="filterClientsByProduct(this.value)" style="padding:9px 14px;border:1px solid var(--border);border-radius:10px;font-size:13px;font-family:var(--font);background:var(--surface)">
+            <option value="">All products</option><option value="views">Digital Flyers</option><option value="leads">Lead Engine</option><option value="both">Both</option>
+          </select>
+          <select onchange="filterClientsByStatus(this.value)" style="padding:9px 14px;border:1px solid var(--border);border-radius:10px;font-size:13px;font-family:var(--font);background:var(--surface)">
+            <option value="">All statuses</option><option value="active">Active</option><option value="paused">Paused</option><option value="suspended">Suspended</option>
+          </select>
+        </div>
+        <div class="table-wrap" style="margin-bottom:20px">
+          <table><thead><tr><th>Client</th><th>Business</th><th>Views balance</th><th>Campaigns</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="clientTableBody"><tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">Loading clients…</td></tr></tbody></table>
+        </div>
+        <div class="grid2">
+          <div class="card"><div class="card-title">Views balance by client</div><div id="balanceOverviewBars"><div style="padding:16px;text-align:center;color:var(--muted);font-size:13px">Loading…</div></div></div>
+          <div class="card"><div class="card-title">Client login credentials</div><p style="font-size:13px;color:var(--muted);margin-bottom:14px">Each client gets a unique login to access their panel.</p><div id="clientCredsList"><div style="padding:16px;text-align:center;color:var(--muted);font-size:13px">Loading…</div></div></div>
+        </div>
+      </div>
+
+      <!-- ═══════════ CAMPAIGNS ═══════════ -->
+      <div class="panel" id="panel-campaigns">
+        <div class="sec-header" style="flex-wrap:wrap;gap:10px">
+          <div class="sec-title">All campaigns</div>
+          <button class="top-btn primary" onclick="openModal('campaignModal')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>New Campaign</button>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;padding:12px 16px;background:var(--surface);border-radius:12px;border:1px solid var(--border)">
+          <input type="text" id="cam-search" placeholder="Search campaigns…" oninput="filterCampaigns()" style="flex:1;min-width:160px;padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:var(--font);background:#fff">
+          <select id="cam-sort" onchange="filterCampaigns()" style="padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:var(--font);background:#fff"><option value="">Sort: Default</option><option value="name-asc">Name A–Z</option><option value="views-desc">Views used ↓</option><option value="balance-desc">Balance remaining ↓</option><option value="balance-asc">Balance remaining ↑</option><option value="impressions-desc">Impressions ↓</option><option value="date-desc">Newest first</option><option value="date-asc">Oldest first</option></select>
+          <select id="cam-filter-status" onchange="filterCampaigns()" style="padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:var(--font);background:#fff"><option value="">All statuses</option><option value="active">Active</option><option value="paused">Paused</option><option value="low">Low balance</option><option value="completed">Finished</option></select>
+          <select id="cam-filter-client" onchange="filterCampaigns()" style="padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:var(--font);background:#fff"><option value="">All clients</option></select>
+          <input type="date" id="cam-filter-from" onchange="filterCampaigns()" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:var(--font);background:#fff">
+          <input type="date" id="cam-filter-to" onchange="filterCampaigns()" style="padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:var(--font);background:#fff">
+          <button onclick="clearCampaignFilters()" style="padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:var(--font);background:#fff;cursor:pointer;color:var(--muted)">Clear</button>
+        </div>
+        <div id="cam-bulk-bar" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 14px;background:var(--brand);border-radius:10px;margin-bottom:12px">
+          <span id="cam-bulk-count" style="font-size:12px;font-weight:700;color:#fff">0 selected</span>
+          <button class="bulk-action-btn" onclick="bulkCampaign('start')">▶ Start all</button>
+          <button class="bulk-action-btn" onclick="bulkCampaign('pause')">⏸ Pause all</button>
+          <button class="bulk-action-btn" onclick="bulkCampaign('notify-low')">🔔 Notify low balance</button>
+          <button class="bulk-action-btn" onclick="bulkCampaign('copy-urls')">🔗 Copy all URLs</button>
+          <button class="bulk-action-btn" onclick="bulkCampaign('export')">↓ Export CSV</button>
+          <button class="bulk-action-btn" onclick="bulkCampaign('refresh-impressions')">↻ Sync impressions</button>
+          <div style="margin-left:auto"><button onclick="clearCampaignSelection()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:5px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:var(--font)">✕ Clear</button></div>
+        </div>
+        <div class="table-wrap" style="margin-bottom:24px">
+          <table id="campaignsTable">
+            <thead><tr>
+              <th style="width:36px"><input type="checkbox" id="cam-select-all" onchange="toggleAllCampaigns(this.checked)" style="width:15px;height:15px;accent-color:var(--brand);cursor:pointer"></th>
+              <th style="width:44px">On/Off</th>
+              <th onclick="setCamSort('name-asc')" style="cursor:pointer">Campaign ↕</th>
+              <th onclick="setCamSort('name-asc')" style="cursor:pointer">Client ↕</th>
+              <th onclick="setCamSort('impressions-desc')" style="cursor:pointer">Impressions ↕</th>
+              <th onclick="setCamSort('views-desc')" style="cursor:pointer">Views (25s) ↕</th>
+              <th onclick="setCamSort('balance-desc')" style="cursor:pointer">Balance left ↕</th>
+              <th>Leads</th><th>Status</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="campaignTableBody"><tr><td colspan="10" style="text-align:center;padding:32px;color:var(--muted)">Loading campaigns…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="card" style="margin-bottom:0">
+          <div class="card-title" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between" onclick="toggleUTM()">
+            <span>UTM link generator <span style="font-size:11px;font-weight:400;color:var(--muted)">(advanced — campaign URL is auto-generated)</span></span>
+            <span id="utm-toggle-icon">▾</span>
+          </div>
+          <div id="utm-body" style="display:none">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:14px;padding:10px;background:var(--surface2);border-radius:8px">Campaign URLs are created automatically when you create a campaign above. Use this only if you need a custom URL.</div>
+            <div class="form-grid">
+              <div class="form-group"><label class="fld">Client</label><select class="fld" id="utm-client" onchange="buildURL()"><option value="">Select client…</option></select></div>
+              <div class="form-group"><label class="fld">Platform / Source</label><select class="fld" id="utm-source" onchange="buildURL()"><option>Facebook</option><option>Instagram</option><option>Google</option><option>WhatsApp</option><option>YouTube</option></select></div>
+              <div class="form-group"><label class="fld">Ad ID / Slug</label><input class="fld" id="utm-ad" value="ad-001" oninput="buildURL()"></div>
+              <div class="form-group"><label class="fld">Campaign name</label><input class="fld" id="utm-campaign" value="campaign-jan-2025" oninput="buildURL()"></div>
+            </div>
+            <label class="fld" style="display:block;margin-bottom:6px">Generated ad URL</label>
+            <div class="url-box"><span id="urlOutput">https://adviuzdev.netlify.app?ad_id=ad-001&utm_source=facebook&utm_campaign=campaign-jan-2025</span><button class="copy-btn" onclick="copyURL()">Copy</button></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════ LEADS ═══════════ -->
+      <div class="panel" id="panel-leads">
+        <div class="sec-header" style="flex-wrap:wrap;gap:10px">
+          <div class="sec-title">All leads</div>
+          <div style="display:flex;gap:8px">
+            <select class="fld" id="leads-filter-client" style="font-size:12px;padding:6px 10px;border-radius:8px" onchange="filterLeadsTable()"><option value="">All clients</option></select>
+            <select class="fld" id="leads-filter-stage" style="font-size:12px;padding:6px 10px;border-radius:8px" onchange="filterLeadsTable()"><option value="">All stages</option><option>New</option><option>Contacted</option><option>Interested</option><option>Quote sent</option><option>Won</option><option>Lost</option></select>
+            <button class="tbl-btn" onclick="exportLeadsCSV()">Export CSV</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table><thead><tr><th>Name</th><th>Phone</th><th>Client</th><th>Source</th><th>Stage</th><th>Submitted</th><th>Actions</th></tr></thead>
+          <tbody id="admin-leads-tbody"><tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted)">Loading leads…</td></tr></tbody></table>
+        </div>
+      </div>
+
+      <!-- ═══════════ AD BUILDER ═══════════ -->
+      <div class="panel" id="panel-adbuilder">
+
+        <!-- TOP BAR -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+          <div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:700">Ad Builder</div>
+          <div style="position:relative">
+            <button class="top-btn" id="newAdBtn" onclick="toggleNewAdMenu()" style="display:flex;align-items:center;gap:6px">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              New ad
+            </button>
+            <!-- Dropdown menu -->
+            <div id="newAdMenu" style="display:none;position:absolute;right:0;top:44px;width:220px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.12);z-index:50;overflow:hidden">
+              <button onclick="openPasteCode()" style="width:100%;text-align:left;padding:12px 16px;border:none;background:none;cursor:pointer;font-family:'DM Sans',sans-serif;border-bottom:1px solid var(--border);transition:background 0.12s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">
+                <div style="font-weight:700;font-size:13px;color:var(--text)">{&nbsp;}&nbsp; Paste code</div>
+                <div style="font-size:11px;color:var(--muted);margin-top:2px">Drop in your own HTML design</div>
+              </button>
+              <button onclick="openTemplateBuilder()" style="width:100%;text-align:left;padding:12px 16px;border:none;background:none;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background 0.12s" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">
+                <div style="font-weight:700;font-size:13px;color:var(--text)">✏️&nbsp; Edit template</div>
+                <div style="font-size:11px;color:var(--muted);margin-top:2px">Customise the built-in ad design</div>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ADS LIST -->
+        <div class="table-wrap" id="adBuilderList">
+          <div style="padding:40px;text-align:center;color:var(--muted);font-size:13px">Loading ads…</div>
+        </div>
+
+      </div><!-- /panel-adbuilder -->
+
+      <!-- ══ PASTE CODE MODAL ══ -->
+      <div class="modal-overlay" id="pasteCodeModal" onclick="if(event.target===this)closeModal('pasteCodeModal')">
+        <div class="modal" style="max-width:700px">
+          <div class="modal-head">
+            <div class="modal-title">{&nbsp;} Paste your HTML code</div>
+            <button class="modal-close" onclick="closeModal('pasteCodeModal')">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:13px;color:var(--muted)">
+              Paste any HTML ad design below. The Adviuz 25s timer, view counting, and lead capture will be injected automatically.
+            </div>
+            <div class="form-group">
+              <label class="fld">Ad name *</label>
+              <input class="fld" id="paste-ad-name" placeholder="e.g. Nail Fungus Clinic">
+            </div>
+            <div class="form-group">
+              <label class="fld">Assign to client *</label>
+              <select class="fld" id="paste-client-sel"><option value="">Select client…</option></select>
+            </div>
+            <div class="form-group">
+              <label class="fld">HTML code *</label>
+              <textarea class="fld" id="paste-code-area" placeholder="Paste your full HTML here…" style="height:220px;font-family:var(--mono);font-size:11px;resize:vertical"></textarea>
+            </div>
+            <div id="paste-code-error" style="display:none;color:var(--danger);font-size:12px;margin-top:-8px;margin-bottom:8px"></div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-cancel" onclick="closeModal('pasteCodeModal')">Cancel</button>
+            <button class="btn-save" id="paste-code-save-btn" onclick="savePastedCode()">Save &amp; create ad →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ TEMPLATE BUILDER MODAL ══ -->
+      <div class="modal-overlay" id="templateBuilderModal" onclick="if(event.target===this)closeModal('templateBuilderModal')">
+        <div class="modal" style="max-width:860px">
+          <div class="modal-head">
+            <div class="modal-title" id="templateBuilderTitle">✏️ New ad from template</div>
+            <button class="modal-close" onclick="closeModal('templateBuilderModal')">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="modal-body" style="display:grid;grid-template-columns:1fr 300px;gap:20px;max-height:75vh;overflow-y:auto">
+            <div>
+              <div class="card" style="margin-bottom:14px">
+                <div class="card-title">Brand &amp; identity</div>
+                <div class="form-grid">
+                  <div class="form-group"><label class="fld">Business name *</label><input class="fld" id="b-name" placeholder="e.g. Brampton Homes" oninput="updatePreview()"></div>
+                  <div class="form-group"><label class="fld">Tagline / category</label><input class="fld" id="b-tag" placeholder="e.g. Real Estate" oninput="updatePreview()"></div>
+                  <div class="form-group"><label class="fld">Brand color</label><input class="fld" type="color" id="b-color" value="#C8102E" oninput="updatePreview()" style="height:42px;cursor:pointer;padding:4px 8px;"></div>
+                  <div class="form-group"><label class="fld">Phone number</label><input class="fld" id="b-phone" placeholder="+1 416-555-0100" oninput="updatePreview()"></div>
+                </div>
+              </div>
+              <div class="card" style="margin-bottom:14px">
+                <div class="card-title">Ad content</div>
+                <div class="form-grid">
+                  <div class="form-group"><label class="fld">Headline 1</label><input class="fld" id="b-h1" placeholder="e.g. Premium Homes" oninput="updatePreview()"></div>
+                  <div class="form-group"><label class="fld">Headline 2 (accent)</label><input class="fld" id="b-h1b" placeholder="e.g. In Brampton." oninput="updatePreview()"></div>
+                  <div class="form-group full"><label class="fld">Body text</label><textarea class="fld" id="b-p" placeholder="Main ad description…" oninput="updatePreview()" style="height:60px"></textarea></div>
+                  <div class="form-group full"><label class="fld">CTA button text</label><input class="fld" id="b-cta" value="Get Free Inquiry" oninput="updatePreview()"></div>
+                </div>
+              </div>
+              <div class="card">
+                <div class="card-title">Assign to client *</div>
+                <div class="form-group"><select class="fld" id="builder-client-sel" onchange="showClientBalance()"><option value="">Select client…</option></select></div>
+                <div id="builder-balance-preview" style="display:none;background:var(--surface2);border-radius:10px;padding:10px 14px;margin-bottom:12px">
+                  <div style="font-size:11px;color:var(--muted)">Wallet balance</div>
+                  <div><span id="builder-balance-val" style="font-size:20px;font-weight:700;color:var(--brand)">0</span> <span style="font-size:12px;color:var(--muted)">views</span></div>
+                </div>
+                <button class="btn-save" style="width:100%;padding:12px" id="template-publish-btn" onclick="publishAd()">Publish Ad Page →</button>
+              </div>
+            </div>
+            <!-- Live preview -->
+            <div style="position:sticky;top:0">
+              <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:8px">Live preview</div>
+              <div id="ad-preview-frame" style="width:100%;height:480px;border-radius:10px;overflow:hidden;border:1px solid var(--border);background:var(--surface2)">
+                <iframe id="ad-preview-iframe" style="width:100%;height:100%;border:none;transform-origin:top left" title="Ad preview"></iframe>
+              </div>
+              <button onclick="openPreviewInTab()" style="width:100%;margin-top:8px;padding:8px;border-radius:8px;border:1px solid var(--border);background:none;font-size:11px;font-weight:600;cursor:pointer;color:var(--text);font-family:'DM Sans',sans-serif;display:flex;align-items:center;justify-content:center;gap:4px">
+                ↗ Open live in new tab
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ EDIT AD MODAL (for existing ads) ══ -->
+      <div class="modal-overlay" id="editAdModal" onclick="if(event.target===this)closeModal('editAdModal')">
+        <div class="modal" style="max-width:560px">
+          <div class="modal-head">
+            <div class="modal-title" id="editAdTitle">Edit ad</div>
+            <button class="modal-close" onclick="closeModal('editAdModal')">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group"><label class="fld">Business name</label><input class="fld" id="ea-name" placeholder="Business name"></div>
+            <div class="form-group"><label class="fld">Ad slug (URL identifier)</label><input class="fld" id="ea-slug" placeholder="my-business-ad-001"></div>
+            <div class="form-group"><label class="fld">Assign to client</label><select class="fld" id="ea-client"><option value="">Select client…</option></select></div>
+            <div class="form-group"><label class="fld">Status</label>
+              <select class="fld" id="ea-status">
+                <option value="active">Active</option>
+                <option value="paused">Paused</option>
+              </select>
+            </div>
+            <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--muted)">
+              To edit the HTML code of this ad, use the Edit HTML button on the ad row.
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-cancel" onclick="closeModal('editAdModal')">Cancel</button>
+            <button class="btn-save" onclick="saveAdEdit()">Save changes</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════ BILLING ═══════════ -->
+      <div class="panel" id="panel-billing">
+        <div class="stats-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:20px">
+          <div class="stat-card"><div class="stat-label">Total revenue</div><div class="stat-val" id="billing-total">—</div><div class="stat-sub">All time collected</div></div>
+          <div class="stat-card"><div class="stat-label">Total views sold</div><div class="stat-val" id="billing-views">—</div><div class="stat-sub">Across all clients</div></div>
+        </div>
+        <div class="card" style="margin-bottom:20px">
+          <div class="card-title">Add views — top up client</div>
+          <div class="topup-grid">
+            <div class="topup-card" onclick="selectPackage(this,1000,5000)"><div class="topup-views">1,000</div><div class="topup-price">CAD $5,000</div><div class="topup-tag">$5 CAD/view</div></div>
+            <div class="topup-card selected" onclick="selectPackage(this,5000,25000)"><div class="topup-views">5,000</div><div class="topup-price">CAD $25,000</div><div class="topup-tag">$5 CAD/view</div></div>
+            <div class="topup-card" onclick="selectPackage(this,10000,50000)"><div class="topup-views">10,000</div><div class="topup-price">CAD $50,000</div><div class="topup-tag">$5 CAD/view</div></div>
+            <div class="topup-card" onclick="selectPackage(this,20000,100000)"><div class="topup-views">20,000</div><div class="topup-price">CAD $100,000</div><div class="topup-tag">$5 CAD/view</div></div>
+          </div>
+          <div class="form-grid">
+            <div class="form-group"><label class="fld">Client</label><select class="fld" id="topup-client-sel"><option value="">Select client…</option></select></div>
+            <div class="form-group"><label class="fld">Views to add</label><input class="fld" type="number" id="topup-views" placeholder="e.g. 1000"></div>
+            <div class="form-group"><label class="fld">Amount (CAD)</label><input class="fld" type="number" id="topup-amount" placeholder="e.g. 5000"></div>
+            <div class="form-group"><label class="fld">Payment reference</label><input class="fld" id="topup-ref" placeholder="e-transfer reference"></div>
+          </div>
+          <button class="btn-save" onclick="doTopup()">Confirm top-up</button>
+        </div>
+        <div class="card">
+          <div class="card-title">Transaction history</div>
+          <div class="table-wrap"><table><thead><tr><th>Date</th><th>Client</th><th>Views added</th><th>Amount (CAD)</th><th>$/view</th><th>Reference</th><th>By</th></tr></thead><tbody id="billing-tbody"><tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted)">Loading…</td></tr></tbody></table></div>
+        </div>
+      </div>
+
+      <!-- ═══════════ SETTINGS ═══════════ -->
+      <div class="panel" id="panel-settings">
+        <div class="card"><div class="card-title">Settings</div><p style="color:var(--muted);font-size:14px">System settings coming soon.</p></div>
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /app-shell -->
+</div><!-- /adminApp -->
+
+<!-- ══ MODALS ══ -->
+
+<!-- New Client Modal -->
+<div class="modal-overlay" id="clientModal" onclick="closeBg(event,'clientModal')">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-head">
+      <div class="modal-title" id="clientModalTitle">Add new client</div>
+      <button class="modal-close" onclick="resetClientModal();closeModal('clientModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group"><label class="fld">Contact name</label><input class="fld" id="cm-name" placeholder="e.g. Ravi Sharma" autocomplete="off"></div>
+        <div class="form-group"><label class="fld">Business name <span style="color:var(--danger)">*</span></label><input class="fld" id="cm-biz" placeholder="e.g. Brampton Homes Ltd." autocomplete="off"></div>
+        <div class="form-group"><label class="fld">Email address <span style="color:var(--danger)">*</span></label><input class="fld" id="cm-email" type="email" placeholder="ravi@bramptonhomes.ca" autocomplete="off"></div>
+        <div class="form-group">
+          <label class="fld">Phone / WhatsApp</label>
+          <div style="display:flex;gap:6px">
+            <select class="fld" id="cm-cc" style="width:100px;flex-shrink:0"><option value="+1">CA +1</option><option value="+1us">US +1</option><option value="+91">IN +91</option><option value="+44">UK +44</option><option value="+971">AE +971</option><option value="+61">AU +61</option></select>
+            <input class="fld" id="cm-phone" type="tel" placeholder="10-digit number" maxlength="10" oninput="this.value=this.value.replace(/\D/g,'').slice(0,10)" style="flex:1">
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">Enter exactly 10 digits</div>
+        </div>
+        <div class="form-group full" id="cm-pass-group">
+          <label class="fld">Login password <span style="color:var(--danger)">*</span></label>
+          <div style="display:flex;gap:6px">
+            <input class="fld" id="cm-pass" type="text" placeholder="Min 8 characters" autocomplete="new-password" style="flex:1;font-family:monospace;letter-spacing:0.05em">
+            <button type="button" onclick="generatePassword()" style="padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;color:var(--text);white-space:nowrap;font-family:var(--font)">⚡ Generate</button>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">Client will use this to log into their panel. Share it securely.</div>
+        </div>
+        <div class="form-group"><label class="fld">Product <span style="color:var(--danger)">*</span></label><select class="fld" id="new-client-billing"><option value="views">Digital Flyers — pay per 25s view</option><option value="leads">Lead Engine — pay per delivered lead</option><option value="both">Both products</option></select></div>
+        <div class="form-group"><label class="fld">Account type</label><select class="fld" id="new-client-role"><option value="client">Direct client</option><option value="agency">Agency (white-label)</option><option value="corporate">Corporate (multi-location)</option></select></div>
+        <div class="form-group full"><label class="fld">Notes (optional)</label><textarea class="fld" id="cm-notes" placeholder="Industry, campaign details, referral source…" style="height:60px;resize:none"></textarea></div>
+      </div>
+      <div id="cm-error" style="display:none;background:rgba(200,16,46,0.08);border:1px solid rgba(200,16,46,0.25);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--danger);margin-top:8px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="resetClientModal();closeModal('clientModal')">Cancel</button>
+      <button class="btn-save" id="cm-submit-btn" onclick="window._clientModalMode==='edit' ? saveClientEdit() : saveClient()">Create client</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Campaign Modal -->
+<div class="modal-overlay" id="campaignModal" onclick="closeBg(event,'campaignModal')">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-head">
+      <div class="modal-title">New campaign</div>
+      <button class="modal-close" onclick="resetCampaignModal();closeModal('campaignModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="background:var(--surface2);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--muted)"><strong style="color:var(--text)">Step 3 of 3.</strong> Link the client, their ad, and assign views from their wallet.</div>
+      <div class="form-grid">
+        <div class="form-group full"><label class="fld">Campaign name <span style="color:var(--danger)">*</span></label><input class="fld" id="cam-name-input" placeholder="e.g. January Facebook — Brampton Homes"></div>
+        <div class="form-group"><label class="fld">Client <span style="color:var(--danger)">*</span></label><select class="fld" id="cam-client-sel2" onchange="onCamClientChange()"><option value="">Select client...</option></select></div>
+        <div class="form-group"><label class="fld">Ad page <span style="color:var(--danger)">*</span></label><select class="fld" id="cam-ad-sel"><option value="">Select client first...</option></select></div>
+      </div>
+      <div id="cam-wallet-info" style="display:none;border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin:12px 0">
+        <div style="font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);margin-bottom:10px">Client wallet</div>
+        <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+          <div style="text-align:center"><div style="font-size:24px;font-weight:700;color:var(--text)" id="cam-wallet-total">0</div><div style="font-size:11px;color:var(--muted)">views available</div></div>
+          <div style="font-size:20px;color:var(--muted)">&#8594;</div>
+          <div>
+            <label style="font-size:12px;font-weight:600;color:var(--text);display:block;margin-bottom:5px">Assign to this campaign <span style="color:var(--danger)">*</span></label>
+            <div style="display:flex;align-items:center;gap:8px"><input class="fld" id="cam-views-input" type="number" placeholder="e.g. 500" style="width:130px" oninput="updateCamWalletPreview()"><span style="font-size:13px;color:var(--muted)">views</span></div>
+          </div>
+          <div style="font-size:20px;color:var(--muted)">&#8594;</div>
+          <div style="text-align:center"><div style="font-size:24px;font-weight:700" id="cam-wallet-remain">0</div><div style="font-size:11px;color:var(--muted)">remaining after</div></div>
+        </div>
+        <div class="progress-bar" style="margin-top:12px;height:6px"><div id="cam-wallet-bar" class="progress-fill" style="width:0%;transition:width 0.3s"></div></div>
+        <div id="cam-wallet-warning" style="display:none;margin-top:8px;font-size:12px;color:var(--danger);font-weight:600">Warning: exceeds available balance</div>
+      </div>
+      <input type="hidden" id="cam-product-type" value="views">
+      <div class="form-group" style="margin-top:8px"><label class="fld">Notes (optional)</label><textarea class="fld" id="cam-notes-input" placeholder="Platform, target audience, brief..." style="height:60px;resize:none"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="resetCampaignModal();closeModal('campaignModal')">Cancel</button>
+      <button class="btn-save" onclick="saveCampaign()">Create campaign</button>
+    </div>
+  </div>
+</div>
+
+<!-- Top-up Modal -->
+<div class="modal-overlay" id="topupModal" onclick="closeBg(event,'topupModal')">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-head"><div class="modal-title">Add views — top up</div><button class="modal-close" onclick="closeModal('topupModal')">×</button></div>
+    <div class="modal-body">
+      <div class="topup-grid" style="grid-template-columns:1fr 1fr">
+        <div class="topup-card" onclick="selectPackage(this,1000,5000)"><div class="topup-views">1,000</div><div class="topup-price">CAD $5,000</div><div class="topup-tag">$5 CAD/view</div></div>
+        <div class="topup-card selected" onclick="selectPackage(this,5000,25000)"><div class="topup-views">5,000</div><div class="topup-price">CAD $25,000</div><div class="topup-tag">$5 CAD/view</div></div>
+        <div class="topup-card" onclick="selectPackage(this,10000,50000)"><div class="topup-views">10,000</div><div class="topup-price">CAD $50,000</div><div class="topup-tag">$5 CAD/view</div></div>
+        <div class="topup-card" onclick="selectPackage(this,20000,100000)"><div class="topup-views">20,000</div><div class="topup-price">CAD $100,000</div><div class="topup-tag">$5 CAD/view</div></div>
+      </div>
+      <div class="form-group"><label class="fld">Client</label><select class="fld" id="topup-client-sel2"><option value="">Select client…</option></select></div>
+      <div class="form-grid">
+        <div class="form-group"><label class="fld">Views to add</label><input class="fld" type="number" id="topup-views" placeholder="e.g. 1000"></div>
+        <div class="form-group"><label class="fld">Amount (CAD)</label><input class="fld" type="number" id="topup-amount" placeholder="e.g. 5000"></div>
+      </div>
+      <div class="form-group"><label class="fld">Payment reference</label><input class="fld" id="topup-ref" placeholder="e-transfer / wire reference number"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('topupModal')">Cancel</button>
+      <button class="btn-save" onclick="doTopup()">Confirm top-up</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"><svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><span id="toast-msg">Done!</span></div>
+
+<div class="sidebar-overlay" id="adminSidebarOverlay" onclick="toggleAdminSidebar()"></div>
+
+<script>
+
+
 const SB_URL  = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 const SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 const ADMIN_UUID = 'b108e23f-bdc9-43b7-8f87-6b70ac94f9d0';
@@ -310,33 +1081,16 @@ function renderClientRows(clients, leads) {
     var balDisplay  = c.billing_model === 'leads'
       ? (c.leads_purchased || 0) + ' leads pkg'
       : bal.toLocaleString() + ' views';
-    // Count campaigns for this client
-    var clientCampaigns = (window._allCampaigns||[]).filter(function(cam){ return cam.client_id === c.id; });
-    var activeCams = clientCampaigns.filter(function(cam){ return cam.status === 'active'; }).length;
-    var totalCams  = clientCampaigns.length;
-    var totalViews = clientCampaigns.reduce(function(s,cam){ return s+(cam.views_used||0); }, 0);
-
     return '<tr data-client-id="' + c.id + '" data-search="' + (c.business_name + ' ' + c.email + ' ' + (c.contact_name||'')).toLowerCase() + '">' +
-      '<td>' +
-        '<div class="td-name">' + (c.contact_name||c.business_name) + roleTag + productTag + '</div>' +
-        '<div class="td-email">' + c.email + '</div>' +
-      '</td>' +
+      '<td><div class="td-name">' + (c.contact_name||c.business_name) + roleTag + productTag + '</div><div class="td-email">' + c.email + '</div></td>' +
       '<td>' + c.business_name + '</td>' +
-      '<td class="td-mono" style="' + balColor + '">' +
-        '<div style="font-weight:700">' + balDisplay + '</div>' +
-        (totalViews > 0 ? '<div style="font-size:10px;color:var(--muted)">' + totalViews.toLocaleString() + ' used</div>' : '') +
-      '</td>' +
-      '<td>' +
-        '<span style="font-weight:700;cursor:pointer;color:var(--brand)" data-cid="' + c.id + '" onclick="filterCampaignsByClient(this.dataset.cid)" title="Click to view campaigns">' +
-          totalCams + (activeCams > 0 ? ' (' + activeCams + ' active)' : '') +
-        '</span>' +
-      '</td>' +
+      '<td class="td-mono" style="' + balColor + '">' + balDisplay + '</td>' +
       '<td>' + clientLeads + '</td>' +
       '<td><span class="badge ' + statusClass + '"><span class="badge-dot"></span>' + (c.status||'active') + '</span></td>' +
-      '<td style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">' +
+      '<td style="display:flex;gap:4px;flex-wrap:wrap">' +
         '<button class="tbl-btn" onclick="openTopupForClient(this)" data-id="' + c.id + '" data-bal="' + bal + '">Top-up</button>' +
+        '<button class="tbl-btn primary" onclick="copyClientLoginLink(this)" data-email="' + c.email + '">Login link</button>' +
         '<button class="tbl-btn" onclick="openEditClient(this)" data-id="' + c.id + '">Edit</button>' +
-        '<button class="tbl-btn primary" onclick="copyClientLoginLink(this)" data-email="' + c.email + '" title="Copy login URL + email">Login link</button>' +
       '</td>' +
     '</tr>';
   }).join('');
@@ -491,10 +1245,10 @@ function renderCampaignRows(campaigns, clients) {
       '</td>' +
       // Campaign name column (click → open live ad)
       '<td>' +
-        '<div style="font-weight:600;font-size:13px;cursor:pointer;color:var(--brand)" onclick="window.open(this.dataset.url,\'_blank\')" data-url="' + liveUrl.replace(/&/g,'&amp;') + '" title="Click to open live ad with 25s timer">' +
-          cam.name + ' \u2197' +
+        '<div style="font-weight:600;font-size:13px;cursor:pointer;color:var(--brand)" onclick="window.open(\"' + liveUrl + '\",\'_blank\')" title="Click to open live ad with 25s timer">' +
+          cam.name +
+          ' <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:middle"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>' +
         '</div>' +
-        (cam.short_code ? '<div style="font-size:10px;color:var(--muted);font-family:monospace;cursor:pointer;margin-top:2px" data-c="' + cam.short_code + '" onclick="event.stopPropagation();copyShortUrl(this.dataset.c)" title="Click to copy short SMS URL">/go/' + cam.short_code + '</div>' : '') +
       '</td>' +
       // Client name column (click → open edit client)
       '<td>' +
@@ -854,286 +1608,6 @@ async function saveCampaign() {
 }
 
 // ── PUBLISH AD — saves to Supabase ads table ──
-// ══════════════════════════════════════════════
-// AD BUILDER — list, paste code, edit, template
-// ══════════════════════════════════════════════
-
-function renderAdBuilderPanel() {
-  var list = document.getElementById('adBuilderList');
-  if (!list) return;
-  var ads = window._allAds || [];
-
-  if (ads.length === 0) {
-    list.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted);font-size:13px">' +
-      'No ads yet. Click <strong>+ New ad</strong> to create your first ad.</div>';
-    return;
-  }
-
-  var rows = ads.map(function(ad) {
-    var clientName = '';
-    if (ad.client_id && window._allClients) {
-      var cl = window._allClients.find(function(c){ return c.id === ad.client_id; });
-      if (cl) clientName = cl.business_name;
-    }
-    var cam = window._allCampaigns ? window._allCampaigns.find(function(c){ return c.ad_id === ad.id; }) : null;
-    var camName = cam ? cam.name : '—';
-    var letter = (ad.logo_letter || (ad.business_name||'A')[0]).toUpperCase();
-    var color  = ad.brand_color || '#C8102E';
-    var liveUrl = 'https://adviuzdev.netlify.app?ad_id=' + (ad.ad_slug || '') +
-      (cam ? '&campaign_id=' + cam.id : '') +
-      (ad.client_id ? '&client_id=' + ad.client_id : '') +
-      '&utm_source=preview';
-
-    return '<tr>' +
-      '<td style="padding:10px 14px">' +
-        '<div style="display:flex;align-items:center;gap:10px">' +
-          '<div style="width:36px;height:36px;border-radius:8px;background:' + color + '22;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:' + color + ';flex-shrink:0">' + letter + '</div>' +
-          '<div>' +
-            '<div style="font-weight:600;font-size:13px">' + (ad.business_name || '—') + '</div>' +
-            '<div style="font-size:11px;color:var(--muted);font-family:var(--mono)">' + (ad.ad_slug || ad.id.slice(0,8)) + '</div>' +
-          '</div>' +
-        '</div>' +
-      '</td>' +
-      '<td style="font-size:12px;color:var(--muted)">' + clientName + '</td>' +
-      '<td style="font-size:12px;color:var(--muted)">' + camName + '</td>' +
-      '<td><span class="badge ' + (ad.status === 'paused' ? 'paused' : 'active') + '"><span class="badge-dot"></span>' + (ad.status || 'active') + '</span></td>' +
-      '<td style="padding:10px 14px">' +
-        '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
-          '<button class="tbl-btn" data-url="' + liveUrl.replace(/"/g,'&quot;') + '" onclick="window.open(this.dataset.url,\'_blank\')" title="Open live ad with 25s timer">↗ Live</button>' +
-          '<button class="tbl-btn" data-id="' + ad.id + '" onclick="openEditAd(this)">Edit</button>' +
-          (ad.custom_html ? '<button class="tbl-btn" data-id="' + ad.id + '" onclick="openEditHtml(this)">Edit HTML</button>' : '') +
-        '</div>' +
-      '</td>' +
-    '</tr>';
-  }).join('');
-
-  list.innerHTML = '<table>' +
-    '<thead><tr><th>Ad</th><th>Client</th><th>Campaign</th><th>Status</th><th>Actions</th></tr></thead>' +
-    '<tbody>' + rows + '</tbody>' +
-  '</table>';
-}
-
-// ── NEW AD MENU TOGGLE ──────────────────────────
-function toggleNewAdMenu() {
-  var menu = document.getElementById('newAdMenu');
-  if (!menu) return;
-  menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
-  // Close on outside click
-  setTimeout(function() {
-    document.addEventListener('click', function closeMenu(e) {
-      if (!document.getElementById('newAdMenu')?.contains(e.target) &&
-          e.target.id !== 'newAdBtn') {
-        if (menu) menu.style.display = 'none';
-      }
-      document.removeEventListener('click', closeMenu);
-    });
-  }, 10);
-}
-
-// ── PASTE CODE ──────────────────────────────────
-function openPasteCode() {
-  document.getElementById('newAdMenu').style.display = 'none';
-  // Populate client dropdown
-  var sel = document.getElementById('paste-client-sel');
-  if (sel) {
-    sel.innerHTML = '<option value="">Select client…</option>' +
-      (window._allClients||[]).map(function(c) {
-        return '<option value="' + c.id + '">' + c.business_name + '</option>';
-      }).join('');
-  }
-  document.getElementById('paste-ad-name').value = '';
-  document.getElementById('paste-code-area').value = '';
-  document.getElementById('paste-code-error').style.display = 'none';
-  window._editingAdId = null;
-  openModal('pasteCodeModal');
-}
-
-async function savePastedCode() {
-  var name    = (document.getElementById('paste-ad-name')?.value || '').trim();
-  var clientId= document.getElementById('paste-client-sel')?.value || '';
-  var code    = (document.getElementById('paste-code-area')?.value || '').trim();
-  var errEl   = document.getElementById('paste-code-error');
-
-  if (!name)     { errEl.textContent = 'Please enter an ad name.'; errEl.style.display='block'; return; }
-  if (!clientId) { errEl.textContent = 'Please select a client.';   errEl.style.display='block'; return; }
-  if (!code)     { errEl.textContent = 'Please paste the HTML code.'; errEl.style.display='block'; return; }
-
-  errEl.style.display = 'none';
-  var btn = document.getElementById('paste-code-save-btn');
-  if (btn) { btn.textContent = 'Saving…'; btn.disabled = true; }
-
-  // Inject Adviuz tracking into the pasted HTML
-  var adSlug = name.toLowerCase().replace(/[^a-z0-9]+/g,'-') + '-' + Math.random().toString(36).slice(2,6);
-  var injectedCode = injectAdviuzTracking(code, adSlug);
-
-  // If editing existing ad
-  if (window._editingAdId) {
-    var r = await sbAdmin('/rest/v1/ads?id=eq.' + window._editingAdId, {
-      method: 'PATCH',
-      headers: { 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ business_name:name, client_id:clientId, custom_html:injectedCode, ad_slug:adSlug })
-    });
-    closeModal('pasteCodeModal');
-    toast(r.ok ? '✅ Ad updated!' : 'Update failed');
-  } else {
-    var r = await sbAdmin('/rest/v1/ads', {
-      method: 'POST',
-      headers: { 'Prefer': 'return=representation' },
-      body: JSON.stringify({
-        business_name: name,
-        client_id:     clientId,
-        ad_slug:       adSlug,
-        custom_html:   injectedCode,
-        logo_letter:   name[0].toUpperCase(),
-        brand_color:   '#C8102E',
-        status:        'active'
-      })
-    });
-    closeModal('pasteCodeModal');
-    toast(r.ok ? '✅ Ad saved! Now create a campaign to run it.' : 'Save failed');
-  }
-
-  if (btn) { btn.textContent = 'Save & create ad →'; btn.disabled = false; }
-  window._editingAdId = null;
-  await loadAdminData();
-  renderAdBuilderPanel();
-}
-
-// Inject Adviuz Supabase tracking into pasted HTML
-function injectAdviuzTracking(html, adSlug) {
-  var trackingScript = `
-<script>
-(function(){
-  var SB_URL='${SB_URL}';
-  var SB_KEY='${SB_KEY}';
-  function p(n){try{return new URLSearchParams(window.location.search).get(n)||''}catch(e){return''}}
-  var campaignId=p('campaign_id')||null;
-  var clientId=p('client_id')||null;
-  var adSlug='${adSlug}';
-  var utmSource=p('utm_source')||'direct';
-  var AD_UUID=null;
-  async function loadUUID(){
-    try{
-      var r=await fetch(SB_URL+'/rest/v1/ads?ad_slug=eq.'+encodeURIComponent(adSlug)+'&select=id,client_id',{headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}});
-      if(r.ok){var rows=await r.json();if(rows[0]){AD_UUID=rows[0].id;if(!clientId&&rows[0].client_id)clientId=rows[0].client_id;}}
-    }catch(e){}
-    if(!AD_UUID&&campaignId){try{var cr=await fetch(SB_URL+'/rest/v1/campaigns?id=eq.'+campaignId+'&select=ad_id,client_id',{headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}});if(cr.ok){var crows=await cr.json();if(crows[0]){if(crows[0].ad_id)AD_UUID=crows[0].ad_id;if(!clientId&&crows[0].client_id)clientId=crows[0].client_id;}}}catch(e){}}
-    console.log('[Adviuz] ad_uuid:',AD_UUID,'client:',clientId);
-  }
-  async function sbInsert(table,data){try{await fetch(SB_URL+'/rest/v1/'+table,{method:'POST',headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},body:JSON.stringify(data)});}catch(e){}}
-  window.adviuzCountView=async function(){
-    var k='adviuz_view_'+(campaignId||adSlug);
-    var last=parseInt(localStorage.getItem(k)||'0',10);
-    if(Date.now()-last<86400000){console.log('[Adviuz] Duplicate view — not billed');return;}
-    localStorage.setItem(k,Date.now()+'');
-    await sbInsert('view_events',{ad_id:AD_UUID||null,client_id:clientId||null,campaign_id:campaignId||null,utm_source:utmSource,viewed_at:new Date().toISOString(),billing_model:'views'});
-    console.log('[Adviuz] ✅ View counted');
-  };
-  window.adviuzSubmitLead=async function(name,phone,email){
-    await sbInsert('leads',{name:name,phone:phone,email:email||null,client_id:clientId||null,campaign_id:campaignId||null,source:utmSource,billing_model:'views',stage:'New',submitted_at:new Date().toISOString()});
-    console.log('[Adviuz] ✅ Lead saved');
-  };
-  loadUUID();
-})();
-<\/script>`;
-
-  // Insert before </body> or at end
-  if (html.includes('</body>')) {
-    return html.replace('</body>', trackingScript + '</body>');
-  }
-  return html + trackingScript;
-}
-
-// ── EDIT EXISTING AD ────────────────────────────
-function openEditAd(btn) {
-  var adId = btn.dataset.id;
-  var ad   = (window._allAds||[]).find(function(a){ return a.id === adId; });
-  if (!ad) return;
-  window._editingAdId = adId;
-
-  document.getElementById('editAdTitle').textContent = 'Edit: ' + (ad.business_name || 'Ad');
-  document.getElementById('ea-name').value   = ad.business_name || '';
-  document.getElementById('ea-slug').value   = ad.ad_slug       || '';
-  document.getElementById('ea-status').value = ad.status        || 'active';
-
-  var eaSel = document.getElementById('ea-client');
-  eaSel.innerHTML = '<option value="">Select client…</option>' +
-    (window._allClients||[]).map(function(c) {
-      return '<option value="' + c.id + '"' + (c.id === ad.client_id ? ' selected' : '') + '>' + c.business_name + '</option>';
-    }).join('');
-
-  openModal('editAdModal');
-}
-
-async function saveAdEdit() {
-  var id     = window._editingAdId;
-  var name   = (document.getElementById('ea-name')?.value   || '').trim();
-  var slug   = (document.getElementById('ea-slug')?.value   || '').trim();
-  var client = document.getElementById('ea-client')?.value  || null;
-  var status = document.getElementById('ea-status')?.value  || 'active';
-  if (!id) return;
-
-  var r = await sbAdmin('/rest/v1/ads?id=eq.' + id, {
-    method: 'PATCH',
-    headers: { 'Prefer': 'return=minimal' },
-    body: JSON.stringify({ business_name:name, ad_slug:slug, client_id:client||null, status:status })
-  });
-  closeModal('editAdModal');
-  toast(r.ok ? '✅ Ad updated!' : 'Update failed');
-  window._editingAdId = null;
-  await loadAdminData();
-  renderAdBuilderPanel();
-}
-
-// ── EDIT HTML of existing ad ────────────────────
-function openEditHtml(btn) {
-  var adId = btn.dataset.id;
-  var ad   = (window._allAds||[]).find(function(a){ return a.id === adId; });
-  if (!ad) return;
-  window._editingAdId = adId;
-
-  // Populate paste modal with existing data
-  var sel = document.getElementById('paste-client-sel');
-  if (sel) {
-    sel.innerHTML = '<option value="">Select client…</option>' +
-      (window._allClients||[]).map(function(c) {
-        return '<option value="' + c.id + '"' + (c.id === ad.client_id ? ' selected' : '') + '>' + c.business_name + '</option>';
-      }).join('');
-  }
-  document.getElementById('paste-ad-name').value    = ad.business_name || '';
-  document.getElementById('paste-code-area').value  = ad.custom_html   || '';
-  document.getElementById('paste-code-error').style.display = 'none';
-
-  var saveBtn = document.getElementById('paste-code-save-btn');
-  if (saveBtn) saveBtn.textContent = 'Update ad →';
-
-  openModal('pasteCodeModal');
-}
-
-// ── TEMPLATE BUILDER ────────────────────────────
-function openTemplateBuilder() {
-  document.getElementById('newAdMenu').style.display = 'none';
-  window._editingAdId = null;
-  document.getElementById('templateBuilderTitle').textContent = '✏️ New ad from template';
-
-  var sel = document.getElementById('builder-client-sel');
-  if (sel) {
-    sel.innerHTML = '<option value="">Select client…</option>' +
-      (window._allClients||[]).map(function(c){
-        return '<option value="' + c.id + '">' + c.business_name + '</option>';
-      }).join('');
-  }
-  // Clear fields
-  ['b-name','b-tag','b-h1','b-h1b','b-p','b-cta'].forEach(function(id) {
-    var el = document.getElementById(id);
-    if (el) el.value = id === 'b-cta' ? 'Get Free Inquiry' : '';
-  });
-  var col = document.getElementById('b-color');
-  if (col) col.value = '#C8102E';
-  updatePreview();
-  openModal('templateBuilderModal');
-}
-
 async function publishAd() {
   var bName  = document.getElementById('b-name')?.value.trim()  || '';
   var bTag   = document.getElementById('b-tag')?.value.trim()   || '';
@@ -1359,14 +1833,6 @@ function resetCampaignModal() {
   window._camClientBalance = 0;
 }
 
-function filterCampaignsByClient(clientId) {
-  showPanel('campaigns');
-  setTimeout(function() {
-    var sel = document.getElementById('cam-filter-client');
-    if (sel) { sel.value = clientId; filterCampaigns(); }
-  }, 150);
-}
-
 function copyShortUrl(code) {
   var url = 'https://adviuzdev.netlify.app/go/' + code;
   if (navigator.clipboard) navigator.clipboard.writeText(url).catch(function(){});
@@ -1516,132 +1982,60 @@ function openPreviewInTab() {
 // ── EDIT CAMPAIGN ──
 function openEditCampaign(btn) {
   window._editCampaignId = btn.dataset.id;
-
-  // Get current campaign data
-  var cam = (window._allCampaigns||[]).find(function(c){ return c.id === btn.dataset.id; });
-  var currentClientId = cam ? (cam.client_id || '') : '';
-  var currentAdId     = cam ? (cam.ad_id     || '') : '';
-  var currentFbUrl    = cam ? (cam.fb_preview_url     || '') : '';
-  var currentGgUrl    = cam ? (cam.google_preview_url || '') : '';
-
-  // Build client options
-  var clientOpts = (window._allClients||[]).map(function(c) {
-    return '<option value="' + c.id + '"' + (c.id === currentClientId ? ' selected' : '') + '>' + c.business_name + '</option>';
-  }).join('');
-
-  // Build ad options filtered to selected client
-  var adOpts = '<option value="">Select ad page…</option>' +
-    (window._allAds||[]).map(function(a) {
-      var label = (a.business_name || 'Ad') + (a.ad_slug ? ' (' + a.ad_slug + ')' : '');
-      return '<option value="' + a.id + '"' + (a.id === currentAdId ? ' selected' : '') + '>' + label + '</option>';
-    }).join('');
-
-  var modal = '<div class="modal-overlay open" id="editCampaignModal" onclick="if(event.target===this)this.remove()">' +
-    '<div class="modal" style="max-width:520px">' +
-      '<div class="modal-head"><div class="modal-title">Edit campaign</div>' +
-        '<button class="modal-close" onclick="document.getElementById(\'editCampaignModal\').remove()">×</button></div>' +
-      '<div class="modal-body">' +
-
-        '<div class="form-group"><label class="fld">Campaign name</label>' +
-          '<input class="fld" id="ecam-name" value="' + (btn.dataset.name||'') + '"></div>' +
-
-        '<div class="form-grid">' +
-          '<div class="form-group"><label class="fld">Client</label>' +
-            '<select class="fld" id="ecam-client" onchange="filterEcamAds(this.value)">' +
-              '<option value="">Select client…</option>' + clientOpts +
-            '</select></div>' +
-          '<div class="form-group"><label class="fld">Ad page</label>' +
-            '<select class="fld" id="ecam-ad">' + adOpts + '</select></div>' +
-        '</div>' +
-
-        '<div class="form-grid">' +
-          '<div class="form-group"><label class="fld">Views allotted</label>' +
-            '<input class="fld" type="number" id="ecam-budget" value="' + (btn.dataset.budget||0) + '"></div>' +
-          '<div class="form-group"><label class="fld">Views used</label>' +
-            '<input class="fld" type="number" id="ecam-used" value="' + (btn.dataset.used||0) + '">' +
-            '<div style="font-size:11px;color:var(--muted);margin-top:3px">Set to 0 to clear test views</div></div>' +
-        '</div>' +
-
-        '<div class="form-group"><label class="fld">Status</label>' +
-          '<select class="fld" id="ecam-status">' +
-            '<option value="active"' + (btn.dataset.status==='active'?' selected':'') + '>Active</option>' +
-            '<option value="paused"' + (btn.dataset.status==='paused'?' selected':'') + '>Paused</option>' +
-            '<option value="completed"' + (btn.dataset.status==='completed'?' selected':'') + '>Completed</option>' +
-          '</select></div>' +
-
-        '<div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:14px">' +
-          '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Ad preview URLs</div>' +
-          '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Paste the ad preview links from Facebook Ads Manager and Google Ads. These show the client their live ads.</div>' +
-          '<div class="form-group" style="margin-bottom:10px"><label class="fld">Facebook preview URL</label>' +
-            '<input class="fld" id="ecam-fb" value="' + currentFbUrl + '" placeholder="https://facebook.com/ads/library/…"></div>' +
-          '<div class="form-group" style="margin-bottom:0"><label class="fld">Google preview URL</label>' +
-            '<input class="fld" id="ecam-google" value="' + currentGgUrl + '" placeholder="https://adstransparency.google.com/…"></div>' +
-        '</div>' +
-
-      '</div>' +
-      '<div class="modal-footer">' +
-        '<button class="btn-cancel" onclick="document.getElementById(\'editCampaignModal\').remove()">Cancel</button>' +
-        '<button class="btn-save" onclick="saveCampaignEdit()">Save changes</button>' +
-      '</div>' +
-    '</div>' +
-  '</div>';
-
+  var modal = `
+    <div class="modal-overlay open" id="editCampaignModal" onclick="if(event.target===this)this.remove()">
+      <div class="modal" style="max-width:480px">
+        <div class="modal-head"><div class="modal-title">Edit campaign</div>
+          <button class="modal-close" onclick="document.getElementById('editCampaignModal').remove()">×</button></div>
+        <div class="modal-body">
+          <div class="form-group"><label class="fld">Campaign name</label>
+            <input class="fld" id="ecam-name" value="${btn.dataset.name}"></div>
+          <div class="form-grid">
+            <div class="form-group"><label class="fld">Total views allotted</label>
+              <input class="fld" type="number" id="ecam-budget" value="${btn.dataset.budget}"></div>
+            <div class="form-group"><label class="fld">Views used (editable)</label>
+              <input class="fld" type="number" id="ecam-used" value="${btn.dataset.used}">
+              <div style="font-size:11px;color:var(--muted);margin-top:4px">Set to 0 to remove test views</div></div>
+          </div>
+          <div class="form-group"><label class="fld">Status</label>
+            <select class="fld" id="ecam-status">
+              <option value="active" ${btn.dataset.status==='active'?'selected':''}>Active</option>
+              <option value="paused" ${btn.dataset.status==='paused'?'selected':''}>Paused</option>
+              <option value="completed" ${btn.dataset.status==='completed'?'selected':''}>Completed</option>
+            </select></div>
+          <div class="form-group"><label class="fld">FB preview URL</label>
+            <input class="fld" id="ecam-fb" placeholder="https://facebook.com/ads/library/…"></div>
+          <div class="form-group"><label class="fld">Google preview URL</label>
+            <input class="fld" id="ecam-google" placeholder="https://adstransparency.google.com/…"></div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn-cancel" onclick="document.getElementById('editCampaignModal').remove()">Cancel</button>
+          <button class="btn-save" onclick="saveCampaignEdit()">Save changes</button>
+        </div>
+      </div>
+    </div>`;
   document.body.insertAdjacentHTML('beforeend', modal);
 }
 
-function filterEcamAds(clientId) {
-  var adSel = document.getElementById('ecam-ad');
-  if (!adSel) return;
-  var filtered = clientId
-    ? (window._allAds||[]).filter(function(a){ return a.client_id === clientId; })
-    : (window._allAds||[]);
-  adSel.innerHTML = '<option value="">Select ad page…</option>' +
-    filtered.map(function(a) {
-      var label = (a.business_name||'Ad') + (a.ad_slug ? ' (' + a.ad_slug + ')' : '');
-      return '<option value="' + a.id + '">' + label + '</option>';
-    }).join('');
-}
-
 async function saveCampaignEdit() {
-  var id       = window._editCampaignId;
-  var name     = (document.getElementById('ecam-name')?.value   || '').trim();
-  var budget   = parseInt(document.getElementById('ecam-budget')?.value || 0);
-  var used     = parseInt(document.getElementById('ecam-used')?.value   || 0);
-  var status   = document.getElementById('ecam-status')?.value || 'active';
-  var clientId = document.getElementById('ecam-client')?.value || null;
-  var adId     = document.getElementById('ecam-ad')?.value     || null;
-  var fbUrl    = (document.getElementById('ecam-fb')?.value     || '').trim();
-  var ggUrl    = (document.getElementById('ecam-google')?.value || '').trim();
+  var id     = window._editCampaignId;
+  var name   = document.getElementById('ecam-name')?.value.trim();
+  var budget = parseInt(document.getElementById('ecam-budget')?.value || 0);
+  var used   = parseInt(document.getElementById('ecam-used')?.value   || 0);
+  var status = document.getElementById('ecam-status')?.value;
+  var fbUrl  = document.getElementById('ecam-fb')?.value.trim();
+  var ggUrl  = document.getElementById('ecam-google')?.value.trim();
   if (!id) return;
-
-  var saveBtn = document.querySelector('#editCampaignModal .btn-save');
-  if (saveBtn) { saveBtn.textContent = 'Saving…'; saveBtn.disabled = true; }
-
-  var payload = {
-    name:        name,
-    view_budget: budget,
-    views_used:  used,
-    status:      status
-  };
-  if (clientId) payload.client_id       = clientId;
-  if (adId)     payload.ad_id           = adId;
-  // Always save URLs — empty string clears them
-  payload.fb_preview_url     = fbUrl || null;
-  payload.google_preview_url = ggUrl || null;
-
+  var payload = { name:name, view_budget:budget, views_used:used, status:status };
+  if (fbUrl)  payload.fb_preview_url     = fbUrl;
+  if (ggUrl)  payload.google_preview_url = ggUrl;
   var r = await sbAdmin('/rest/v1/campaigns?id=eq.' + id, {
     method: 'PATCH',
-    headers: { 'Prefer': 'return=minimal' },
     body: JSON.stringify(payload)
   });
   document.getElementById('editCampaignModal')?.remove();
-  if (r.ok) {
-    toast('✅ Campaign updated!');
-  } else {
-    var err = await r.json().catch(function(){ return {}; });
-    toast('Update failed: ' + (err.message || r.status));
-  }
-  await loadAdminData();
+  toast(r.ok ? 'Campaign updated!' : 'Update failed');
+  loadAdminData();
 }
 
 // ── VIEW CAMPAIGN LEADS ──
@@ -1763,37 +2157,25 @@ function openEditClient(el) {
   // Reuse the client modal for editing
   var title = document.querySelector('#clientModal h2');
   if (title) title.textContent = 'Edit client';
-  // Populate fields using correct IDs
-  var nEl = document.getElementById('cm-name');
-  var bEl = document.getElementById('cm-biz');
-  var eEl = document.getElementById('cm-email');
-  var pEl = document.getElementById('cm-phone');
-  if (nEl) nEl.value = c.contact_name  || '';
-  if (bEl) bEl.value = c.business_name || '';
-  if (eEl) { eEl.value = c.email || ''; eEl.disabled = true; }
-  // Parse phone — strip country code if present
-  var rawPhone = (c.phone || '').replace(/^\+\d{1,3}/, '').replace(/\D/g,'');
-  if (pEl) pEl.value = rawPhone;
+  var n = document.querySelector('#clientModal input[placeholder*="Ravi"]');
+  var b = document.querySelector('#clientModal input[placeholder*="Skyline"]');
+  var e = document.querySelector('#clientModal input[type=email]');
+  var p = document.querySelector('#clientModal input[placeholder*="416"]');
+  if (n) n.value = c.contact_name || '';
+  if (b) b.value = c.business_name || '';
+  if (e) { e.value = c.email || ''; e.disabled = true; } // can't change email
+  if (p) p.value = c.phone || '';
   var billing = document.getElementById('new-client-billing');
   var role    = document.getElementById('new-client-role');
   if (billing) billing.value = c.billing_model || 'views';
   if (role)    role.value    = c.role           || 'client';
-  // Replace password field with password reset option for edits
+  // Hide password field for edits
   var passGroup = document.getElementById('cm-pass-group');
-  if (passGroup) {
-    passGroup.style.display = 'block';
-    passGroup.innerHTML =
-      '<label class="fld">Reset password <span style="color:var(--muted);font-weight:400">(leave blank to keep current)</span></label>' +
-      '<div style="display:flex;gap:6px">' +
-        '<input class="fld" id="cm-pass" type="text" placeholder="Enter new password to reset" autocomplete="new-password" style="flex:1;font-family:monospace">' +
-        '<button type="button" onclick="generatePassword()" style="padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:var(--font)">⚡ Generate</button>' +
-      '</div>' +
-      '<div style="font-size:11px;color:var(--muted);margin-top:4px">If you reset the password, share the new one with the client securely.</div>';
-  }
-  // Update modal title and button
-  var titleEl = document.getElementById('clientModalTitle');
-  if (titleEl) titleEl.textContent = 'Edit client';
+  if (passGroup) passGroup.style.display = 'none';
+  // Switch modal to edit mode
   window._clientModalMode = 'edit';
+  var title = document.getElementById('clientModalTitle');
+  if (title) title.textContent = 'Edit client';
   var btn = document.getElementById('cm-submit-btn');
   if (btn) btn.textContent = 'Save changes';
   openModal('clientModal');
@@ -1802,55 +2184,29 @@ function openEditClient(el) {
 async function saveClientEdit() {
   var cid = window._editClientId;
   if (!cid) return;
-  var n    = (document.getElementById('cm-name')?.value || '').trim();
-  var b    = (document.getElementById('cm-biz')?.value  || '').trim();
+  var n   = document.getElementById('cm-name')?.value.trim();
+  var b   = document.getElementById('cm-biz')?.value.trim();
   var pRaw = (document.getElementById('cm-phone')?.value||'').replace(/\D/g,'');
   var cc   = (document.getElementById('cm-cc')?.value||'+1').replace('us','');
   var p    = pRaw.length === 10 ? cc + pRaw : (pRaw || null);
   var billing = document.getElementById('new-client-billing')?.value;
   var role    = document.getElementById('new-client-role')?.value;
-
-  var saveBtn = document.getElementById('cm-submit-btn');
-  if (saveBtn) { saveBtn.textContent = 'Saving…'; saveBtn.disabled = true; }
-
-  // If password entered, reset it via RPC
-  var newPass = (document.getElementById('cm-pass')?.value || '').trim();
-  if (newPass && newPass.length >= 8) {
-    // Get the auth_user_id for this client
-    var clientData = (window._allClients||[]).find(function(cl){ return cl.id === cid; });
-    if (clientData && clientData.auth_user_id) {
-      await sbAdmin('/rest/v1/rpc/reset_client_password', {
-        method: 'POST',
-        body: JSON.stringify({ p_user_id: clientData.auth_user_id, p_password: newPass })
-      }).catch(function(){});
-    }
-  }
-
   var r = await sbAdmin('/rest/v1/clients?id=eq.' + cid, {
     method: 'PATCH',
-    headers: { 'Prefer': 'return=minimal' },
     body: JSON.stringify({ contact_name:n, business_name:b, phone:p, billing_model:billing, role:role })
   });
-
-  // Reset modal fully
-  var passGroup = document.getElementById('cm-pass-group');
+  // Reset modal
+  var passGroup = document.querySelector('#clientModal input[type=password]')?.closest('.form-group');
   if (passGroup) passGroup.style.display = '';
-  var eEl = document.getElementById('cm-email');
-  if (eEl) eEl.disabled = false;
-  var titleEl = document.getElementById('clientModalTitle');
-  if (titleEl) titleEl.textContent = 'Add new client';
-  if (saveBtn) { saveBtn.textContent = 'Create client'; saveBtn.disabled = false; }
+  var e = document.querySelector('#clientModal input[type=email]');
+  if (e) e.disabled = false;
+  var btn = document.querySelector('#clientModal .btn-save');
+  if (btn) { btn.textContent = 'Create client'; btn.onclick = function(){ saveClient(); }; }
   window._editClientId = null;
   window._clientModalMode = 'create';
   closeModal('clientModal');
-
-  if (r.ok) {
-    toast('✅ Client updated!');
-    await loadAdminData();
-  } else {
-    var err = await r.json().catch(function(){ return {}; });
-    toast('Update failed: ' + (err.message || r.status));
-  }
+  toast(r.ok ? 'Client updated!' : 'Update failed');
+  loadAdminData();
 }
 
 
@@ -2176,3 +2532,8 @@ function exportLeadsCSV() {
   var el = document.getElementById('adminPwaManifest');
   if (el) el.href = URL.createObjectURL(blob);
 })();
+
+
+</script>
+</body>
+</html>
