@@ -3620,25 +3620,77 @@ async function saveClientEdit() {
 // ══════════════════════════════════════════════
 async function toggleCampaignLive(id, shouldBeActive) {
   var newStatus = shouldBeActive ? 'active' : 'paused';
+  var cam = (window._allCampaigns||[]).find(function(c){ return c.id === id; });
+
+  // Update campaign status in DB
   var r = await sbAdmin('/rest/v1/campaigns?id=eq.' + id, {
     method: 'PATCH',
     body: JSON.stringify({ status: newStatus, updated_at: new Date().toISOString() })
   });
-  if (r.ok) {
-    // Also update the ad's status to match
-    var cam = (window._allCampaigns||[]).find(function(c){ return c.id === id; });
-    if (cam && cam.ad_id) {
-      await sbAdmin('/rest/v1/ads?id=eq.' + cam.ad_id, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: newStatus })
-      });
+  if (!r.ok) { toast('Could not update campaign'); loadAdminData(); return; }
+
+  if (cam && cam.ad_id) {
+    // Update ad status
+    await sbAdmin('/rest/v1/ads?id=eq.' + cam.ad_id, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: newStatus })
+    });
+
+    // Hard pause/resume — redeploy the ad page
+    var adR = await sbAdmin('/rest/v1/ads?id=eq.' + cam.ad_id + '&select=id,ad_slug,business_name,custom_html', {});
+    if (adR.ok) {
+      var adArr = await adR.json();
+      var ad = adArr[0];
+      if (ad && ad.ad_slug) {
+        var slug = ad.ad_slug.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+        if (shouldBeActive) {
+          // Resume — redeploy real ad HTML
+          toast('▶ Resuming — redeploying ad...');
+          if (ad.custom_html) {
+            var freshHtml = ad.custom_html;
+            freshHtml = freshHtml.replace(/<style id="adviuz-bar-style">[\s\S]*?<\/style>/g, '');
+            freshHtml = freshHtml.replace(/<div id="adviuz-bar-wrap">[\s\S]*?<\/div>/g, '');
+            freshHtml = freshHtml.replace(/<script>\(function\(\)\{var U="https:\/\/crhvvfomwkrgwlnfruad[\s\S]*?\}\)\(\);<\/script>/g, '');
+            var injected = injectAdviuzTrackingWithCampaign(freshHtml, slug, id, cam.client_id);
+            await deployAdToSubdomain(slug, ad.business_name || slug, injected);
+            toast('✅ Campaign live at ' + slug + '.latest-promo.com');
+          }
+        } else {
+          // Pause — deploy "paused" page
+          toast('⏸ Pausing — deploying hold page...');
+          var pausedHtml = buildPausedPage(ad.business_name || 'This Ad');
+          await deployAdToSubdomain(slug, ad.business_name || slug, pausedHtml);
+          toast('⏸ Campaign paused — ' + slug + '.latest-promo.com shows hold page');
+        }
+      }
     }
-    toast(newStatus === 'active' ? '▶ Campaign started' : '⏸ Campaign paused');
-    loadAdminData();
   } else {
-    toast('Could not update campaign');
-    loadAdminData(); // revert toggle state
+    toast(newStatus === 'active' ? '▶ Campaign started' : '⏸ Campaign paused');
   }
+  loadAdminData();
+}
+
+function buildPausedPage(businessName) {
+  return '<!DOCTYPE html><html lang="en"><head>' +
+    '<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<title>' + businessName + '</title>' +
+    '<style>*{margin:0;padding:0;box-sizing:border-box;}' +
+    'body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0f0f0f;color:#fff;' +
+    'min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;}' +
+    '.wrap{max-width:440px;}' +
+    '.icon{font-size:56px;margin-bottom:24px;}' +
+    'h1{font-size:26px;font-weight:700;margin-bottom:12px;color:#fff;}' +
+    'p{font-size:16px;color:rgba(255,255,255,0.6);line-height:1.6;margin-bottom:28px;}' +
+    '.badge{display:inline-block;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);' +
+    'padding:8px 18px;border-radius:99px;font-size:13px;color:rgba(255,255,255,0.5);}' +
+    '</style></head><body>' +
+    '<div class="wrap">' +
+    '<div class="icon">🕐</div>' +
+    '<h1>This offer is currently unavailable</h1>' +
+    '<p>We are updating our promotion for <strong style="color:#fff">' + businessName + '</strong>. ' +
+    'Please check back soon or contact us directly.</p>' +
+    '<span class="badge">Offer temporarily paused</span>' +
+    '</div></body></html>';
 }
 // Keep old function name working
 async function toggleCampaignStatus(el) {
