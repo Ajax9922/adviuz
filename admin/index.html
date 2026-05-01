@@ -2232,24 +2232,32 @@ async function saveCampaign() {
 
   // Redeploy the ad with campaign_id baked in for clean URL
   if (campaignId && adId) {
-    var ad = (window._allAds || []).find(function(a){ return a.id === adId; });
-    if (ad && ad.custom_html && ad.ad_slug) {
-      var slug = ad.ad_slug.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
-      // Re-inject tracking with campaign_id baked in
-      var freshHtml = ad.custom_html;
-      // Strip any existing adviuz tracking first
-      freshHtml = freshHtml.replace(/<style id="adviuz-bar-style">[\s\S]*?<\/style>/g, '');
-      freshHtml = freshHtml.replace(/<div id="adviuz-bar-wrap">[\s\S]*?<\/div>/g, '');
-      freshHtml = freshHtml.replace(/<script>\(function\(\)\{var U="https:\/\/crhvvfomwkrgwlnfruad[\s\S]*?\}\)\(\);<\/script>/g, '');
-      var injected = injectAdviuzTrackingWithCampaign(freshHtml, slug, campaignId, clientId);
-      await deployAdToSubdomain(slug, ad.business_name || slug, injected);
-      // Save updated html to DB
-      await sbAdmin('/rest/v1/ads?id=eq.' + adId, {
-        method: 'PATCH',
-        headers: { 'Prefer': 'return=minimal' },
-        body: JSON.stringify({ custom_html: injected })
-      });
-      toast('✅ Ad redeployed at ' + slug + '.latest-promo.com — no URL params needed!');
+    toast('Fetching ad HTML for redeploy...');
+    // Fetch fresh HTML from DB (not cached - may be missing custom_html)
+    var adR = await sbAdmin('/rest/v1/ads?id=eq.' + adId + '&select=id,ad_slug,business_name,custom_html', {});
+    if (adR.ok) {
+      var adArr = await adR.json();
+      var ad = adArr[0];
+      if (ad && ad.custom_html && ad.ad_slug) {
+        var slug = ad.ad_slug.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+        toast('Redeploying ' + slug + ' with campaign baked in...');
+        // Strip any existing adviuz tracking
+        var freshHtml = ad.custom_html;
+        freshHtml = freshHtml.replace(/<style id="adviuz-bar-style">[\s\S]*?<\/style>/g, '');
+        freshHtml = freshHtml.replace(/<div id="adviuz-bar-wrap">[\s\S]*?<\/div>/g, '');
+        freshHtml = freshHtml.replace(/<script>\(function\(\)\{var U="https:\/\/crhvvfomwkrgwlnfruad[\s\S]*?\}\)\(\);<\/script>/g, '');
+        var injected = injectAdviuzTrackingWithCampaign(freshHtml, slug, campaignId, clientId);
+        await deployAdToSubdomain(slug, ad.business_name || slug, injected);
+        // Save updated html to DB
+        await sbAdmin('/rest/v1/ads?id=eq.' + adId, {
+          method: 'PATCH',
+          headers: { 'Prefer': 'return=minimal' },
+          body: JSON.stringify({ custom_html: injected })
+        });
+        toast('✅ ' + slug + '.latest-promo.com redeployed — visit with no URL params!');
+      } else {
+        toast('⚠️ Campaign created but ad has no HTML — deploy the ad first then recreate campaign');
+      }
     }
   }
   loadAdminData();
