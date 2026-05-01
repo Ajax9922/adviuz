@@ -919,6 +919,18 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
           </div>
         </div>
       </div>
+      <!-- SEARCH / SORT / FILTER -->
+      <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+        <input id="ab-search" class="fld" placeholder="Search ads…" style="max-width:220px;padding:8px 12px;font-size:13px" oninput="renderAdBuilderPanel()">
+        <select id="ab-filter-client" class="fld" style="max-width:180px;padding:8px 12px;font-size:13px" onchange="renderAdBuilderPanel()">
+          <option value="">All clients</option>
+        </select>
+        <select id="ab-sort" class="fld" style="max-width:160px;padding:8px 12px;font-size:13px" onchange="renderAdBuilderPanel()">
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="name">Name A–Z</option>
+        </select>
+      </div>
       <!-- ADS LIST -->
       <div class="table-wrap" id="adBuilderList">
         <div style="padding:40px;text-align:center;color:var(--muted);font-size:13px">Loading ads…</div>
@@ -1001,6 +1013,14 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
                 <div class="card-title">Assign &amp; publish</div>
                 <div class="form-grid">
                   <div class="form-group"><label class="fld">Assign to client *</label><select class="fld" id="builder-client-sel" onchange="showClientBalance()"><option value="">Select client…</option></select></div>
+                  <div class="form-group"><label class="fld">Custom URL slug</label>
+                    <div style="display:flex;align-items:center;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#fff">
+                      <span style="padding:9px 10px;font-size:11px;color:var(--muted);background:var(--surface2);white-space:nowrap;border-right:1px solid var(--border)">*.latest-promo.com</span>
+                      <input class="fld" id="builder-slug" placeholder="nailspa" style="border:none;border-radius:0;flex:1;padding:9px 10px;font-size:13px;font-family:var(--mono)"
+                        oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'')">
+                    </div>
+                    <div style="font-size:11px;color:var(--muted);margin-top:4px">Letters, numbers, hyphens only. Leave blank to auto-generate.</div>
+                  </div>
                   <div class="form-group"><label class="fld">Product type</label><select class="fld" id="builder-product-type"><option value="views">Digital Flyers (pay per 25s view)</option><option value="leads">Lead Engine (pay per lead)</option></select></div>
                 </div>
                 <div id="builder-balance-preview" style="display:none;background:var(--surface2);border-radius:10px;padding:10px 14px;margin-bottom:12px">
@@ -2174,9 +2194,37 @@ function renderAdBuilderPanel() {
   var list = document.getElementById('adBuilderList');
   if (!list) return;
   var ads = window._allAds || [];
+
+  // Populate client filter dropdown once
+  var filterSel = document.getElementById('ab-filter-client');
+  if (filterSel && filterSel.options.length <= 1 && window._allClients) {
+    window._allClients.forEach(function(c) {
+      if (![].slice.call(filterSel.options).some(function(o){ return o.value === c.id; })) {
+        var o = document.createElement('option');
+        o.value = c.id; o.textContent = c.business_name;
+        filterSel.appendChild(o);
+      }
+    });
+  }
+
+  // Search / filter / sort
+  var q       = (document.getElementById('ab-search')?.value || '').toLowerCase();
+  var clientF = document.getElementById('ab-filter-client')?.value || '';
+  var sortV   = document.getElementById('ab-sort')?.value || 'newest';
+
+  ads = ads.filter(function(ad) {
+    var matchQ = !q || (ad.business_name||'').toLowerCase().includes(q) || (ad.ad_slug||'').toLowerCase().includes(q);
+    var matchC = !clientF || ad.client_id === clientF;
+    return matchQ && matchC;
+  });
+
+  if (sortV === 'name') ads = ads.slice().sort(function(a,b){ return (a.business_name||'').localeCompare(b.business_name||''); });
+  else if (sortV === 'oldest') ads = ads.slice().sort(function(a,b){ return new Date(a.created_at)-new Date(b.created_at); });
+  // newest = default order from Supabase (already newest first)
+
   if (ads.length === 0) {
     list.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted);font-size:13px">' +
-      'No ads yet. Click <strong>+ New ad</strong> above to create your first ad.</div>';
+      (q || clientF ? 'No ads match your search.' : 'No ads yet. Click <strong>+ New ad</strong> above to create your first ad.') + '</div>';
     return;
   }
   var rows = ads.map(function(ad) {
@@ -2208,9 +2256,10 @@ function renderAdBuilderPanel() {
       '<td><span class="badge ' + (ad.status === 'paused' ? 'paused' : 'active') + '"><span class="badge-dot"></span>' + (ad.status || 'active') + '</span></td>' +
       '<td style="padding:10px 14px">' +
         '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
-          '<button class="tbl-btn" data-url="' + liveUrl.replace(/"/g,'&quot;') + '" onclick="window.open(this.dataset.url,\'_blank\')" title="Open live ad with 25s timer">↗ Live</button>' +
+          '<button class="tbl-btn" data-url="' + liveUrl.replace(/"/g,'&quot;') + '" onclick="window.open(this.dataset.url,\'_blank\')" title="Open live ad">↗ Live</button>' +
           '<button class="tbl-btn" data-id="' + ad.id + '" onclick="openEditAd(this)">Edit</button>' +
           (ad.custom_html ? '<button class="tbl-btn" data-id="' + ad.id + '" onclick="openEditHtml(this)">Edit HTML</button>' : '') +
+          '<button class="tbl-btn danger" data-id="' + ad.id + '" data-name="' + (ad.business_name||'Ad').replace(/"/g,'&quot;') + '" onclick="deleteAd(this)">Delete</button>' +
         '</div>' +
       '</td>' +
     '</tr>';
@@ -2220,6 +2269,17 @@ function renderAdBuilderPanel() {
     '<tbody>' + rows + '</tbody>' +
   '</table>';
 }
+async function deleteAd(el) {
+  var id   = el.dataset.id;
+  var name = el.dataset.name || 'this ad';
+  if (!confirm('Delete "' + name + '"? This cannot be undone.')) return;
+  el.disabled = true; el.textContent = '…';
+  await sbAdmin('/rest/v1/ads?id=eq.' + id, { method: 'DELETE' });
+  window._allAds = (window._allAds || []).filter(function(a){ return a.id !== id; });
+  toast('🗑 Ad deleted');
+  renderAdBuilderPanel();
+}
+
 // ── NEW AD DROPDOWN ─────────────────────────────
 function toggleNewAdMenu() {
   var menu = document.getElementById('newAdMenu');
@@ -2590,8 +2650,12 @@ async function publishAd() {
   ];
   var formFields = ffMap.filter(function(f){ return document.getElementById(f.id)?.checked; }).map(function(f){ return f.field; });
   if (!bName) { toast('Enter a business name'); return; }
-  // Generate a slug from business name
-  var slug = bName.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'') + '-' + Date.now().toString(36);
+  // Use custom slug if provided, else generate from business name (no random suffix)
+  var slugInput = (document.getElementById('builder-slug')?.value || '').trim();
+  var slug = slugInput
+    ? slugInput.toLowerCase().replace(/[^a-z0-9-]/g,'').replace(/^-|-$/g,'')
+    : bName.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  if (!slug) slug = 'ad-' + Date.now().toString(36);
   var btn = document.querySelector('#panel-adbuilder .btn-save');
   if (btn) { btn.textContent = 'Publishing…'; btn.disabled = true; }
   var r = await sbAdmin('/rest/v1/ads', {
