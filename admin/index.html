@@ -1091,15 +1091,25 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
         </div>
         <div class="modal-body">
           <div class="form-group"><label class="fld">Business name</label><input class="fld" id="ea-name" placeholder="Business name"></div>
-          <div class="form-group"><label class="fld">Ad slug (URL key)</label><input class="fld" id="ea-slug" placeholder="my-business-ad-001"></div>
+          <div class="form-group">
+            <label class="fld">Ad slug (URL key)</label>
+            <div style="display:flex;align-items:center;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#fff">
+              <span style="padding:9px 10px;font-size:11px;color:var(--muted);background:var(--surface2);white-space:nowrap;border-right:1px solid var(--border)">*.latest-promo.com</span>
+              <input class="fld" id="ea-slug" placeholder="nailspa" style="border:none;border-radius:0;flex:1;padding:9px 10px;font-size:13px;font-family:var(--mono)"
+                oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'')">
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:4px">Changing the slug changes the live URL — redeploy after saving.</div>
+          </div>
           <div class="form-group"><label class="fld">Assign to client</label><select class="fld" id="ea-client"><option value="">Select client…</option></select></div>
           <div class="form-group"><label class="fld">Status</label>
             <select class="fld" id="ea-status"><option value="active">Active</option><option value="paused">Paused</option></select>
           </div>
+          <div id="ea-deploy-status" style="display:none;font-size:12px;font-weight:600;padding:9px 12px;border-radius:8px;margin-top:4px"></div>
         </div>
-        <div class="modal-footer">
+        <div class="modal-footer" style="gap:8px;flex-wrap:wrap">
           <button class="btn-cancel" onclick="closeModal('editAdModal')">Cancel</button>
-          <button class="btn-save" onclick="saveAdEdit()">Save changes</button>
+          <button class="btn-save" style="background:var(--surface2);color:var(--text);border:1px solid var(--border)" onclick="saveAdEdit()">Save changes</button>
+          <button class="btn-save" id="ea-deploy-btn" onclick="saveAndDeployAd()">💾 Save &amp; Deploy →</button>
         </div>
       </div>
     </div>
@@ -2587,6 +2597,60 @@ async function saveAdEdit() {
   await loadAdminData();
   renderAdBuilderPanel();
 }
+async function saveAndDeployAd() {
+  var id     = window._editingAdId;
+  var name   = (document.getElementById('ea-name')?.value  || '').trim();
+  var slug   = (document.getElementById('ea-slug')?.value  || '').trim().toLowerCase().replace(/[^a-z0-9-]/g,'').replace(/^-|-$/g,'');
+  var client = document.getElementById('ea-client')?.value || null;
+  var status = document.getElementById('ea-status')?.value || 'active';
+  var btn    = document.getElementById('ea-deploy-btn');
+  var statusEl = document.getElementById('ea-deploy-status');
+  if (!id || !slug) { toast('Enter a slug first'); return; }
+  if (!getGhToken()) { toast('⚠️ No GitHub token — go to Settings → GitHub Deploy'); return; }
+
+  // Save first
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  await sbAdmin('/rest/v1/ads?id=eq.' + id, {
+    method: 'PATCH',
+    headers: { 'Prefer': 'return=minimal' },
+    body: JSON.stringify({ business_name:name, ad_slug:slug, client_id:client||null, status:status })
+  });
+
+  // Get the ad's HTML to deploy
+  if (btn) btn.textContent = 'Fetching HTML…';
+  var ad = (window._allAds||[]).find(function(a){ return a.id === id; });
+  var html = ad ? (ad.custom_html || '') : '';
+  if (!html) {
+    // Try fetching fresh from DB
+    var r2 = await sbAdmin('/rest/v1/ads?id=eq.' + id + '&select=custom_html,business_name', {});
+    var d2 = await r2.json();
+    html = d2[0]?.custom_html || '';
+  }
+  if (!html) {
+    if (statusEl) { statusEl.style.display='block'; statusEl.style.color='var(--danger)'; statusEl.style.background='var(--danger-bg)'; statusEl.textContent='❌ No HTML found — use Edit HTML to add content first'; }
+    if (btn) { btn.disabled=false; btn.textContent='💾 Save & Deploy →'; }
+    return;
+  }
+
+  // Re-inject tracking with new slug
+  var injected = injectAdviuzTracking(html, slug);
+  if (btn) btn.textContent = 'Deploying…';
+  var liveUrl = await deployAdToSubdomain(slug, name, injected);
+
+  // Save live_url
+  if (liveUrl) {
+    await sbAdmin('/rest/v1/ads?id=eq.' + id, {
+      method: 'PATCH',
+      headers: { 'Prefer': 'return=minimal' },
+      body: JSON.stringify({ live_url: liveUrl, ad_slug: slug })
+    });
+    if (statusEl) { statusEl.style.display='block'; statusEl.style.color='var(--success)'; statusEl.style.background='var(--success-bg)'; statusEl.textContent='✅ Deployed! Live at ' + slug + '.latest-promo.com in ~30s'; }
+  }
+  if (btn) { btn.disabled=false; btn.textContent='💾 Save & Deploy →'; }
+  await loadAdminData();
+  renderAdBuilderPanel();
+}
+
 // ── TEMPLATE BUILDER ────────────────────────────
 function openTemplateBuilder() {
   var menu = document.getElementById('newAdMenu');
