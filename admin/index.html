@@ -2737,40 +2737,77 @@ function showSuccessModal(slug, domain, liveUrl) {
 
 
 function injectAdviuzTracking(htmlStr, adSlug) {
-  var lines = [
-    '(function(){',
-    '  var U="https://crhvvfomwkrgwlnfruad.supabase.co",K="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw";',
-    '  function gp(n){try{return new URLSearchParams(location.search).get(n)||""}catch(e){return""}}',
-    '  var cid=gp("campaign_id"),clid=gp("client_id"),slug="'+adSlug+'",src=gp("utm_source")||"direct",UUID=null;',
-    '  async function init(){',
-    '    try{var r=await fetch(U+"/rest/v1/ads?ad_slug=eq."+encodeURIComponent(slug)+"&select=id,client_id",{headers:{"apikey":K,"Authorization":"Bearer "+K}});',
-    '    if(r.ok){var d=await r.json();if(d[0]){UUID=d[0].id;if(!clid&&d[0].client_id)clid=d[0].client_id;}}}catch(e){}',
-    '    if(!UUID&&cid){try{var cr=await fetch(U+"/rest/v1/campaigns?id=eq."+cid+"&select=ad_id,client_id",{headers:{"apikey":K,"Authorization":"Bearer "+K}});',
-    '    if(cr.ok){var cd=await cr.json();if(cd[0]){if(cd[0].ad_id)UUID=cd[0].ad_id;if(!clid&&cd[0].client_id)clid=cd[0].client_id;}}}catch(e){}}',
-    '    console.log("[Adviuz] uuid:",UUID,"client:",clid);',
-    '  }',
-    '  async function ins(t,d){try{await fetch(U+"/rest/v1/"+t,{method:"POST",headers:{"apikey":K,"Authorization":"Bearer "+K,"Content-Type":"application/json","Prefer":"return=minimal"},body:JSON.stringify(d)));}catch(e){}}',
-    '  window.adviuzCountView=async function(){',
-    '    var k="av_"+(cid||slug),last=parseInt(localStorage.getItem(k)||"0",10);',
-    '    if(Date.now()-last<86400000){console.log("[Adviuz] dup");return;}',
-    '    localStorage.setItem(k,Date.now()+"");',
-    '    await ins("view_events",{ad_id:UUID||null,client_id:clid||null,campaign_id:cid||null,utm_source:src,viewed_at:new Date().toISOString(),billing_model:"views"});',
-    '    console.log("[Adviuz] view counted");',
-    '  };',
-    '  window.adviuzSubmitLead=async function(name,phone,email){',
-    '    await ins("leads",{name:name,phone:phone,email:email||null,client_id:clid||null,campaign_id:cid||null,source:src,billing_model:"views",stage:"New",submitted_at:new Date().toISOString()});',
-    '    console.log("[Adviuz] lead saved");',
-    '  };',
-    '  init();',
-    '})();'
-  ];
-  var adSlugSafe = adSlug;
-  lines[3] = '  var cid=gp("campaign_id"),clid=gp("client_id"),slug="' + adSlugSafe + '",src=gp("utm_source")||"direct",UUID=null;';
-  var scriptContent = lines.join('\n');
-  var openTag  = '<scr' + 'ipt>';
-  var closeTag = '</scr' + 'ipt>';
-  var fullScript = openTag + scriptContent + closeTag;
-  return htmlStr.includes('</body>') ? htmlStr.replace('</body>', fullScript + '</body>') : htmlStr + fullScript;
+  var U = 'https://crhvvfomwkrgwlnfruad.supabase.co';
+  var K = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
+
+  // Progress bar CSS — injected into <head>
+  var barCss = '<style id="adviuz-bar-style">' +
+    '#adviuz-bar-wrap{position:fixed;top:0;left:0;width:100%;height:3px;z-index:99999;background:rgba(255,255,255,0.15);}' +
+    '#adviuz-bar{height:100%;width:0%;background:#22c55e;transition:width 0.5s linear;border-radius:0 2px 2px 0;}' +
+    '</style>';
+
+  // Progress bar HTML
+  var barHtml = '<div id="adviuz-bar-wrap"><div id="adviuz-bar"></div></div>';
+
+  // Tracking + timer script
+  var script = '<scr' + 'ipt>(function(){' +
+    'var U="' + U + '",K="' + K + '";' +
+    'function gp(n){try{return new URLSearchParams(location.search).get(n)||""}catch(e){return""}}' +
+    'var cid=gp("campaign_id"),clid=gp("client_id"),slug="' + adSlug + '",src=gp("utm_source")||"direct",UUID=null;' +
+    'async function init(){' +
+      'try{var r=await fetch(U+"/rest/v1/ads?ad_slug=eq."+encodeURIComponent(slug)+"&select=id,client_id",{headers:{"apikey":K,"Authorization":"Bearer "+K}});' +
+      'if(r.ok){var d=await r.json();if(d[0]){UUID=d[0].id;if(!clid&&d[0].client_id)clid=d[0].client_id;}}}catch(e){}' +
+      'if(!UUID&&cid){try{var cr=await fetch(U+"/rest/v1/campaigns?id=eq."+cid+"&select=ad_id,client_id",{headers:{"apikey":K,"Authorization":"Bearer "+K}});' +
+      'if(cr.ok){var cd=await cr.json();if(cd[0]){if(cd[0].ad_id)UUID=cd[0].ad_id;if(!clid&&cd[0].client_id)clid=cd[0].client_id;}}}catch(e){}}' +
+    '}' +
+    'async function ins(t,d){try{await fetch(U+"/rest/v1/"+t,{method:"POST",headers:{"apikey":K,"Authorization":"Bearer "+K,"Content-Type":"application/json","Prefer":"return=minimal"},body:JSON.stringify(d));}catch(e){}}' +
+    'window.adviuzCountView=async function(){' +
+      'var k="av_"+(cid||slug),last=parseInt(localStorage.getItem(k)||"0",10);' +
+      'if(Date.now()-last<86400000){return;}' +
+      'localStorage.setItem(k,Date.now()+"");' +
+      'await ins("view_events",{ad_id:UUID||null,client_id:clid||null,campaign_id:cid||null,utm_source:src,viewed_at:new Date().toISOString(),billing_model:"views"});' +
+    '};' +
+    'window.adviuzSubmitLead=async function(name,phone,email){' +
+      'await ins("leads",{name:name,phone:phone,email:email||null,client_id:clid||null,campaign_id:cid||null,source:src,billing_model:"views",stage:"New",submitted_at:new Date().toISOString()});' +
+    '};' +
+    // Progress bar + auto 25s timer
+    'var DURATION=25000,start=Date.now(),bar=null,timer=null;' +
+    'function startBar(){' +
+      'bar=document.getElementById("adviuz-bar");' +
+      'if(!bar)return;' +
+      'var tick=function(){' +
+        'var elapsed=Date.now()-start,pct=Math.min(100,elapsed/DURATION*100);' +
+        'bar.style.width=pct+"%";' +
+        'if(pct<100){requestAnimationFrame(tick);}' +
+        'else{bar.style.background="#22c55e";window.adviuzCountView();}' +
+      '};' +
+      'requestAnimationFrame(tick);' +
+    '}' +
+    'init().then(function(){startBar();});' +
+    '})();</' + 'script>';
+
+  // Inject CSS into <head>
+  if (htmlStr.includes('</head>')) {
+    htmlStr = htmlStr.replace('</head>', barCss + '</head>');
+  } else {
+    htmlStr = barCss + htmlStr;
+  }
+
+  // Inject bar HTML at start of <body>
+  if (htmlStr.includes('<body')) {
+    htmlStr = htmlStr.replace(/(<body[^>]*>)/, '$1' + barHtml);
+  } else {
+    htmlStr = barHtml + htmlStr;
+  }
+
+  // Inject script before </body>
+  if (htmlStr.includes('</body>')) {
+    htmlStr = htmlStr.replace('</body>', script + '</body>');
+  } else {
+    htmlStr = htmlStr + script;
+  }
+
+  return htmlStr;
 }
 // ── EDIT AD (name/slug/client/status) ──────────
 function openEditAd(btnEl) {
