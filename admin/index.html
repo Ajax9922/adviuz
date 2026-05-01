@@ -949,17 +949,26 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
           <div style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:13px;color:var(--muted)">
             Paste any HTML ad design below. The Adviuz 25s timer, view counting, and lead capture will be injected automatically.
           </div>
-          <div class="form-group"><label class="fld">Ad name *</label><input class="fld" id="paste-ad-name" placeholder="e.g. Nail Fungus Clinic"></div>
+          <div class="form-group"><label class="fld">Ad name *</label><input class="fld" id="paste-ad-name" placeholder="e.g. Nail Fungus Clinic" oninput="updatePasteSlugPreview()"></div>
+          <div class="form-group">
+            <label class="fld">Ad URL slug *</label>
+            <div style="display:flex;align-items:center;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#fff">
+              <span style="padding:9px 10px;font-size:11px;color:var(--muted);background:var(--surface2);white-space:nowrap;border-right:1px solid var(--border)">*.latest-promo.com</span>
+              <input class="fld" id="paste-ad-slug" placeholder="nailspa" style="border:none;border-radius:0;flex:1;padding:9px 10px;font-size:13px;font-family:var(--mono)"
+                oninput="this.dataset.manualEdit='1';this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'')">
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:4px">This becomes your ad URL — keep it short and clean.</div>
+          </div>
           <div class="form-group"><label class="fld">Assign to client *</label><select class="fld" id="paste-client-sel"><option value="">Select client…</option></select></div>
           <div class="form-group">
             <label class="fld">HTML code *</label>
-            <textarea class="fld" id="paste-code-area" placeholder="Paste your full HTML here…" style="height:240px;font-family:var(--mono);font-size:11px;resize:vertical"></textarea>
+            <textarea class="fld" id="paste-code-area" placeholder="Paste your full HTML here…" style="height:200px;font-family:var(--mono);font-size:11px;resize:vertical"></textarea>
           </div>
           <div id="paste-code-error" style="display:none;color:var(--danger);font-size:12px;margin-top:-8px;margin-bottom:8px"></div>
         </div>
         <div class="modal-footer">
           <button class="btn-cancel" onclick="closeModal('pasteCodeModal')">Cancel</button>
-          <button class="btn-save" id="paste-code-save-btn" onclick="savePastedCode()">Save &amp; create ad →</button>
+          <button class="btn-save" id="paste-code-save-btn" onclick="savePastedCode()">🚀 Save &amp; Deploy →</button>
         </div>
       </div>
     </div>
@@ -1234,6 +1243,22 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button id="gh-test-btn" class="btn-save" style="flex:1;min-width:120px;" onclick="testGhToken()">Test &amp; Save</button>
               <button class="btn-save" style="flex:0;background:var(--surface2);color:var(--muted);border:1px solid var(--border);" onclick="clearGhToken()">Clear</button>
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-title">Netlify Deploy</div>
+            <p style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.6;">
+              Required to auto-create per-client Netlify sites.<br>
+              Generate at <a href="https://app.netlify.com/user/applications" target="_blank" style="color:var(--brand)">app.netlify.com/user/applications</a> → Personal access tokens.
+            </p>
+            <div class="form-group">
+              <label class="fld">Netlify Personal Access Token</label>
+              <input class="fld" id="netlify-token-input" type="password" placeholder="nfp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+            </div>
+            <div id="netlify-token-status" style="display:none;font-size:12px;font-weight:600;padding:9px 12px;border-radius:8px;margin-bottom:12px;"></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn-save" style="flex:1;min-width:120px;" onclick="saveNetlifyToken()">Save Token</button>
+              <button class="btn-save" style="flex:0;background:var(--surface2);color:var(--muted);border:1px solid var(--border);" onclick="clearNetlifyToken()">Clear</button>
             </div>
           </div>
             <div class="form-group"><label class="fld">View counted webhook URL</label><input class="fld" placeholder="https://your-backend.com/api/view-counted"></div>
@@ -2359,7 +2384,12 @@ async function savePastedCode() {
   errEl.style.display = 'none';
   var saveBtn = document.getElementById('paste-code-save-btn');
   if (saveBtn) { saveBtn.textContent = 'Saving…'; saveBtn.disabled = true; }
-  var adSlug = name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') + '-' + Math.random().toString(36).slice(2,6);
+  // Use custom slug from field, fallback to name-based
+  var slugField = (document.getElementById('paste-ad-slug')?.value || '').trim();
+  var adSlug = slugField
+    ? slugField.toLowerCase().replace(/[^a-z0-9-]/g,'').replace(/^-|-$/g,'')
+    : name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  if (!adSlug) adSlug = 'ad-' + Date.now().toString(36);
   var injected = injectAdviuzTracking(code, adSlug);
   var isEdit = !!window._editingAdId;
   var r;
@@ -2496,6 +2526,42 @@ function onSettingsOpen() {
   if (inp) inp.value = saved ? '••••••••••••••••••••' + saved.slice(-6) : '';
   if (saved && status) showGhStatus('success', '✅ Token saved — deploy ready');
   else if (status) showGhStatus('error', '❌ No token set — ad deploy is disabled');
+
+  // Netlify token
+  var nSaved = localStorage.getItem('adviuz_netlify_token');
+  var nInp   = document.getElementById('netlify-token-input');
+  var nSt    = document.getElementById('netlify-token-status');
+  if (nInp) nInp.value = nSaved ? '••••••••••••••••••••' + nSaved.slice(-6) : '';
+  if (nSaved && nSt) { nSt.style.display='block'; nSt.style.color='var(--success)'; nSt.style.background='var(--success-bg)'; nSt.textContent='✅ Netlify token saved'; }
+  else if (nSt) { nSt.style.display='block'; nSt.style.color='var(--danger)'; nSt.style.background='var(--danger-bg)'; nSt.textContent='❌ No Netlify token — per-site deploy disabled'; }
+}
+
+function saveNetlifyToken() {
+  var inp = document.getElementById('netlify-token-input');
+  var tok = inp ? inp.value.trim() : '';
+  if (tok.startsWith('••')) tok = localStorage.getItem('adviuz_netlify_token') || '';
+  if (!tok) { toast('Paste a Netlify token first'); return; }
+  localStorage.setItem('adviuz_netlify_token', tok);
+  var nSt = document.getElementById('netlify-token-status');
+  if (nSt) { nSt.style.display='block'; nSt.style.color='var(--success)'; nSt.style.background='var(--success-bg)'; nSt.textContent='✅ Netlify token saved!'; }
+  toast('✅ Netlify token saved!');
+}
+
+function clearNetlifyToken() {
+  localStorage.removeItem('adviuz_netlify_token');
+  var inp = document.getElementById('netlify-token-input');
+  if (inp) inp.value = '';
+  var nSt = document.getElementById('netlify-token-status');
+  if (nSt) { nSt.style.display='block'; nSt.style.color='var(--warning)'; nSt.style.background='var(--warning-bg)'; nSt.textContent='⚠️ Token cleared'; }
+  toast('Netlify token removed');
+}
+
+function updatePasteSlugPreview() {
+  var name = document.getElementById('paste-ad-name')?.value || '';
+  var slugInp = document.getElementById('paste-ad-slug');
+  if (slugInp && !slugInp.dataset.manualEdit) {
+    slugInp.value = name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  }
 }
 async function ghGetSha(path) {
   var r = await ghFetch('/contents/' + path);
@@ -2509,17 +2575,68 @@ async function ghPutFile(path, content, message, sha) {
   var r = await ghFetch('/contents/' + path, 'PUT', body);
   return r.ok;
 }
+// ══════════════════════════════════════════════
+// NETLIFY PER-SITE DEPLOY
+// ══════════════════════════════════════════════
+function getNetlifyToken() {
+  return localStorage.getItem('adviuz_netlify_token') || '';
+}
+
+async function netlifyApi(path, method, body) {
+  var tok = getNetlifyToken();
+  if (!tok) { toast('⚠️ No Netlify token — go to Settings → Netlify Deploy'); return { ok: false, status: 0 }; }
+  var opts = { method: method || 'GET', headers: { 'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  return fetch('https://api.netlify.com/api/v1' + path, opts);
+}
+
 async function deployAdToSubdomain(adSlug, adName, htmlContent) {
-  var sub      = adSlug.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
-  var filePath = 'ads/' + sub + '/index.html';
-  var liveUrl  = 'https://' + AD_DOMAIN + '/ads/' + sub;
-  toast('⏳ Deploying ' + adName + '…');
+  var slug    = adSlug.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  var domain  = slug + '.' + AD_DOMAIN;
+  var liveUrl = 'https://' + domain;
+
   try {
+    // Step 1: Check if Netlify site already exists for this slug
+    var existingSiteId = localStorage.getItem('adviuz_netlify_site_' + slug);
+
+    if (!existingSiteId) {
+      toast('⏳ Creating Netlify site for ' + domain + '…');
+      var createR = await netlifyApi('/sites', 'POST', {
+        name: 'adviuz--' + slug,
+        custom_domain: domain
+      });
+      if (!createR.ok) {
+        var errData = await createR.json().catch(function(){ return {}; });
+        // Site name conflict — try to find existing
+        if (createR.status === 422) {
+          var listR = await netlifyApi('/sites?filter=all&name=adviuz--' + slug);
+          if (listR.ok) {
+            var sites = await listR.json();
+            var found = sites.find(function(s){ return s.name === 'adviuz--' + slug; });
+            if (found) { existingSiteId = found.id; localStorage.setItem('adviuz_netlify_site_' + slug, existingSiteId); }
+          }
+        }
+        if (!existingSiteId) { toast('❌ Netlify site creation failed: ' + (errData.message || createR.status)); return null; }
+      } else {
+        var site = await createR.json();
+        existingSiteId = site.id;
+        localStorage.setItem('adviuz_netlify_site_' + slug, existingSiteId);
+      }
+    }
+
+    // Step 2: Push HTML to GitHub (file storage + Netlify auto-deploy)
+    toast('⏳ Deploying files…');
+    var filePath = 'ads/' + slug + '/index.html';
     var sha = await ghGetSha(filePath);
     var ok  = await ghPutFile(filePath, htmlContent, 'Deploy: ' + adName, sha);
     if (!ok) { toast('❌ GitHub push failed — check token permissions'); return null; }
-    toast('✅ Live at latest-promo.com/ads/' + sub + ' in ~30 seconds');
+
+    // Step 3: Set custom domain on the Netlify site (idempotent)
+    await netlifyApi('/sites/' + existingSiteId, 'PATCH', { custom_domain: domain });
+
+    toast('✅ ' + domain + ' deploying — SSL ready in ~60s');
     return liveUrl;
+
   } catch(e) {
     toast('❌ Deploy error: ' + e.message);
     console.error('[Deploy]', e);
