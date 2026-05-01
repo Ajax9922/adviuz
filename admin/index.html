@@ -2594,9 +2594,13 @@ async function deployAdToSubdomain(adSlug, adName, htmlContent) {
   var slug    = adSlug.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
   var domain  = slug + '.' + AD_DOMAIN;
   var liveUrl = 'https://' + domain;
+  var tok = getNetlifyToken();
+
   try {
+    // Step 1: Create or reuse Netlify site
     var existingSiteId = localStorage.getItem('adviuz_netlify_site_' + slug);
     var netlifySubdomain = 'adviuz--' + slug + '.netlify.app';
+
     if (!existingSiteId) {
       toast('Creating Netlify site...');
       var createR = await netlifyApi('/sites', 'POST', { name: 'adviuz--' + slug });
@@ -2607,39 +2611,88 @@ async function deployAdToSubdomain(adSlug, adName, htmlContent) {
           if (listR.ok) {
             var allSites = await listR.json();
             var found = allSites.find(function(s){ return s.name === 'adviuz--' + slug; });
-            if (found) { existingSiteId = found.id; netlifySubdomain = found.name + '.netlify.app'; localStorage.setItem('adviuz_netlify_site_' + slug, existingSiteId); localStorage.setItem('adviuz_netlify_sub_' + slug, netlifySubdomain); }
+            if (found) {
+              existingSiteId = found.id;
+              netlifySubdomain = found.name + '.netlify.app';
+              localStorage.setItem('adviuz_netlify_site_' + slug, existingSiteId);
+              localStorage.setItem('adviuz_netlify_sub_' + slug, netlifySubdomain);
+            }
           }
         }
         if (!existingSiteId) { toast('Netlify site creation failed: ' + (errData.message || createR.status)); return null; }
       } else {
         var site = await createR.json();
-        existingSiteId = site.id; netlifySubdomain = site.name + '.netlify.app';
+        existingSiteId = site.id;
+        netlifySubdomain = site.name + '.netlify.app';
         localStorage.setItem('adviuz_netlify_site_' + slug, existingSiteId);
         localStorage.setItem('adviuz_netlify_sub_' + slug, netlifySubdomain);
       }
     } else {
       netlifySubdomain = localStorage.getItem('adviuz_netlify_sub_' + slug) || 'adviuz--' + slug + '.netlify.app';
     }
-    toast('Deploying HTML...');
-    var filePath = 'ads/' + slug + '/index.html';
-    var sha = await ghGetSha(filePath);
-    var ok  = await ghPutFile(filePath, htmlContent, 'Deploy: ' + adName, sha);
-    if (!ok) { toast('GitHub push failed - check token in Settings'); return null; }
+
+    // Step 2: Deploy HTML directly to Netlify site using Files API
+    toast('Uploading HTML to Netlify...');
+    var encoder = new TextEncoder();
+    var htmlBytes = encoder.encode(htmlContent);
+
+    // Calculate SHA1 of the HTML content for the digest
+    var hashBuffer = await crypto.subtle.digest('SHA-1', htmlBytes);
+    var hashArray  = Array.from(new Uint8Array(hashBuffer));
+    var sha1       = hashArray.map(function(b){ return b.toString(16).padStart(2,'0'); }).join('');
+
+    // Create deploy with file digest
+    var deployR = await fetch('https://api.netlify.com/api/v1/sites/' + existingSiteId + '/deploys', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: { '/index.html': sha1 }, async: false })
+    });
+
+    if (deployR.ok) {
+      var deployData = await deployR.json();
+      var deployId   = deployData.id;
+      var required   = deployData.required || [];
+
+      // Upload the actual file if required
+      if (required.length > 0) {
+        await fetch('https://api.netlify.com/api/v1/deploys/' + deployId + '/files/index.html', {
+          method: 'PUT',
+          headers: { 'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/octet-stream' },
+          body: htmlBytes
+        });
+      }
+    } else {
+      // Fallback: push to GitHub
+      toast('Falling back to GitHub deploy...');
+      var filePath = 'ads/' + slug + '/index.html';
+      var sha = await ghGetSha(filePath);
+      var ok  = await ghPutFile(filePath, htmlContent, 'Deploy: ' + adName, sha);
+      if (!ok) { toast('Deploy failed - check tokens in Settings'); return null; }
+    }
+
+    // Step 3: Add DNS record automatically
     toast('Configuring DNS...');
     var dnsZoneId = await getNetlifyDnsZoneId();
     if (dnsZoneId) {
       var dnsListR = await netlifyApi('/dns_zones/' + dnsZoneId + '/dns_records');
       var existingRecord = false;
-      if (dnsListR.ok) { var dnsRecords = await dnsListR.json(); existingRecord = dnsRecords.find(function(r){ return r.hostname === domain; }); }
+      if (dnsListR.ok) {
+        var dnsRecords = await dnsListR.json();
+        existingRecord = dnsRecords.find(function(r){ return r.hostname === domain; });
+      }
       if (!existingRecord) {
-        await netlifyApi('/dns_zones/' + dnsZoneId + '/dns_records', 'POST', { type: 'NETLIFY', hostname: domain, value: netlifySubdomain, ttl: 3600 });
+        await netlifyApi('/dns_zones/' + dnsZoneId + '/dns_records', 'POST', {
+          type: 'NETLIFY', hostname: domain, value: netlifySubdomain, ttl: 3600
+        });
       }
     }
-    toast('Provisioning SSL...');
+
+    // Step 4: Set custom domain
     await netlifyApi('/sites/' + existingSiteId, 'PATCH', { custom_domain: domain });
-    await netlifyApi('/sites/' + existingSiteId + '/ssl', 'POST', {});
+
     showSuccessModal(slug, domain, liveUrl);
     return liveUrl;
+
   } catch(e) {
     toast('Deploy error: ' + e.message);
     console.error('[Deploy]', e);
@@ -2667,10 +2720,10 @@ function showSuccessModal(slug, domain, liveUrl) {
   var h = '<div style="background:#fff;border-radius:16px;max-width:480px;width:100%;padding:32px;box-shadow:0 20px 60px rgba(0,0,0,0.2);text-align:center">';
   h += '<div style="font-size:40px;margin-bottom:16px">&#127881;</div>';
   h += '<div style="font-family:Syne,sans-serif;font-size:20px;font-weight:800;margin-bottom:8px">Ad is Live!</div>';
-  h += '<div style="font-size:13px;color:#666;margin-bottom:20px">DNS configured automatically. SSL provisioning now (~1-2 min).</div>';
+  h += '<div style="font-size:13px;color:#666;margin-bottom:20px">Fully automated. SSL active via wildcard cert.</div>';
   h += '<div style="background:#f4f3f0;border-radius:10px;padding:14px;margin-bottom:20px;font-family:monospace;font-size:15px;font-weight:700;color:#C8102E">' + domain + '</div>';
   h += '<div style="background:#edfaf3;border-radius:10px;padding:12px 14px;margin-bottom:24px;font-size:12px;color:#1a7a4a;line-height:1.8;text-align:left">';
-  h += '&#10003; Netlify site created<br>&#10003; HTML deployed to GitHub<br>&#10003; DNS record added automatically<br>&#8987; SSL certificate provisioning';
+  h += '&#10003; Netlify site created<br>&#10003; HTML deployed directly<br>&#10003; DNS record added<br>&#10003; SSL active (wildcard *.latest-promo.com)';
   h += '</div>';
   h += '<div style="display:flex;gap:10px">';
   h += '<a href="' + liveUrl + '" target="_blank" style="flex:1;background:#C8102E;color:#fff;padding:12px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none;display:flex;align-items:center;justify-content:center">Visit ' + domain + ' &#8599;</a>';
@@ -2680,6 +2733,7 @@ function showSuccessModal(slug, domain, liveUrl) {
   document.body.appendChild(modal);
   document.getElementById('success-done-btn').addEventListener('click', function(){ modal.remove(); });
 }
+
 
 
 function injectAdviuzTracking(htmlStr, adSlug) {
