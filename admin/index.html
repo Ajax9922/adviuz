@@ -2633,24 +2633,12 @@ async function deployAdToSubdomain(adSlug, adName, htmlContent) {
       netlifySubdomain = localStorage.getItem('adviuz_netlify_sub_' + slug) || 'adviuz--' + slug + '.netlify.app';
     }
 
-    // Step 2: Deploy HTML via Netlify Files API (no GitHub needed for per-site)
-    toast('⏳ Uploading ad HTML…');
-    var deployR = await fetch('https://api.netlify.com/api/v1/sites/' + existingSiteId + '/deploys', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + getNetlifyToken(),
-        'Content-Type': 'application/zip'
-      },
-      body: await buildZip(htmlContent)
-    });
-    if (!deployR.ok) {
-      // Fallback: push to GitHub instead
-      toast('⏳ Falling back to GitHub deploy…');
-      var filePath = 'ads/' + slug + '/index.html';
-      var sha = await ghGetSha(filePath);
-      var ok  = await ghPutFile(filePath, htmlContent, 'Deploy: ' + adName, sha);
-      if (!ok) { toast('❌ Deploy failed — check tokens in Settings'); return null; }
-    }
+    // Step 2: Push HTML to GitHub → Netlify auto-deploys
+    toast('⏳ Deploying HTML via GitHub…');
+    var filePath = 'ads/' + slug + '/index.html';
+    var sha = await ghGetSha(filePath);
+    var ok  = await ghPutFile(filePath, htmlContent, 'Deploy: ' + adName, sha);
+    if (!ok) { toast('❌ GitHub push failed — check token in Settings → GitHub Deploy'); return null; }
 
     // Step 3: Set custom domain
     await netlifyApi('/sites/' + existingSiteId, 'PATCH', { custom_domain: domain });
@@ -2665,13 +2653,6 @@ async function deployAdToSubdomain(adSlug, adName, htmlContent) {
     console.error('[Deploy]', e);
     return null;
   }
-}
-
-// Build a minimal ZIP with just index.html for Netlify direct deploy
-async function buildZip(htmlContent) {
-  // Use JSZip if available, otherwise return blob
-  // For now we'll use the GitHub fallback — ZIP implementation can be added later
-  return new Blob([htmlContent], { type: 'application/zip' });
 }
 
 function showCnameModal(slug, domain, netlifySubdomain, liveUrl) {
