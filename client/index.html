@@ -1276,7 +1276,7 @@ function bulkAction(action) {
 }
 
 async function doLogin() {
-  const email = document.getElementById('loginEmail').value.trim();
+  const email = document.getElementById('loginEmail').value.trim().toLowerCase();
   const pass  = document.getElementById('loginPass').value.trim();
   const btn   = document.querySelector('.login-btn');
   const err   = document.getElementById('loginError');
@@ -1288,40 +1288,62 @@ async function doLogin() {
   err.style.display = 'none';
 
   try {
-    // Supabase Auth sign-in
-    const r = await fetch(`${SB_URL}/auth/v1/token?grant_type=password`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': SB_KEY },
-      body: JSON.stringify({ email, password: pass })
+    // Direct login against clients table
+    const r = await fetch(SB_URL + '/rest/v1/clients?email=eq.' + encodeURIComponent(email) + '&select=*&limit=1', {
+      headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
     });
 
-    const data = await r.json();
+    if (!r.ok) throw new Error('Network error');
+    const rows = await r.json();
 
-    if (!r.ok) {
+    if (!rows || rows.length === 0) {
       err.style.display = 'block';
-      err.textContent = data.error_description || data.msg || 'Invalid email or password.';
+      err.textContent = 'No account found with that email.';
       btn.textContent = 'Sign in to panel →';
       btn.disabled = false;
       return;
     }
 
-    // Store session — persists across refresh
-    SB_SESSION = data;
-    try {
-      localStorage.setItem('adviuz_client_session', JSON.stringify(data));
-    } catch(e) {}
+    const client = rows[0];
 
-    // Load client profile linked to this auth user
-    await loadClientProfile();
+    // Check password
+    if (!client.password || client.password !== pass) {
+      err.style.display = 'block';
+      err.textContent = 'Invalid login credentials';
+      btn.textContent = 'Sign in to panel →';
+      btn.disabled = false;
+      return;
+    }
+
+    // Check not suspended
+    if (client.status === 'suspended') {
+      err.style.display = 'block';
+      err.textContent = 'Your account has been suspended. Please contact support.';
+      btn.textContent = 'Sign in to panel →';
+      btn.disabled = false;
+      return;
+    }
+
+    // Store session in localStorage
+    try { localStorage.setItem('adviuz_client_session', JSON.stringify({ client_id: client.id, email: client.email })); } catch(e) {}
+
+    // Set current client directly
+    CURRENT_CLIENT = client;
+
+    // Update UI with client name
+    const nameEl = document.getElementById('clientName');
+    if (nameEl) nameEl.textContent = client.business_name || 'My Business';
+    const greetEl = document.getElementById('greeting');
+    const hour = new Date().getHours();
+    const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+    if (greetEl) greetEl.textContent = greeting + ', ' + (client.contact_name || client.business_name) + '.';
 
     // Show the app
     document.getElementById('loginScreen').style.display = 'none';
     const app = document.getElementById('appShell');
-    app.style.flex = '1';
-    app.classList.add('visible');
-    maybeShowIOSHint();
+    if (app) { app.style.flex = '1'; app.classList.add('visible'); }
 
-    // Load all live data
+    // Load data
     await loadAllData();
 
   } catch(e) {
@@ -1338,46 +1360,51 @@ document.getElementById('loginPass').addEventListener('keydown', function(e) {
 
 // On page load — if valid session exists, skip login
 document.addEventListener('DOMContentLoaded', async function() {
-  if (SB_SESSION && SB_SESSION.access_token) {
-    console.log('[Client] Auto-login from stored session');
-    // Verify token is still valid
-    try {
-      var r = await fetch(SB_URL + '/auth/v1/user', {
-        headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_SESSION.access_token }
-      });
-      if (r.ok) {
-        // Valid — skip login screen
-        document.getElementById('loginScreen').style.display = 'none';
-        var app = document.getElementById('appShell');
-        if (app) { app.style.flex = '1'; app.classList.add('visible'); }
-        await loadClientProfile();
-        await loadAllData();
-        return;
+  // Try to restore session from localStorage
+  try {
+    var saved = localStorage.getItem('adviuz_client_session');
+    if (saved) {
+      var sess = JSON.parse(saved);
+      if (sess && sess.client_id) {
+        // Re-fetch client from DB
+        var r = await fetch(SB_URL + '/rest/v1/clients?id=eq.' + sess.client_id + '&limit=1', {
+          headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
+        });
+        if (r.ok) {
+          var rows = await r.json();
+          if (rows && rows[0] && rows[0].status !== 'suspended') {
+            CURRENT_CLIENT = rows[0];
+            var nameEl = document.getElementById('sideClientName');
+            if (nameEl) nameEl.textContent = CURRENT_CLIENT.business_name || 'My Business';
+            var greetEl = document.getElementById('clientGreeting');
+            if (greetEl) {
+              var hour = new Date().getHours();
+              var greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+              greetEl.textContent = greeting + ', ' + (CURRENT_CLIENT.contact_name || CURRENT_CLIENT.business_name) + '.';
+            }
+            document.getElementById('loginScreen').style.display = 'none';
+            var app = document.getElementById('appShell');
+            if (app) { app.style.flex = '1'; app.classList.add('visible'); }
+            await loadAllData();
+            return;
+          }
+        }
       }
-    } catch(e) {}
-    // Token invalid — clear and show login
-    SB_SESSION = null;
-    try { localStorage.removeItem('adviuz_client_session'); } catch(e2) {}
-  }
-  // Show login screen normally
+    }
+  } catch(e) { console.log('Session restore failed:', e); }
+  localStorage.removeItem('adviuz_client_session');
   document.getElementById('loginScreen').style.display = 'flex';
 });
 
 async function doLogout() {
-  // Sign out from Supabase
-  if (SB_SESSION) {
-    await fetch(`${SB_URL}/auth/v1/logout`, {
-      method: 'POST',
-      headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_SESSION.access_token}` }
-    }).catch(() => {});
-  }
-  SB_SESSION = null;
   CURRENT_CLIENT = null;
+  SB_SESSION = null;
   try { localStorage.removeItem('adviuz_client_session'); } catch(e) {}
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('loginEmail').value = '';
   document.getElementById('loginPass').value = '';
-  document.getElementById('appShell').classList.remove('visible');
+  var app = document.getElementById('appShell');
+  if (app) app.classList.remove('visible');
 }
 
 // ══════════════════════════════════════════════
