@@ -629,7 +629,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
 
   <div class="nav-section">
     <div class="nav-label">System</div>
-    <div class="nav-item" onclick="showPanel('settings')">
+    <div class="nav-item" onclick="showPanel('settings');onSettingsOpen()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
       <span>Settings</span>
     </div>
@@ -1269,7 +1269,22 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
           </div>
 
           <div class="settings-section">
-            <div class="settings-title">API & integrations</div>
+            <div class="settings-title">GitHub Deploy</div>
+            <p style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.6;">
+              Paste a <strong>classic</strong> Personal Access Token with <code style="background:var(--surface2);padding:1px 5px;border-radius:4px;">repo</code> scope.<br>
+              Generate one at <a href="https://github.com/settings/tokens/new" target="_blank" style="color:var(--brand)">github.com/settings/tokens/new</a> — choose <em>Tokens (classic)</em>, check ✅ <strong>repo</strong>.
+            </p>
+            <div class="form-group">
+              <label class="fld">Personal Access Token (classic)</label>
+              <input class="fld" id="gh-token-input" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off"
+                oninput="var s=document.getElementById('gh-token-status');if(s)s.style.display='none';">
+            </div>
+            <div id="gh-token-status" style="display:none;font-size:12px;font-weight:600;padding:9px 12px;border-radius:8px;margin-bottom:12px;line-height:1.5;"></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button id="gh-test-btn" class="btn-save" style="flex:1;min-width:120px;" onclick="testGhToken()">Test &amp; Save</button>
+              <button class="btn-save" style="flex:0;background:var(--surface2);color:var(--muted);border:1px solid var(--border);" onclick="clearGhToken()">Clear</button>
+            </div>
+          </div>
             <div class="form-group"><label class="fld">View counted webhook URL</label><input class="fld" placeholder="https://your-backend.com/api/view-counted"></div>
             <div class="form-group"><label class="fld">Lead received webhook URL</label><input class="fld" placeholder="https://your-backend.com/api/leads"></div>
             <div class="form-group"><label class="fld">Admin API key</label>
@@ -2541,23 +2556,95 @@ async function savePastedCode() {
 // ══════════════════════════════════════════════
 // GITHUB AUTO-DEPLOY
 // ══════════════════════════════════════════════
-var GH_TOKEN  = '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';
+// Token loaded from localStorage so you never have to edit this file again.
+// Set it once via Settings → GitHub Deploy in the admin panel.
+function getGhToken() {
+  return localStorage.getItem('adviuz_gh_token') || '';
+}
 var GH_USER   = 'Ajax9922';
 var GH_REPO   = 'adviuz';
 var GH_BASE   = 'https://api.github.com/repos/' + GH_USER + '/' + GH_REPO;
 var AD_DOMAIN = 'latest-promo.com';
 
 async function ghFetch(path, method, body) {
+  var tok = getGhToken();
+  if (!tok) { toast('⚠️ No GitHub token set — go to Settings → GitHub Deploy'); return { ok: false, status: 0 }; }
   return fetch(GH_BASE + path, {
     method:  method || 'GET',
     headers: {
-      'Authorization':        'Bearer ' + GH_TOKEN,
+      'Authorization':        'Bearer ' + tok,
       'Accept':               'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
       'Content-Type':         'application/json'
     },
     body: body ? JSON.stringify(body) : undefined
   });
+}
+
+async function testGhToken() {
+  var btn = document.getElementById('gh-test-btn');
+  var tok = document.getElementById('gh-token-input') ? document.getElementById('gh-token-input').value.trim() : '';
+  // If input shows masked value, use stored token
+  if (tok.startsWith('••')) tok = localStorage.getItem('adviuz_gh_token') || '';
+  if (!tok) { showGhStatus('error', '⚠️ Paste a token first'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Testing…'; }
+  try {
+    var r = await fetch('https://api.github.com/repos/' + GH_USER + '/' + GH_REPO, {
+      headers: {
+        'Authorization':        'Bearer ' + tok,
+        'Accept':               'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28'
+      }
+    });
+    if (r.ok) {
+      var d = await r.json();
+      var perms = d.permissions || {};
+      if (perms.push) {
+        showGhStatus('success', '✅ Token valid — push access confirmed for ' + GH_USER + '/' + GH_REPO);
+        localStorage.setItem('adviuz_gh_token', tok);
+        toast('✅ GitHub token saved!');
+      } else {
+        showGhStatus('warning', '⚠️ Token works but has no push access — make sure you selected the repo scope');
+      }
+    } else if (r.status === 401) {
+      showGhStatus('error', '❌ 401 Unauthorized — invalid or expired. Generate a NEW classic token (not fine-grained) with repo scope.');
+    } else if (r.status === 404) {
+      showGhStatus('error', '❌ 404 — repo not found. Check the token has access to Ajax9922/adviuz.');
+    } else {
+      showGhStatus('error', '❌ Error ' + r.status + ' — unexpected response from GitHub');
+    }
+  } catch(e) {
+    showGhStatus('error', '❌ Network error: ' + e.message);
+  }
+  if (btn) { btn.disabled = false; btn.textContent = 'Test & Save'; }
+}
+
+function showGhStatus(type, msg) {
+  var el = document.getElementById('gh-token-status');
+  if (!el) return;
+  var colors = { success: 'var(--success)', error: 'var(--danger)', warning: 'var(--warning)' };
+  var bgs    = { success: 'var(--success-bg)', error: 'var(--danger-bg)', warning: 'var(--warning-bg)' };
+  el.style.display    = 'block';
+  el.style.color      = colors[type] || 'var(--text)';
+  el.style.background = bgs[type]    || 'var(--surface2)';
+  el.textContent      = msg;
+}
+
+function clearGhToken() {
+  localStorage.removeItem('adviuz_gh_token');
+  var inp = document.getElementById('gh-token-input');
+  if (inp) inp.value = '';
+  showGhStatus('warning', '⚠️ Token cleared — deploy will not work until you set a new one');
+  toast('GitHub token removed');
+}
+
+function onSettingsOpen() {
+  var saved  = localStorage.getItem('adviuz_gh_token');
+  var inp    = document.getElementById('gh-token-input');
+  var status = document.getElementById('gh-token-status');
+  if (inp) inp.value = saved ? '••••••••••••••••••••' + saved.slice(-6) : '';
+  if (saved && status) showGhStatus('success', '✅ Token saved — deploy ready');
+  else if (status) showGhStatus('error', '❌ No token set — ad deploy is disabled');
 }
 
 async function ghGetSha(path) {
