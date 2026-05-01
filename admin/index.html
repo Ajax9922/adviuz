@@ -912,9 +912,13 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
               <div style="font-weight:700;font-size:13px;color:var(--text)">{ } Paste code</div>
               <div style="font-size:11px;color:var(--muted);margin-top:2px">Drop in your own HTML design</div>
             </button>
-            <button onclick="openTemplateBuilder()" style="width:100%;text-align:left;padding:13px 16px;border:none;background:none;cursor:pointer;font-family:'DM Sans',sans-serif" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">
+            <button onclick="openTemplateBuilder()" style="width:100%;text-align:left;padding:13px 16px;border:none;background:none;cursor:pointer;font-family:'DM Sans',sans-serif;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">
               <div style="font-weight:700;font-size:13px;color:var(--text)">✏️ Edit template</div>
               <div style="font-size:11px;color:var(--muted);margin-top:2px">Customise the built-in ad design</div>
+            </button>
+            <button onclick="openBulkCreate()" style="width:100%;text-align:left;padding:13px 16px;border:none;background:none;cursor:pointer;font-family:'DM Sans',sans-serif" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">
+              <div style="font-weight:700;font-size:13px;color:var(--brand)">🚀 Bulk create by region</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px">Deploy one template across multiple provinces</div>
             </button>
           </div>
         </div>
@@ -2217,13 +2221,96 @@ async function saveCampaign() {
     })
   });
   closeModal('campaignModal');
-  if (r.ok) {
-    toast('Campaign created!');
-  } else {
+  if (!r.ok) {
     var err = await r.json();
     toast('Campaign error: ' + (err.message || JSON.stringify(err)));
+    return;
+  }
+  var camData = await r.json();
+  var campaignId = camData[0] ? camData[0].id : null;
+  toast('Campaign created! Redeploying ad with campaign baked in...');
+
+  // Redeploy the ad with campaign_id baked in for clean URL
+  if (campaignId && adId) {
+    var ad = (window._allAds || []).find(function(a){ return a.id === adId; });
+    if (ad && ad.custom_html && ad.ad_slug) {
+      var slug = ad.ad_slug.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+      // Re-inject tracking with campaign_id baked in
+      var freshHtml = ad.custom_html;
+      // Strip any existing adviuz tracking first
+      freshHtml = freshHtml.replace(/<style id="adviuz-bar-style">[\s\S]*?<\/style>/g, '');
+      freshHtml = freshHtml.replace(/<div id="adviuz-bar-wrap">[\s\S]*?<\/div>/g, '');
+      freshHtml = freshHtml.replace(/<script>\(function\(\)\{var U="https:\/\/crhvvfomwkrgwlnfruad[\s\S]*?\}\)\(\);<\/script>/g, '');
+      var injected = injectAdviuzTrackingWithCampaign(freshHtml, slug, campaignId, clientId);
+      await deployAdToSubdomain(slug, ad.business_name || slug, injected);
+      // Save updated html to DB
+      await sbAdmin('/rest/v1/ads?id=eq.' + adId, {
+        method: 'PATCH',
+        headers: { 'Prefer': 'return=minimal' },
+        body: JSON.stringify({ custom_html: injected })
+      });
+      toast('✅ Ad redeployed at ' + slug + '.latest-promo.com — no URL params needed!');
+    }
   }
   loadAdminData();
+}
+
+function injectAdviuzTrackingWithCampaign(htmlStr, adSlug, campaignId, clientId) {
+  var U = 'https://crhvvfomwkrgwlnfruad.supabase.co';
+  var K = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
+
+  var barCss = '<style id="adviuz-bar-style">' +
+    '#adviuz-bar-wrap{position:fixed;top:0;left:0;width:100%;height:4px;z-index:99999;background:rgba(255,255,255,0.08);}' +
+    '#adviuz-bar{height:100%;width:0%;background:#9ca3af;border-radius:0 3px 3px 0;}' +
+    '@keyframes adviuz-done{0%{box-shadow:0 0 0 rgba(34,197,94,0)}50%{box-shadow:0 0 16px 4px rgba(34,197,94,0.8)}100%{box-shadow:0 0 0 rgba(34,197,94,0)}}' +
+    '#adviuz-bar.done{background:#22c55e;animation:adviuz-done 1s ease forwards;}' +
+    '</style>';
+
+  var barHtml = '<div id="adviuz-bar-wrap"><div id="adviuz-bar"></div></div>';
+
+  var script = '<scr' + 'ipt>(function(){' +
+    'var U="' + U + '",K="' + K + '";' +
+    'var cid="' + campaignId + '",clid="' + (clientId||'') + '",slug="' + adSlug + '",src=(new URLSearchParams(location.search).get("utm_source")||"direct"),UUID=null;' +
+    'async function init(){' +
+      'try{var r=await fetch(U+"/rest/v1/ads?ad_slug=eq."+encodeURIComponent(slug)+"&select=id,client_id",{headers:{"apikey":K,"Authorization":"Bearer "+K}});' +
+      'if(r.ok){var d=await r.json();if(d[0]){UUID=d[0].id;}}}catch(e){}' +
+    '}' +
+    'async function ins(t,d){try{await fetch(U+"/rest/v1/"+t,{method:"POST",headers:{"apikey":K,"Authorization":"Bearer "+K,"Content-Type":"application/json","Prefer":"return=minimal"},body:JSON.stringify(d)});}catch(e){}}' +
+    'window.adviuzCountView=async function(){' +
+      'var k="av_"+cid,last=parseInt(localStorage.getItem(k)||"0",10);' +
+      'if(Date.now()-last<86400000){return;}' +
+      'localStorage.setItem(k,Date.now()+"");' +
+      'await ins("view_events",{ad_id:UUID||null,client_id:clid||null,campaign_id:cid,utm_source:src,viewed_at:new Date().toISOString(),billing_model:"views"});' +
+    '};' +
+    'window.adviuzSubmitLead=async function(name,phone,email){' +
+      'await ins("leads",{name:name,phone:phone,email:email||null,client_id:clid||null,campaign_id:cid,source:src,billing_model:"views",stage:"New",submitted_at:new Date().toISOString()});' +
+    '};' +
+    'var DURATION=25000,start=Date.now();' +
+    'function startBar(){' +
+      'var bar=document.getElementById("adviuz-bar");' +
+      'if(!bar)return;' +
+      'var tick=function(){' +
+        'var elapsed=Date.now()-start,pct=Math.min(100,elapsed/DURATION*100);' +
+        'bar.style.width=pct+"%";' +
+        'if(pct<50){bar.style.background="#9ca3af";}' +
+        'else if(pct<75){bar.style.background="#eab308";}' +
+        'else if(pct<90){bar.style.background="#f97316";}' +
+        'else{bar.style.background="#22c55e";}' +
+        'if(pct<100){requestAnimationFrame(tick);}' +
+        'else{bar.classList.add("done");window.adviuzCountView();}' +
+      '};' +
+      'requestAnimationFrame(tick);' +
+    '}' +
+    'init().then(function(){startBar();});' +
+    '})();</' + 'script>';
+
+  if (htmlStr.includes('</head>')) htmlStr = htmlStr.replace('</head>', barCss + '</head>');
+  else htmlStr = barCss + htmlStr;
+  if (htmlStr.includes('<body')) htmlStr = htmlStr.replace(/(<body[^>]*>)/, '$1' + barHtml);
+  else htmlStr = barHtml + htmlStr;
+  if (htmlStr.includes('</body>')) htmlStr = htmlStr.replace('</body>', script + '</body>');
+  else htmlStr = htmlStr + script;
+  return htmlStr;
 }
 // ── PUBLISH AD — saves to Supabase ads table ──
 // ══════════════════════════════════════════════
@@ -3753,6 +3840,144 @@ function exportLeadsCSV() {
   a.download = 'adviuz-leads-' + new Date().toISOString().slice(0,10) + '.csv';
   a.click();
 }
+// ── BULK CREATE ──
+function openBulkCreate() {
+  var menu = document.getElementById('newAdMenu');
+  if (menu) menu.style.display = 'none';
+
+  // Populate client dropdown
+  var sel = document.getElementById('bulk-client-sel');
+  if (sel) {
+    sel.innerHTML = '<option value="">Select client…</option>' +
+      (window._allClients||[]).map(function(c){
+        return '<option value="' + c.id + '">' + c.business_name + '</option>';
+      }).join('');
+  }
+
+  // Wire brand input to preview URL
+  var brandInp = document.getElementById('bulk-brand');
+  if (brandInp) {
+    brandInp.oninput = function() {
+      var brand = this.value.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+      var preview = document.getElementById('bulk-preview-url');
+      if (preview) preview.textContent = (brand || 'brand') + '-sask.latest-promo.com';
+    };
+  }
+
+  // Clear progress
+  var prog = document.getElementById('bulk-progress');
+  var progList = document.getElementById('bulk-progress-list');
+  if (prog) prog.style.display = 'none';
+  if (progList) progList.innerHTML = '';
+
+  openModal('bulkCreateModal');
+}
+
+function bulkSelectAll(val) {
+  document.querySelectorAll('#bulk-provinces input[type=checkbox]').forEach(function(cb){
+    cb.checked = val;
+  });
+}
+
+async function runBulkCreate() {
+  var clientId = document.getElementById('bulk-client-sel')?.value || '';
+  var brand    = (document.getElementById('bulk-brand')?.value || '').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  var html     = (document.getElementById('bulk-html')?.value || '').trim();
+  var btn      = document.getElementById('bulk-deploy-btn');
+
+  if (!clientId) { toast('Select a client'); return; }
+  if (!brand)    { toast('Enter a brand name'); return; }
+  if (!html)     { toast('Paste the HTML template'); return; }
+
+  // Get selected provinces
+  var selected = [];
+  document.querySelectorAll('#bulk-provinces input[type=checkbox]:checked').forEach(function(cb){
+    selected.push({ value: cb.value, label: cb.dataset.label });
+  });
+  if (selected.length === 0) { toast('Select at least one province'); return; }
+
+  // Show progress
+  var prog = document.getElementById('bulk-progress');
+  var progList = document.getElementById('bulk-progress-list');
+  if (prog) prog.style.display = 'block';
+  if (progList) progList.innerHTML = selected.map(function(p){
+    return '<div id="bulk-status-' + p.value + '">⏳ ' + p.label + ' — waiting…</div>';
+  }).join('');
+
+  if (btn) { btn.disabled = true; btn.textContent = 'Deploying…'; }
+
+  var results = [];
+
+  // Deploy each region sequentially
+  for (var i = 0; i < selected.length; i++) {
+    var province = selected[i];
+    var slug = brand + '-' + province.value;
+    var statusEl = document.getElementById('bulk-status-' + province.value);
+
+    if (statusEl) statusEl.textContent = '⏳ ' + province.label + ' — creating…';
+
+    try {
+      // Save ad to Supabase
+      var adName = brand.charAt(0).toUpperCase() + brand.slice(1) + ' — ' + province.label;
+      var injected = injectAdviuzTracking(html, slug);
+
+      var r = await sbAdmin('/rest/v1/ads', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({
+          business_name: adName,
+          client_id:     clientId,
+          ad_slug:       slug,
+          custom_html:   injected,
+          logo_letter:   brand[0].toUpperCase(),
+          brand_color:   '#C8102E',
+          status:        'active'
+        })
+      });
+
+      if (!r.ok) {
+        if (statusEl) statusEl.textContent = '❌ ' + province.label + ' — DB error';
+        continue;
+      }
+
+      var adData = await r.json();
+      var adId = adData[0]?.id;
+
+      // Deploy to Netlify
+      if (statusEl) statusEl.textContent = '⏳ ' + province.label + ' — deploying to ' + slug + '.latest-promo.com…';
+      var liveUrl = await deployAdToSubdomain(slug, adName, injected);
+
+      if (liveUrl) {
+        // Save live_url
+        if (adId) {
+          await sbAdmin('/rest/v1/ads?id=eq.' + adId, {
+            method: 'PATCH',
+            headers: { 'Prefer': 'return=minimal' },
+            body: JSON.stringify({ live_url: liveUrl })
+          });
+        }
+        if (statusEl) statusEl.innerHTML = '✅ ' + province.label + ' — <a href="' + liveUrl + '" target="_blank" style="color:var(--brand)">' + slug + '.latest-promo.com</a>';
+        results.push({ province: province.label, url: liveUrl, slug: slug });
+      } else {
+        if (statusEl) statusEl.textContent = '❌ ' + province.label + ' — deploy failed';
+      }
+
+    } catch(e) {
+      if (statusEl) statusEl.textContent = '❌ ' + province.label + ' — error: ' + e.message;
+    }
+  }
+
+  if (btn) { btn.disabled = false; btn.textContent = '🚀 Deploy all selected regions →'; }
+
+  // Refresh
+  await loadAdminData();
+  renderAdBuilderPanel();
+
+  var done = results.length;
+  var total = selected.length;
+  toast('✅ Bulk deploy complete: ' + done + '/' + total + ' regions live!');
+}
+
 // ── PWA MANIFEST ──
 (function(){
   var manifest = {
@@ -3766,6 +3991,98 @@ function exportLeadsCSV() {
   if (el) el.href = URL.createObjectURL(blob);
 })();
 </script>
+<!-- BULK CREATE MODAL -->
+<div class="modal-overlay" id="bulkCreateModal" onclick="if(event.target===this)closeModal('bulkCreateModal')" style="z-index:200">
+  <div class="modal" style="max-width:680px;max-height:90vh;overflow-y:auto">
+    <div class="modal-head">
+      <div class="modal-title">🚀 Bulk Create by Region</div>
+      <button class="modal-close" onclick="closeModal('bulkCreateModal')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div style="background:var(--brand-light);border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--brand);line-height:1.6">
+        One HTML template deploys to multiple regions automatically. Each region gets its own subdomain, Netlify site, and DNS record.
+      </div>
+
+      <div class="form-group">
+        <label class="fld">Client *</label>
+        <select class="fld" id="bulk-client-sel"><option value="">Select client…</option></select>
+      </div>
+
+      <div class="form-group">
+        <label class="fld">Brand / Business name *</label>
+        <input class="fld" id="bulk-brand" placeholder="e.g. apple, nailspa, drsmith">
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Used as URL prefix: <span id="bulk-preview-url" style="font-family:var(--mono);color:var(--brand)">apple-sask.latest-promo.com</span></div>
+      </div>
+
+      <div class="form-group">
+        <label class="fld">Select provinces / regions *</label>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px" id="bulk-provinces">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:8px 10px;border:1px solid var(--border);border-radius:8px">
+            <input type="checkbox" value="sask" data-label="Saskatchewan"> Saskatchewan
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:8px 10px;border:1px solid var(--border);border-radius:8px">
+            <input type="checkbox" value="ontario" data-label="Ontario"> Ontario
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:8px 10px;border:1px solid var(--border);border-radius:8px">
+            <input type="checkbox" value="bc" data-label="British Columbia"> British Columbia
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:8px 10px;border:1px solid var(--border);border-radius:8px">
+            <input type="checkbox" value="alberta" data-label="Alberta"> Alberta
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:8px 10px;border:1px solid var(--border);border-radius:8px">
+            <input type="checkbox" value="manitoba" data-label="Manitoba"> Manitoba
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:8px 10px;border:1px solid var(--border);border-radius:8px">
+            <input type="checkbox" value="quebec" data-label="Quebec"> Quebec
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:8px 10px;border:1px solid var(--border);border-radius:8px">
+            <input type="checkbox" value="nova-scotia" data-label="Nova Scotia"> Nova Scotia
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:8px 10px;border:1px solid var(--border);border-radius:8px">
+            <input type="checkbox" value="nb" data-label="New Brunswick"> New Brunswick
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:8px 10px;border:1px solid var(--border);border-radius:8px">
+            <input type="checkbox" value="nfld" data-label="Newfoundland"> Newfoundland
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:8px 10px;border:1px solid var(--border);border-radius:8px">
+            <input type="checkbox" value="pei" data-label="PEI"> PEI
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:8px 10px;border:1px solid var(--border);border-radius:8px">
+            <input type="checkbox" value="yukon" data-label="Yukon"> Yukon
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:8px 10px;border:1px solid var(--border);border-radius:8px">
+            <input type="checkbox" value="nwt" data-label="NWT"> NWT
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:8px 10px;border:1px solid var(--border);border-radius:8px">
+            <input type="checkbox" value="nunavut" data-label="Nunavut"> Nunavut
+          </label>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:8px">
+          <button onclick="bulkSelectAll(true)" style="font-size:11px;color:var(--brand);background:none;border:none;cursor:pointer;font-family:var(--font)">Select all</button>
+          <button onclick="bulkSelectAll(false)" style="font-size:11px;color:var(--muted);background:none;border:none;cursor:pointer;font-family:var(--font)">Clear all</button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="fld">HTML template *</label>
+        <textarea class="fld" id="bulk-html" placeholder="Paste your full HTML ad design here…" style="height:180px;font-family:var(--mono);font-size:11px;resize:vertical"></textarea>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">The same HTML will be deployed to all selected regions. Tracking is injected automatically.</div>
+      </div>
+
+      <div id="bulk-progress" style="display:none;margin-top:8px">
+        <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:8px">Deploy progress:</div>
+        <div id="bulk-progress-list" style="font-size:12px;line-height:2;font-family:var(--mono)"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('bulkCreateModal')">Cancel</button>
+      <button class="btn-save" id="bulk-deploy-btn" onclick="runBulkCreate()">🚀 Deploy all selected regions →</button>
+    </div>
+  </div>
+</div>
+
 <div class="sidebar-overlay" id="adminSidebarOverlay" onclick="toggleAdminSidebar()"></div>
 </div><!-- /adminApp -->
 </body>
