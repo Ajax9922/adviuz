@@ -1681,8 +1681,11 @@ function renderAdminDashboard(clients, views, leads, campaigns, txns) {
         var pct = budget>0 ? Math.round(used/budget*100) : 0;
         var statusCls = cam.status==='active' ? 'active' : cam.status==='paused' ? 'paused' : 'pending';
         var camLeads = leads.filter(function(l){ return l.campaign_id === cam.id; }).length;
-        var liveUrl = 'https://adviuzdev.netlify.app?campaign_id=' + cam.id
-                    + (cam.client_id ? '&client_id=' + cam.client_id : '') + '&utm_source=facebook';
+        var camAd = window._allAds ? window._allAds.find(function(a){ return a.id === cam.ad_id; }) : null;
+        var camSlug = camAd ? (camAd.ad_slug || '').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') : '';
+        var liveUrl = camSlug
+          ? 'https://' + camSlug + '.latest-promo.com?campaign_id=' + cam.id + (cam.client_id ? '&client_id=' + cam.client_id : '') + '&utm_source=facebook'
+          : 'https://latest-promo.com?campaign_id=' + cam.id;
         return '<tr>' +
           '<td><div class="td-name" style="cursor:pointer;color:var(--brand)" onclick="window.open(this.dataset.url,\'_blank\')" data-url="' + liveUrl + '">' + cam.name + ' ↗</div></td>' +
           '<td>' + (client ? client.business_name : '—') + '</td>' +
@@ -1869,10 +1872,11 @@ function renderCampaignRows(campaigns, clients) {
     var barColor = pct >= 100 ? 'var(--danger)' : pct >= 85 ? 'var(--warning)' : 'var(--brand)';
     // Live ad URL
     var adSlugParam = window._allAds ? (window._allAds.find(function(a){return a.id===cam.ad_id;}) || {}).ad_slug : '';
-    var liveUrl = 'https://adviuzdev.netlify.app?campaign_id=' + cam.id
-                + (cam.client_id ? '&client_id=' + cam.client_id : '')
-                + (adSlugParam ? '&ad_id=' + adSlugParam : '')
-                + '&utm_source=facebook';
+    var camAdObj = window._allAds ? window._allAds.find(function(a){ return a.id === cam.ad_id; }) : null;
+    var camAdSlug = camAdObj ? (camAdObj.ad_slug || '').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') : (adSlugParam || '');
+    var liveUrl = camAdSlug
+      ? 'https://' + camAdSlug + '.latest-promo.com?campaign_id=' + cam.id + (cam.client_id ? '&client_id=' + cam.client_id : '') + '&utm_source=facebook'
+      : 'https://latest-promo.com?campaign_id=' + cam.id;
     // Impressions display
     var impDisplay = totalImp > 0
       ? '<div style="font-weight:700;font-size:13px">' + totalImp.toLocaleString() + '</div>'
@@ -3023,13 +3027,16 @@ function copyAdURL(el) {
   var clientId   = el.dataset.client   || '';
   var campaignId = el.dataset.campaign  || '';
   var platform   = el.dataset.platform  || 'facebook';
-  var url = 'https://adviuzdev.netlify.app?client_id=' + clientId + '&campaign_id=' + campaignId + '&utm_source=' + platform.toLowerCase();
+  var camAdO = window._allCampaigns ? (window._allCampaigns.find(function(c){ return c.id===campaignId; })||{}) : {};
+  var camAdSl = window._allAds ? ((window._allAds.find(function(a){ return a.id===camAdO.ad_id; })||{}).ad_slug||'') : '';
+  var camAdSl2 = camAdSl.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  var url = camAdSl2 ? 'https://' + camAdSl2 + '.latest-promo.com?campaign_id=' + campaignId + '&client_id=' + clientId + '&utm_source=' + platform.toLowerCase() : 'https://latest-promo.com?campaign_id=' + campaignId + '&utm_source=' + platform.toLowerCase();
   if (navigator.clipboard) navigator.clipboard.writeText(url).catch(function(){});
   toast('Ad URL copied!');
 }
 function copyClientLoginLink(el) {
   var email = (typeof el === 'object' && el.dataset) ? el.dataset.email : el;
-  var text = 'Login: https://adviuzdev.netlify.app/client\nEmail: ' + email;
+  var text = 'Login: https://latest-promo.com/client\nEmail: ' + email;
   if (navigator.clipboard) navigator.clipboard.writeText(text).catch(function(){});
   toast('Login details copied!');
 }
@@ -3117,7 +3124,7 @@ function resetCampaignModal() {
   window._camClientBalance = 0;
 }
 function copyShortUrl(code) {
-  var url = 'https://adviuzdev.netlify.app/go/' + code;
+  var url = 'https://latest-promo.com/go/' + code;
   if (navigator.clipboard) navigator.clipboard.writeText(url).catch(function(){});
   toast('Short URL copied: /go/' + code);
 }
@@ -3542,7 +3549,7 @@ async function bulkCampaign(action) {
     var urls = ids.map(function(id) {
       var cam = campaigns.find(function(c){ return c.id === id; });
       if (!cam) return '';
-      return cam.name + ': https://adviuzdev.netlify.app?campaign_id=' + cam.id
+      return cam.name + ': https://latest-promo.com?campaign_id=' + cam.id
            + (cam.client_id ? '&client_id=' + cam.client_id : '') + '&utm_source=facebook';
     }).filter(Boolean).join('\n');
     if (navigator.clipboard) navigator.clipboard.writeText(urls).catch(function(){});
