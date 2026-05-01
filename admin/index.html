@@ -2594,121 +2594,93 @@ async function deployAdToSubdomain(adSlug, adName, htmlContent) {
   var slug    = adSlug.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
   var domain  = slug + '.' + AD_DOMAIN;
   var liveUrl = 'https://' + domain;
-
   try {
-    // Step 1: Check if Netlify site already exists for this slug
     var existingSiteId = localStorage.getItem('adviuz_netlify_site_' + slug);
     var netlifySubdomain = 'adviuz--' + slug + '.netlify.app';
-
     if (!existingSiteId) {
-      toast('⏳ Creating Netlify site for ' + domain + '…');
-      var createR = await netlifyApi('/sites', 'POST', {
-        name: 'adviuz--' + slug
-      });
+      toast('Creating Netlify site...');
+      var createR = await netlifyApi('/sites', 'POST', { name: 'adviuz--' + slug });
       if (!createR.ok) {
         var errData = await createR.json().catch(function(){ return {}; });
         if (createR.status === 422) {
-          // Site already exists — find it
           var listR = await netlifyApi('/sites?per_page=100');
           if (listR.ok) {
             var allSites = await listR.json();
             var found = allSites.find(function(s){ return s.name === 'adviuz--' + slug; });
-            if (found) {
-              existingSiteId = found.id;
-              netlifySubdomain = found.name + '.netlify.app';
-              localStorage.setItem('adviuz_netlify_site_' + slug, existingSiteId);
-              localStorage.setItem('adviuz_netlify_sub_' + slug, netlifySubdomain);
-            }
+            if (found) { existingSiteId = found.id; netlifySubdomain = found.name + '.netlify.app'; localStorage.setItem('adviuz_netlify_site_' + slug, existingSiteId); localStorage.setItem('adviuz_netlify_sub_' + slug, netlifySubdomain); }
           }
         }
-        if (!existingSiteId) { toast('❌ Netlify site creation failed: ' + (errData.message || createR.status)); return null; }
+        if (!existingSiteId) { toast('Netlify site creation failed: ' + (errData.message || createR.status)); return null; }
       } else {
         var site = await createR.json();
-        existingSiteId = site.id;
-        netlifySubdomain = site.name + '.netlify.app';
+        existingSiteId = site.id; netlifySubdomain = site.name + '.netlify.app';
         localStorage.setItem('adviuz_netlify_site_' + slug, existingSiteId);
         localStorage.setItem('adviuz_netlify_sub_' + slug, netlifySubdomain);
       }
     } else {
       netlifySubdomain = localStorage.getItem('adviuz_netlify_sub_' + slug) || 'adviuz--' + slug + '.netlify.app';
     }
-
-    // Step 2: Push HTML to GitHub → Netlify auto-deploys
-    toast('⏳ Deploying HTML via GitHub…');
+    toast('Deploying HTML...');
     var filePath = 'ads/' + slug + '/index.html';
     var sha = await ghGetSha(filePath);
     var ok  = await ghPutFile(filePath, htmlContent, 'Deploy: ' + adName, sha);
-    if (!ok) { toast('❌ GitHub push failed — check token in Settings → GitHub Deploy'); return null; }
-
-    // Step 3: Set custom domain
+    if (!ok) { toast('GitHub push failed - check token in Settings'); return null; }
+    toast('Configuring DNS...');
+    var dnsZoneId = await getNetlifyDnsZoneId();
+    if (dnsZoneId) {
+      var dnsListR = await netlifyApi('/dns_zones/' + dnsZoneId + '/dns_records');
+      var existingRecord = false;
+      if (dnsListR.ok) { var dnsRecords = await dnsListR.json(); existingRecord = dnsRecords.find(function(r){ return r.hostname === domain; }); }
+      if (!existingRecord) {
+        await netlifyApi('/dns_zones/' + dnsZoneId + '/dns_records', 'POST', { type: 'NETLIFY', hostname: domain, value: netlifySubdomain, ttl: 3600 });
+      }
+    }
+    toast('Provisioning SSL...');
     await netlifyApi('/sites/' + existingSiteId, 'PATCH', { custom_domain: domain });
-
-    // Step 4: Show CNAME instructions modal
-    showCnameModal(slug, domain, netlifySubdomain, liveUrl);
-
+    await netlifyApi('/sites/' + existingSiteId + '/ssl', 'POST', {});
+    showSuccessModal(slug, domain, liveUrl);
     return liveUrl;
-
   } catch(e) {
-    toast('❌ Deploy error: ' + e.message);
+    toast('Deploy error: ' + e.message);
     console.error('[Deploy]', e);
     return null;
   }
 }
 
-function showCnameModal(slug, domain, netlifySubdomain, liveUrl) {
+async function getNetlifyDnsZoneId() {
+  var cached = localStorage.getItem('adviuz_netlify_dns_zone');
+  if (cached) return cached;
+  var r = await netlifyApi('/dns_zones');
+  if (!r.ok) return null;
+  var zones = await r.json();
+  var zone = zones.find(function(z){ return z.name === 'latest-promo.com'; });
+  if (zone) { localStorage.setItem('adviuz_netlify_dns_zone', zone.id); return zone.id; }
+  return null;
+}
+
+function showSuccessModal(slug, domain, liveUrl) {
   var existing = document.getElementById('cnameModal');
   if (existing) existing.remove();
   var modal = document.createElement('div');
   modal.id = 'cnameModal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
-  var h = '<div style="background:#fff;border-radius:16px;max-width:560px;width:100%;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,0.2)">';
-  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">';
-  h += '<div style="font-family:Syne,sans-serif;font-size:17px;font-weight:700">\u2705 Ad Deployed!</div>';
-  h += '<button onclick="this.closest(\'[id=cnameModal]\').remove()" style="border:none;background:none;font-size:24px;cursor:pointer;color:#888">\u00d7</button>';
+  var h = '<div style="background:#fff;border-radius:16px;max-width:480px;width:100%;padding:32px;box-shadow:0 20px 60px rgba(0,0,0,0.2);text-align:center">';
+  h += '<div style="font-size:40px;margin-bottom:16px">&#127881;</div>';
+  h += '<div style="font-family:Syne,sans-serif;font-size:20px;font-weight:800;margin-bottom:8px">Ad is Live!</div>';
+  h += '<div style="font-size:13px;color:#666;margin-bottom:20px">DNS configured automatically. SSL provisioning now (~1-2 min).</div>';
+  h += '<div style="background:#f4f3f0;border-radius:10px;padding:14px;margin-bottom:20px;font-family:monospace;font-size:15px;font-weight:700;color:#C8102E">' + domain + '</div>';
+  h += '<div style="background:#edfaf3;border-radius:10px;padding:12px 14px;margin-bottom:24px;font-size:12px;color:#1a7a4a;line-height:1.8;text-align:left">';
+  h += '&#10003; Netlify site created<br>&#10003; HTML deployed to GitHub<br>&#10003; DNS record added automatically<br>&#8987; SSL certificate provisioning';
   h += '</div>';
-  h += '<div style="background:#edfaf3;border-radius:10px;padding:14px 16px;margin-bottom:20px;font-size:13px;color:#1a7a4a;font-weight:600">';
-  h += 'HTML uploaded. Add this DNS record in Cloudflare to make <strong>' + domain + '</strong> live.';
-  h += '</div>';
-  h += '<div style="font-size:11px;font-weight:700;color:#888;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:10px">Add this CNAME in Cloudflare DNS:</div>';
-  h += '<div style="background:#f4f3f0;border-radius:10px;overflow:hidden;margin-bottom:16px">';
-  h += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
-  h += '<thead><tr style="background:#e8e7e4">';
-  h += '<th style="padding:10px 14px;text-align:left;font-size:11px;font-weight:700;color:#666;text-transform:uppercase">Field</th>';
-  h += '<th style="padding:10px 14px;text-align:left;font-size:11px;font-weight:700;color:#666;text-transform:uppercase">Value</th>';
-  h += '<th style="padding:10px 14px;width:70px"></th>';
-  h += '</tr></thead><tbody>';
-  h += '<tr style="border-top:1px solid #ddd"><td style="padding:12px 14px;font-weight:600">Type</td><td style="padding:12px 14px;font-family:monospace">CNAME</td><td></td></tr>';
-  h += '<tr style="border-top:1px solid #ddd">';
-  h += '<td style="padding:12px 14px;font-weight:600">Name</td>';
-  h += '<td style="padding:12px 14px;font-family:monospace">' + slug + '</td>';
-  h += '<td style="padding:12px 14px"><button class="copy-btn" data-copy="' + slug + '">Copy</button></td>';
-  h += '</tr>';
-  h += '<tr style="border-top:1px solid #ddd">';
-  h += '<td style="padding:12px 14px;font-weight:600">Target</td>';
-  h += '<td style="padding:12px 14px;font-family:monospace;font-size:11px;word-break:break-all">' + netlifySubdomain + '</td>';
-  h += '<td style="padding:12px 14px"><button class="copy-btn" data-copy="' + netlifySubdomain + '">Copy</button></td>';
-  h += '</tr>';
-  h += '<tr style="border-top:1px solid #ddd"><td style="padding:12px 14px;font-weight:600">Proxy</td><td style="padding:12px 14px;font-family:monospace">DNS only (grey cloud \u2601)</td><td></td></tr>';
-  h += '<tr style="border-top:1px solid #ddd"><td style="padding:12px 14px;font-weight:600">TTL</td><td style="padding:12px 14px;font-family:monospace">Auto</td><td></td></tr>';
-  h += '</tbody></table></div>';
-  h += '<div style="background:#eff6ff;border-radius:10px;padding:12px 14px;margin-bottom:20px;font-size:12px;color:#1d4ed8;line-height:1.6">';
-  h += '<strong>Steps:</strong> Click "Open Cloudflare DNS" \u2192 Add record \u2192 paste values above \u2192 Save. ';
-  h += 'Then go to Netlify \u2192 find <em>adviuz--' + slug + '</em> site \u2192 Domain management \u2192 Provision certificate. SSL ready in ~2 min.';
-  h += '</div>';
-  h += '<div style="display:flex;gap:10px;flex-wrap:wrap">';
-  h += '<a href="https://dash.cloudflare.com/?to=/:account/latest-promo.com/dns/records" target="_blank" style="flex:1;min-width:140px;display:flex;align-items:center;justify-content:center;background:#C8102E;color:#fff;padding:11px 16px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none">Open Cloudflare DNS \u2192</a>';
-  h += '<a href="https://app.netlify.com/teams/ajaysheria90/sites" target="_blank" style="flex:1;min-width:140px;display:flex;align-items:center;justify-content:center;background:#00ad9f;color:#fff;padding:11px 16px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none">Open Netlify \u2192</a>';
-  h += '<button id="cname-done-btn" style="flex:0;background:#f4f3f0;color:#666;border:none;padding:11px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:DM Sans,sans-serif">Done</button>';
+  h += '<div style="display:flex;gap:10px">';
+  h += '<a href="' + liveUrl + '" target="_blank" style="flex:1;background:#C8102E;color:#fff;padding:12px;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none;display:flex;align-items:center;justify-content:center">Visit ' + domain + ' &#8599;</a>';
+  h += '<button id="success-done-btn" style="flex:0;min-width:80px;background:#f4f3f0;color:#666;border:none;padding:12px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:DM Sans,sans-serif">Done</button>';
   h += '</div></div>';
   modal.innerHTML = h;
   document.body.appendChild(modal);
-  // Wire up copy buttons
-  modal.querySelectorAll('.copy-btn').forEach(function(btn) {
-    btn.style.cssText = 'border:1px solid #ddd;background:#fff;border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer;font-family:DM Sans,sans-serif';
-    btn.addEventListener('click', function() { navigator.clipboard.writeText(btn.dataset.copy); toast('Copied!'); });
-  });
-  document.getElementById('cname-done-btn').addEventListener('click', function() { modal.remove(); });
+  document.getElementById('success-done-btn').addEventListener('click', function(){ modal.remove(); });
 }
+
 
 function injectAdviuzTracking(htmlStr, adSlug) {
   var lines = [
