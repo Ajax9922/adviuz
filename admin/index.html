@@ -2373,37 +2373,53 @@ function injectAdviuzTrackingWithCampaign(htmlStr, adSlug, campaignId, clientId)
       'if(r.ok){var d=await r.json();if(d[0]){UUID=d[0].id;}}}catch(e){}' +
     '}' +
     'async function ins(t,d){try{await fetch(U+"/rest/v1/"+t,{method:"POST",headers:{"apikey":K,"Authorization":"Bearer "+K,"Content-Type":"application/json","Prefer":"return=minimal"},body:JSON.stringify(d)});}catch(e){}}' +
+    'var counted=false;' +
     'window.adviuzCountView=async function(){' +
-      'var k="av_viewed_"+cid;' +
-      'if(sessionStorage.getItem(k))return;' +
-      'sessionStorage.setItem(k,"1");' +
+      'if(counted)return;counted=true;' +
       'await ins("view_events",{ad_id:UUID||null,client_id:clid||null,campaign_id:cid,utm_source:src,utm_medium:"cpc",platform:src,viewed_at:new Date().toISOString()});' +
-      'try{var cRes=await fetch(U+"/rest/v1/campaigns?id=eq."+cid,{headers:{"apikey":K,"Authorization":"Bearer "+K}});' +
-      'if(cRes.ok){var cArr=await cRes.json();if(cArr[0]){' +
-      'var nv=(cArr[0].views_used||0)+1;' +
-      'var pBody=JSON.stringify({"views_used":nv});' +
-      'await fetch(U+"/rest/v1/campaigns?id=eq."+cid,{method:"PATCH",headers:{"apikey":K,"Authorization":"Bearer "+K,"Content-Type":"application/json","Prefer":"return=minimal"},body:pBody});}}}catch(eV){}' +
+      'try{await fetch(U+"/rest/v1/rpc/increment_campaign_views",{method:"POST",headers:{"apikey":K,"Authorization":"Bearer "+K,"Content-Type":"application/json"},body:JSON.stringify({p_campaign_id:cid})));}catch(eV){}' +
     '};' +
     'window.adviuzSubmitLead=async function(name,phone,email){' +
       'await ins("leads",{name:name,phone:phone,email:email||null,client_id:clid||null,campaign_id:cid,source:src,stage:"New",submitted_at:new Date().toISOString()});' +
     '};' +
-    'var DURATION=25000,start=Date.now();' +
-    'function startBar(){' +
+    // All three conditions must be true for timer to run:
+    // 1. tab is visible (visibilitychange)
+    // 2. window has focus (blur/focus)  
+    // 3. ad must be 100% visible on screen (IntersectionObserver)
+    'var DURATION=25000,elapsed=0,timerDone=false,tickId=null;' +
+    'var tabVisible=!document.hidden,winFocused=document.hasFocus(),adVisible=true;' +
+    'function canCount(){return tabVisible&&winFocused&&adVisible&&!timerDone;}' +
+    'function updateBar(){' +
+      'var pct=Math.min(100,elapsed/DURATION*100);' +
       'var bar=document.getElementById("adviuz-bar");' +
-      'if(!bar)return;' +
-      'var tick=function(){' +
-        'var elapsed=Date.now()-start,pct=Math.min(100,elapsed/DURATION*100);' +
-        'bar.style.width=pct+"%";' +
-        'if(pct<50){bar.style.background="#9ca3af";}' +
-        'else if(pct<75){bar.style.background="#eab308";}' +
-        'else if(pct<90){bar.style.background="#f97316";}' +
-        'else{bar.style.background="#22c55e";}' +
-        'if(pct<100){requestAnimationFrame(tick);}' +
-        'else{bar.classList.add("done");window.adviuzCountView();}' +
-      '};' +
-      'requestAnimationFrame(tick);' +
+      'if(bar){bar.style.width=pct+"%";' +
+        'if(pct<50)bar.style.background="#9ca3af";' +
+        'else if(pct<75)bar.style.background="#eab308";' +
+        'else if(pct<90)bar.style.background="#f97316";' +
+        'else bar.style.background="#22c55e";}' +
+      'if(pct>=100&&!timerDone){timerDone=true;if(bar)bar.classList.add("done");window.adviuzCountView();}' +
     '}' +
-    'init().then(function(){startBar();});' +
+    'function startTicking(){' +
+      'if(tickId||timerDone)return;' +
+      'var segStart=Date.now();' +
+      'tickId=setInterval(function(){' +
+        'if(!canCount()){stopTicking();return;}' +
+        'elapsed+=Date.now()-segStart;segStart=Date.now();' +
+        'updateBar();' +
+        'if(timerDone)stopTicking();' +
+      '},500);' +
+    '}' +
+    'function stopTicking(){clearInterval(tickId);tickId=null;}' +
+    'function checkState(){if(canCount())startTicking();else stopTicking();}' +
+    // Tab visibility
+    'document.addEventListener("visibilitychange",function(){tabVisible=!document.hidden;checkState();});' +
+    // Window focus
+    'window.addEventListener("blur",function(){winFocused=false;checkState();});' +
+    'window.addEventListener("focus",function(){winFocused=true;checkState();});' +
+    // Ad on-screen visibility — pauses if ad scrolled away or covered
+    'var io=new IntersectionObserver(function(entries){adVisible=entries[0].intersectionRatio>=1.0;checkState();},{threshold:[1.0]});' +
+    'io.observe(document.body);' +
+    'init().then(function(){checkState();});' +
     '})();</' + 'script>';
 
   if (htmlStr.includes('</head>')) htmlStr = htmlStr.replace('</head>', barCss + '</head>');
@@ -2956,38 +2972,46 @@ function injectAdviuzTracking(htmlStr, adSlug) {
       'if(cr.ok){var cd=await cr.json();if(cd[0]){if(cd[0].ad_id)UUID=cd[0].ad_id;if(!clid&&cd[0].client_id)clid=cd[0].client_id;}}}catch(e){}}' +
     '}' +
     'async function ins(t,d){try{await fetch(U+"/rest/v1/"+t,{method:"POST",headers:{"apikey":K,"Authorization":"Bearer "+K,"Content-Type":"application/json","Prefer":"return=minimal"},body:JSON.stringify(d)});}catch(e){}}' +
+    'var counted2=false;' +
     'window.adviuzCountView=async function(){' +
-      'var k="av_viewed_"+(cid||slug);' +
-      'if(sessionStorage.getItem(k))return;' +
-      'sessionStorage.setItem(k,"1");' +
+      'if(counted2)return;counted2=true;' +
       'await ins("view_events",{ad_id:UUID||null,client_id:clid||null,campaign_id:cid||null,utm_source:src,utm_medium:"cpc",platform:src,viewed_at:new Date().toISOString()});' +
-      'try{if(cid){var cRes2=await fetch(U+"/rest/v1/campaigns?id=eq."+cid,{headers:{"apikey":K,"Authorization":"Bearer "+K}});' +
-      'if(cRes2.ok){var cArr2=await cRes2.json();if(cArr2[0]){' +
-      'var nv2=(cArr2[0].views_used||0)+1;' +
-      'var pBody2=JSON.stringify({"views_used":nv2});' +
-      'await fetch(U+"/rest/v1/campaigns?id=eq."+cid,{method:"PATCH",headers:{"apikey":K,"Authorization":"Bearer "+K,"Content-Type":"application/json","Prefer":"return=minimal"},body:pBody2});}}}}catch(eV2){}' +
+      'try{if(cid){await fetch(U+"/rest/v1/rpc/increment_campaign_views",{method:"POST",headers:{"apikey":K,"Authorization":"Bearer "+K,"Content-Type":"application/json"},body:JSON.stringify({p_campaign_id:cid})));}}catch(eV2){}' +
     '};' +
     'window.adviuzSubmitLead=async function(name,phone,email){' +
       'await ins("leads",{name:name,phone:phone,email:email||null,client_id:clid||null,campaign_id:cid||null,source:src,stage:"New",submitted_at:new Date().toISOString()});' +
     '};' +
-    // Progress bar + auto 25s timer
-    'var DURATION=25000,start=Date.now();' +
-    'function startBar(){' +
+    'var DURATION=25000,elapsed2=0,timerDone2=false,tickId2=null;' +
+    'var tabVisible2=!document.hidden,winFocused2=document.hasFocus(),adVisible2=true;' +
+    'function canCount2(){return tabVisible2&&winFocused2&&adVisible2&&!timerDone2;}' +
+    'function updateBar2(){' +
+      'var pct=Math.min(100,elapsed2/DURATION*100);' +
       'var bar=document.getElementById("adviuz-bar");' +
-      'if(!bar)return;' +
-      'var tick=function(){' +
-        'var elapsed=Date.now()-start,pct=Math.min(100,elapsed/DURATION*100);' +
-        'bar.style.width=pct+"%";' +
-        'if(pct<50){bar.style.background="#9ca3af";}' +
-        'else if(pct<75){bar.style.background="#eab308";}' +
-        'else if(pct<90){bar.style.background="#f97316";}' +
-        'else{bar.style.background="#22c55e";}' +
-        'if(pct<100){requestAnimationFrame(tick);}' +
-        'else{bar.classList.add("done");window.adviuzCountView();}' +
-      '};' +
-      'requestAnimationFrame(tick);' +
+      'if(bar){bar.style.width=pct+"%";' +
+        'if(pct<50)bar.style.background="#9ca3af";' +
+        'else if(pct<75)bar.style.background="#eab308";' +
+        'else if(pct<90)bar.style.background="#f97316";' +
+        'else bar.style.background="#22c55e";}' +
+      'if(pct>=100&&!timerDone2){timerDone2=true;if(bar)bar.classList.add("done");window.adviuzCountView();}' +
     '}' +
-    'init().then(function(){startBar();});' +
+    'function startTicking2(){' +
+      'if(tickId2||timerDone2)return;' +
+      'var segStart=Date.now();' +
+      'tickId2=setInterval(function(){' +
+        'if(!canCount2()){stopTicking2();return;}' +
+        'elapsed2+=Date.now()-segStart;segStart=Date.now();' +
+        'updateBar2();' +
+        'if(timerDone2)stopTicking2();' +
+      '},500);' +
+    '}' +
+    'function stopTicking2(){clearInterval(tickId2);tickId2=null;}' +
+    'function checkState2(){if(canCount2())startTicking2();else stopTicking2();}' +
+    'document.addEventListener("visibilitychange",function(){tabVisible2=!document.hidden;checkState2();});' +
+    'window.addEventListener("blur",function(){winFocused2=false;checkState2();});' +
+    'window.addEventListener("focus",function(){winFocused2=true;checkState2();});' +
+    'var io2=new IntersectionObserver(function(entries){adVisible2=entries[0].intersectionRatio>=1.0;checkState2();},{threshold:[1.0]});' +
+    'io2.observe(document.body);' +
+    'init().then(function(){checkState2();});' +
     '})();</' + 'script>';
 
   // Inject CSS into <head>
