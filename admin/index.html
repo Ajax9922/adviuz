@@ -389,23 +389,16 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
 .toggle.on{background:var(--brand);}
 .toggle-thumb{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.2);}
 .toggle.on .toggle-thumb{left:18px;}
-/* ── MOBILE RESPONSIVE ── */
-@media(max-width:900px){
-  .sidebar{width:60px;min-width:60px;}
-  .logo-name,.logo-tag,.nav-label,.nav-item span,.sidebar-footer .admin-name,.sidebar-footer .admin-role{display:none;}
-  .nav-item{justify-content:center;}
-  .stats-grid{grid-template-columns:repeat(2,1fr);}
-  .builder-wrap{grid-template-columns:1fr;}
-  .grid2{grid-template-columns:1fr;}
-}
+/* ── MOBILE RESPONSIVE ADMIN ── */
 @media(max-width:768px){
   body{overflow:auto;}
   .sidebar{
-    position:fixed;top:0;left:0;height:100vh;z-index:300;width:220px!important;min-width:220px!important;
+    position:fixed;top:0;left:0;height:100%;z-index:300;
     transform:translateX(-100%);transition:transform 0.28s ease;
+    width:220px!important;min-width:220px!important;
   }
   .sidebar.open{transform:translateX(0);}
-  .main{width:100vw;}
+  .main{width:100%;}
   .topbar{padding:0 12px;height:52px;}
   .content{padding:14px;}
   .stats-grid{grid-template-columns:repeat(2,1fr)!important;gap:10px;}
@@ -414,19 +407,9 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
   table{min-width:560px;}
   .modal-overlay{align-items:flex-end;}
   .modal{width:100%!important;max-width:100%!important;border-radius:20px 20px 0 0;max-height:90vh;}
-  .modal-body{padding:16px;}
   .builder-wrap{grid-template-columns:1fr!important;}
   .form-grid{grid-template-columns:1fr!important;}
   .topup-grid{grid-template-columns:1fr 1fr!important;}
-  .sidebar-overlay{display:block;}
-  .topbar-hamburger{display:flex!important;}
-  .page-title{font-size:15px;}
-  .mob-menu-btn{display:flex;align-items:center;}
-}
-@media(max-width:480px){
-  .stats-grid{grid-template-columns:1fr!important;}
-  .top-btn span{display:none;}
-  .topup-grid{grid-template-columns:1fr!important;}
 }
 .mob-menu-btn{
   display:none;background:none;border:none;cursor:pointer;
@@ -435,7 +418,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
 .mob-menu-btn svg{width:20px;height:20px;}
 .sidebar-overlay{display:none;position:fixed;inset:0;z-index:299;background:rgba(0,0,0,0.4);}
 .sidebar-overlay.open{display:block;}
-
+@media(max-width:768px){.mob-menu-btn{display:flex;align-items:center;}}
 /* ── CAMPAIGN BULK BAR ── */
 .bulk-action-btn {
   background: rgba(255,255,255,0.18);
@@ -472,9 +455,45 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
 /* Clickable column headers */
 #campaignsTable th[onclick] { user-select: none; }
 #campaignsTable th[onclick]:hover { color: var(--brand); }
+/* ── RESPONSIVE ── */
+@media(max-width:900px){
+  .sidebar{width:60px;min-width:60px;}
+  .logo-name,.logo-tag,.nav-label,.nav-item span,.sidebar-footer .admin-name,.sidebar-footer .admin-role{display:none;}
+  .nav-item{justify-content:center;}
+  .stats-grid{grid-template-columns:repeat(2,1fr);}
+  .builder-wrap{grid-template-columns:1fr;}
+  .grid2{grid-template-columns:1fr;}
+}
 
-
-
+/* ── MOBILE RESPONSIVE ── */
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    left: -220px;
+    top: 0;
+    height: 100vh;
+    z-index: 100;
+    transition: left 0.25s ease;
+  }
+  .sidebar.open { left: 0; }
+  .main { width: 100vw; }
+  .topbar { padding: 0 16px; }
+  .content { padding: 16px; }
+  .stats-grid { grid-template-columns: repeat(2,1fr); gap:10px; }
+  .table-wrap { overflow-x: auto; }
+  table { min-width: 500px; }
+  .modal { margin: 12px; max-width: calc(100vw - 24px) !important; }
+  .modal-body { padding: 16px; }
+  .form-grid { grid-template-columns: 1fr !important; }
+  .grid2 { grid-template-columns: 1fr !important; }
+  .sidebar-overlay { display: block; }
+  .topbar-hamburger { display: flex !important; }
+  .page-title { font-size: 15px; }
+}
+@media (max-width: 480px) {
+  .stats-grid { grid-template-columns: 1fr; }
+  .top-btn span { display: none; }
+}
 </style>
 </head>
 <body>
@@ -3570,14 +3589,44 @@ async function saveClientEdit() {
   var p    = pRaw.length === 10 ? cc + pRaw : (pRaw || null);
   var billing = document.getElementById('new-client-billing')?.value;
   var role    = document.getElementById('new-client-role')?.value;
+  var newPass = (document.getElementById('cm-pass')?.value || '').trim();
   var saveBtn = document.getElementById('cm-submit-btn');
   if (saveBtn) { saveBtn.textContent = 'Saving…'; saveBtn.disabled = true; }
+
+  // ── STEP 1: Update client record (name, biz, phone, etc.) ──
   var r = await sbAdmin('/rest/v1/clients?id=eq.' + cid, {
     method: 'PATCH',
     headers: { 'Prefer': 'return=minimal' },
     body: JSON.stringify({ contact_name:n, business_name:b, phone:p, billing_model:billing, role:role })
   });
-  // Reset modal fully
+
+  // ── STEP 2: If password entered, update Supabase Auth password via RPC ──
+  if (newPass && newPass.length >= 8) {
+    // Get auth_user_id for this client
+    var clientR = await sbAdmin('/rest/v1/clients?id=eq.' + cid + '&select=auth_user_id,email', {});
+    if (clientR.ok) {
+      var clientRows = await clientR.json().catch(function(){ return []; });
+      var authUid = clientRows[0] && clientRows[0].auth_user_id;
+      if (authUid) {
+        // Call RPC to update password — requires create_update_client_password function in Supabase
+        var pwR = await sbAdmin('/rest/v1/rpc/update_client_password', {
+          method: 'POST',
+          body: JSON.stringify({ p_user_id: authUid, p_password: newPass })
+        });
+        if (pwR.ok) {
+          console.log('[Adviuz] Password updated for auth user:', authUid);
+        } else {
+          var pwErr = await pwR.json().catch(function(){ return {}; });
+          console.warn('[Adviuz] Password update failed:', pwErr.message || pwR.status);
+          toast('⚠ Profile saved but password update failed — run the SQL fix in Supabase');
+        }
+      } else {
+        console.warn('[Adviuz] No auth_user_id found for client:', cid);
+      }
+    }
+  }
+
+  // ── STEP 3: Reset modal ──
   var passGroup = document.getElementById('cm-pass-group');
   if (passGroup) passGroup.style.display = '';
   var eEl = document.getElementById('cm-email');
@@ -3589,7 +3638,7 @@ async function saveClientEdit() {
   window._clientModalMode = 'create';
   closeModal('clientModal');
   if (r.ok) {
-    toast('✅ Client updated!');
+    toast('✅ Client updated' + (newPass && newPass.length >= 8 ? ' + password changed' : '') + '!');
     await loadAdminData();
   } else {
     var err = await r.json().catch(function(){ return {}; });
@@ -4056,12 +4105,34 @@ async function runBulkCreate() {
 async function deleteCampaign(el) {
   var id   = el.dataset.id;
   var name = el.dataset.name || 'this campaign';
-  if (!confirm('Delete campaign "' + name + '"? This cannot be undone.')) return;
+  if (!confirm('Delete campaign "' + name + '"? This will also remove related leads and view events. This cannot be undone.')) return;
   el.disabled = true; el.textContent = '…';
-  await sbAdmin('/rest/v1/campaigns?id=eq.' + id, { method: 'DELETE' });
-  window._allCampaigns = (window._allCampaigns||[]).filter(function(c){ return c.id !== id; });
-  toast('Campaign deleted');
-  await loadAdminData();
+  try {
+    // Step 1: Delete related leads first (avoid FK constraint errors)
+    await sbAdmin('/rest/v1/leads?campaign_id=eq.' + id, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+    // Step 2: Delete related view_events
+    await sbAdmin('/rest/v1/view_events?campaign_id=eq.' + id, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+    // Step 3: Delete the campaign itself
+    var r = await sbAdmin('/rest/v1/campaigns?id=eq.' + id, {
+      method: 'DELETE',
+      headers: { Prefer: 'return=minimal' }
+    });
+    if (r.ok || r.status === 204) {
+      window._allCampaigns = (window._allCampaigns||[]).filter(function(c){ return c.id !== id; });
+      toast('✅ Campaign deleted');
+      await loadAdminData();
+    } else {
+      var errBody = await r.json().catch(function(){ return {}; });
+      var msg = errBody.message || errBody.hint || ('Status ' + r.status);
+      console.error('[Adviuz] Delete campaign failed:', r.status, errBody);
+      toast('⚠ Delete failed: ' + msg);
+      el.disabled = false; el.textContent = 'Delete';
+    }
+  } catch(e) {
+    console.error('[Adviuz] Delete campaign error:', e);
+    toast('⚠ Delete error: ' + e.message);
+    el.disabled = false; el.textContent = 'Delete';
+  }
 }
 
 // ── PWA MANIFEST ──
