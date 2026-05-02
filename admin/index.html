@@ -2518,11 +2518,47 @@ function renderAdBuilderPanel() {
 async function deleteAd(el) {
   var id   = el.dataset.id;
   var name = el.dataset.name || 'this ad';
-  if (!confirm('Delete "' + name + '"? This cannot be undone.')) return;
+  if (!confirm('Delete "' + name + '"? This will also remove the Netlify site. Cannot be undone.')) return;
   el.disabled = true; el.textContent = '…';
-  await sbAdmin('/rest/v1/ads?id=eq.' + id, { method: 'DELETE' });
+
+  // Get the ad slug before deleting so we can clean up Netlify
+  var ad = (window._allAds||[]).find(function(a){ return a.id === id; });
+  var adSlug = ad ? ad.ad_slug : null;
+
+  // Delete from Supabase
+  await sbAdmin('/rest/v1/ads?id=eq.' + id, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+
+  // Delete from Netlify (so it doesn't reappear)
+  if (adSlug) {
+    var siteKey = 'adviuz_netlify_site_' + adSlug;
+    var siteId  = localStorage.getItem(siteKey);
+    if (siteId && getNetlifyToken()) {
+      try {
+        await netlifyApi('/sites/' + siteId, 'DELETE');
+        localStorage.removeItem(siteKey);
+        localStorage.removeItem('adviuz_netlify_sub_' + adSlug);
+        console.log('[Delete] Netlify site deleted:', siteId);
+      } catch(e) {
+        console.warn('[Delete] Netlify delete failed:', e);
+      }
+    } else if (getNetlifyToken()) {
+      // Try to find site by name and delete it
+      try {
+        var listR = await netlifyApi('/sites?per_page=100');
+        if (listR.ok) {
+          var sites = await listR.json();
+          var found = sites.find(function(s){ return s.name === 'adviuz--' + adSlug; });
+          if (found) {
+            await netlifyApi('/sites/' + found.id, 'DELETE');
+            console.log('[Delete] Netlify site found and deleted:', found.id);
+          }
+        }
+      } catch(e) { console.warn('[Delete] Netlify lookup failed:', e); }
+    }
+  }
+
   window._allAds = (window._allAds || []).filter(function(a){ return a.id !== id; });
-  toast('🗑 Ad deleted');
+  toast('✅ Ad deleted');
   renderAdBuilderPanel();
 }
 
@@ -2793,12 +2829,22 @@ function getNetlifyToken() {
   return localStorage.getItem('adviuz_netlify_token') || '';
 }
 
+// Returns a real fetch Response or a mock that safely handles .json() and .ok
 async function netlifyApi(path, method, body) {
   var tok = getNetlifyToken();
-  if (!tok) { toast('⚠️ No Netlify token — go to Settings → Netlify Deploy'); return { ok: false, status: 0 }; }
+  if (!tok) {
+    toast('⚠ No Netlify token — go to Settings and paste your Netlify token first.');
+    // Return a mock Response-like object so callers don't crash on .ok / .json()
+    return { ok: false, status: 0, json: function(){ return Promise.resolve({}); } };
+  }
   var opts = { method: method || 'GET', headers: { 'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
-  return fetch('https://api.netlify.com/api/v1' + path, opts);
+  try {
+    return await fetch('https://api.netlify.com/api/v1' + path, opts);
+  } catch(e) {
+    console.error('[Netlify API]', e);
+    return { ok: false, status: 0, json: function(){ return Promise.resolve({}); } };
+  }
 }
 
 async function deployAdToSubdomain(adSlug, adName, htmlContent) {
@@ -2806,6 +2852,13 @@ async function deployAdToSubdomain(adSlug, adName, htmlContent) {
   var domain  = slug + '.' + AD_DOMAIN;
   var liveUrl = 'https://' + domain;
   var tok = getNetlifyToken();
+
+  // Guard: if no Netlify token, show clear error instead of cryptic crash
+  if (!tok) {
+    toast('⚠ No Netlify token set. Go to Settings → set your Netlify token first.');
+    console.error('[Deploy] Netlify token missing');
+    return null;
+  }
 
   try {
     // Step 1: Create or reuse Netlify site
