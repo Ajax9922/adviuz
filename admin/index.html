@@ -4105,21 +4105,39 @@ async function runBulkCreate() {
 async function deleteCampaign(el) {
   var id   = el.dataset.id;
   var name = el.dataset.name || 'this campaign';
-  if (!confirm('Delete campaign "' + name + '"? This will also remove related leads and view events. This cannot be undone.')) return;
+  if (!confirm('Delete campaign "' + name + '"? This will also remove the linked ad, leads and view events. This cannot be undone.')) return;
   el.disabled = true; el.textContent = '…';
   try {
-    // Step 1: Delete related leads first (avoid FK constraint errors)
+    // Step 1: Find the linked ad_id for this campaign before deleting
+    var camR = await sbAdmin('/rest/v1/campaigns?id=eq.' + id + '&select=id,ad_id', {});
+    var camRows = camR.ok ? await camR.json().catch(function(){ return []; }) : [];
+    var adId = camRows[0] && camRows[0].ad_id ? camRows[0].ad_id : null;
+
+    // Step 2: Delete related leads
     await sbAdmin('/rest/v1/leads?campaign_id=eq.' + id, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
-    // Step 2: Delete related view_events
+
+    // Step 3: Delete related view_events
     await sbAdmin('/rest/v1/view_events?campaign_id=eq.' + id, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
-    // Step 3: Delete the campaign itself
+
+    // Step 4: Delete the campaign itself
     var r = await sbAdmin('/rest/v1/campaigns?id=eq.' + id, {
       method: 'DELETE',
       headers: { Prefer: 'return=minimal' }
     });
+
+    // Step 5: Delete the linked ad (this is what removes it from client portal)
+    if (adId) {
+      await sbAdmin('/rest/v1/ads?id=eq.' + adId, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+      console.log('[Adviuz] Deleted linked ad:', adId);
+    } else {
+      // Fallback: if no ad_id link, try matching by campaign_id column on ads table
+      await sbAdmin('/rest/v1/ads?campaign_id=eq.' + id, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+    }
+
     if (r.ok || r.status === 204) {
       window._allCampaigns = (window._allCampaigns||[]).filter(function(c){ return c.id !== id; });
-      toast('✅ Campaign deleted');
+      window._allAds = (window._allAds||[]).filter(function(a){ return a.id !== adId && a.campaign_id !== id; });
+      toast('✅ Campaign + ad deleted');
       await loadAdminData();
     } else {
       var errBody = await r.json().catch(function(){ return {}; });
