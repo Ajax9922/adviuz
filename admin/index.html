@@ -766,28 +766,26 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Client</th><th>Business</th><th>Views balance</th><th>Campaigns</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr>
+  <th>Client</th>
+  <th>Business Name</th>
+  <th style="text-align:right">Views Purchased</th>
+  <th style="text-align:right">Allotted</th>
+  <th style="text-align:right">Views Done</th>
+  <th style="text-align:right">Balance</th>
+  <th style="text-align:right">Leads</th>
+  <th>Last Seen</th>
+  <th>Actions</th>
+</tr></thead>
           <tbody id="clientTableBody">
             <!-- Populated by renderClientRows() -->
 <!-- populated by renderClientRows() -->
           </tbody>
         </table>
       </div>
-      <div class="sec-header">
-        <div class="sec-title">Balance overview</div>
-      </div>
-      <div class="grid2">
-        <div class="card">
-          <div class="card-title">Views balance by client</div>
-          <div id="balanceBars"></div>
-        </div>
-        <div class="card">
-          <div class="card-title">Client login credentials</div>
-          <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">Each client gets a unique login to access their panel. Generate or reset passwords below.</p>
-          <div style="display:flex;flex-direction:column;gap:8px;">
-            <div id="clientCredsList"><div style="padding:16px;text-align:center;color:var(--muted);font-size:13px">Loading…</div></div>
-          </div>
-        </div>
+      <div style="margin-top:8px;padding:10px 14px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--muted);border:1px solid var(--border)">
+        💡 <b>Tip:</b> Use <b>Top-up</b> to add views to a client's balance. Use <b>Edit</b> to change their name, phone, password, or plan. Use <b>Logs</b> to see their activity.
+        Client logins are managed via Supabase Auth — use Edit to reset a client's password.
       </div>
     </div>
     <!-- ═══════════ CAMPAIGNS ═══════════ -->
@@ -1385,6 +1383,12 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
             <option value="corporate">Corporate (multi-location)</option>
           </select>
         </div>
+        <!-- Balance edit (edit mode only) -->
+        <div class="form-group" id="cm-balance-group" style="display:none">
+          <label class="fld">View Balance Override</label>
+          <input class="fld" id="cm-balance" type="number" placeholder="e.g. 500" min="0">
+          <div style="font-size:11px;color:var(--muted);margin-top:3px">⚠ Manually sets the client's view balance. Leave blank to keep current.</div>
+        </div>
         <!-- Notes -->
         <div class="form-group full">
           <label class="fld">Notes (optional)</label>
@@ -1780,35 +1784,81 @@ function renderClientRows(clients, leads) {
   if (!tbody) return;
   leads = leads || window._allLeads || [];
   if (clients.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--muted)">No clients match your filter.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted)">No clients match your filter.</td></tr>';
     return;
   }
   tbody.innerHTML = clients.map(function(c) {
-    var bal         = c.view_balance || 0;
-    var clientLeads     = leads.filter(function(l){ return l.client_id === c.id; }).length;
-    var clientCampaigns = (window._allCampaigns||[]).filter(function(cam){ return cam.client_id === c.id; }).length;
-    var statusClass = c.status === 'active' ? 'active' : (c.status === 'suspended' ? 'danger' : 'paused');
-    var balColor    = bal < 500 && c.billing_model !== 'leads' ? 'color:var(--danger);font-weight:700' : '';
-    var roleTag     = c.role === 'agency' ? '<span class="badge info" style="font-size:10px;padding:2px 6px;margin-left:4px">Agency</span>' :
-                      c.role === 'corporate' ? '<span class="badge brand" style="font-size:10px;padding:2px 6px;margin-left:4px">Corporate</span>' : '';
-    var productTag  = c.billing_model === 'leads' ? '<span class="badge warn" style="font-size:10px;padding:2px 6px;margin-left:4px">Leads</span>' :
-                      c.billing_model === 'both'   ? '<span class="badge" style="font-size:10px;padding:2px 6px;margin-left:4px">Both</span>' : '';
-    var balDisplay  = c.billing_model === 'leads'
-      ? (c.leads_purchased || 0) + ' leads pkg'
-      : bal.toLocaleString() + ' views';
-    return '<tr data-client-id="' + c.id + '" data-search="' + (c.business_name + ' ' + c.email + ' ' + (c.contact_name||'')).toLowerCase() + '">' +
-      '<td><div class="td-name">' + (c.contact_name||c.business_name) + roleTag + productTag + '</div><div class="td-email">' + c.email + '</div></td>' +
-      '<td>' + c.business_name + '</td>' +
-      '<td class="td-mono" style="' + balColor + '">' + balDisplay + '</td>' +
-      '<td>' + clientCampaigns + '</td>' +
-      '<td><span class="badge ' + statusClass + '"><span class="badge-dot"></span>' + (c.status||'active') + '</span></td>' +
-      '<td style="display:flex;gap:4px;flex-wrap:wrap">' +
-        '<button class="tbl-btn" onclick="openTopupForClient(this)" data-id="' + c.id + '" data-bal="' + bal + '">Top-up</button>' +
+    var allCamps   = (window._allCampaigns||[]).filter(function(cam){ return cam.client_id === c.id; });
+    var purchased  = c.view_balance || 0; // total views ever purchased (stored on client)
+    var allotted   = allCamps.reduce(function(s,cam){ return s+(cam.view_budget||0); }, 0);
+    var done       = allCamps.reduce(function(s,cam){ return s+(cam.views_used||0); }, 0);
+    var balance    = Math.max(0, purchased - done);
+    var unallotted = Math.max(0, purchased - allotted);
+    var clientLeads= leads.filter(function(l){ return l.client_id === c.id; }).length;
 
+    // Package tags
+    var isViews = c.billing_model !== 'leads';
+    var isLeads = c.billing_model === 'leads' || c.billing_model === 'both';
+    var isBoth  = c.billing_model === 'both';
+    var pkgTag  = isBoth
+      ? '<span style="font-size:9px;font-weight:700;background:#e0f2fe;color:#0369a1;padding:1px 6px;border-radius:10px;margin-left:4px">Views+Leads</span>'
+      : isLeads
+      ? '<span style="font-size:9px;font-weight:700;background:#fef3c7;color:#b45309;padding:1px 6px;border-radius:10px;margin-left:4px">Leads Pkg</span>'
+      : '';
+
+    var balColor = balance < 200 && isViews ? 'color:var(--danger);font-weight:700' : '';
+
+    // Last seen
+    var lastSeen = '—';
+    if (c.last_seen_at) {
+      var ls = new Date(c.last_seen_at);
+      var diff = Date.now() - ls.getTime();
+      if (diff < 60000)        lastSeen = '<span style="color:var(--success);font-weight:600">● Live</span>';
+      else if (diff < 3600000) lastSeen = Math.round(diff/60000) + 'm ago';
+      else if (diff < 86400000)lastSeen = Math.round(diff/3600000) + 'h ago';
+      else                     lastSeen = ls.toLocaleDateString('en-CA',{month:'short',day:'numeric'});
+    }
+
+    var bal = c.view_balance || 0;
+    return '<tr data-client-id="' + c.id + '" data-search="' + (c.business_name+' '+c.email+' '+(c.contact_name||'')).toLowerCase() + '">' +
+      // Client
+      '<td><div class="td-name">' + (c.contact_name||c.business_name||'—') + pkgTag + '</div><div class="td-email">' + (c.email||'—') + '</div></td>' +
+      // Business Name
+      '<td>' + (c.business_name||'—') + '</td>' +
+      // Views Purchased
+      '<td class="td-mono" style="text-align:right">' + (isViews ? purchased.toLocaleString() : (c.leads_purchased||0)+' leads') + '</td>' +
+      // Views Allotted
+      '<td class="td-mono" style="text-align:right">' + (isViews ? allotted.toLocaleString() : '—') + '</td>' +
+      // Views Done
+      '<td class="td-mono" style="text-align:right">' + (isViews ? done.toLocaleString() : '—') + '</td>' +
+      // Balance
+      '<td class="td-mono" style="text-align:right;' + balColor + '">' + (isViews ? balance.toLocaleString() : '—') + '</td>' +
+      // Leads
+      '<td class="td-mono" style="text-align:right">' + clientLeads + '</td>' +
+      // Last Seen
+      '<td style="font-size:12px">' + lastSeen + '</td>' +
+      // Actions
+      '<td style="display:flex;gap:4px;flex-wrap:wrap;min-width:180px">' +
         '<button class="tbl-btn" onclick="openEditClient(this)" data-id="' + c.id + '">Edit</button>' +
+        '<button class="tbl-btn primary" onclick="openTopupForClient(this)" data-id="' + c.id + '" data-bal="' + bal + '">Top-up</button>' +
+        '<button class="tbl-btn" onclick="openClientLogs('' + c.id + '')" title="View logs">Logs</button>' +
       '</td>' +
     '</tr>';
   }).join('');
+}
+
+function openClientLogs(clientId) {
+  var c = (window._allClients||[]).find(function(x){ return x.id === clientId; });
+  var name = c ? (c.business_name||c.email) : clientId;
+  var leads = (window._allLeads||[]).filter(function(l){ return l.client_id === clientId; });
+  var camps = (window._allCampaigns||[]).filter(function(cam){ return cam.client_id === clientId; });
+  var html = '<b style="font-size:15px">' + name + ' — Activity Log</b><br><br>';
+  html += '<b>Campaigns (' + camps.length + '):</b><br>';
+  camps.forEach(function(cam){ html += '• ' + cam.name + ' — ' + (cam.views_used||0) + ' views used<br>'; });
+  html += '<br><b>Leads (' + leads.length + '):</b><br>';
+  leads.slice(0,10).forEach(function(l){ html += '• ' + (l.name||'—') + ' · ' + (l.phone||'—') + ' · Stage: ' + (l.stage||'New') + '<br>'; });
+  if (leads.length > 10) html += '…and ' + (leads.length-10) + ' more';
+  alert(html);
 }
 function renderCampaignsTable(campaigns, clients) {
   // Store globally for filter/sort
@@ -2075,7 +2125,7 @@ function generatePassword() {
   }
 }
 function resetClientModal() {
-  ['cm-name','cm-biz','cm-email','cm-phone','cm-pass','cm-notes'].forEach(function(id){
+  ['cm-name','cm-biz','cm-email','cm-phone','cm-pass','cm-notes','cm-balance'].forEach(function(id){
     var el = document.getElementById(id); if(el) el.value = '';
   });
   var err = document.getElementById('cm-error');
@@ -2091,6 +2141,9 @@ function resetClientModal() {
   if (emailEl) emailEl.disabled = false;
   var passGroup = document.getElementById('cm-pass-group');
   if (passGroup) passGroup.style.display = '';
+  // Hide balance group in create mode
+  var balGroup = document.getElementById('cm-balance-group');
+  if (balGroup) balGroup.style.display = 'none';
 }
 function showClientError(msg) {
   var err = document.getElementById('cm-error');
@@ -2321,10 +2374,15 @@ function injectAdviuzTrackingWithCampaign(htmlStr, adSlug, campaignId, clientId)
     '}' +
     'async function ins(t,d){try{await fetch(U+"/rest/v1/"+t,{method:"POST",headers:{"apikey":K,"Authorization":"Bearer "+K,"Content-Type":"application/json","Prefer":"return=minimal"},body:JSON.stringify(d)});}catch(e){}}' +
     'window.adviuzCountView=async function(){' +
-      'var k="av_"+cid,last=parseInt(localStorage.getItem(k)||"0",10);' +
-      'if(Date.now()-last<86400000){return;}' +
-      'localStorage.setItem(k,Date.now()+"");' +
+      'var k="av_viewed_"+cid;' +
+      'if(sessionStorage.getItem(k))return;' +
+      'sessionStorage.setItem(k,"1");' +
       'await ins("view_events",{ad_id:UUID||null,client_id:clid||null,campaign_id:cid,utm_source:src,utm_medium:"cpc",platform:src,viewed_at:new Date().toISOString()});' +
+      'try{var cRes=await fetch(U+"/rest/v1/campaigns?id=eq."+cid,{headers:{"apikey":K,"Authorization":"Bearer "+K}});' +
+      'if(cRes.ok){var cArr=await cRes.json();if(cArr[0]){' +
+      'var nv=(cArr[0].views_used||0)+1;' +
+      'var pBody=JSON.stringify({"views_used":nv});' +
+      'await fetch(U+"/rest/v1/campaigns?id=eq."+cid,{method:"PATCH",headers:{"apikey":K,"Authorization":"Bearer "+K,"Content-Type":"application/json","Prefer":"return=minimal"},body:pBody});}}}catch(eV){}' +
     '};' +
     'window.adviuzSubmitLead=async function(name,phone,email){' +
       'await ins("leads",{name:name,phone:phone,email:email||null,client_id:clid||null,campaign_id:cid,source:src,stage:"New",submitted_at:new Date().toISOString()});' +
@@ -2899,10 +2957,15 @@ function injectAdviuzTracking(htmlStr, adSlug) {
     '}' +
     'async function ins(t,d){try{await fetch(U+"/rest/v1/"+t,{method:"POST",headers:{"apikey":K,"Authorization":"Bearer "+K,"Content-Type":"application/json","Prefer":"return=minimal"},body:JSON.stringify(d)});}catch(e){}}' +
     'window.adviuzCountView=async function(){' +
-      'var k="av_"+(cid||slug),last=parseInt(localStorage.getItem(k)||"0",10);' +
-      'if(Date.now()-last<86400000){return;}' +
-      'localStorage.setItem(k,Date.now()+"");' +
+      'var k="av_viewed_"+(cid||slug);' +
+      'if(sessionStorage.getItem(k))return;' +
+      'sessionStorage.setItem(k,"1");' +
       'await ins("view_events",{ad_id:UUID||null,client_id:clid||null,campaign_id:cid||null,utm_source:src,utm_medium:"cpc",platform:src,viewed_at:new Date().toISOString()});' +
+      'try{if(cid){var cRes2=await fetch(U+"/rest/v1/campaigns?id=eq."+cid,{headers:{"apikey":K,"Authorization":"Bearer "+K}});' +
+      'if(cRes2.ok){var cArr2=await cRes2.json();if(cArr2[0]){' +
+      'var nv2=(cArr2[0].views_used||0)+1;' +
+      'var pBody2=JSON.stringify({"views_used":nv2});' +
+      'await fetch(U+"/rest/v1/campaigns?id=eq."+cid,{method:"PATCH",headers:{"apikey":K,"Authorization":"Bearer "+K,"Content-Type":"application/json","Prefer":"return=minimal"},body:pBody2});}}}}catch(eV2){}' +
     '};' +
     'window.adviuzSubmitLead=async function(name,phone,email){' +
       'await ins("leads",{name:name,phone:phone,email:email||null,client_id:clid||null,campaign_id:cid||null,source:src,stage:"New",submitted_at:new Date().toISOString()});' +
@@ -3571,6 +3634,11 @@ function openEditClient(el) {
   var passInp = document.getElementById('cm-pass');
   if (passInp) { passInp.value = ''; passInp.required = false; passInp.placeholder = 'Leave blank to keep current'; }
   if (passGroup) passGroup.style.display = '';
+  // Show balance field in edit mode
+  var balGroup = document.getElementById('cm-balance-group');
+  var balInp   = document.getElementById('cm-balance');
+  if (balGroup) balGroup.style.display = '';
+  if (balInp)  { balInp.value = c.view_balance || 0; balInp.placeholder = 'Current: ' + (c.view_balance||0); }
   // Update modal title and button
   var titleEl = document.getElementById('clientModalTitle');
   if (titleEl) titleEl.textContent = 'Edit client';
@@ -3590,6 +3658,7 @@ async function saveClientEdit() {
   var billing = document.getElementById('new-client-billing')?.value;
   var role    = document.getElementById('new-client-role')?.value;
   var newPass = (document.getElementById('cm-pass')?.value || '').trim();
+  var newBal  = parseInt(document.getElementById('cm-balance')?.value || '-1');
   var saveBtn = document.getElementById('cm-submit-btn');
   if (saveBtn) { saveBtn.textContent = 'Saving…'; saveBtn.disabled = true; }
 
@@ -3597,7 +3666,11 @@ async function saveClientEdit() {
   var r = await sbAdmin('/rest/v1/clients?id=eq.' + cid, {
     method: 'PATCH',
     headers: { 'Prefer': 'return=minimal' },
-    body: JSON.stringify({ contact_name:n, business_name:b, phone:p, billing_model:billing, role:role })
+    body: (function(){
+      var d = { contact_name:n, business_name:b, phone:p, billing_model:billing, role:role };
+      if (!isNaN(newBal) && newBal >= 0) d.view_balance = newBal;
+      return JSON.stringify(d);
+    })()
   });
 
   // ── STEP 2: If password entered, update Supabase Auth password via RPC ──
