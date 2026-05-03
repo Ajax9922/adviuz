@@ -2341,12 +2341,7 @@ async function saveCampaign() {
           .replace(/<!-- adviuz-start -->[\s\S]*?<!-- adviuz-end -->/gi, '');
         var injected = injectAdviuzTrackingWithCampaign(freshHtml, slug, campaignId, clientId);
         await deployAdToSubdomain(slug, ad.business_name || slug, injected);
-        // Save updated html to DB
-        await sbAdmin('/rest/v1/ads?id=eq.' + adId, {
-          method: 'PATCH',
-          headers: { 'Prefer': 'return=minimal' },
-          body: JSON.stringify({ custom_html: injected })
-        });
+        // Do NOT save injected HTML back to DB — keep DB clean for future deploys
         toast('✅ ' + slug + '.latest-promo.com redeployed — visit with no URL params!');
       } else {
         toast('⚠️ Campaign created but ad has no HTML — deploy the ad first then recreate campaign');
@@ -4245,9 +4240,8 @@ async function runBulkCreate() {
     if (statusEl) statusEl.textContent = '⏳ ' + province.label + ' — creating…';
 
     try {
-      // Save ad to Supabase
+      // Save ad to Supabase — store RAW html, tracking injected at deploy time only
       var adName = brand.charAt(0).toUpperCase() + brand.slice(1) + ' — ' + province.label;
-      var injected = injectAdviuzTracking(html, slug);
 
       var r = await sbAdmin('/rest/v1/ads', {
         method: 'POST',
@@ -4256,7 +4250,7 @@ async function runBulkCreate() {
           business_name: adName,
           client_id:     clientId,
           ad_slug:       slug,
-          custom_html:   injected,
+          custom_html:   html,
           logo_letter:   brand[0].toUpperCase(),
           brand_color:   '#C8102E',
           status:        'active'
