@@ -2331,10 +2331,14 @@ async function saveCampaign() {
         var slug = ad.ad_slug.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
         toast('Redeploying ' + slug + ' with campaign baked in...');
         // Strip any existing adviuz tracking
-        var freshHtml = ad.custom_html;
-        freshHtml = freshHtml.replace(/<style id="adviuz-bar-style">[\s\S]*?<\/style>/g, '');
-        freshHtml = freshHtml.replace(/<div id="adviuz-bar-wrap">[\s\S]*?<\/div>/g, '');
-        freshHtml = freshHtml.replace(/<script>\(function\(\)\{var U="https:\/\/crhvvfomwkrgwlnfruad[\s\S]*?\}\)\(\);<\/script>/g, '');
+        // Strip any previously injected tracking from stored HTML
+        var freshHtml = ad.custom_html || '';
+        freshHtml = freshHtml
+          .replace(/<style id="adviuz-bar-style">[\s\S]*?<\/style>/gi, '')
+          .replace(/<div id="adviuz-bar-wrap">[^<]*<div id="adviuz-bar"><\/div><\/div>/gi, '')
+          .replace(/<div id="adviuz-bar-wrap">[\s\S]*?<\/div>\s*<\/div>/gi, '')
+          .replace(/<script>\(function\(\)\{var U="https:\/\/crhvvfomwkrgwlnfruad[\s\S]*?<\/script>/gi, '')
+          .replace(/<!-- adviuz-start -->[\s\S]*?<!-- adviuz-end -->/gi, '');
         var injected = injectAdviuzTrackingWithCampaign(freshHtml, slug, campaignId, clientId);
         await deployAdToSubdomain(slug, ad.business_name || slug, injected);
         // Save updated html to DB
@@ -2660,14 +2664,15 @@ async function savePastedCode() {
     ? slugField.toLowerCase().replace(/[^a-z0-9-]/g,'').replace(/^-|-$/g,'')
     : name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
   if (!adSlug) adSlug = 'ad-' + Date.now().toString(36);
-  var injected = injectAdviuzTracking(code, adSlug);
+  // Save RAW html to DB — tracking is injected at deploy time, never stored
+  var rawCode = code; // never store tracking in DB
   var isEdit = !!window._editingAdId;
   var r;
   if (isEdit) {
     r = await sbAdmin('/rest/v1/ads?id=eq.' + window._editingAdId, {
       method: 'PATCH',
       headers: { 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ business_name:name, client_id:clientId, custom_html:injected, ad_slug:adSlug })
+      body: JSON.stringify({ business_name:name, client_id:clientId, custom_html:rawCode, ad_slug:adSlug })
     });
   } else {
     r = await sbAdmin('/rest/v1/ads', {
@@ -2677,7 +2682,7 @@ async function savePastedCode() {
         business_name: name,
         client_id:     clientId,
         ad_slug:       adSlug,
-        custom_html:   injected,
+        custom_html:   rawCode,
         logo_letter:   name[0].toUpperCase(),
         brand_color:   '#C8102E',
         status:        'active'
@@ -3878,8 +3883,12 @@ async function toggleCampaignLive(id, shouldBeActive) {
           toast('▶ Resuming — redeploying ad...');
           if (ad.custom_html) {
             var freshHtml = ad.custom_html;
-            freshHtml = freshHtml.replace(/<style id="adviuz-bar-style">[\s\S]*?<\/style>/g, '');
-            freshHtml = freshHtml.replace(/<div id="adviuz-bar-wrap">[\s\S]*?<\/div>/g, '');
+            freshHtml = (freshHtml || '')
+              .replace(/<style id="adviuz-bar-style">[\s\S]*?<\/style>/gi, '')
+              .replace(/<div id="adviuz-bar-wrap">[^<]*<div id="adviuz-bar"><\/div><\/div>/gi, '')
+              .replace(/<div id="adviuz-bar-wrap">[\s\S]*?<\/div>\s*<\/div>/gi, '')
+              .replace(/<script>\(function\(\)\{var U="https:\/\/crhvvfomwkrgwlnfruad[\s\S]*?<\/script>/gi, '')
+              .replace(/<!-- adviuz-start -->[\s\S]*?<!-- adviuz-end -->/gi, '');
             freshHtml = freshHtml.replace(/<script>\(function\(\)\{var U="https:\/\/crhvvfomwkrgwlnfruad[\s\S]*?\}\)\(\);<\/script>/g, '');
             var injected = injectAdviuzTrackingWithCampaign(freshHtml, slug, id, cam.client_id);
             await deployAdToSubdomain(slug, ad.business_name || slug, injected);
