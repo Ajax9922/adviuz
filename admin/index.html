@@ -2414,8 +2414,8 @@ function injectAdviuzTrackingWithCampaign(htmlStr, adSlug, campaignId, clientId)
     'document.addEventListener("visibilitychange",function(){tabVisible=!document.hidden;checkState();});' +
     'window.addEventListener("blur",function(){winFocused=false;checkState();});' +
     'window.addEventListener("focus",function(){winFocused=true;checkState();});' +
-    'var io=new IntersectionObserver(function(entries){adVisible=entries[0].intersectionRatio>=1.0;checkState();},{threshold:[1.0]});' +
-    'io.observe(document.body);' +
+    'var io=new IntersectionObserver(function(entries){adVisible=entries[0].intersectionRatio>=0.5;checkState();},{threshold:[0,0.5]});' +
+    'var obsTarget=document.getElementById("adviuz-bar-wrap")||document.body;io.observe(obsTarget);' +
     'var sp=document.createElement("div");' +
     'sp.id="av-status";' +
     'sp.style.cssText="position:fixed;bottom:12px;right:12px;z-index:99999;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;color:#fff;background:#9ca3af;font-family:sans-serif;pointer-events:none;";' +
@@ -2518,46 +2518,52 @@ function renderAdBuilderPanel() {
 async function deleteAd(el) {
   var id   = el.dataset.id;
   var name = el.dataset.name || 'this ad';
-  if (!confirm('Delete "' + name + '"? This will also remove the live ad URL. Cannot be undone.')) return;
+  if (!confirm('Delete "' + name + '"? Cannot be undone.')) return;
   el.disabled = true; el.textContent = '…';
 
   var ad = (window._allAds||[]).find(function(a){ return a.id === id; });
   var adSlug = ad ? ad.ad_slug : null;
 
   try {
-    // Step 1: Delete from Supabase — check it actually worked
-    var delR = await sbAdmin('/rest/v1/ads?id=eq.' + id, {
-      method: 'DELETE',
-      headers: { 'Prefer': 'return=minimal' }
+    // Step 1: Delete view_events that reference this ad (FK constraint)
+    await sbAdmin('/rest/v1/view_events?ad_id=eq.' + id, {
+      method: 'DELETE', headers: { 'Prefer': 'return=minimal' }
     });
 
-    // 204 = deleted, 200 = ok, 404 = already gone — all acceptable
-    if (!delR.ok && delR.status !== 204 && delR.status !== 404) {
+    // Step 2: Delete the ad itself
+    var delR = await sbAdmin('/rest/v1/ads?id=eq.' + id, {
+      method: 'DELETE', headers: { 'Prefer': 'return=minimal' }
+    });
+
+    var delStatus = delR.status;
+    console.log('[deleteAd] Supabase DELETE status:', delStatus);
+
+    // Step 3: Always remove from local state and re-render
+    window._allAds = (window._allAds || []).filter(function(a){ return a.id !== id; });
+    renderAdBuilderPanel();
+
+    if (delStatus === 200 || delStatus === 204 || delStatus === 404) {
+      toast('✅ Ad deleted');
+    } else {
       var errBody = await delR.json().catch(function(){ return {}; });
-      console.warn('[deleteAd] Supabase delete status:', delR.status, errBody);
-      // Don't block — RLS might return 200 with empty body, still counts as success
+      toast('⚠ DB delete status ' + delStatus + ': ' + (errBody.message || errBody.hint || 'check console'));
+      console.error('[deleteAd] Failed:', delStatus, errBody);
     }
 
-    // Step 2: Remove from local state immediately (before any async Netlify calls)
-    window._allAds = (window._allAds || []).filter(function(a){ return a.id !== id; });
-    renderAdBuilderPanel(); // Update UI right away
-    toast('✅ Ad deleted');
-
-    // Step 3: Delete Netlify site in background (non-blocking)
+    // Step 4: Delete Netlify site in background
     if (adSlug && getNetlifyToken()) {
       var siteKey = 'adviuz_netlify_site_' + adSlug;
       var siteId  = localStorage.getItem(siteKey);
       if (siteId) {
-        netlifyApi('/sites/' + siteId, 'DELETE').then(function() {
+        netlifyApi('/sites/' + siteId, 'DELETE').then(function(){
           localStorage.removeItem(siteKey);
           localStorage.removeItem('adviuz_netlify_sub_' + adSlug);
-        }).catch(function(e){ console.warn('[Delete] Netlify delete failed:', e); });
+        }).catch(function(){});
       } else {
-        // Find by name
-        netlifyApi('/sites?per_page=100').then(function(listR) {
-          if (!listR.ok) return;
-          listR.json().then(function(sites) {
-            var found = sites.find(function(s){ return s.name === 'adviuz--' + adSlug; });
+        netlifyApi('/sites?per_page=100').then(function(r){
+          if (!r.ok) return;
+          r.json().then(function(sites){
+            var found = sites.find(function(s){ return s.name === 'adviuz--' + adSlug || (s.custom_domain && s.custom_domain.includes(adSlug)); });
             if (found) netlifyApi('/sites/' + found.id, 'DELETE');
           });
         }).catch(function(){});
@@ -3085,8 +3091,8 @@ function injectAdviuzTracking(htmlStr, adSlug) {
     'document.addEventListener("visibilitychange",function(){tabVisible2=!document.hidden;checkState2();});' +
     'window.addEventListener("blur",function(){winFocused2=false;checkState2();});' +
     'window.addEventListener("focus",function(){winFocused2=true;checkState2();});' +
-    'var io2=new IntersectionObserver(function(entries){adVisible2=entries[0].intersectionRatio>=1.0;checkState2();},{threshold:[1.0]});' +
-    'io2.observe(document.body);' +
+    'var io2=new IntersectionObserver(function(entries){adVisible2=entries[0].intersectionRatio>=0.5;checkState2();},{threshold:[0,0.5]});' +
+    'var obsTarget2=document.getElementById("adviuz-bar-wrap")||document.body;io2.observe(obsTarget2);' +
     'var sp2=document.createElement("div");' +
     'sp2.id="av-status";' +
     'sp2.style.cssText="position:fixed;bottom:12px;right:12px;z-index:99999;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;color:#fff;background:#9ca3af;font-family:sans-serif;pointer-events:none;";' +
