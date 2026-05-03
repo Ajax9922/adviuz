@@ -2339,7 +2339,7 @@ async function saveCampaign() {
           .replace(/<div id="adviuz-bar-wrap">[\s\S]*?<\/div>\s*<\/div>/gi, '')
           .replace(/<script>\(function\(\)\{var U="https:\/\/crhvvfomwkrgwlnfruad[\s\S]*?<\/script>/gi, '')
           .replace(/<!-- adviuz-start -->[\s\S]*?<!-- adviuz-end -->/gi, '');
-        var injected = injectAdviuzTrackingWithCampaign(freshHtml, slug, campaignId, clientId);
+        var injected = injectAdviuzTrackingWithCampaign(stripAdviuzTracking(freshHtml), slug, campaignId, clientId);
         await deployAdToSubdomain(slug, ad.business_name || slug, injected);
         // Do NOT save injected HTML back to DB — keep DB clean for future deploys
         toast('✅ ' + slug + '.latest-promo.com redeployed — visit with no URL params!');
@@ -3009,6 +3009,17 @@ async function getNetlifyDnsZoneId() {
   return null;
 }
 
+// ── STRIP ALL ADVIUZ TRACKING FROM HTML ──────────
+// Call this before ANY inject to guarantee clean base
+function stripAdviuzTracking(html) {
+  if (!html) return '';
+  html = html.replace(/<style[^>]*id="adviuz-bar-style"[^>]*>[\s\S]*?<\/style>/gi, '');
+  html = html.replace(/<div[^>]*id="adviuz-bar-wrap"[^>]*>[\s\S]*?<\/div>\s*(<\/div>)?/gi, '');
+  html = html.replace(/<script>\s*\(function\(\)\s*\{[\s\S]*?adviuzCountView[\s\S]*?<\/script>/gi, '');
+  html = html.replace(/<!--\s*adviuz-start\s*-->[\s\S]*?<!--\s*adviuz-end\s*-->/gi, '');
+  return html;
+}
+
 function showSuccessModal(slug, domain, liveUrl) {
   var existing = document.getElementById('cnameModal');
   if (existing) existing.remove();
@@ -3211,7 +3222,7 @@ async function saveAndDeployAd() {
   }
 
   // Re-inject tracking with new slug
-  var injected = injectAdviuzTracking(html, slug);
+  var injected = injectAdviuzTracking(stripAdviuzTracking(html), slug);
   if (btn) btn.textContent = 'Deploying…';
   var liveUrl = await deployAdToSubdomain(slug, name, injected);
 
@@ -3885,7 +3896,7 @@ async function toggleCampaignLive(id, shouldBeActive) {
               .replace(/<script>\(function\(\)\{var U="https:\/\/crhvvfomwkrgwlnfruad[\s\S]*?<\/script>/gi, '')
               .replace(/<!-- adviuz-start -->[\s\S]*?<!-- adviuz-end -->/gi, '');
             freshHtml = freshHtml.replace(/<script>\(function\(\)\{var U="https:\/\/crhvvfomwkrgwlnfruad[\s\S]*?\}\)\(\);<\/script>/g, '');
-            var injected = injectAdviuzTrackingWithCampaign(freshHtml, slug, id, cam.client_id);
+            var injected = injectAdviuzTrackingWithCampaign(stripAdviuzTracking(freshHtml), slug, id, cam.client_id);
             await deployAdToSubdomain(slug, ad.business_name || slug, injected);
             toast('✅ Campaign live at ' + slug + '.latest-promo.com');
           }
