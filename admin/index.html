@@ -2518,48 +2518,57 @@ function renderAdBuilderPanel() {
 async function deleteAd(el) {
   var id   = el.dataset.id;
   var name = el.dataset.name || 'this ad';
-  if (!confirm('Delete "' + name + '"? This will also remove the Netlify site. Cannot be undone.')) return;
+  if (!confirm('Delete "' + name + '"? This will also remove the live ad URL. Cannot be undone.')) return;
   el.disabled = true; el.textContent = '…';
 
-  // Get the ad slug before deleting so we can clean up Netlify
   var ad = (window._allAds||[]).find(function(a){ return a.id === id; });
   var adSlug = ad ? ad.ad_slug : null;
 
-  // Delete from Supabase
-  await sbAdmin('/rest/v1/ads?id=eq.' + id, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+  try {
+    // Step 1: Delete from Supabase — check it actually worked
+    var delR = await sbAdmin('/rest/v1/ads?id=eq.' + id, {
+      method: 'DELETE',
+      headers: { 'Prefer': 'return=minimal' }
+    });
 
-  // Delete from Netlify (so it doesn't reappear)
-  if (adSlug) {
-    var siteKey = 'adviuz_netlify_site_' + adSlug;
-    var siteId  = localStorage.getItem(siteKey);
-    if (siteId && getNetlifyToken()) {
-      try {
-        await netlifyApi('/sites/' + siteId, 'DELETE');
-        localStorage.removeItem(siteKey);
-        localStorage.removeItem('adviuz_netlify_sub_' + adSlug);
-        console.log('[Delete] Netlify site deleted:', siteId);
-      } catch(e) {
-        console.warn('[Delete] Netlify delete failed:', e);
-      }
-    } else if (getNetlifyToken()) {
-      // Try to find site by name and delete it
-      try {
-        var listR = await netlifyApi('/sites?per_page=100');
-        if (listR.ok) {
-          var sites = await listR.json();
-          var found = sites.find(function(s){ return s.name === 'adviuz--' + adSlug; });
-          if (found) {
-            await netlifyApi('/sites/' + found.id, 'DELETE');
-            console.log('[Delete] Netlify site found and deleted:', found.id);
-          }
-        }
-      } catch(e) { console.warn('[Delete] Netlify lookup failed:', e); }
+    if (!delR.ok && delR.status !== 204) {
+      var errBody = await delR.json().catch(function(){ return {}; });
+      toast('⚠ Delete failed: ' + (errBody.message || errBody.hint || 'status ' + delR.status));
+      el.disabled = false; el.textContent = 'Delete';
+      return;
     }
-  }
 
-  window._allAds = (window._allAds || []).filter(function(a){ return a.id !== id; });
-  toast('✅ Ad deleted');
-  renderAdBuilderPanel();
+    // Step 2: Remove from local state immediately (before any async Netlify calls)
+    window._allAds = (window._allAds || []).filter(function(a){ return a.id !== id; });
+    renderAdBuilderPanel(); // Update UI right away
+    toast('✅ Ad deleted');
+
+    // Step 3: Delete Netlify site in background (non-blocking)
+    if (adSlug && getNetlifyToken()) {
+      var siteKey = 'adviuz_netlify_site_' + adSlug;
+      var siteId  = localStorage.getItem(siteKey);
+      if (siteId) {
+        netlifyApi('/sites/' + siteId, 'DELETE').then(function() {
+          localStorage.removeItem(siteKey);
+          localStorage.removeItem('adviuz_netlify_sub_' + adSlug);
+        }).catch(function(e){ console.warn('[Delete] Netlify delete failed:', e); });
+      } else {
+        // Find by name
+        netlifyApi('/sites?per_page=100').then(function(listR) {
+          if (!listR.ok) return;
+          listR.json().then(function(sites) {
+            var found = sites.find(function(s){ return s.name === 'adviuz--' + adSlug; });
+            if (found) netlifyApi('/sites/' + found.id, 'DELETE');
+          });
+        }).catch(function(){});
+      }
+    }
+
+  } catch(e) {
+    console.error('[deleteAd]', e);
+    toast('⚠ Delete error: ' + e.message);
+    el.disabled = false; el.textContent = 'Delete';
+  }
 }
 
 // ── NEW AD DROPDOWN ─────────────────────────────
@@ -2683,7 +2692,9 @@ async function savePastedCode() {
   } else {
     toast('Save failed: ' + r.status);
   }
-  await loadAdminData();
+  // Only re-fetch ads list, not full reload (full reload would undo local deletes)
+  var freshAds = await sbAdmin('/rest/v1/ads?order=created_at.desc', {});
+  if (freshAds.ok) window._allAds = await freshAds.json();
   renderAdBuilderPanel();
 }
 // ══════════════════════════════════════════════
