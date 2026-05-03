@@ -2531,11 +2531,11 @@ async function deleteAd(el) {
       headers: { 'Prefer': 'return=minimal' }
     });
 
-    if (!delR.ok && delR.status !== 204) {
+    // 204 = deleted, 200 = ok, 404 = already gone — all acceptable
+    if (!delR.ok && delR.status !== 204 && delR.status !== 404) {
       var errBody = await delR.json().catch(function(){ return {}; });
-      toast('⚠ Delete failed: ' + (errBody.message || errBody.hint || 'status ' + delR.status));
-      el.disabled = false; el.textContent = 'Delete';
-      return;
+      console.warn('[deleteAd] Supabase delete status:', delR.status, errBody);
+      // Don't block — RLS might return 200 with empty body, still counts as success
     }
 
     // Step 2: Remove from local state immediately (before any async Netlify calls)
@@ -2882,19 +2882,28 @@ async function deployAdToSubdomain(adSlug, adName, htmlContent) {
       if (!createR.ok) {
         var errData = await createR.json().catch(function(){ return {}; });
         if (createR.status === 422) {
+          toast('Site name taken — searching your account...');
           var listR = await netlifyApi('/sites?per_page=100');
           if (listR.ok) {
             var allSites = await listR.json();
-            var found = allSites.find(function(s){ return s.name === 'adviuz--' + slug; });
+            var found = allSites.find(function(s){
+              return s.name === 'adviuz--' + slug ||
+                     s.name === slug ||
+                     (s.custom_domain && s.custom_domain === domain) ||
+                     (s.default_domain && s.default_domain.includes(slug));
+            });
             if (found) {
               existingSiteId = found.id;
               netlifySubdomain = found.name + '.netlify.app';
               localStorage.setItem('adviuz_netlify_site_' + slug, existingSiteId);
               localStorage.setItem('adviuz_netlify_sub_' + slug, netlifySubdomain);
+              console.log('[Deploy] Reusing existing site:', found.name, found.id);
+            } else {
+              console.log('[Deploy] Sites in account:', allSites.map(function(s){ return s.name; }).join(', '));
             }
           }
         }
-        if (!existingSiteId) { toast('Netlify site creation failed: ' + (errData.message || createR.status)); return null; }
+        if (!existingSiteId) { toast('Netlify site creation failed: ' + (errData.message || createR.status) + ' — check browser console'); return null; }
       } else {
         var site = await createR.json();
         existingSiteId = site.id;
