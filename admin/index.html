@@ -2352,6 +2352,9 @@ async function saveCampaign() {
 }
 
 function injectAdviuzTrackingWithCampaign(htmlStr, adSlug, campaignId, clientId) {
+  // Strip ALL existing tracking first — guaranteed clean
+  htmlStr = stripAdviuzTracking(htmlStr);
+
   var U = 'https://crhvvfomwkrgwlnfruad.supabase.co';
   var K = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -3000,10 +3003,41 @@ async function getNetlifyDnsZoneId() {
 // Call this before ANY inject to guarantee clean base
 function stripAdviuzTracking(html) {
   if (!html) return '';
-  html = html.replace(/<style[^>]*id="adviuz-bar-style"[^>]*>[\s\S]*?<\/style>/gi, '');
-  html = html.replace(/<div[^>]*id="adviuz-bar-wrap"[^>]*>[\s\S]*?<\/div>\s*(<\/div>)?/gi, '');
-  html = html.replace(/<script>\s*\(function\(\)\s*\{[\s\S]*?adviuzCountView[\s\S]*?<\/script>/gi, '');
-  html = html.replace(/<!--\s*adviuz-start\s*-->[\s\S]*?<!--\s*adviuz-end\s*-->/gi, '');
+  var styleOpen = '<style id="adviuz-bar-style">';
+  var barOpen   = '<div id="adviuz-bar-wrap">';
+  var scriptEnd = '<' + '/script>';
+  var styleEnd  = '</style>';
+  var divEnd    = '</div>';
+  var tracker   = 'adviuzCountView';
+
+  // Remove adviuz style block
+  while (html.indexOf(styleOpen) !== -1) {
+    var s = html.indexOf(styleOpen);
+    var e = html.indexOf(styleEnd, s);
+    if (e === -1) break;
+    html = html.slice(0, s) + html.slice(e + styleEnd.length);
+  }
+
+  // Remove adviuz bar div (and any extra closing div)
+  while (html.indexOf(barOpen) !== -1) {
+    var s = html.indexOf(barOpen);
+    var e = html.indexOf(divEnd, s);
+    if (e === -1) break;
+    e = html.indexOf(divEnd, e + divEnd.length); // skip inner div
+    if (e === -1) break;
+    html = html.slice(0, s) + html.slice(e + divEnd.length);
+  }
+
+  // Remove adviuz tracking script
+  while (html.indexOf(tracker) !== -1) {
+    var ti = html.indexOf(tracker);
+    var s  = html.lastIndexOf('<script', ti);
+    if (s === -1) break;
+    var e  = html.indexOf(scriptEnd, ti);
+    if (e === -1) break;
+    html = html.slice(0, s) + html.slice(e + scriptEnd.length);
+  }
+
   return html;
 }
 
@@ -3033,6 +3067,9 @@ function showSuccessModal(slug, domain, liveUrl) {
 
 
 function injectAdviuzTracking(htmlStr, adSlug) {
+  // Strip ALL existing tracking first — guaranteed clean
+  htmlStr = stripAdviuzTracking(htmlStr);
+
   var U = 'https://crhvvfomwkrgwlnfruad.supabase.co';
   var K = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
