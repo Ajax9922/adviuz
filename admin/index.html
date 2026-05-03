@@ -2688,23 +2688,8 @@ async function savePastedCode() {
   closeModal('pasteCodeModal');
   window._editingAdId = null;
   if (r.ok) {
-    // Inject tracking into raw HTML for deployment (never saved to DB)
-    var toDeploy = injectAdviuzTracking(stripAdviuzTracking(rawCode), adSlug);
-    var liveUrl = await deployAdToSubdomain(adSlug, name, toDeploy);
-    if (liveUrl) {
-      // Save live_url back to the ad record (NOT the injected html)
-      var rows = await sbAdmin('/rest/v1/ads?ad_slug=eq.' + adSlug + '&select=id', {});
-      if (rows.ok) {
-        var ads = await rows.json();
-        if (ads[0]) {
-          await sbAdmin('/rest/v1/ads?id=eq.' + ads[0].id, {
-            method: 'PATCH',
-            headers: { 'Prefer': 'return=minimal' },
-            body: JSON.stringify({ live_url: liveUrl })
-          });
-        }
-      }
-    }
+    toast('✅ Ad saved! Now create a campaign and link this ad — that will deploy it live.');
+    showSuccessModal(adSlug, adSlug + '.latest-promo.com', 'https://' + adSlug + '.latest-promo.com');
   } else {
     toast('Save failed: ' + r.status);
   }
@@ -3890,15 +3875,9 @@ async function toggleCampaignLive(id, shouldBeActive) {
           // Resume — redeploy real ad HTML
           toast('▶ Resuming — redeploying ad...');
           if (ad.custom_html) {
-            var freshHtml = ad.custom_html;
-            freshHtml = (freshHtml || '')
-              .replace(/<style id="adviuz-bar-style">[\s\S]*?<\/style>/gi, '')
-              .replace(/<div id="adviuz-bar-wrap">[^<]*<div id="adviuz-bar"><\/div><\/div>/gi, '')
-              .replace(/<div id="adviuz-bar-wrap">[\s\S]*?<\/div>\s*<\/div>/gi, '')
-              .replace(/<script>\(function\(\)\{var U="https:\/\/crhvvfomwkrgwlnfruad[\s\S]*?<\/script>/gi, '')
-              .replace(/<!-- adviuz-start -->[\s\S]*?<!-- adviuz-end -->/gi, '');
-            freshHtml = freshHtml.replace(/<script>\(function\(\)\{var U="https:\/\/crhvvfomwkrgwlnfruad[\s\S]*?\}\)\(\);<\/script>/g, '');
-            var injected = injectAdviuzTrackingWithCampaign(stripAdviuzTracking(freshHtml), slug, id, cam.client_id);
+            // Always strip first, then inject with campaign ID — ONE script only
+            var freshHtml = stripAdviuzTracking(ad.custom_html);
+            var injected = injectAdviuzTrackingWithCampaign(freshHtml, slug, id, cam.client_id);
             await deployAdToSubdomain(slug, ad.business_name || slug, injected);
             toast('✅ Campaign live at ' + slug + '.latest-promo.com');
           }
