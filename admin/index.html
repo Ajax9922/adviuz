@@ -2370,9 +2370,28 @@ function injectAdviuzTrackingWithCampaign(htmlStr, adSlug, campaignId, clientId)
   var script = '<scr' + 'ipt>(function(){' +
     'var U="' + U + '",K="' + K + '";' +
     'var cid="' + campaignId + '",clid="' + (clientId||'') + '",slug="' + adSlug + '",src=(new URLSearchParams(location.search).get("utm_source")||"direct"),UUID=null;' +
+    'var _adPaused=false;' +
+    'function showPausedOverlay(){' +
+      '_adPaused=true;' +
+      'var bar=document.getElementById("adviuz-bar-wrap");if(bar)bar.style.display="none";' +
+      'var st=document.getElementById("av-status");if(st)st.style.display="none";' +
+      'var ov=document.createElement("div");' +
+      'ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:99999;display:flex;align-items:center;justify-content:center;font-family:sans-serif;";' +
+      'ov.innerHTML="<div style=\'text-align:center;padding:40px\'><div style=\'font-size:52px;margin-bottom:20px\'>\u23f8</div><div style=\'color:#fff;font-size:20px;font-weight:700;margin-bottom:10px\'>Ad paused</div><div style=\'color:rgba(255,255,255,0.45);font-size:14px\'>This campaign is temporarily unavailable.</div></div>";' +
+      'document.body.appendChild(ov);' +
+    '}' +
     'async function init(){' +
-      'try{var r=await fetch(U+"/rest/v1/ads?ad_slug=eq."+encodeURIComponent(slug)+"&select=id,client_id",{headers:{"apikey":K,"Authorization":"Bearer "+K}});' +
-      'if(r.ok){var d=await r.json();if(d[0]){UUID=d[0].id;}}}catch(e){}' +
+      'try{' +
+        'var r=await fetch(U+"/rest/v1/ads?ad_slug=eq."+encodeURIComponent(slug)+"&select=id,client_id,status",{headers:{"apikey":K,"Authorization":"Bearer "+K}});' +
+        'if(r.ok){var d=await r.json();if(d[0]){' +
+          'if(d[0].status==="paused"){showPausedOverlay();return;}' +
+          'UUID=d[0].id;' +
+        '}}' +
+      '}catch(e){}' +
+      'try{' +
+        'var cr=await fetch(U+"/rest/v1/campaigns?id=eq."+cid+"&select=status",{headers:{"apikey":K,"Authorization":"Bearer "+K}});' +
+        'if(cr.ok){var cd=await cr.json();if(cd[0]&&cd[0].status==="paused"){showPausedOverlay();return;}}' +
+      '}catch(e){}' +
     '}' +
     'async function ins(t,d){try{await fetch(U+"/rest/v1/"+t,{method:"POST",headers:{"apikey":K,"Authorization":"Bearer "+K,"Content-Type":"application/json","Prefer":"return=minimal"},body:JSON.stringify(d)});}catch(e){}}' +
     'var _ck="adviuz_v_"+cid;var _ts=parseInt(localStorage.getItem(_ck)||"0");var counted=_ts>0&&(Date.now()-_ts<86400000);' +
@@ -2423,7 +2442,7 @@ function injectAdviuzTrackingWithCampaign(htmlStr, adSlug, campaignId, clientId)
     'sp.style.cssText="position:fixed;bottom:12px;right:12px;z-index:99999;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;color:#fff;background:#9ca3af;font-family:sans-serif;pointer-events:none;";' +
     'sp.textContent="⏸ Paused";' +
     'document.body.appendChild(sp);' +
-    'init().then(function(){checkState();});' +
+    'init().then(function(){if(!_adPaused)checkState();});' +
     '})();</' + 'script>';
 
   // Strip by sentinel markers (most reliable — no regex complexity)
@@ -3089,11 +3108,33 @@ function injectAdviuzTracking(htmlStr, adSlug) {
     'var U="' + U + '",K="' + K + '";' +
     'function gp(n){try{return new URLSearchParams(location.search).get(n)||""}catch(e){return""}}' +
     'var cid=gp("campaign_id"),clid=gp("client_id"),slug="' + adSlug + '",src=gp("utm_source")||"direct",UUID=null;' +
+    'var _adPaused2=false;' +
+    'function showPausedOverlay2(){' +
+      '_adPaused2=true;' +
+      'var bar=document.getElementById("adviuz-bar-wrap");if(bar)bar.style.display="none";' +
+      'var st=document.getElementById("av-status");if(st)st.style.display="none";' +
+      'var ov=document.createElement("div");' +
+      'ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:99999;display:flex;align-items:center;justify-content:center;font-family:sans-serif;";' +
+      'ov.innerHTML="<div style=\'text-align:center;padding:40px\'><div style=\'font-size:52px;margin-bottom:20px\'>\u23f8</div><div style=\'color:#fff;font-size:20px;font-weight:700;margin-bottom:10px\'>Ad paused</div><div style=\'color:rgba(255,255,255,0.45);font-size:14px\'>This campaign is temporarily unavailable.</div></div>";' +
+      'document.body.appendChild(ov);' +
+    '}' +
     'async function init(){' +
-      'try{var r=await fetch(U+"/rest/v1/ads?ad_slug=eq."+encodeURIComponent(slug)+"&select=id,client_id",{headers:{"apikey":K,"Authorization":"Bearer "+K}});' +
-      'if(r.ok){var d=await r.json();if(d[0]){UUID=d[0].id;if(!clid&&d[0].client_id)clid=d[0].client_id;}}}catch(e){}' +
-      'if(!UUID&&cid){try{var cr=await fetch(U+"/rest/v1/campaigns?id=eq."+cid+"&select=ad_id,client_id",{headers:{"apikey":K,"Authorization":"Bearer "+K}});' +
-      'if(cr.ok){var cd=await cr.json();if(cd[0]){if(cd[0].ad_id)UUID=cd[0].ad_id;if(!clid&&cd[0].client_id)clid=cd[0].client_id;}}}catch(e){}}' +
+      'try{' +
+        'var r=await fetch(U+"/rest/v1/ads?ad_slug=eq."+encodeURIComponent(slug)+"&select=id,client_id,status",{headers:{"apikey":K,"Authorization":"Bearer "+K}});' +
+        'if(r.ok){var d=await r.json();if(d[0]){' +
+          'if(d[0].status==="paused"){showPausedOverlay2();return;}' +
+          'UUID=d[0].id;if(!clid&&d[0].client_id)clid=d[0].client_id;' +
+        '}}' +
+      '}catch(e){}' +
+      'if(!UUID&&cid){' +
+        'try{' +
+          'var cr=await fetch(U+"/rest/v1/campaigns?id=eq."+cid+"&select=ad_id,client_id,status",{headers:{"apikey":K,"Authorization":"Bearer "+K}});' +
+          'if(cr.ok){var cd=await cr.json();if(cd[0]){' +
+            'if(cd[0].status==="paused"){showPausedOverlay2();return;}' +
+            'if(cd[0].ad_id)UUID=cd[0].ad_id;if(!clid&&cd[0].client_id)clid=cd[0].client_id;' +
+          '}}' +
+        '}catch(e){}' +
+      '}' +
     '}' +
     'async function ins(t,d){try{await fetch(U+"/rest/v1/"+t,{method:"POST",headers:{"apikey":K,"Authorization":"Bearer "+K,"Content-Type":"application/json","Prefer":"return=minimal"},body:JSON.stringify(d)});}catch(e){}}' +
     'var _ck2="adviuz_v_"+(cid||slug);var _ts2=parseInt(localStorage.getItem(_ck2)||"0");var counted2=_ts2>0&&(Date.now()-_ts2<86400000);' +
@@ -3141,7 +3182,7 @@ function injectAdviuzTracking(htmlStr, adSlug) {
     'sp2.style.cssText="position:fixed;bottom:12px;right:12px;z-index:99999;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;color:#fff;background:#9ca3af;font-family:sans-serif;pointer-events:none;";' +
     'sp2.textContent="⏸ Paused";' +
     'document.body.appendChild(sp2);' +
-    'init().then(function(){checkState2();});' +
+    'init().then(function(){if(!_adPaused2)checkState2();});' +
     '})();</' + 'script>';
 
   // Strip by sentinel markers (most reliable)
