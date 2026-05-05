@@ -2419,7 +2419,7 @@ async function saveCampaign() {
           .replace(/<div id="adviuz-bar-wrap">[\s\S]*?<\/div>\s*<\/div>/gi, '')
           .replace(/<script>\(function\(\)\{var U="https:\/\/crhvvfomwkrgwlnfruad[\s\S]*?<\/script>/gi, '')
           .replace(/<!-- adviuz-start -->[\s\S]*?<!-- adviuz-end -->/gi, '');
-        var injected = injectAdviuzTrackingWithCampaign(stripAdviuzTracking(freshHtml), slug, campaignId, clientId);
+        var injected = injectAdviuzTrackingWithCampaign(stripAdviuzTracking(freshHtml), slug, campaignId, clientId, collectCtaConfig());
         await deployAdToSubdomain(slug, ad.business_name || slug, injected);
         // Do NOT save injected HTML back to DB — keep DB clean for future deploys
         toast('✅ ' + slug + '.latest-promo.com redeployed — visit with no URL params!');
@@ -3078,12 +3078,12 @@ async function deployAdToSubdomain(adSlug, adName, htmlContent) {
 
     if (!existingSiteId) {
       toast('Creating Netlify site...');
-      var createR = await netlifyApi('/sites', 'POST', { name: 'adviuz-' + slug, account_slug: 'sales-nnw8q9w' });
+      var createR = await netlifyApi('/sales-nnw8q9w/sites', 'POST', { name: 'adviuz-' + slug });
       if (!createR.ok) {
         var errData = await createR.json().catch(function(){ return {}; });
         if (createR.status === 422) {
           toast('Site name taken — searching your account...');
-          var listR = await netlifyApi('/sites?per_page=100');
+          var listR = await netlifyApi('/sales-nnw8q9w/sites?per_page=100');
           if (listR.ok) {
             var allSites = await listR.json();
             var found = allSites.find(function(s){
@@ -4111,7 +4111,8 @@ async function toggleCampaignLive(id, shouldBeActive) {
           if (ad.custom_html) {
             // Always strip first, then inject with campaign ID — ONE script only
             var freshHtml = stripAdviuzTracking(ad.custom_html);
-            var injected = injectAdviuzTrackingWithCampaign(freshHtml, slug, id, cam.client_id);
+            var ctaCfg = {}; try { ctaCfg = ad.cta_config || {}; } catch(e) {}
+          var injected = injectAdviuzTrackingWithCampaign(freshHtml, slug, id, cam.client_id, ctaCfg);
             await deployAdToSubdomain(slug, ad.business_name || slug, injected);
             toast('✅ Campaign live at ' + slug + '.latest-promo.com');
           }
