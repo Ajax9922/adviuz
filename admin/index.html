@@ -2838,13 +2838,45 @@ async function savePastedCode() {
   if (saveBtn) { saveBtn.textContent = isEdit ? 'Update ad →' : 'Save & create ad →'; saveBtn.disabled = false; }
   closeModal('pasteCodeModal');
   window._editingAdId = null;
-  if (r.ok) {
-    toast('✅ Ad saved! Now create a campaign and link this ad — that will deploy it live.');
-    showSuccessModal(adSlug, adSlug + '.latest-promo.com', 'https://' + adSlug + '.latest-promo.com');
-  } else {
+  if (!r.ok) {
     toast('Save failed: ' + r.status);
+    var freshAds2 = await sbAdmin('/rest/v1/ads?order=created_at.desc', {});
+    if (freshAds2.ok) window._allAds = await freshAds2.json();
+    renderAdBuilderPanel();
+    return;
   }
-  // Only re-fetch ads list, not full reload (full reload would undo local deletes)
+
+  toast('✅ Ad saved! Deploying to Netlify…');
+
+  // ── Build and deploy HTML ─────────────────────────────────────────
+  try {
+    var ctaCfg = collectCtaConfig();
+
+    // Get linked campaign (if any)
+    var camId  = '';
+    var camClid = clientId;
+    try {
+      var camR = await sbAdmin('/rest/v1/campaigns?ad_slug=eq.' + adSlug + '&select=id,client_id&limit=1');
+      if (camR.ok) {
+        var cams = await camR.json();
+        if (cams.length) { camId = cams[0].id; camClid = cams[0].client_id || clientId; }
+      }
+    } catch(e) {}
+
+    var rawHtml  = stripAdviuzTracking(rawCode);
+    var injected = injectAdviuzTrackingWithCampaign(rawHtml, adSlug, camId, camClid, ctaCfg);
+    var liveUrl  = await deployAdToSubdomain(adSlug, name, injected);
+
+    if (liveUrl) {
+      showSuccessModal(adSlug, adSlug + '.latest-promo.com', liveUrl);
+    } else {
+      toast('⚠️ Ad saved but deploy failed — check Netlify token in Settings');
+    }
+  } catch(deployErr) {
+    console.error('[Deploy error]', deployErr);
+    toast('Ad saved but deploy error: ' + deployErr.message);
+  }
+
   var freshAds = await sbAdmin('/rest/v1/ads?order=created_at.desc', {});
   if (freshAds.ok) window._allAds = await freshAds.json();
   renderAdBuilderPanel();
