@@ -33,12 +33,16 @@
   var K    = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw";
   var UUID = null, _paused = false;
 
-  function ins(t, d) {
-    fetch(U + "/rest/v1/" + t, {
-      method: "POST",
-      headers: { apikey: K, "Authorization": "Bearer " + K, "Content-Type": "application/json", "Prefer": "return=minimal" },
-      body: JSON.stringify(d)
-    }).catch(function(){});
+  async function ins(t, d) {
+    try {
+      var r = await fetch(U + "/rest/v1/" + t, {
+        method: "POST",
+        headers: { apikey: K, "Authorization": "Bearer " + K, "Content-Type": "application/json", "Prefer": "return=minimal" },
+        body: JSON.stringify(d)
+      });
+      if (!r.ok) { var err = await r.text(); console.error("[Adviuz] Insert failed:", r.status, err); }
+      return r.ok;
+    } catch(e) { console.error("[Adviuz] Insert error:", e); return false; }
   }
 
   // View counting
@@ -203,8 +207,8 @@
     var pw=document.createElement("div");pw.className="av-popup";
     var ph=document.createElement("div");ph.className="av-handle";
     var pb=document.createElement("div");pb.className="av-popup-badge";pb.appendChild(mkPoly("20 6 9 17 4 12",36));
-    var pt=document.createElement("div");pt.className="av-popup-title";pt.textContent="You watched the full ad";
-    var ps=document.createElement("div");ps.className="av-popup-sub";ps.textContent="Great! Ready to take the next step?";
+    var pt=document.createElement("div");pt.className="av-popup-title";pt.textContent="Interested in getting started?";
+    var ps=document.createElement("div");ps.className="av-popup-sub";ps.textContent="Take 30 seconds to book a free consultation or call us directly.";
     pw.appendChild(ph);pw.appendChild(pb);pw.appendChild(pt);pw.appendChild(ps);
     if(hasCall){
       var pcb=document.createElement("button");pcb.className="av-popup-btn av-popup-call";
@@ -277,24 +281,14 @@
       var hp=document.createElement("input");hp.className="av-hp";hp.type="text";hp.id="av-hp";hp.tabIndex=-1;hp.setAttribute("autocomplete","off");hp.setAttribute("aria-hidden","true");fb.appendChild(hp);
 
       // Consent checkboxes (TCPA / CASL compliant)
-      var consentWrap=document.createElement("div");consentWrap.style.cssText="background:#f8fafc;border-radius:12px;padding:14px 16px;margin-bottom:4px;border:1px solid #e2e8f0";
-      var consentTitle=document.createElement("div");consentTitle.style.cssText="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#64748b;margin-bottom:10px;font-family:-apple-system,sans-serif";consentTitle.textContent="Communication Preferences";
-      consentWrap.appendChild(consentTitle);
-      [
-        {id:"av-consent-sms",   text:"I consent to receive SMS text messages with updates and follow-up from this business.",   checked:true},
-        {id:"av-consent-email", text:"I consent to receive emails with information, offers and updates.",                        checked:true},
-        {id:"av-consent-ai",    text:"I consent to receive AI-assisted or automated calls related to my inquiry.",               checked:false}
-      ].forEach(function(c){
-        var row=document.createElement("label");row.style.cssText="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin-bottom:8px;font-family:-apple-system,sans-serif";
-        var cb=document.createElement("input");cb.type="checkbox";cb.id=c.id;cb.checked=c.checked;
-        cb.style.cssText="width:18px;height:18px;flex-shrink:0;accent-color:#C8102E;margin-top:1px;cursor:pointer";
-        var lbl=document.createElement("span");lbl.style.cssText="font-size:12px;color:#64748b;line-height:1.5";lbl.textContent=c.text;
-        row.appendChild(cb);row.appendChild(lbl);consentWrap.appendChild(row);
-      });
-      // TCPA disclaimer
-      var disc=document.createElement("div");disc.style.cssText="font-size:11px;color:#94a3b8;line-height:1.5;margin-top:6px;font-family:-apple-system,sans-serif";
-      disc.textContent="By submitting, you agree to our Terms of Service and Privacy Policy. Message & data rates may apply. Reply STOP to opt out of SMS.";
-      consentWrap.appendChild(disc);
+      var consentWrap=document.createElement("div");consentWrap.style.cssText="padding:4px 0 12px";
+      // Single consent row
+      var row=document.createElement("label");row.style.cssText="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-family:-apple-system,sans-serif";
+      var cb=document.createElement("input");cb.type="checkbox";cb.id="av-consent-all";cb.checked=true;
+      cb.style.cssText="width:18px;height:18px;flex-shrink:0;accent-color:#C8102E;margin-top:2px;cursor:pointer";
+      var lbl=document.createElement("span");lbl.style.cssText="font-size:12px;color:#64748b;line-height:1.6";
+      lbl.textContent="I agree to receive SMS, emails and calls about my inquiry. Msg & data rates may apply. Reply STOP to opt out.";
+      row.appendChild(cb);row.appendChild(lbl);consentWrap.appendChild(row);
       fb.appendChild(consentWrap);
 
       // Submit area
@@ -331,7 +325,10 @@
   function clrErr(id){var e=document.getElementById(id+"-err"),i=document.getElementById(id);if(e)e.style.display="none";if(i)i.classList.remove("invalid");}
 
   async function isDup(phone,email){
-    try{var q=U+"/rest/v1/leads?campaign_id=eq."+cid+"&select=id";if(phone)q+="&phone=eq."+encodeURIComponent(phone);var r=await fetch(q,{headers:{apikey:K,"Authorization":"Bearer "+K}});if(r.ok){var d=await r.json();return d.length>0;}}catch(e){}return false;
+    try{var q=U+"/rest/v1/leads?select=id";
+    if(cid)q+="&campaign_id=eq."+cid;
+    if(phone)q+="&phone=eq."+encodeURIComponent(phone);
+    else if(email)q+="&email=eq."+encodeURIComponent(email);var r=await fetch(q,{headers:{apikey:K,"Authorization":"Bearer "+K}});if(r.ok){var d=await r.json();return d.length>0;}}catch(e){}return false;
   }
 
   window.avSubmit=async function(){
@@ -368,19 +365,21 @@
     if(dup){if(btn){btn.textContent=formBtn;btn.disabled=false;}alert("It looks like you have already submitted. We will be in touch shortly!");return;}
     if(btn)btn.textContent="Sending...";
     // Build lead record — campaign_id optional if not linked yet
+    var consentEl = document.getElementById("av-consent-all");
     var leadRecord = Object.assign({
-      client_id:    clid || null,
-      ad_id:        UUID || null,
-      source:       utmSrc,
-      stage:        "New",
+      client_id:      clid || null,
+      campaign_id:    cid  || null,
+      ad_id:          UUID || null,
+      source:         utmSrc,
+      stage:          "New",
       ai_call_status: "pending",
-      submitted_at: new Date().toISOString(),
-      sms_consent:  document.getElementById("av-consent-sms")  ? document.getElementById("av-consent-sms").checked  : false,
-      email_consent:document.getElementById("av-consent-email") ? document.getElementById("av-consent-email").checked : false,
-      ai_call_consent:document.getElementById("av-consent-ai") ? document.getElementById("av-consent-ai").checked  : false
+      submitted_at:   new Date().toISOString(),
+      sms_consent:    consentEl ? consentEl.checked : false,
+      email_consent:  consentEl ? consentEl.checked : false,
+      ai_call_consent:consentEl ? consentEl.checked : false
     }, data);
-    if (cid) leadRecord.campaign_id = cid;
-    ins("leads", leadRecord);
+    var saved = await ins("leads", leadRecord);
+    console.log("[Adviuz] Lead saved:", saved, leadRecord);
     fetch(U+"/functions/v1/notify-lead",{method:"POST",headers:{apikey:K,"Content-Type":"application/json"},body:JSON.stringify({ad_id:UUID,name:data.name||"",phone:data.phone||""})}).catch(function(){});
     setTimeout(function(){
       if(btn){btn.textContent=formBtn;btn.disabled=false;}
