@@ -82,7 +82,6 @@
     try{var r=await fetch(U+"/rest/v1/ads?ad_slug=eq."+encodeURIComponent(slug)+"&select=id,client_id,status",{headers:{apikey:K,"Authorization":"Bearer "+K}});if(r.ok){var d=await r.json();if(d[0]){if(d[0].status==="paused"){showPausedOv();return;}UUID=d[0].id;}}}catch(e){}
     try{var cr=await fetch(U+"/rest/v1/campaigns?id=eq."+cid+"&select=status",{headers:{apikey:K,"Authorization":"Bearer "+K}});if(cr.ok){var cd=await cr.json();if(cd[0]&&cd[0].status==="paused"){showPausedOv();return;}}}catch(e){}
     if(hasForm){fetch("https://ipapi.co/json/").then(function(r){return r.json();}).then(function(d){var cc=d.country_calling_code;if(!cc)return;document.querySelectorAll(".av-cc").forEach(function(s){for(var i=0;i<s.options.length;i++){if(s.options[i].value===cc){s.selectedIndex=i;break;}}});}).catch(function(){});}
-    chk();
   }
 
   // CSS
@@ -228,7 +227,7 @@
 
       // Header
       var fh=document.createElement("div");fh.className="av-form-head";
-      var fcb=document.createElement("button");fcb.className="av-form-close-btn";fcb.innerHTML="&#x2715;";fcb.onclick=avCloseForm;
+      var fcb=document.createElement("button");fcb.className="av-form-close-btn";fcb.innerHTML="&#x2715;";fcb.onclick=function(){window.avCloseForm();};
       var fhi=document.createElement("div");fhi.className="av-form-head-icon";fhi.appendChild(mkSvg(PATH_FORM,24));
       var fht=document.createElement("div");fht.className="av-form-head-title";fht.textContent=formTitle;
       var fhs=document.createElement("div");fhs.className="av-form-head-sub";fhs.textContent="Fill in your details — we will reach out shortly";
@@ -357,5 +356,8 @@
     },700);
   };
 
-  if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",init);}else{init();}
+  // Start timer immediately — before any async init
+chk();
+// Check pause status in background
+if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",init);}else{init();}
 })();
