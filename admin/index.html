@@ -2851,9 +2851,6 @@ async function savePastedCode() {
 }
 // ══════════════════════════════════════════════
 // TOKEN PERSISTENCE — Supabase backed
-// Tokens survive page reloads, new deployments, browser cache clears.
-// Primary: Supabase admin_settings table
-// Fallback: localStorage / sessionStorage
 // ══════════════════════════════════════════════
 async function saveTokenToSupabase(key, value) {
   try {
@@ -2862,7 +2859,7 @@ async function saveTokenToSupabase(key, value) {
       headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' },
       body: JSON.stringify({ key: key, value: value })
     });
-  } catch(e) { console.warn('Token Supabase save failed:', e); }
+  } catch(e) {}
 }
 
 async function loadTokensFromSupabase() {
@@ -2879,14 +2876,12 @@ async function loadTokensFromSupabase() {
         localStorage.setItem('adviuz_netlify_token', row.value);
         sessionStorage.setItem('adviuz_netlify_token', row.value);
       }
-      // Also restore Netlify site IDs if stored
       if (row.key.startsWith('netlify_site_') && row.value) {
-        var slug = row.key.replace('netlify_site_', '');
-        localStorage.setItem('adviuz_netlify_site_' + slug, row.value);
+        localStorage.setItem('adviuz_' + row.key, row.value);
       }
     });
-    console.log('[Adviuz] Tokens loaded from Supabase ✓');
-  } catch(e) { console.warn('[Adviuz] Token load from Supabase failed:', e); }
+    console.log('[Adviuz] Tokens loaded from Supabase');
+  } catch(e) {}
 }
 
 // ══════════════════════════════════════════════
@@ -2971,38 +2966,25 @@ function clearGhToken() {
   toast('GitHub token removed');
 }
 async function onSettingsOpen() {
-  // Load from localStorage first, then Supabase as fallback
   var saved  = localStorage.getItem('adviuz_gh_token') || sessionStorage.getItem('adviuz_gh_token');
   var nSaved = localStorage.getItem('adviuz_netlify_token') || sessionStorage.getItem('adviuz_netlify_token');
-
-  // If either is missing, try loading from Supabase
   if (!saved || !nSaved) {
     try {
       var r = await sbAdmin('/rest/v1/admin_settings?select=key,value');
       if (r.ok) {
         var rows = await r.json();
         rows.forEach(function(row) {
-          if (row.key === 'gh_token' && !saved) {
-            saved = row.value;
-            localStorage.setItem('adviuz_gh_token', saved);
-            sessionStorage.setItem('adviuz_gh_token', saved);
-          }
-          if (row.key === 'netlify_token' && !nSaved) {
-            nSaved = row.value;
-            localStorage.setItem('adviuz_netlify_token', nSaved);
-            sessionStorage.setItem('adviuz_netlify_token', nSaved);
-          }
+          if (row.key === 'gh_token' && !saved) { saved = row.value; localStorage.setItem('adviuz_gh_token', saved); }
+          if (row.key === 'netlify_token' && !nSaved) { nSaved = row.value; localStorage.setItem('adviuz_netlify_token', nSaved); }
         });
       }
     } catch(e) {}
   }
-
-  var inp    = document.getElementById('gh-token-input');
+  var inp = document.getElementById('gh-token-input');
   var status = document.getElementById('gh-token-status');
   if (inp) inp.value = saved ? '•••••••••••••••••••••' + saved.slice(-6) : '';
   if (saved && status) showGhStatus('success', '✅ Token saved — deploy ready');
   else if (status) showGhStatus('error', '❌ No token set — ad deploy is disabled');
-
   var nInp = document.getElementById('netlify-token-input');
   var nSt  = document.getElementById('netlify-token-status');
   if (nInp) nInp.value = nSaved ? '•••••••••••••••••••••' + nSaved.slice(-6) : '';
