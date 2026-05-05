@@ -144,7 +144,7 @@
       ".av-submit{width:100%;background:linear-gradient(135deg,#C8102E 0%,#a50d26 100%);color:#fff;border:none;border-radius:16px;padding:17px;font-size:17px;font-weight:800;cursor:pointer;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:-.02em;box-shadow:0 4px 24px rgba(200,16,46,.45),inset 0 1px 0 rgba(255,255,255,.15);transition:transform .15s,box-shadow .15s}",
       ".av-submit:active{transform:scale(.97);box-shadow:0 2px 12px rgba(200,16,46,.3)}",
       ".av-submit:disabled{opacity:.6;cursor:not-allowed;transform:none}",
-      ".av-privacy{text-align:center;font-size:12px;color:#94a3b8;margin-top:10px;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;gap:5px}",
+      ".av-privacy{text-align:center;font-size:12px;color:#94a3b8;margin-top:10px;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;gap:5px}","input[type=checkbox].av-consent{width:18px;height:18px;accent-color:#C8102E;cursor:pointer}",
       ".av-success{display:none;text-align:center;padding:32px 20px calc(32px + env(safe-area-inset-bottom))}",
       ".av-success-ring{width:88px;height:88px;border-radius:50%;background:linear-gradient(135deg,#22c55e,#16a34a);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;box-shadow:0 8px 32px rgba(34,197,94,.45)}",
       ".av-success-title{font-size:24px;font-weight:800;color:#0f172a;letter-spacing:-.04em;margin-bottom:10px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}",
@@ -276,6 +276,27 @@
 
       var hp=document.createElement("input");hp.className="av-hp";hp.type="text";hp.id="av-hp";hp.tabIndex=-1;hp.setAttribute("autocomplete","off");hp.setAttribute("aria-hidden","true");fb.appendChild(hp);
 
+      // Consent checkboxes (TCPA / CASL compliant)
+      var consentWrap=document.createElement("div");consentWrap.style.cssText="background:#f8fafc;border-radius:12px;padding:14px 16px;margin-bottom:4px;border:1px solid #e2e8f0";
+      var consentTitle=document.createElement("div");consentTitle.style.cssText="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#64748b;margin-bottom:10px;font-family:-apple-system,sans-serif";consentTitle.textContent="Communication Preferences";
+      consentWrap.appendChild(consentTitle);
+      [
+        {id:"av-consent-sms",   text:"I consent to receive SMS text messages with updates and follow-up from this business.",   checked:true},
+        {id:"av-consent-email", text:"I consent to receive emails with information, offers and updates.",                        checked:true},
+        {id:"av-consent-ai",    text:"I consent to receive AI-assisted or automated calls related to my inquiry.",               checked:false}
+      ].forEach(function(c){
+        var row=document.createElement("label");row.style.cssText="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin-bottom:8px;font-family:-apple-system,sans-serif";
+        var cb=document.createElement("input");cb.type="checkbox";cb.id=c.id;cb.checked=c.checked;
+        cb.style.cssText="width:18px;height:18px;flex-shrink:0;accent-color:#C8102E;margin-top:1px;cursor:pointer";
+        var lbl=document.createElement("span");lbl.style.cssText="font-size:12px;color:#64748b;line-height:1.5";lbl.textContent=c.text;
+        row.appendChild(cb);row.appendChild(lbl);consentWrap.appendChild(row);
+      });
+      // TCPA disclaimer
+      var disc=document.createElement("div");disc.style.cssText="font-size:11px;color:#94a3b8;line-height:1.5;margin-top:6px;font-family:-apple-system,sans-serif";
+      disc.textContent="By submitting, you agree to our Terms of Service and Privacy Policy. Message & data rates may apply. Reply STOP to opt out of SMS.";
+      consentWrap.appendChild(disc);
+      fb.appendChild(consentWrap);
+
       // Submit area
       var sa=document.createElement("div");sa.className="av-submit-area";
       var sbtn=document.createElement("button");sbtn.className="av-submit";sbtn.id="av-submit-btn";sbtn.textContent=formBtn;sbtn.onclick=function(){avSubmit();};
@@ -346,14 +367,29 @@
     var dup=await isDup(data.phone,data.email);
     if(dup){if(btn){btn.textContent=formBtn;btn.disabled=false;}alert("It looks like you have already submitted. We will be in touch shortly!");return;}
     if(btn)btn.textContent="Sending...";
-    ins("leads",Object.assign({client_id:clid||null,campaign_id:cid,ad_id:UUID||null,source:utmSrc,stage:"New",ai_call_status:"pending",submitted_at:new Date().toISOString()},data));
+    // Build lead record — campaign_id optional if not linked yet
+    var leadRecord = Object.assign({
+      client_id:    clid || null,
+      ad_id:        UUID || null,
+      source:       utmSrc,
+      stage:        "New",
+      ai_call_status: "pending",
+      submitted_at: new Date().toISOString(),
+      sms_consent:  document.getElementById("av-consent-sms")  ? document.getElementById("av-consent-sms").checked  : false,
+      email_consent:document.getElementById("av-consent-email") ? document.getElementById("av-consent-email").checked : false,
+      ai_call_consent:document.getElementById("av-consent-ai") ? document.getElementById("av-consent-ai").checked  : false
+    }, data);
+    if (cid) leadRecord.campaign_id = cid;
+    ins("leads", leadRecord);
     fetch(U+"/functions/v1/notify-lead",{method:"POST",headers:{apikey:K,"Content-Type":"application/json"},body:JSON.stringify({ad_id:UUID,name:data.name||"",phone:data.phone||""})}).catch(function(){});
     setTimeout(function(){
       if(btn){btn.textContent=formBtn;btn.disabled=false;}
-      var body=document.getElementById("av-form-body");if(body)body.style.display="none";
+      // Hide form body and submit area, show success
+      var fb2=document.getElementById("av-form-body");if(fb2)fb2.style.display="none";
       var sa=document.querySelector(".av-submit-area");if(sa)sa.style.display="none";
-      var succ=document.getElementById("av-success");if(succ)succ.style.display="block";
-    },700);
+      var succ=document.getElementById("av-success");
+      if(succ){succ.style.display="block";succ.scrollIntoView({behavior:"smooth",block:"center"});}
+    },600);
   };
 
   // Start timer immediately — before any async init
