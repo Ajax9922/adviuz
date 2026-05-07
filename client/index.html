@@ -52,8 +52,10 @@ html, body {
   position: relative; overflow: hidden;
   /* Extend background into notch/island area */
 }
-/* Make body background match topbar so notch area looks right */
+/* Navy only shows above app (notch area) — below tabbar should be white */
 body { background: var(--navy); }
+/* Extend tabbar background to cover bottom gap */
+.app::after { content:""; position:fixed; bottom:0; left:50%; transform:translateX(-50%); width:100%; max-width:430px; height:calc(var(--safe-bot) + 60px); background:var(--white); border-top:1px solid var(--border); z-index:49; pointer-events:none; }
 
 /* ── Status bar spacer (iOS) ── */
 .status-bar { display: none; }
@@ -97,11 +99,13 @@ body { background: var(--navy); }
   background: var(--white); border-top: 1px solid var(--border);
   display: flex; padding-bottom: calc(var(--safe-bot) + 2px);
   flex-shrink: 0; position: relative; z-index: 50;
+  /* Cover any gap below on iPhone */
+  box-shadow: 0 40px 0 40px var(--white);
 }
 .tab-item {
   flex: 1; display: flex; flex-direction: column;
   align-items: center; justify-content: center;
-  padding: 10px 0 8px; cursor: pointer;
+  padding: 8px 0 6px; cursor: pointer;
   color: var(--muted); transition: color .15s;
   position: relative; border: none; background: none;
 }
@@ -790,7 +794,7 @@ const pages = {
     document.getElementById('topTitle').textContent = 'Adviuz';
     document.getElementById('topSub').textContent = 'Laser Clinic Ontario';
     return `
-      <div style="height:12px"></div>
+      <div style="height:4px"></div>
       ${renderLiveMonitor()}
       <div style="height:14px"></div>
       <div class="section-header"><div class="section-title">Today's Overview</div></div>
@@ -810,7 +814,7 @@ const pages = {
       <div style="padding:16px">
         <button class="big-btn big-gradient" onclick="openSheet('campaignSheet')">🚀 Launch AI Campaign</button>
       </div>
-      <div style="height:12px"></div>
+      <div style="height:6px"></div>
     `;
   },
 
@@ -835,7 +839,7 @@ const pages = {
       <div id="leadsContainer" style="background:var(--white);border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
         ${LEADS.map(renderLeadRow).join('')}
       </div>
-      <div style="height:20px"></div>
+      <div style="height:6px"></div>
     `;
   },
 
@@ -867,7 +871,7 @@ const pages = {
           </div>
         `).join('')}
       </div>
-      <div style="height:20px"></div>
+      <div style="height:6px"></div>
     `;
   },
 
@@ -900,7 +904,7 @@ const pages = {
         `).join('')}
       </div>
       <div style="padding:16px;text-align:center;font-size:12px;color:var(--muted)">Adviuz v2.0 · AI Sales Engine</div>
-      <div style="height:20px"></div>
+      <div style="height:6px"></div>
     `;
   }
 };
@@ -1282,26 +1286,9 @@ async function testNotification() {
 
   const icon = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect width="96" height="96" rx="20" fill="#C8102E"/><text x="48" y="62" font-family="sans-serif" font-size="48" font-weight="800" fill="#fff" text-anchor="middle">A</text></svg>');
 
-  setTimeout(function() {
-    new Notification('New Lead — Adviuz', {
-      body: 'Priya Sharma just filled the form on Laser Clinic Ontario',
-      icon: icon, tag: 'new-lead'
-    });
-  }, 500);
-
-  setTimeout(function() {
-    new Notification('Appointment Booked — Adviuz', {
-      body: 'AI booked Anjali Mehta for Thursday 2pm at Laser Clinic',
-      icon: icon, tag: 'booking'
-    });
-  }, 2500);
-
-  setTimeout(function() {
-    new Notification('AI Call Complete — Adviuz', {
-      body: 'Call with Raj Patel: 3:42 mins, Positive sentiment, Interested',
-      icon: icon, tag: 'call-done'
-    });
-  }, 4500);
+  setTimeout(function() { fireNotification('New Lead — Adviuz', 'Priya Sharma just filled the form on Laser Clinic Ontario', 'new-lead'); }, 500);
+  setTimeout(function() { fireNotification('Appointment Booked — Adviuz', 'AI booked Anjali Mehta for Thursday 2pm at Laser Clinic', 'booking'); }, 2500);
+  setTimeout(function() { fireNotification('AI Call Complete — Adviuz', 'Call with Raj Patel: 3:42 mins · Positive · Interested', 'call-done'); }, 4500);
 }
 
 // Auto-request notification permission when app opens
@@ -1314,11 +1301,17 @@ if (window.navigator.standalone || window.matchMedia('(display-mode: standalone)
   }, 5000);
 }
 
-// Service Worker (offline support)
-if ('serviceWorker' in navigator) {
-  const sw = `self.addEventListener('install',e=>{e.waitUntil(caches.open('av1').then(c=>c.addAll(['./'])))});self.addEventListener('fetch',e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)))})`;
-  const blob = new Blob([sw], {type:'application/javascript'});
-  navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(()=>{});
+// Service Worker — handles push notifications + offline
+// Service worker via blob disabled in preview — works on Netlify
+// Notifications use direct Notification API instead
+window._swReg = null;
+
+// Fix testNotification to use SW showNotification for better mobile support
+function fireNotification(title, body, tag) {
+  const icon = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="20" fill="#C8102E"/><text x="48" y="62" font-size="48" font-weight="800" fill="#fff" text-anchor="middle" font-family="sans-serif">A</text></svg>');
+  if (Notification.permission === 'granted') {
+    new Notification(title, { body: body, icon: icon, tag: tag });
+  }
 }
 </script>
 </body>
