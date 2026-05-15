@@ -823,7 +823,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
-var SB_SERVICE = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NzIyMDcwNiwiZXhwIjoyMDkyNzk2NzA2fQ.QhCpRjg7kYpFfyXxByxWBq4o20Px1GjWT5npgBItFSs';
+var SB_SERVICE = ''; // Never expose service role in frontend
 var FN_BASE = 'https://crhvvfomwkrgwlnfruad.supabase.co/functions/v1';
 var DB_READY = false; // flips true after first successful Supabase call
 
@@ -860,35 +860,32 @@ async function callFn(name, body) {
   }
 }
 
-// Save API key via Edge Function
+// Save API key via Edge Function (service role key never exposed in frontend)
 async function saveKey(keyName, inputId) {
   var val = document.getElementById(inputId)?.value?.trim();
   if (!val) { showToast('Enter a value first'); return; }
   var statusEl = document.getElementById('apiSaveStatus');
   if (statusEl) { statusEl.style.display='block'; statusEl.style.background='var(--bg)'; statusEl.textContent='Saving...'; }
 
-  // Write directly to Supabase admin_settings using service role
   try {
-    var res = await fetch(SB_URL + '/rest/v1/admin_settings', {
+    var res = await fetch(FN_BASE + '/save-api-key', {
       method: 'POST',
       headers: {
-        apikey: SB_SERVICE,
-        Authorization: 'Bearer ' + SB_SERVICE,
-        'Content-Type': 'application/json',
-        Prefer: 'resolution=merge-duplicates,return=minimal'
+        Authorization: 'Bearer ' + SB_ANON,
+        'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ key: keyName, value: val, updated_at: new Date().toISOString() })
+      body: JSON.stringify({ key: keyName, value: val })
     });
-    if (res.ok || res.status === 204) {
-      if (statusEl) { statusEl.style.background='#d9fdd3'; statusEl.style.color='#00a884'; statusEl.textContent='\u2705 ' + keyName + ' saved successfully'; }
+    var result = await res.json();
+    if (result.success) {
+      if (statusEl) { statusEl.style.display='block'; statusEl.style.background='#d9fdd3'; statusEl.style.color='#00a884'; statusEl.textContent='\u2705 ' + keyName + ' saved'; }
       document.getElementById(inputId).value = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022 (saved)';
       showToast('\u2705 ' + keyName + ' saved');
     } else {
-      var err = await res.json();
-      throw new Error(err.message || 'Save failed');
+      throw new Error(result.error || 'Save failed');
     }
   } catch(e) {
-    if (statusEl) { statusEl.style.background='#fee2e2'; statusEl.style.color='#cc0000'; statusEl.textContent='\u274c Error: ' + e.message; }
+    if (statusEl) { statusEl.style.display='block'; statusEl.style.background='#fee2e2'; statusEl.style.color='#cc0000'; statusEl.textContent='\u274c Error: ' + e.message; }
     showToast('\u274c ' + e.message);
   }
 }
