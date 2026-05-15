@@ -1008,27 +1008,20 @@ async function refreshSession() {
 
 function onLoginSuccess() {
   document.getElementById('loginScreen').style.display = 'none';
-  // Update topbar with user email
   var sub = document.getElementById('tbSub');
   if (sub && currentUser) sub.textContent = currentUser.email;
+  leads = []; nxtId = 1; // clear demo data
   syncStageSelects();
-  render();
+  // Show loading state
+  document.getElementById('content').innerHTML = '<div style="text-align:center;padding:60px 20px"><div style="font-size:32px;margin-bottom:12px">&#x231B;</div><div style="font-size:14px;color:var(--sub)">Loading your leads...</div></div>';
   loadLeadsFromDB().then(function(dbLeads) {
     if (dbLeads && dbLeads.length > 0) {
-      leads = dbLeads.map(function(l, i) {
-        return {
-          id: i+1, dbId: l.id,
-          name: l.name, ph: l.phone, em: l.email,
-          stage: l.stage || 'New', src: l.source || 'Manual',
-          svc: l.service || '', note: l.notes || '',
-          ok: l.sms_consent || false,
-          t: timeAgo(l.created_at),
-          col: l.color || COLORS[i % COLORS.length]
-        };
-      });
+      leads = dbLeads.map(mapLead);
       nxtId = leads.length + 1;
-      render();
     }
+    render();
+  }).catch(function(){
+    render(); // show empty state on error
   });
 }
 
@@ -1081,6 +1074,38 @@ async function callFn(name, body) {
   }
 }
 
+
+// ═══ SUPABASE DATA FUNCTIONS ═══
+async function loadLeadsFromDB() {
+  try {
+    var res = await sbFetch('/rest/v1/leads?select=*&order=created_at.desc&limit=500');
+    if (!res.ok) {
+      var err = await res.json().catch(function(){return{}});
+      console.error('[Adviuz] Load leads error:', err);
+      return null;
+    }
+    var data = await res.json();
+    console.log('[Adviuz] Loaded', data.length, 'leads');
+    DB_READY = true;
+    return data;
+  } catch(e) {
+    console.error('[Adviuz] loadLeadsFromDB:', e.message);
+    return null;
+  }
+}
+
+function mapLead(l, i) {
+  return {
+    id: i + 1, dbId: l.id,
+    name: l.name || '', ph: l.phone || '', em: l.email || '',
+    stage: l.stage || 'New', src: l.source || 'Manual',
+    svc: l.service || '', note: l.notes || '',
+    ok: l.sms_consent || false,
+    t: timeAgo(l.created_at),
+    col: l.color || COLORS[i % COLORS.length]
+  };
+}
+
 var COLORS=['#00a884','#2563eb','#d97706','#7c3aed','#cc0000','#0891b2','#db2777','#667781'];
 var TYPES={call:'Call',meeting:'Meeting',sms:'SMS',email:'Email',demo:'Demo'};
 var TICONS={call:'📞',meeting:'🤝',sms:'💬',email:'📧',demo:'💻'};
@@ -1102,47 +1127,10 @@ var today=new Date(),TOD=fmt(today),YEST=fmt(new Date(today-86400000));
 var TMRW=fmt(new Date(today.getTime()+86400000)),D3=fmt(new Date(today.getTime()+3*86400000));
 function fmt(d){return d.toISOString().slice(0,10)}
 
-var leads=[
-  {id:1, name:'Priya Sharma',     ph:'+1 647-555-0182',em:'priya.s@gmail.com',   stage:'Interested',src:'Facebook Ad',ok:true, t:'2m',  note:'Wants pricing info. Called twice.',  svc:'Nail Fungus',  col:'#00a884'},
-  {id:2, name:'James Kowalski',   ph:'+1 416-555-0241',em:'james.k@hotmail.com', stage:'New',       src:'Google Ad',  ok:true, t:'8m',  note:'New lead. No contact yet.',          svc:'Consultation', col:'#2563eb'},
-  {id:3, name:'Anjali Mehta',     ph:'+1 905-555-0334',em:'anjali.m@yahoo.com',  stage:'Booked',    src:'Facebook Ad',ok:true, t:'1h',  note:'Booked Thursday 2pm.',               svc:'Nail Fungus',  col:'#d97706'},
-  {id:4, name:'David Thompson',   ph:'+1 647-555-0417',em:'david.t@gmail.com',   stage:'Called',    src:'Organic',    ok:false,t:'2h',  note:'Callback Friday morning.',           svc:'Laser Hair',   col:'#667781'},
-  {id:5, name:'Fatima Al-Hassan', ph:'+1 416-555-0528',em:'fatima.ah@gmail.com', stage:'Follow-up', src:'Referral',   ok:true, t:'3h',  note:'Follow up Monday.',                  svc:'Skin Rejuv',   col:'#7c3aed'},
-  {id:6, name:'Michael Chen',     ph:'+1 905-555-0639',em:'m.chen@outlook.com',  stage:'New',       src:'Google Ad',  ok:true, t:'4h',  note:'New from Google Search.',            svc:'Consultation', col:'#0891b2'},
-  {id:7, name:'Sarah Williams',   ph:'+1 416-555-0712',em:'s.wil@gmail.com',     stage:'Lost',      src:'Facebook Ad',ok:true, t:'5h',  note:'Went with competitor.',              svc:'Nail Fungus',  col:'#cc0000'},
-  {id:8, name:'Raj Patel',        ph:'+1 647-555-0823',em:'raj.p@gmail.com',     stage:'Interested',src:'Google Ad',  ok:true, t:'6h',  note:'Wants payment plan.',                svc:'Nail Fungus',  col:'#d97706'},
-  {id:9, name:'Emma Tremblay',    ph:'+1 514-555-0934',em:'emma.t@gmail.com',    stage:'Booked',    src:'Facebook Ad',ok:true, t:'1d',  note:'Booked. French speaker.',            svc:'Skin Rejuv',   col:'#00a884'},
-  {id:10,name:'Kevin Oduya',      ph:'+1 416-555-0145',em:'k.oduya@hotmail.com', stage:'Called',    src:'Organic',    ok:true, t:'1d',  note:'Voicemail left. SMS sent.',          svc:'Laser Hair',   col:'#667781'},
-];
-
-var tasks=[
-  {id:1,lid:1,type:'call',   date:TOD, time:'09:30',note:'Discuss pricing for nail fungus',done:false},
-  {id:2,lid:3,type:'sms',    date:TOD, time:'11:00',note:'Confirm Thursday 2pm appointment',done:false},
-  {id:3,lid:5,type:'call',   date:TOD, time:'14:00',note:'Follow up — very interested',done:false},
-  {id:4,lid:2,type:'email',  date:TOD, time:'16:30',note:'Send treatment brochure',done:false},
-  {id:5,lid:8,type:'call',   date:YEST,time:'10:00',note:'Payment plan discussion',done:false},
-  {id:6,lid:4,type:'call',   date:YEST,time:'15:00',note:'Callback as requested',done:false},
-  {id:7,lid:9,type:'meeting',date:TMRW,time:'10:30',note:'In-person consultation',done:false},
-  {id:8,lid:6,type:'email',  date:TMRW,time:'09:00',note:'Send welcome info email',done:false},
-  {id:9,lid:10,type:'sms',   date:D3,  time:'11:00',note:'Third follow-up attempt',done:false},
-];
-
-var callLog=[
-  {lid:1,dir:'out',out:'answered',dur:'2:34',sent:'pos',note:'Discussed pricing. Sending quote.',    time:'10:12 AM'},
-  {lid:2,dir:'out',out:'missed',  dur:'0:00',sent:'neu',note:'No answer. Left voicemail.',           time:'9:45 AM'},
-  {lid:3,dir:'in', out:'answered',dur:'4:12',sent:'pos',note:'Confirmed Thursday appointment.',     time:'9:22 AM'},
-  {lid:4,dir:'out',out:'answered',dur:'1:45',sent:'neu',note:'Will call back Friday 10am.',         time:'Yesterday'},
-  {lid:5,dir:'out',out:'voicemail',dur:'0:28',sent:'neu',note:'Left detailed voicemail.',           time:'Yesterday'},
-  {lid:8,dir:'out',out:'answered',dur:'5:02',sent:'pos',note:'Interested in 3-session plan.',       time:'2 days ago'},
-];
-
-var leadAct={
-  1:[{type:'call',label:'Outbound call',time:'Today 10:12 AM',body:'Discussed pricing. Interested in 3-session package.',rec:true},
-     {type:'sms', label:'SMS sent',    time:'Yesterday 3:30 PM',body:'Hi Priya, following up on nail fungus interest.',rec:false}],
-  3:[{type:'call',label:'Inbound call',time:'Today 9:22 AM',body:'Anjali confirmed Thursday 2pm. Very excited.',rec:true}],
-  5:[{type:'call',label:'Outbound call',time:'3 days ago',body:'Left voicemail about free consultation.',rec:true}],
-};
-
+var leads=[];
+var tasks=[];
+var callLog=[];
+var leadAct={};
 var nxtId=leads.length+1, nxtTid=tasks.length+1;
 var curTab='leads', fuSeg='today', curLid=null, fuLid=null;
 var callIv=null, callSec=0, muted=false;
@@ -1596,18 +1584,44 @@ async function saveNewLead(){
   var ph=document.getElementById('aPh').value.trim();
   if(!fn){showToast('First name required');return}
   if(!ph){showToast('Phone required');return}
-  var lead={id:nxtId++,name:(fn+' '+ln).trim(),ph:ph,em:document.getElementById('aEm').value.trim(),
-    stage:document.getElementById('aStg').value,src:document.getElementById('aSrc').value,
-    svc:document.getElementById('aSvc').value,note:document.getElementById('aNt').value.trim(),
-    ok:true,t:'now',col:COLORS[nxtId%COLORS.length]};
-  leads.unshift(lead);
-  closeSheet('addLeadSh');
-  showToast(lead.name+' added');
-  ['aFn','aLn','aPh','aEm','aNt'].forEach(function(id){var el=document.getElementById(id);if(el)el.value=''});
-  render();
-  // Save to Supabase in background
-  var saved=await saveLeadToDB(lead);
-  if(saved)lead.dbId=saved.id;
+
+  var btn=document.querySelector('#addLeadSh .btn-primary');
+  if(btn){btn.textContent='Saving...';btn.disabled=true}
+
+  var lead={id:nxtId++,name:(fn+' '+ln).trim(),ph:ph,
+    em:document.getElementById('aEm').value.trim(),
+    stage:document.getElementById('aStg').value,
+    src:document.getElementById('aSrc').value,
+    svc:document.getElementById('aSvc').value,
+    note:document.getElementById('aNt').value.trim(),
+    ok:true,t:'just now',col:COLORS[nxtId%COLORS.length]};
+
+  // Save to Supabase FIRST, then update UI
+  try {
+    var res = await sbFetch('/rest/v1/leads', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({
+        name: lead.name, phone: lead.ph, email: lead.em||null,
+        stage: lead.stage, source: lead.src||'Manual',
+        service: lead.svc||null, notes: lead.note||null,
+        sms_consent: true, call_consent: true, email_consent: true,
+        color: lead.col
+      })
+    });
+    var data = await res.json();
+    if(!res.ok) throw new Error(data.message||data.error||'Save failed');
+    var saved = Array.isArray(data)?data[0]:data;
+    if(saved && saved.id) lead.dbId = saved.id;
+    leads.unshift(lead);
+    closeSheet('addLeadSh');
+    showToast('✅ '+lead.name+' saved');
+    ['aFn','aLn','aPh','aEm','aNt'].forEach(function(id){var el=document.getElementById(id);if(el)el.value=''});
+    render();
+  } catch(e) {
+    showToast('❌ Save failed: '+e.message);
+    if(btn){btn.textContent='Save Lead';btn.disabled=false}
+  }
 }
 
 // ═══════════════════════════════════════
