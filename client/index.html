@@ -483,23 +483,19 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
 .ls-act-time{font-size:11px;color:var(--muted);margin-left:6px}
 .ls-act-text{background:var(--bg);border-radius:8px;padding:9px 11px;font-size:13px;color:var(--sub);line-height:1.5;margin-top:4px}
 
-/* ═══ SLIM LEAD NAV BAR (prev · all leads · next) ═══ */
-.ld-nav-bar{position:fixed;bottom:0;left:0;right:0;max-width:430px;margin:0 auto;
-  background:var(--white);border-top:1px solid var(--border);
-  display:none;padding-bottom:var(--sb);z-index:720}
-.ld-nav-bar.open{display:flex;align-items:stretch}
-.ld-nav-btn2{display:flex;align-items:center;gap:5px;padding:12px 16px;border:none;
-  background:none;cursor:pointer;font-family:var(--f);font-size:12px;font-weight:700;
-  color:var(--sub);transition:background .1s;flex-shrink:0}
-.ld-nav-btn2:active{background:var(--bg)}
-.ld-nav-btn2:disabled{opacity:.25;cursor:default}
-.ld-nav-btn2 svg{width:18px;height:18px}
-.ld-nav-center{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;
-  border:none;background:none;cursor:pointer;font-family:var(--f);font-size:12px;
-  font-weight:700;color:var(--sub);border-left:1px solid var(--border);
-  border-right:1px solid var(--border);padding:12px 0}
-.ld-nav-center:active{background:var(--bg)}
-.ld-nav-center svg{width:16px;height:16px;stroke:var(--sub)}
+/* ─── lead scroll fills full screen, no fixed footer ─── */
+.ls-scroll{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding-bottom:40px;overscroll-behavior:contain}
+
+/* inline nav row CSS (rendered inside scroll) */
+.ld-inline-nav{display:flex;align-items:center;gap:8px;padding:16px}
+.ld-inline-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;
+  padding:12px 10px;border-radius:12px;border:1.5px solid var(--border);background:var(--white);
+  font-family:var(--f);font-size:13px;font-weight:700;color:var(--sub);cursor:pointer;transition:background .1s}
+.ld-inline-btn:active{background:var(--bg)}
+.ld-inline-btn:disabled{opacity:.3;cursor:default}
+.ld-inline-btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2.5;flex-shrink:0}
+.ld-inline-back{background:var(--text);color:#fff;border-color:var(--text)}
+.ld-inline-back:active{opacity:.85}
 
 /* ═══ ACTION OPTION SHEET (SMS options / Call options) ═══ */
 .act-sheet-ov{position:fixed;inset:0;z-index:820;background:rgba(0,0,0,.45);
@@ -1434,24 +1430,8 @@ Dr. Sarah
     </div>
   </div>
 
-  <!-- Scrollable body -->
+  <!-- Scrollable body — nav is now inline, no fixed footer -->
   <div class="ls-scroll" id="lsBody"></div>
-
-  <!-- SLIM NAV BAR: ← prev lead name · next → -->
-  <div class="ld-nav-bar" id="ldNavBar">
-    <button class="ld-nav-btn2" id="ldPrev" onclick="navLead(-1)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
-      <span>Prev</span>
-    </button>
-    <button class="ld-nav-center" onclick="closeLead()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
-      All Leads
-    </button>
-    <button class="ld-nav-btn2" id="ldNext" onclick="navLead(1)">
-      <span>Next</span>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 6 15 12 9 18"/></svg>
-    </button>
-  </div>
 </div>
 
 
@@ -2511,21 +2491,16 @@ var lsShowPicker = false;
 
 function openLead(id) {
   curLid = id;
-  var idx = leads.findIndex(function(l){ return l.id === id; });
   renderLeadScreen(id);
   document.getElementById('leadScreen').classList.add('open');
-  document.getElementById('ldNavBar').classList.add('open');
   document.querySelector('.tabbar').style.display = 'none';
-  var atStart = idx <= 0, atEnd = idx >= leads.length - 1;
-  document.getElementById('lsPrev').disabled = atStart;
-  document.getElementById('lsNext').disabled = atEnd;
-  document.getElementById('ldPrev').disabled = atStart;
-  document.getElementById('ldNext').disabled = atEnd;
+  var idx = leads.findIndex(function(l){ return l.id === id; });
+  document.getElementById('lsPrev').disabled = idx <= 0;
+  document.getElementById('lsNext').disabled = idx >= leads.length - 1;
 }
 
 function closeLead() {
   document.getElementById('leadScreen').classList.remove('open');
-  document.getElementById('ldNavBar').classList.remove('open');
   document.querySelector('.tabbar').style.display = 'flex';
   render();
 }
@@ -2704,18 +2679,7 @@ function renderLeadScreen(id) {
 
   h += '</div>';
 
-  // Recording — always show (dummy if no real recording yet)
-  var recTime = recAct ? recAct.time : (l.t||'Today');
-  var recDur  = recAct ? '2:34' : '1:47';
-  var recPct  = recAct ? '35%' : '62%';
-  h += '<div style="display:flex;align-items:center;gap:10px;background:var(--bg);border-radius:10px;padding:10px 13px;margin-top:12px">';
-  h += '<button id="recPlayBtn" onclick="toggleDummyRec()" style="width:32px;height:32px;border-radius:50%;background:var(--red);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">';
-  h += '<svg id="recPlayIco" fill="white" viewBox="0 0 24 24" style="width:10px;height:10px;margin-left:2px"><polygon points="5,3 19,12 5,21"/></svg></button>';
-  h += '<div style="flex:1;min-width:0"><div style="font-size:10px;color:var(--sub);font-weight:600;margin-bottom:5px">📼 Last Call Recording · '+recTime+'</div>';
-  h += '<div style="height:4px;background:var(--border);border-radius:2px"><div id="recProgBar" style="height:100%;width:'+recPct+';background:var(--green);border-radius:2px;transition:width .3s"></div></div></div>';
-  h += '<span id="recTimer" style="font-size:11px;color:var(--muted);font-weight:600;font-family:monospace;flex-shrink:0">'+recDur+'</span></div>';
-
-  // AI Summary
+  // AI Summary only in top card (recording moved below)
   var summaryText = l.note || ('Interested in '+(l.svc||'services')+'. Source: '+(l.src||'Manual')+'. Stage: '+l.stage+'.');
   h += '<div style="background:#f0fdf9;border-left:3px solid var(--green);border-radius:0 8px 8px 0;padding:10px 12px;margin-top:12px;font-size:12px;color:var(--sub);line-height:1.65">';
   h += '<span style="font-weight:700;color:var(--green)">AI Summary</span> · '+summaryText+'</div>';
@@ -2746,6 +2710,18 @@ function renderLeadScreen(id) {
   h += ldQuickBtn('📄','Quote','#fef3c7','#d97706','showToast(\'Quote coming soon\')');
   h += ldQuickBtn('🧾','Invoice','#d1fae5','#00a884','showToast(\'Invoice coming soon\')');
   h += '</div></div>';
+  h += '<div style="height:4px;background:var(--bg)"></div>';
+
+  // ══ INLINE NAV: ← Prev · Back to Leads · Next → ══
+  var idx = leads.findIndex(function(x){ return x.id === l.id; });
+  var atStart = idx <= 0, atEnd = idx >= leads.length - 1;
+  h += '<div class="ld-inline-nav">';
+  h += '<button class="ld-inline-btn" onclick="navLead(-1)"'+(atStart?' disabled':'')+' id="ldPrev">';
+  h += '<svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>Prev</button>';
+  h += '<button class="ld-inline-btn ld-inline-back" onclick="closeLead()">← All Leads</button>';
+  h += '<button class="ld-inline-btn" onclick="navLead(1)"'+(atEnd?' disabled':'')+' id="ldNext">';
+  h += 'Next<svg viewBox="0 0 24 24"><polyline points="9 6 15 12 9 18"/></svg></button>';
+  h += '</div>';
   h += '<div style="height:4px;background:var(--bg)"></div>';
 
   // ══ SECTION 4 — SALES STAGE ══
@@ -2780,6 +2756,55 @@ function renderLeadScreen(id) {
   h += '</div>';
 
   h += '<div style="height:4px;background:var(--bg)"></div>';
+
+  // ══ RECENT CALL RECORDING (above notes) ══
+  h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:12px">📼 Recent Call Recording</div>';
+
+  // Build call history from acts — show last 3 calls
+  var callActs = acts.filter(function(a){ return a.type==='call'; }).slice(0,3);
+  if(!callActs.length){
+    // Show dummy recording
+    callActs = [{
+      label:'AI Outbound Call',
+      time: l.t||'Today',
+      callType:'ai_outbound',
+      rec: true,
+      dur:'1:47'
+    }];
+  }
+
+  callActs.forEach(function(ca, ci){
+    var callTypeLabel = '';
+    var callTypeBg = '';
+    var ct = ca.callType || (ca.label||'').toLowerCase();
+    if(ct.indexOf('ai')>-1 && ct.indexOf('inbound')>-1)      { callTypeLabel='🤖 AI Inbound';  callTypeBg='#dbeafe'; }
+    else if(ct.indexOf('ai')>-1)                               { callTypeLabel='🤖 AI Outbound'; callTypeBg='#ede9fe'; }
+    else if(ct.indexOf('ivr')>-1 && ct.indexOf('inbound')>-1) { callTypeLabel='📣 IVR Inbound'; callTypeBg='#fef3c7'; }
+    else if(ct.indexOf('ivr')>-1)                              { callTypeLabel='📣 IVR Outbound';callTypeBg='#fef3c7'; }
+    else if(ct.indexOf('inbound')>-1)                          { callTypeLabel='📞 Inbound';     callTypeBg='#d1fae5'; }
+    else                                                        { callTypeLabel='📞 Outbound';    callTypeBg='#ffe0e0'; }
+
+    var recId = 'rec'+ci;
+    var recPct = ca.rec ? '35' : '62';
+    var recDur = ca.dur || '1:47';
+
+    h += '<div style="'+(ci>0?'margin-top:12px;padding-top:12px;border-top:1px solid var(--border)':'')+'">';
+    // Call type badge + time
+    h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
+    h += '<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;background:'+callTypeBg+';color:var(--text)">'+callTypeLabel+'</span>';
+    h += '<span style="font-size:11px;color:var(--muted)">'+ca.time+'</span>';
+    h += '</div>';
+    // Player
+    h += '<div style="display:flex;align-items:center;gap:10px;background:var(--bg);border-radius:10px;padding:10px 13px">';
+    h += '<button id="recPlayBtn'+ci+'" onclick="toggleDummyRec('+ci+')" style="width:32px;height:32px;border-radius:50%;background:var(--red);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">';
+    h += '<svg id="recPlayIco'+ci+'" fill="white" viewBox="0 0 24 24" style="width:10px;height:10px;margin-left:2px"><polygon points="5,3 19,12 5,21"/></svg></button>';
+    h += '<div style="flex:1;min-width:0">';
+    h += '<div style="height:4px;background:var(--border);border-radius:2px"><div id="recProgBar'+ci+'" style="height:100%;width:'+recPct+'%;background:var(--green);border-radius:2px;transition:width .3s"></div></div></div>';
+    h += '<span id="recTimer'+ci+'" style="font-size:11px;color:var(--muted);font-weight:600;font-family:monospace;flex-shrink:0">'+recDur+'</span>';
+    h += '</div></div>';
+  });
+  h += '</div>';
 
   // ══ SECTION 6 — NOTES ══
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
@@ -2867,31 +2892,32 @@ function lsQuickSaveFu(lid){
   renderLeadScreen(lid);
 }
 
-// ── Dummy recording playback toggle ──
-var _recPlaying = false, _recInterval = null, _recPct = 62;
-function toggleDummyRec(){
-  _recPlaying = !_recPlaying;
-  var ico = document.getElementById('recPlayIco');
-  var bar = document.getElementById('recProgBar');
-  var timer = document.getElementById('recTimer');
+// ── Dummy recording playback (supports multiple players) ──
+var _recState = {}; // { idx: { playing, interval, pct } }
+function toggleDummyRec(idx){
+  idx = idx || 0;
+  if(!_recState[idx]) _recState[idx] = {playing:false, interval:null, pct:62};
+  var st = _recState[idx];
+  st.playing = !st.playing;
+  var ico   = document.getElementById('recPlayIco'+idx);
+  var bar   = document.getElementById('recProgBar'+idx);
+  var timer = document.getElementById('recTimer'+idx);
   if(!ico||!bar||!timer) return;
-  if(_recPlaying){
-    ico.outerHTML = '<svg id="recPlayIco" fill="white" viewBox="0 0 24 24" style="width:10px;height:10px"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
-    var secs = 107 - Math.round(_recPct/100*107);
-    _recInterval = setInterval(function(){
-      _recPct = Math.min(100, _recPct + .5);
-      var b2 = document.getElementById('recProgBar');
-      var t2 = document.getElementById('recTimer');
-      if(b2) b2.style.width = _recPct+'%';
-      if(t2){ var rem=Math.round((100-_recPct)/100*107); t2.textContent=Math.floor(rem/60)+':'+(rem%60<10?'0':'')+rem%60; }
-      if(_recPct>=100){ clearInterval(_recInterval); _recPlaying=false; _recPct=0; }
+  if(st.playing){
+    ico.outerHTML = '<svg id="recPlayIco'+idx+'" fill="white" viewBox="0 0 24 24" style="width:10px;height:10px"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
+    st.interval = setInterval(function(){
+      st.pct = Math.min(100, st.pct + 0.5);
+      var b = document.getElementById('recProgBar'+idx);
+      var t = document.getElementById('recTimer'+idx);
+      if(b) b.style.width = st.pct+'%';
+      if(t){ var rem=Math.round((100-st.pct)/100*107); t.textContent=Math.floor(rem/60)+':'+(rem%60<10?'0':'')+rem%60; }
+      if(st.pct>=100){ clearInterval(st.interval); st.playing=false; st.pct=0; }
     }, 150);
   } else {
-    clearInterval(_recInterval);
-    ico.outerHTML = '<svg id="recPlayIco" fill="white" viewBox="0 0 24 24" style="width:10px;height:10px;margin-left:2px"><polygon points="5,3 19,12 5,21"/></svg>';
+    clearInterval(st.interval);
+    ico.outerHTML = '<svg id="recPlayIco'+idx+'" fill="white" viewBox="0 0 24 24" style="width:10px;height:10px;margin-left:2px"><polygon points="5,3 19,12 5,21"/></svg>';
   }
 }
-
 
 function lsScheduleMeeting(lid, type){
   var dtEl = document.getElementById('lsFuDatetime');
