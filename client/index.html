@@ -411,7 +411,7 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
 .ls-nav-btn:disabled{opacity:.3;cursor:default}
 .ls-nav-btn svg{width:18px;height:18px}
 
-.ls-scroll{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding-bottom:115px}
+.ls-scroll{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding-bottom:120px;will-change:scroll-position}
 .ls-scroll::-webkit-scrollbar{display:none}
 
 /* Lead header card */
@@ -2664,171 +2664,228 @@ function navLead(dir) {
 function renderLeadScreen(id) {
   var l = leads.find(function(x){ return x.id === id; });
   if(!l) return;
-  var init = l.name.split(' ').map(function(w){return w[0]}).join('').slice(0,2);
-  var stgC = stgColor(l.stage);
-  var acts = leadAct[l.id] || [];
-  var fuItems = tasks.filter(function(t){ return t.lid === l.id && !t.done; })
+
+  var init  = (l.name||'?').split(' ').map(function(w){return w[0]}).join('').slice(0,2).toUpperCase();
+  var stgC  = stgColor(l.stage);
+  var acts  = leadAct[l.id] || [];
+  var fuItems = tasks.filter(function(t){ return t.lid===l.id && !t.done; })
                      .sort(function(a,b){ return a.date.localeCompare(b.date); });
-  var nextFu = fuItems[0];
-  var recAct = acts.find(function(a){ return a.type==='call' && a.rec; });
+  var nextFu  = fuItems[0];
+  var lastAct = acts[0];
+  var recAct  = acts.find(function(a){ return a.type==='call' && a.rec; });
 
+  // Update topbar
   document.getElementById('lsName').textContent = l.name;
-  document.getElementById('lsSub').textContent = (l.svc||'Lead') + ' · ' + (l.src||'Manual');
+  document.getElementById('lsSub').textContent   = (l.svc||'Lead') + (l.src?' · '+l.src:'');
 
-  var html = '';
+  // ── tomorrow default for date picker ──
+  var tmrw   = new Date(Date.now()+86400000);
+  var dtDef  = tmrw.getFullYear()+'-'+String(tmrw.getMonth()+1).padStart(2,'0')+'-'+String(tmrw.getDate()).padStart(2,'0')+'T10:00';
+
+  var h = '';
 
   // ══════════════════════════════════════════════
-  // TOP SECTION: dark header card
+  // SECTION 1 — LEAD INFO CARD (white)
   // ══════════════════════════════════════════════
-  html += '<div style="background:var(--top);padding:16px;margin-bottom:8px">';
+  h += '<div style="background:var(--white);padding:16px 16px 14px;margin-bottom:4px">';
 
-  // Avatar row
-  html += '<div style="display:flex;align-items:center;gap:12px;padding-bottom:14px;border-bottom:1px solid rgba(255,255,255,.08)">';
-  html += '<div style="width:52px;height:52px;border-radius:14px;background:'+l.col+';display:flex;align-items:center;justify-content:center;font-weight:800;font-size:21px;color:#fff;flex-shrink:0">'+init+'</div>';
-  html += '<div style="flex:1;min-width:0">';
-  html += '<div style="font-size:17px;font-weight:800;color:#fff;letter-spacing:-.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+l.name+'</div>';
-  if(l.ph) html += '<div style="font-size:13px;color:rgba(255,255,255,.5);margin-top:3px">📞 '+l.ph+'</div>';
-  if(l.em) html += '<div style="font-size:12px;color:rgba(255,255,255,.35);margin-top:1px">✉ '+l.em+'</div>';
-  html += '</div>';
-  html += stgBadge(l.stage);
-  html += '</div>';
+  // Company + Avatar row
+  h += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">';
+  h += '<div style="width:48px;height:48px;border-radius:14px;background:'+l.col+
+       ';display:flex;align-items:center;justify-content:center;font-weight:800;font-size:19px;color:#fff;flex-shrink:0">'+init+'</div>';
+  h += '<div style="flex:1;min-width:0">';
+  // Company name (from company field if present, otherwise lead name)
+  h += '<div style="font-size:16px;font-weight:800;color:var(--text);letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(l.company||l.name)+'</div>';
+  if(l.company) h += '<div style="font-size:13px;color:var(--sub);margin-top:1px">'+l.name+'</div>';
+  h += '</div>';
+  h += '<div style="flex-shrink:0">'+stgBadge(l.stage)+'</div>';
+  h += '</div>';
 
-  // Stat chips
-  html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding-top:14px">';
-  html += '<div style="background:rgba(255,255,255,.07);border-radius:10px;padding:9px;text-align:center"><div style="font-size:12px;font-weight:800;color:#fff">'+l.t+'</div><div style="font-size:9px;color:rgba(255,255,255,.35);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-top:3px">Added</div></div>';
-  html += '<div style="background:rgba(255,255,255,.07);border-radius:10px;padding:9px;text-align:center"><div style="font-size:12px;font-weight:800;color:'+(nextFu?'#fbbf24':'rgba(255,255,255,.35)')+'">'+( nextFu ? fmtDate(nextFu.date) : 'None' )+'</div><div style="font-size:9px;color:rgba(255,255,255,.35);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-top:3px">Next FU</div></div>';
-  html += '<div style="background:rgba(255,255,255,.07);border-radius:10px;padding:9px;text-align:center"><div style="font-size:12px;font-weight:800;color:#fff">'+acts.length+'</div><div style="font-size:9px;color:rgba(255,255,255,.35);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-top:3px">Activities</div></div>';
-  html += '</div>';
+  // Info rows grid
+  h += '<div style="display:flex;flex-direction:column;gap:8px">';
 
-  // Recent call recording
-  if(recAct) {
-    html += '<div class="ld-rec" style="margin-top:12px">';
-    html += '<button class="ld-rec-play" onclick="showToast(\'▶ Playing...\')"><svg fill="white" viewBox="0 0 24 24" style="width:10px;height:10px;margin-left:2px"><polygon points="5,3 19,12 5,21"/></svg></button>';
-    html += '<div style="flex:1"><div style="font-size:10px;color:rgba(255,255,255,.4);font-weight:600;margin-bottom:5px">📼 Recent Call · '+recAct.time+'</div>';
-    html += '<div class="ld-rec-bar"><div class="ld-rec-prog"></div></div></div>';
-    html += '<span class="ld-rec-meta">2:34</span>';
-    html += '</div>';
+  // Email
+  if(l.em) h += ldInfoRow('✉️','Email','<a href="mailto:'+l.em+'" style="color:var(--blue);text-decoration:none">'+l.em+'</a>');
+  // Phone
+  if(l.ph) h += ldInfoRow('📞','Phone','<a href="tel:'+l.ph+'" style="color:var(--blue);text-decoration:none">'+l.ph+'</a>'+(l.ph2?' · '+l.ph2:''));
+  // Location
+  if(l.location) h += ldInfoRow('📍','Location',l.location);
+  // Product / Service
+  if(l.svc) h += ldInfoRow('🛠','Product',l.svc);
+  // Date of Inquiry
+  h += ldInfoRow('📅','Inquiry Date',l.t||'—');
+  // Last Event
+  h += ldInfoRow('⚡','Last Event', lastAct ? lastAct.label+' · '+lastAct.time : 'No activity yet');
+
+  h += '</div>';
+
+  // Recording (if exists)
+  if(recAct){
+    h += '<div style="display:flex;align-items:center;gap:10px;background:var(--bg);border-radius:10px;padding:10px 13px;margin-top:12px">';
+    h += '<button onclick="showToast(\'▶ Playing...\')" style="width:30px;height:30px;border-radius:50%;background:var(--red);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg fill="white" viewBox="0 0 24 24" style="width:10px;height:10px;margin-left:2px"><polygon points="5,3 19,12 5,21"/></svg></button>';
+    h += '<div style="flex:1"><div style="font-size:10px;color:var(--sub);font-weight:600;margin-bottom:4px">📼 Last Call Recording · '+recAct.time+'</div>';
+    h += '<div style="height:3px;background:var(--border);border-radius:2px"><div style="height:100%;width:35%;background:var(--green);border-radius:2px"></div></div></div>';
+    h += '<span style="font-size:11px;color:var(--muted);font-weight:600">2:34</span></div>';
   }
 
-  // AI summary of the lead
+  // Summary
   var summaryText = l.note
     ? l.note
-    : 'Interested in ' + (l.svc||'services') + '. Source: ' + (l.src||'Manual') + '. Stage: ' + l.stage + '.';
-  html += '<div class="ld-summary">🤖 <strong>AI Summary:</strong> ' + summaryText + '</div>';
+    : 'Interested in '+(l.svc||'services')+'. Source: '+(l.src||'Manual')+'. Stage: '+l.stage+'.';
+  h += '<div style="background:#f0fdf9;border-left:3px solid var(--green);border-radius:0 8px 8px 0;padding:10px 12px;margin-top:12px;font-size:12px;color:var(--sub);line-height:1.65">';
+  h += '<span style="font-weight:700;color:var(--green)">AI Summary</span> · '+summaryText+'</div>';
 
-  html += '</div>'; // end top section
+  h += '</div>'; // end info card
 
   // ══════════════════════════════════════════════
-  // 1. SALES STAGE
+  // DIVIDER
   // ══════════════════════════════════════════════
-  html += '<div class="ld-sect">';
-  html += '<div class="ld-sect-hd"><div class="ld-sect-title">Sales Stage</div></div>';
-  html += '<div class="ld-sect-body">';
-  html += '<select class="ld-stage-sel" id="lsStageSelect" onchange="lsSetStage(this.value)" style="border-color:'+stgC+';color:'+stgC+'">';
+  h += '<div style="height:4px;background:var(--bg)"></div>';
+
+  // ══════════════════════════════════════════════
+  // SECTION 2 — MEETING | QUOTE | INVOICE
+  // ══════════════════════════════════════════════
+  h += '<div style="background:var(--white);padding:12px 16px;margin-bottom:4px">';
+  h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">';
+  h += ldQuickBtn('🤝','Meeting','#ede9fe','#7c3aed','lsScheduleMeeting('+l.id+',\'in-person\')');
+  h += ldQuickBtn('📄','Quote','#fef3c7','#d97706','showToast(\'Quote coming soon\')');
+  h += ldQuickBtn('🧾','Invoice','#d1fae5','#00a884','showToast(\'Invoice coming soon\')');
+  h += '</div></div>';
+
+  h += '<div style="height:4px;background:var(--bg)"></div>';
+
+  // ══════════════════════════════════════════════
+  // SECTION 3 — SALES STAGE
+  // ══════════════════════════════════════════════
+  h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px">Sales Stage</div>';
+  h += '<select class="ld-stage-sel" id="lsStageSelect" onchange="lsSetStage(this.value)" style="border-color:'+stgC+';color:'+stgC+'">';
   STAGES.forEach(function(s){
-    html += '<option value="'+s.name+'"'+(s.name===l.stage?' selected':'')+'>'+s.name+'</option>';
+    h += '<option value="'+s.name+'"'+(s.name===l.stage?' selected':'')+'>'+s.name+'</option>';
   });
-  html += '</select>';
-  html += '</div></div>';
+  h += '</select>';
+  h += '</div>';
+
+  h += '<div style="height:4px;background:var(--bg)"></div>';
 
   // ══════════════════════════════════════════════
-  // 2. FOLLOW-UP CALENDAR
+  // SECTION 4 — FOLLOW-UP DATE
   // ══════════════════════════════════════════════
-  html += '<div class="ld-sect">';
-  html += '<div class="ld-sect-hd"><div class="ld-sect-title">📅 Follow-up</div>';
-  if(nextFu) html += '<span style="font-size:11px;font-weight:700;color:var(--green)">'+fuItems.length+' scheduled</span>';
-  html += '</div>';
-  html += '<div class="ld-sect-body">';
-  // Show any pending follow-ups
+  h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px">Follow-up Date</div>';
+  // Pending follow-ups
   fuItems.forEach(function(t){
-    html += '<div class="ld-fu-set" style="margin-bottom:8px">';
-    html += '<div class="ld-fu-set-val">'+TICONS[t.type]+' '+fmtDate(t.date)+' at '+fmtTime(t.time)+'</div>';
-    html += '<button class="ld-fu-clear" onclick="markDone('+t.id+');renderLeadScreen('+l.id+')">Done ✓</button>';
-    html += '</div>';
+    h += '<div style="display:flex;align-items:center;gap:10px;background:var(--greenl);border-radius:9px;padding:10px 13px;margin-bottom:8px">';
+    h += '<div style="flex:1;font-size:13px;font-weight:700;color:var(--green)">'+TICONS[t.type]+' '+fmtDate(t.date)+' at '+fmtTime(t.time)+'</div>';
+    h += '<button onclick="markDone('+t.id+');renderLeadScreen('+l.id+')" style="padding:4px 10px;border-radius:7px;background:rgba(0,168,132,.15);border:none;color:var(--green);font-family:var(--f);font-size:11px;font-weight:700;cursor:pointer">Done ✓</button>';
+    h += '</div>';
   });
-  // Simplified scheduler: just pick a date/time and save
-  var tmrw = new Date(Date.now()+86400000);
-  var dtDef = tmrw.getFullYear()+'-'+String(tmrw.getMonth()+1).padStart(2,'0')+'-'+String(tmrw.getDate()).padStart(2,'0')+'T10:00';
-  html += '<div style="display:flex;gap:8px;align-items:center;margin-top:'+(fuItems.length?'8':'0')+'px">';
-  html += '<input type="datetime-local" class="fu-dt-inp" id="lsFuDatetime" value="'+dtDef+'" style="flex:1;border:1.5px solid var(--border);border-radius:9px;padding:11px 12px;font-family:var(--f);font-size:14px;color:var(--text);outline:none;background:var(--white)">';
-  html += '<button onclick="lsQuickSaveFu('+l.id+')" style="padding:11px 16px;border-radius:9px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">+ Schedule</button>';
-  html += '</div>';
-  html += '</div></div>';
+  // Picker row
+  h += '<div style="display:flex;gap:8px">';
+  h += '<input type="datetime-local" id="lsFuDatetime" value="'+dtDef+'" style="flex:1;border:1.5px solid var(--border);border-radius:9px;padding:10px 12px;font-family:var(--f);font-size:14px;color:var(--text);outline:none;background:var(--white);min-width:0">';
+  h += '<button onclick="lsQuickSaveFu('+l.id+')" style="flex-shrink:0;padding:10px 14px;border-radius:9px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">+ Set</button>';
+  h += '</div>';
+  h += '</div>';
+
+  h += '<div style="height:4px;background:var(--bg)"></div>';
 
   // ══════════════════════════════════════════════
-  // 3. SCHEDULE A MEETING
+  // SECTION 5 — CALL BUTTONS
   // ══════════════════════════════════════════════
-  html += '<div class="ld-sect">';
-  html += '<div class="ld-sect-hd"><div class="ld-sect-title">🤝 Schedule a Meeting</div></div>';
-  html += '<div class="ld-sect-body" style="display:flex;flex-direction:column;gap:8px">';
-  html += '<button class="ld-cal-btn" onclick="lsScheduleMeeting('+l.id+',\'in-person\')">';
-  html += '<div class="ld-cal-icon" style="background:#ede9fe"><svg fill="none" stroke="#7c3aed" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg></div>';
-  html += '<div><div>In-Person Meeting</div><div class="ld-cal-sub">Schedule at your office or client site</div></div></button>';
-  html += '<button class="ld-cal-btn" onclick="lsScheduleMeeting('+l.id+',\'video\')">';
-  html += '<div class="ld-cal-icon" style="background:#dbeafe"><svg fill="none" stroke="#2563eb" stroke-width="2" viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>';
-  html += '<div><div>Video Call</div><div class="ld-cal-sub">Zoom, Google Meet or Teams link</div></div></button>';
-  html += '</div></div>';
+  h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Call</div>';
+  h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">';
+  h += ldCallBtn('📞','Dialer','#ffe0e0','var(--red)','lsDoCall()');
+  h += ldCallBtn('🤖','AI Call','linear-gradient(135deg,#ede9fe,#dbeafe)','#6366f1','lsDoAiCall()');
+  h += ldCallBtn('📣','IVR Call','#ede9fe','#7c3aed','lsDoIvrCall()');
+  h += '</div></div>';
+
+  // ── COMMS: Email | SMS | WhatsApp ──
+  h += '<div style="background:var(--white);padding:0 16px 14px;margin-bottom:4px">';
+  h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">';
+  h += ldCallBtn('📧','Email','#dbeafe','#2563eb','lsDoEmail()');
+  h += ldCallBtn('💬','SMS','#d1fae5','var(--green)','openSmsSheet()');
+  h += ldCallBtn('🟢','WhatsApp','#dcfce7','#25d366','lsDoWa()');
+  h += '</div></div>';
+
+  h += '<div style="height:4px;background:var(--bg)"></div>';
 
   // ══════════════════════════════════════════════
-  // 4. GENERATE QUOTE & INVOICE
+  // SECTION 6 — NOTES
   // ══════════════════════════════════════════════
-  html += '<div class="ld-sect">';
-  html += '<div class="ld-sect-hd"><div class="ld-sect-title">💰 Quote & Invoice</div></div>';
-  html += '<div class="ld-sect-body" style="display:flex;gap:8px">';
-  html += '<button class="ld-cal-btn" style="flex:1" onclick="showToast(\'Quote generation coming soon\')">';
-  html += '<div class="ld-cal-icon" style="background:#fef3c7"><svg fill="none" stroke="#f59e0b" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></div>';
-  html += '<div><div>Quote</div><div class="ld-cal-sub">Generate estimate</div></div></button>';
-  html += '<button class="ld-cal-btn" style="flex:1" onclick="showToast(\'Invoice generation coming soon\')">';
-  html += '<div class="ld-cal-icon" style="background:#d1fae5"><svg fill="none" stroke="#00a884" stroke-width="2" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></div>';
-  html += '<div><div>Invoice</div><div class="ld-cal-sub">Send payment request</div></div></button>';
-  html += '</div></div>';
-
-  // ══════════════════════════════════════════════
-  // 5. NOTES
-  // ══════════════════════════════════════════════
-  html += '<div class="ld-sect">';
-  html += '<div class="ld-sect-hd"><div class="ld-sect-title">📝 Notes</div></div>';
-  html += '<div class="ld-sect-body">';
-  html += '<div class="note-tpl-row">';
-  [{label:'📵 No Answer',note:'Called — no answer. Will try again.'},{label:'📵 Busy',note:'Lead was busy. Requested callback.'},{label:'✅ Interested',note:'Lead is interested. Wants more info.'},{label:'📅 Callback',note:'Lead requested a callback.'},{label:'📩 Voicemail',note:'Left a voicemail.'},{label:'❌ Not Interested',note:'Not interested at this time.'}].forEach(function(tpl){
-    html += '<div class="note-tpl" data-note="'+tpl.note.replace(/"/g,'&quot;')+'" onclick="lsUseTemplate(this.dataset.note)">'+tpl.label+'</div>';
+  h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Notes</div>';
+  // Quick templates
+  h += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">';
+  [{l:'📵 No Answer',n:'Called — no answer. Will try again.'},
+   {l:'📵 Busy',n:'Lead was busy. Requested callback.'},
+   {l:'✅ Interested',n:'Lead is interested. Wants more info.'},
+   {l:'📩 Voicemail',n:'Left a voicemail.'},
+   {l:'❌ Not Interested',n:'Not interested at this time.'}
+  ].forEach(function(t){
+    h += '<div class="note-tpl" data-note="'+t.n.replace(/"/g,'&quot;')+'" onclick="lsUseTemplate(this.dataset.note)">'+t.l+'</div>';
   });
-  html += '</div>';
-  html += '<textarea class="ld-note-ta" id="lsNoteInp" placeholder="Add a note..."></textarea>';
-  html += '<button style="margin-top:8px;padding:10px 18px;border-radius:9px;background:var(--text);color:#fff;border:none;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer" onclick="lsAddNote('+l.id+')">Save Note</button>';
-  html += '</div></div>';
+  h += '</div>';
+  // Textarea centered / full width
+  h += '<textarea class="ld-note-ta" id="lsNoteInp" placeholder="Add a note about this lead..." style="width:100%;min-height:90px"></textarea>';
+  h += '<button onclick="lsAddNote('+l.id+')" style="margin-top:10px;width:100%;padding:12px;border-radius:10px;background:var(--text);color:#fff;border:none;font-family:var(--f);font-size:14px;font-weight:700;cursor:pointer;letter-spacing:.01em">Save Note</button>';
+  h += '</div>';
+
+  h += '<div style="height:4px;background:var(--bg)"></div>';
 
   // ══════════════════════════════════════════════
-  // ACTIVITY THREAD
+  // SECTION 7 — ACTIVITY THREAD
   // ══════════════════════════════════════════════
   if(acts.length){
-    html += '<div class="ld-sect">';
-    html += '<div class="ld-sect-hd" style="margin-bottom:12px"><div class="ld-sect-title">Activity</div>';
-    if(acts.length>5) html += '<span style="font-size:12px;font-weight:700;color:var(--green);cursor:pointer">All ('+acts.length+')</span>';
-    html += '</div>';
-    html += '<div style="padding:0 16px 16px">';
-    var icons2={call:'📞',sms:'💬',email:'📧',note:'📝',fu:'📅',stage_change:'🔄'};
+    h += '<div style="background:var(--white);padding:14px 16px">';
+    h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
+    h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase">Activity</div>';
+    if(acts.length>5) h += '<div style="font-size:12px;font-weight:700;color:var(--green);cursor:pointer">All ('+acts.length+')</div>';
+    h += '</div>';
+    var icons={call:'📞',sms:'💬',email:'📧',note:'📝',fu:'📅',stage_change:'🔄'};
     acts.slice(0,5).forEach(function(item,i){
-      html += '<div class="ld-act-item">';
-      if(i<Math.min(acts.length,5)-1) html += '<div class="ld-act-line"></div>';
-      html += '<div class="ld-act-dot">'+(icons2[item.type]||'📋')+'</div>';
-      html += '<div class="ld-act-body">';
-      html += '<span class="ld-act-label">'+item.label+'</span><span class="ld-act-time">'+item.time+'</span>';
-      html += '<div class="ld-act-text">'+item.body+'</div>';
+      h += '<div class="ld-act-item">';
+      if(i<Math.min(acts.length,5)-1) h += '<div class="ld-act-line"></div>';
+      h += '<div class="ld-act-dot">'+(icons[item.type]||'📋')+'</div>';
+      h += '<div class="ld-act-body">';
+      h += '<span class="ld-act-label">'+item.label+'</span><span class="ld-act-time">'+item.time+'</span>';
+      h += '<div class="ld-act-text">'+item.body+'</div>';
       if(item.rec){
-        html += '<div style="display:flex;align-items:center;gap:8px;margin-top:7px;padding:7px 11px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">';
-        html += '<button onclick="showToast(\'▶ Playing...\')" style="width:26px;height:26px;border-radius:50%;background:var(--red);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg fill="white" viewBox="0 0 24 24" style="width:10px;height:10px;margin-left:2px"><polygon points="5,3 19,12 5,21"/></svg></button>';
-        html += '<div style="flex:1;height:4px;background:var(--border);border-radius:2px"><div style="height:100%;width:35%;background:var(--green);border-radius:2px"></div></div>';
-        html += '<span style="font-size:11px;color:var(--muted);font-family:monospace">2:34</span></div>';
+        h += '<div style="display:flex;align-items:center;gap:8px;margin-top:7px;padding:7px 11px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">';
+        h += '<button onclick="showToast(\'▶ Playing...\')" style="width:26px;height:26px;border-radius:50%;background:var(--red);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg fill="white" viewBox="0 0 24 24" style="width:10px;height:10px;margin-left:2px"><polygon points="5,3 19,12 5,21"/></svg></button>';
+        h += '<div style="flex:1;height:4px;background:var(--border);border-radius:2px"><div style="height:100%;width:35%;background:var(--green);border-radius:2px"></div></div>';
+        h += '<span style="font-size:11px;color:var(--muted);font-family:monospace">2:34</span></div>';
       }
-      html += '</div></div>';
+      h += '</div></div>';
     });
-    html += '</div></div>';
+    h += '</div>';
   }
 
-  html += '<div style="height:140px"></div>';
-  document.getElementById('lsBody').innerHTML = html;
+  h += '<div style="height:120px"></div>';
+  document.getElementById('lsBody').innerHTML = h;
 }
+
+// ── Helper: info row ──
+function ldInfoRow(icon, label, val){
+  return '<div style="display:flex;align-items:baseline;gap:8px">'
+    +'<span style="font-size:13px;flex-shrink:0;width:22px;text-align:center">'+icon+'</span>'
+    +'<span style="font-size:11px;font-weight:600;color:var(--muted);width:80px;flex-shrink:0;text-transform:uppercase;letter-spacing:.04em">'+label+'</span>'
+    +'<span style="font-size:13px;color:var(--text);font-weight:500;flex:1;min-width:0">'+val+'</span>'
+    +'</div>';
+}
+
+// ── Helper: quick action button (Meeting/Quote/Invoice) ──
+function ldQuickBtn(icon, label, bg, col, fn){
+  return '<button onclick="'+fn+'" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;border-radius:12px;border:1.5px solid var(--border);background:'+bg+';cursor:pointer;font-family:var(--f);font-size:12px;font-weight:700;color:'+col+';transition:opacity .1s;width:100%">'
+    +'<span style="font-size:22px">'+icon+'</span>'+label+'</button>';
+}
+
+// ── Helper: call/comms button ──
+function ldCallBtn(icon, label, bg, col, fn){
+  return '<button onclick="'+fn+'" style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:11px 8px;border-radius:12px;border:none;background:'+bg+';cursor:pointer;font-family:var(--f);font-size:11px;font-weight:700;color:'+col+';width:100%">'
+    +'<span style="font-size:20px">'+icon+'</span>'+label+'</button>';
+}
+
 
 function lsQuickSaveFu(lid){
   var dtEl = document.getElementById('lsFuDatetime');
