@@ -1344,6 +1344,9 @@ Dr. Sarah
       <div class="fg"><label class="flbl">Primary Email</label>
         <input class="finp" id="ef-em" placeholder="john@email.com" type="email">
       </div>
+      <div class="fg"><label class="flbl">📍 Location</label>
+        <input class="finp" id="ef-loc" placeholder="City, Province / State">
+      </div>
 
       <!-- Expandable: extra phones/emails -->
       <div id="efExtrasToggle" onclick="document.getElementById('efExtras').style.display=document.getElementById('efExtras').style.display==='none'?'block':'none';this.textContent=document.getElementById('efExtras').style.display==='none'?'+ Add more phones / emails':'− Hide extra fields'" style="font-size:12px;font-weight:700;color:var(--green);cursor:pointer;padding:6px 0 10px">+ Add more phones / emails</div>
@@ -1825,6 +1828,7 @@ function mapLead(l, i) {
     em4: l.email4 || '', em5: l.email5 || '',
     stage: l.stage || 'New', src: l.source || 'Manual',
     svc: l.service || '', note: l.notes || '',
+    location: l.location || '',
     ok: l.sms_consent || false,
     t: timeAgo(l.created_at),
     rawDate: l.created_at ? l.created_at.slice(0,10) : TOD,
@@ -2668,8 +2672,10 @@ function renderLeadScreen(id) {
   if(l.em) h += ldInfoRow('✉️','Email','<a href="mailto:'+l.em+'" style="color:var(--blue);text-decoration:none">'+l.em+'</a>');
   // Phone
   if(l.ph) h += ldInfoRow('📞','Phone','<a href="tel:'+l.ph+'" style="color:var(--blue);text-decoration:none">'+l.ph+'</a>'+(l.ph2?' · '+l.ph2:''));
-  // Location
-  if(l.location) h += ldInfoRow('📍','Location',l.location);
+  // Location — always shown
+  h += ldInfoRow('📍','Location', l.location
+    ? l.location
+    : '<span style="color:var(--green);cursor:pointer;font-weight:600" onclick="openEditLead('+l.id+')">+ Add location</span>');
   // Product / Service
   if(l.svc) h += ldInfoRow('🛠','Product',l.svc);
   // Date of Inquiry
@@ -2687,19 +2693,19 @@ function renderLeadScreen(id) {
   h += '</div>'; // end info card
   h += '<div style="height:4px;background:var(--bg)"></div>';
 
-  // ══ SECTION 2 — CALL & MESSAGE (above fold) ══
+  // ══ SECTION 2 — MESSAGE & CALL ══
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
-  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Call</div>';
-  h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">';
-  h += ldCallBtn('📞','Dialer','#ffe0e0','var(--red)','lsDoCall()');
-  h += ldCallBtn('🤖','AI Call','linear-gradient(135deg,#ede9fe,#dbeafe)','#6366f1','lsDoAiCall()');
-  h += ldCallBtn('📣','IVR Call','#ede9fe','#7c3aed','lsDoIvrCall()');
-  h += '</div>';
   h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Message</div>';
-  h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">';
+  h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">';
   h += ldCallBtn('📧','Email','#dbeafe','#2563eb','lsDoEmail()');
   h += ldCallBtn('💬','SMS','#d1fae5','var(--green)','openSmsSheet()');
   h += ldCallBtn('🟢','WhatsApp','#dcfce7','#25d366','lsDoWa()');
+  h += '</div>';
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Call</div>';
+  h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">';
+  h += ldCallBtn('📞','Dialer','#ffe0e0','var(--red)','lsDoCall()');
+  h += ldCallBtn('🤖','AI Call','linear-gradient(135deg,#ede9fe,#dbeafe)','#6366f1','lsDoAiCall()');
+  h += ldCallBtn('📣','IVR Call','#ede9fe','#7c3aed','lsDoIvrCall()');
   h += '</div></div>';
   h += '<div style="height:4px;background:var(--bg)"></div>';
 
@@ -3182,6 +3188,8 @@ function openEditLead(id) {
   document.getElementById('ef-em3').value = l.em3 || '';
   document.getElementById('ef-em4').value = l.em4 || '';
   document.getElementById('ef-em5').value = l.em5 || '';
+  var locEl = document.getElementById('ef-loc');
+  if(locEl) locEl.value = l.location || '';
   // Source
   var srcSel = document.getElementById('ef-src');
   if(srcSel) { for(var i=0;i<srcSel.options.length;i++){if(srcSel.options[i].value===l.src||srcSel.options[i].text===l.src){srcSel.selectedIndex=i;break}} }
@@ -3221,6 +3229,8 @@ async function saveEditedLead() {
   l.src  = document.getElementById('ef-src').value;
   l.svc  = document.getElementById('ef-svc').value;
   l.ok   = document.getElementById('ef-sms').checked || document.getElementById('ef-call').checked;
+  var locEl = document.getElementById('ef-loc');
+  l.location = locEl ? locEl.value.trim() : (l.location||'');
 
   // Save to Supabase
   if(l.dbId) {
@@ -3234,6 +3244,7 @@ async function saveEditedLead() {
           email2: l.em2||null, email3: l.em3||null,
           email4: l.em4||null, email5: l.em5||null,
           source: l.src, service: l.svc,
+          location: l.location||null,
           sms_consent: l.ok, call_consent: l.ok, email_consent: l.ok,
           updated_at: new Date().toISOString()
         })
