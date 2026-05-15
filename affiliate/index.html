@@ -3337,6 +3337,42 @@ async function saveNewLead(){
   if(em && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)){if(emErr)emErr.style.display='block';showToast('Invalid email address');return}
 
   var ph = cc + rawPh;
+
+  // ── MASTER DATABASE DUPLICATE CHECK ──────────────────
+  // Check phone AND email against ALL leads in the system (cross-client)
+  showToast('🔍 Checking for duplicates...');
+  try {
+    var cleanPh = rawPh; // 10 digits only
+    var dupPhone = false, dupEmail = false;
+
+    // Check by phone via RPC function (checks across all clients)
+    var phRes = await sbFetch('/rest/v1/rpc/check_duplicate_lead', {
+      method: 'POST',
+      body: JSON.stringify({ p_phone: ph, p_email: em || null })
+    });
+    if(phRes.ok) {
+      var result = await phRes.json();
+      dupPhone = result.phone_exists;
+      dupEmail = result.email_exists;
+    }
+
+    if(dupPhone && dupEmail) {
+      showDuplicateBlock('Both phone number and email already exist in our system. This lead cannot be submitted as a referral.');
+      return;
+    }
+    if(dupPhone) {
+      showDuplicateBlock('This phone number ('+ph+') is already registered in our system. This lead cannot be submitted as a referral.');
+      return;
+    }
+    if(dupEmail && em) {
+      showDuplicateBlock('This email address ('+em+') is already registered in our system. This lead cannot be submitted as a referral.');
+      return;
+    }
+  } catch(e) {
+    console.warn('[Affiliate] Duplicate check failed:', e.message);
+    // Continue anyway if check fails — don't block submission
+  }
+
   var lead={id:nxtId,name:(fn+' '+ln).trim(),ph:ph,em:em,
     stage:document.getElementById('aStg').value,
     src:document.getElementById('aSrc').value,
@@ -3344,13 +3380,11 @@ async function saveNewLead(){
     note:document.getElementById('aNt').value.trim(),
     ok:true,t:'just now',col:COLORS[nxtId%COLORS.length]};
 
-  // ── DUPLICATE CHECK ──────────────────────────────────
-  var cleanPh = ph.replace(/[^0-9]/g,'');
+  // ── LOCAL DUPLICATE CHECK (within affiliate's own list) ──
+  var cleanPh2 = ph.replace(/[^0-9]/g,'');
   var dup = null, dupReason = '';
-
-  // Check phone (strip non-digits for comparison)
   var phoneMatch = leads.find(function(l){
-    return l.ph.replace(/[^0-9]/g,'') === cleanPh;
+    return l.ph.replace(/[^0-9]/g,'') === cleanPh2;
   });
   if(phoneMatch){ dup=phoneMatch; dupReason='Same phone number: '+ph; }
 
@@ -3377,6 +3411,27 @@ async function saveNewLead(){
   }
 
   await doSaveLead(lead);
+}
+
+// Hard block for master-db duplicates (no override allowed)
+function showDuplicateBlock(message) {
+  closeSheet('addLeadSh');
+  // Show a non-dismissible alert style message
+  var toast = document.getElementById('toast');
+  if(toast) {
+    toast.innerHTML = '🚫 ' + message;
+    toast.className = 'toast show';
+    toast.style.background = 'var(--red)';
+    toast.style.bottom = '100px';
+    toast.style.maxWidth = '360px';
+    toast.style.whiteSpace = 'normal';
+    toast.style.lineHeight = '1.5';
+    toast.style.padding = '14px 18px';
+    setTimeout(function(){
+      toast.className='toast';
+      toast.style = '';
+    }, 6000);
+  }
 }
 
 function showDuplicate(dup, reason) {
