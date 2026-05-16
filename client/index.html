@@ -3814,25 +3814,19 @@ setTimeout(function(){var s=document.getElementById('splash');if(s)s.remove()},2
   </div>
 </div>
 
-<!-- ═══ ADVIUZ MANAGEMENT SCREEN ═══ -->
-<div class="camp-screen" id="mgmtScreen">
-  <div class="camp-topbar">
-    <button class="camp-back" onclick="closeMgmtScreen()">
-      <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
-    </button>
-    <div class="camp-title" id="mgmtTitle">Management</div>
-  </div>
-  <!-- Segment tabs -->
-  <div style="display:flex;background:var(--white);border-bottom:1px solid var(--border);flex-shrink:0">
-    <button id="mgmtTabAff" onclick="switchMgmtTab('affiliates')" style="flex:1;padding:12px 0;border:none;background:none;font-family:var(--f);font-size:13px;font-weight:700;color:var(--green);border-bottom:2px solid var(--green);cursor:pointer">Affiliates</button>
-    <button id="mgmtTabAge" onclick="switchMgmtTab('agencies')"   style="flex:1;padding:12px 0;border:none;background:none;font-family:var(--f);font-size:13px;font-weight:700;color:var(--muted);border-bottom:2px solid transparent;cursor:pointer">Agencies</button>
-    <button id="mgmtTabCom" onclick="switchMgmtTab('commissions')" style="flex:1;padding:12px 0;border:none;background:none;font-family:var(--f);font-size:13px;font-weight:700;color:var(--muted);border-bottom:2px solid transparent;cursor:pointer">Approvals</button>
-  </div>
-  <div class="camp-scroll" id="mgmtBody">
-    <div style="text-align:center;padding:40px 20px;color:var(--sub)">Loading...</div>
-  </div>
-</div>
+<!-- old mgmt screen removed - functionality moved to Dashboard tab -->
 
+<script>
+// Legacy mgmt stubs (kept for any residual calls)
+function openMgmtScreen(tab){ openAdminTab(tab==='commissions'?'commissions':tab==='agencies'?'affiliates':'affiliates'); }
+function closeMgmtScreen(){ }
+function switchMgmtTab(tab){ }
+async function loadMgmtData(tab){ }
+function renderAffiliateList(d){ return ''; }
+function renderAgencyList(d){ return ''; }
+function renderCommissionQueue(d){ return ''; }
+async function approveCommission(id, status){ await adminApproveComm(id, status); }
+</script>
 
 <script>
 // ═══════════════════════════════════════════════════════
@@ -4041,131 +4035,6 @@ async function adminApproveComm(id, status){
 }
 
 function capitalize(s){ return s?s.charAt(0).toUpperCase()+s.slice(1):s; }
-</script>
-
-function openMgmtScreen(tab) {
-  _mgmtTab = tab || 'affiliates';
-  document.getElementById('mgmtScreen').classList.add('open');
-  switchMgmtTab(_mgmtTab);
-}
-function closeMgmtScreen() {
-  document.getElementById('mgmtScreen').classList.remove('open');
-}
-function switchMgmtTab(tab) {
-  _mgmtTab = tab;
-  ['Aff','Age','Com'].forEach(function(t){
-    var btn = document.getElementById('mgmtTab'+t);
-    var isActive = (tab==='affiliates'&&t==='Aff')||(tab==='agencies'&&t==='Age')||(tab==='commissions'&&t==='Com');
-    btn.style.color = isActive ? 'var(--green)' : 'var(--muted)';
-    btn.style.borderBottomColor = isActive ? 'var(--green)' : 'transparent';
-  });
-  document.getElementById('mgmtTitle').textContent =
-    tab==='affiliates'?'👥 Affiliates':tab==='agencies'?'🏢 Agencies':'💰 Commission Approvals';
-  loadMgmtData(tab);
-}
-
-async function loadMgmtData(tab) {
-  var body = document.getElementById('mgmtBody');
-  body.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--sub)">Loading...</div>';
-  try {
-    if(tab==='affiliates') {
-      var res = await sbFetch('/rest/v1/affiliates?select=*,clients(business_name,email)&order=joined_at.desc&limit=100');
-      var data = res.ok ? await res.json() : [];
-      body.innerHTML = renderAffiliateList(data);
-    } else if(tab==='agencies') {
-      // Agencies = clients with role 'agency' in client_members or a separate flag
-      var res = await sbFetch('/rest/v1/clients?select=*&role=eq.agency&order=created_at.desc&limit=100');
-      var data = res.ok ? await res.json() : [];
-      body.innerHTML = renderAgencyList(data);
-    } else {
-      var res = await sbFetch('/rest/v1/referral_commissions?select=*,leads(name,phone),affiliates(clients(business_name))&status=eq.pending&order=submitted_at.asc&limit=100');
-      var data = res.ok ? await res.json() : [];
-      body.innerHTML = renderCommissionQueue(data);
-    }
-  } catch(e) {
-    body.innerHTML = '<div style="text-align:center;padding:40px 16px;color:var(--sub)">Could not load data.<br><small>'+e.message+'</small></div>';
-  }
-}
-
-function renderAffiliateList(data) {
-  if(!data.length) return '<div class="empty"><div class="empty-icon">👥</div><div class="empty-t">No affiliates yet</div><div class="empty-s">Affiliates will appear here once added</div></div>';
-  return '<div style="background:var(--white)">'
-    +data.map(function(a){
-      var biz = (a.clients&&a.clients.business_name)||'Unknown';
-      var email = (a.clients&&a.clients.email)||'';
-      var earned = (a.total_earned||0).toLocaleString('en',{minimumFractionDigits:0,maximumFractionDigits:0});
-      var pending = (a.total_pending||0).toLocaleString('en',{minimumFractionDigits:0,maximumFractionDigits:0});
-      var stColor = a.status==='active'?'var(--green)':a.status==='suspended'?'var(--red)':'var(--amber)';
-      return '<div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border)">'
-        +'<div style="width:44px;height:44px;border-radius:12px;background:var(--greenl);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;color:var(--green);flex-shrink:0">'+biz.charAt(0)+'</div>'
-        +'<div style="flex:1;min-width:0">'
-        +'<div style="font-size:14px;font-weight:700;color:var(--text)">'+biz+'</div>'
-        +'<div style="font-size:12px;color:var(--sub);margin-top:1px">'+email+' · Code: '+(a.referral_code||'—')+'</div>'
-        +'<div style="font-size:11px;margin-top:4px"><span style="color:var(--green);font-weight:700">$'+earned+' earned</span> · <span style="color:var(--amber);font-weight:600">$'+pending+' pending</span></div>'
-        +'</div>'
-        +'<div style="text-align:right;flex-shrink:0">'
-        +'<div style="font-size:10px;font-weight:700;color:'+stColor+';padding:3px 8px;border-radius:20px;background:'+stColor+'18">'+a.status.toUpperCase()+'</div>'
-        +'<div style="font-size:11px;color:var(--sub);margin-top:6px">'+a.commission_rate_new+'% / '+a.commission_rate_recurring+'%</div>'
-        +'</div></div>';
-    }).join('')+'</div>'
-    +'<div style="height:8px"></div>';
-}
-
-function renderAgencyList(data) {
-  if(!data.length) return '<div class="empty"><div class="empty-icon">🏢</div><div class="empty-t">No agencies yet</div><div class="empty-s">Authorized resellers will appear here</div></div>';
-  return '<div style="background:var(--white)">'
-    +data.map(function(a){
-      return '<div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border)">'
-        +'<div style="width:44px;height:44px;border-radius:12px;background:var(--bluel);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;color:var(--blue);flex-shrink:0">'+(a.business_name||'?').charAt(0)+'</div>'
-        +'<div style="flex:1;min-width:0">'
-        +'<div style="font-size:14px;font-weight:700;color:var(--text)">'+(a.business_name||'Unknown')+'</div>'
-        +'<div style="font-size:12px;color:var(--sub);margin-top:1px">'+(a.email||'')+'</div>'
-        +'</div>'
-        +'<div style="font-size:10px;font-weight:700;color:var(--blue);padding:3px 8px;border-radius:20px;background:var(--bluel)">'+(a.status||'active').toUpperCase()+'</div>'
-        +'</div>';
-    }).join('')+'</div>';
-}
-
-function renderCommissionQueue(data) {
-  if(!data.length) return '<div class="empty"><div class="empty-icon">✅</div><div class="empty-t">All clear!</div><div class="empty-s">No pending commissions to approve</div></div>';
-  return '<div style="background:var(--white)">'
-    +data.map(function(c){
-      var aff = (c.affiliates&&c.affiliates.clients&&c.affiliates.clients.business_name)||'Unknown Affiliate';
-      var lead = (c.leads&&c.leads.name)||'Unknown Lead';
-      var amt = '$'+(c.commission_amount||0).toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2});
-      var deal = '$'+(c.deal_value||0).toLocaleString();
-      var daysLeft = c.auto_approve_at ? Math.ceil((new Date(c.auto_approve_at)-new Date())/86400000) : '—';
-      var autoLabel = daysLeft > 0 ? 'Auto in '+daysLeft+'d' : 'Ready to auto-approve';
-      return '<div style="padding:14px 16px;border-bottom:1px solid var(--border)">'
-        +'<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:10px">'
-        +'<div style="flex:1">'
-        +'<div style="font-size:13px;font-weight:700;color:var(--text)">'+lead+'</div>'
-        +'<div style="font-size:12px;color:var(--sub);margin-top:2px">via '+aff+' · Deal: '+deal+'</div>'
-        +'<div style="font-size:11px;color:var(--amber);font-weight:600;margin-top:4px">🕐 '+autoLabel+'</div>'
-        +'</div>'
-        +'<div style="font-size:18px;font-weight:900;color:var(--text)">'+amt+'</div>'
-        +'</div>'
-        +'<div style="display:flex;gap:8px">'
-        +'<button onclick="approveCommission(\''+c.id+'\',\'rejected\')" style="flex:1;padding:9px;border-radius:9px;background:#fee2e2;border:none;font-family:var(--f);font-size:12px;font-weight:700;color:var(--red);cursor:pointer">✗ Reject</button>'
-        +'<button onclick="approveCommission(\''+c.id+'\',\'approved\')" style="flex:2;padding:9px;border-radius:9px;background:var(--green);border:none;font-family:var(--f);font-size:12px;font-weight:700;color:#fff;cursor:pointer">✓ Approve Commission</button>'
-        +'</div></div>';
-    }).join('')+'</div>'
-    +'<div style="height:8px"></div>';
-}
-
-async function approveCommission(id, status) {
-  var body = {status: status};
-  if(status==='approved') body.approved_at = new Date().toISOString();
-  var res = await sbFetch('/rest/v1/referral_commissions?id=eq.'+id, {
-    method:'PATCH', body: JSON.stringify(body)
-  });
-  if(res.ok) {
-    showToast(status==='approved' ? '✅ Commission approved' : '❌ Commission rejected');
-    loadMgmtData('commissions');
-  } else {
-    showToast('Error updating commission');
-  }
-}
 
 // Show Adviuz management menu after login if account name matches
 (function checkAdviuzAccount(){
