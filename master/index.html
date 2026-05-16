@@ -928,6 +928,67 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
   </div>
 </div>
 
+<!-- ═══ ADD CLIENT SHEET ═══ -->
+<div class="sheet-ov" id="addClientSh" onclick="if(event.target===this)closeSheet('addClientSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">Add Client</div>
+      <button class="sheet-x" onclick="closeSheet('addClientSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body">
+
+      <div class="fg2">
+        <div><label class="flbl">Business Name *</label>
+          <input class="finp" id="ac-biz" placeholder="Laser Cosmetics Clinic"></div>
+        <div><label class="flbl">Owner Name</label>
+          <input class="finp" id="ac-name" placeholder="John Smith"></div>
+      </div>
+
+      <div class="fg"><label class="flbl">Email *</label>
+        <input class="finp" id="ac-email" type="email" placeholder="owner@business.com">
+      </div>
+
+      <div class="fg"><label class="flbl">Phone</label>
+        <input class="finp" id="ac-phone" type="tel" placeholder="+1 416-555-0100">
+      </div>
+
+      <div class="fg"><label class="flbl">City / Location</label>
+        <input class="finp" id="ac-location" placeholder="Toronto, Ontario">
+      </div>
+
+      <div class="fg"><label class="flbl">Product Purchased *</label>
+        <select class="fsel" id="ac-product">
+          <option value="digital_flyers">&#x1F5BC; Digital Flyers</option>
+          <option value="sales_engine">&#x1F4CA; Sales Engine</option>
+          <option value="ai_engine">&#x1F916; AI Sales Engine</option>
+          <option value="all">&#x2B50; All Products</option>
+        </select>
+      </div>
+
+      <div class="fg"><label class="flbl">Status</label>
+        <select class="fsel" id="ac-status">
+          <option value="active">Active</option>
+          <option value="trial">Trial</option>
+          <option value="inactive">Inactive</option>
+        </select>
+      </div>
+
+      <div class="fg"><label class="flbl">Notes</label>
+        <textarea class="fta" id="ac-notes" placeholder="How did they find us? Any special arrangements..."></textarea>
+      </div>
+
+      <div style="background:var(--bluel);border-radius:10px;padding:12px 14px;font-size:12px;color:var(--blue);line-height:1.6">
+        <strong>What happens next:</strong> Client record is created immediately. If you enter their email, they receive a login invitation to the Sales Engine portal. You can then create their campaigns and ads in the Dashboard.
+      </div>
+
+    </div>
+    <div class="sh-foot">
+      <button class="btn btn-ghost" onclick="closeSheet('addClientSh')" style="flex:1">Cancel</button>
+      <button class="btn btn-primary" id="addClientBtn" onclick="saveNewClient()" style="flex:2;justify-content:center">Create Client</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ SHEETS ═══ -->
 <!-- Lead Detail -->
 <div class="sheet-ov" id="leadSh" onclick="if(event.target===this)closeSheet('leadSh')">
@@ -1704,16 +1765,21 @@ function togglePassVis() {
 async function refreshSession() {
   var saved = localStorage.getItem('adviuz_master_session');
   if (!saved) return false;
-  var session = JSON.parse(saved);
+  var session;
+  try { session = JSON.parse(saved); } catch(e) { return false; }
+  if (!session || !session.token) return false;
 
-  // Not expired yet
+  // Restore role from saved session
+  window._staffRole = session.role || 'super_admin';
+
+  // Token still valid (not expiring within next 60s)
   if (session.expires > Date.now() + 60000) {
     authToken = session.token;
     currentUser = session.user;
     return true;
   }
 
-  // Try refresh
+  // Token expired — try refresh
   try {
     var res = await fetch(SB_URL + '/auth/v1/token?grant_type=refresh_token', {
       method: 'POST',
@@ -1724,11 +1790,13 @@ async function refreshSession() {
     if (data.access_token) {
       authToken = data.access_token;
       currentUser = data.user;
+      // Save with role preserved
       localStorage.setItem('adviuz_master_session', JSON.stringify({
         token: data.access_token,
         refresh: data.refresh_token,
         expires: Date.now() + (data.expires_in * 1000),
-        user: data.user
+        user: data.user,
+        role: session.role || 'super_admin'
       }));
       return true;
     }
@@ -2792,8 +2860,21 @@ function renderLeadScreen(id) {
   });
   h += '</select>';
   h += '</div>';
-
   h += '<div style="height:4px;background:var(--bg)"></div>';
+
+  // ══ CONVERT TO CLIENT BANNER (Deal Closed only) ══
+  if(l.stage === 'Deal Closed' || l.stage === 'Ready to Pay') {
+    h += '<div style="background:linear-gradient(135deg,#065f46,#047857);padding:16px;margin-bottom:4px">';
+    h += '<div style="font-size:13px;font-weight:800;color:#fff;margin-bottom:4px">🎉 Deal Closed!</div>';
+    h += '<div style="font-size:12px;color:rgba(255,255,255,.75);margin-bottom:12px">This lead is ready to become a client. Choose what they purchased:</div>';
+    h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px">';
+    h += convertProductBtn('🖼','Digital<br>Flyers','digital_flyers',l.id);
+    h += convertProductBtn('🤖','AI Sales<br>Engine','ai_engine',l.id);
+    h += convertProductBtn('📊','Sales<br>Engine','sales_engine',l.id);
+    h += '</div>';
+    h += '</div>';
+    h += '<div style="height:4px;background:var(--bg)"></div>';
+  }
 
   // ══════════════════════════════════════════════
   // SECTION 4 — FOLLOW-UP DATE
@@ -3930,7 +4011,7 @@ function adClientsHTML() {
   var cl = _adminData.clients;
   var h = '<div style="padding:0 12px 12px"><div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0">';
   h += '<div style="font-size:12px;color:var(--sub);font-weight:600">'+cl.length+' clients</div>';
-  h += '<button onclick="showToast(&apos;Create client - coming soon&apos;)" style="padding:7px 14px;border-radius:9px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">+ New</button></div>';
+  h += '<button onclick="openAddClientSheet()" style="padding:7px 14px;border-radius:9px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">+ Add Client</button></div>';
   if (!cl.length) return h+'</div>';
   h += '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
   var COLS = ['#00a884','#2563eb','#7c3aed','#d97706','#0891b2'];
@@ -4041,8 +4122,151 @@ async function adApproveComm(id, status) {
   } else { showToast('Update failed'); }
 }
 
-function capitalize(s){ return s?s.charAt(0).toUpperCase()+s.slice(1):s; }
-</script>
+// ── Helper: product button for Convert to Client ──
+function convertProductBtn(icon, label, product, lid) {
+  return '<button onclick="convertToClient('+lid+',\''+product+'\')" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;border-radius:12px;border:2px solid rgba(255,255,255,.3);background:rgba(255,255,255,.12);cursor:pointer;font-family:var(--f);font-size:11px;font-weight:700;color:#fff;width:100%;line-height:1.4">'
+    +'<span style="font-size:22px">'+icon+'</span>'+label+'</button>';
+}
 
+// ── Convert Lead to Client ──
+async function convertToClient(lid, product) {
+  var l = leads.find(function(x){ return x.id === lid; });
+  if (!l) return;
+
+  var productLabels = {digital_flyers:'Digital Flyers', ai_engine:'AI Sales Engine', sales_engine:'Sales Engine'};
+  var confirmed = confirm('Convert '+l.name+' to a client on the '+productLabels[product]+' plan?\n\nThis will:\n• Create their client account\n• Send them a login invitation\n• Appear in your Clients dashboard');
+  if (!confirmed) return;
+
+  showToast('Creating client account...');
+
+  try {
+    // 1. Create client record
+    var clientRes = await sbFetch('/rest/v1/clients', {
+      method: 'POST',
+      headers: {'Prefer':'return=representation'},
+      body: JSON.stringify({
+        business_name: l.company || l.name,
+        email: l.em || '',
+        phone: l.ph || '',
+        status: 'active',
+        role: 'client',
+        product: product,
+        source_lead_id: lid
+      })
+    });
+
+    if (!clientRes.ok && clientRes.status !== 201) {
+      throw new Error('Failed to create client record');
+    }
+
+    var clients = await clientRes.json();
+    var newClient = Array.isArray(clients) ? clients[0] : clients;
+
+    // 2. Send Supabase invite email (creates auth user + sends invite)
+    if (l.em) {
+      var inviteRes = await fetch(SB_URL + '/auth/v1/invite', {
+        method: 'POST',
+        headers: {
+          'apikey': SB_ANON,
+          'Authorization': 'Bearer ' + authToken,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ email: l.em, data: { client_id: newClient.id, role: 'director' } })
+      });
+      var inviteData = await inviteRes.json();
+
+      // 3. Link user to client_members if invite succeeded
+      if (inviteData.id) {
+        await sbFetch('/rest/v1/client_members', {
+          method: 'POST',
+          body: JSON.stringify({
+            client_id: newClient.id,
+            user_id: inviteData.id,
+            role: 'director',
+            user_type: 'client'
+          })
+        });
+      }
+    }
+
+    // 4. Update lead stage to mark as converted
+    await sbFetch('/rest/v1/leads?id=eq.'+lid, {
+      method: 'PATCH',
+      body: JSON.stringify({ stage: 'Deal Closed', converted_to_client: true })
+    });
+
+    showToast('Client account created! Invite sent to ' + (l.em || l.name));
+
+    // Refresh admin data
+    if (_adminLoaded) loadAdminData();
+
+    // Close lead screen and go back to leads
+    closeLead();
+
+  } catch(e) {
+    showToast('Error: ' + e.message);
+  }
+}
+
+// ── Manual Add Client ──
+function openAddClientSheet() {
+  ['ac-biz','ac-name','ac-email','ac-phone','ac-location','ac-notes'].forEach(function(id){
+    var el = document.getElementById(id); if(el) el.value = '';
+  });
+  var p = document.getElementById('ac-product'); if(p) p.value = 'digital_flyers';
+  var s = document.getElementById('ac-status'); if(s) s.value = 'active';
+  openSheet('addClientSh');
+}
+
+async function saveNewClient() {
+  var biz     = (document.getElementById('ac-biz')||{}).value.trim();
+  var email   = (document.getElementById('ac-email')||{}).value.trim();
+  var phone   = (document.getElementById('ac-phone')||{}).value.trim();
+  var loc     = (document.getElementById('ac-location')||{}).value.trim();
+  var product = (document.getElementById('ac-product')||{}).value;
+  var status  = (document.getElementById('ac-status')||{}).value;
+  var notes   = (document.getElementById('ac-notes')||{}).value.trim();
+  if(!biz)   { showToast('Business name is required'); return; }
+  if(!email) { showToast('Email is required'); return; }
+  var btn = document.getElementById('addClientBtn');
+  if(btn){ btn.textContent='Creating...'; btn.disabled=true; }
+  try {
+    var res = await sbFetch('/rest/v1/clients',{
+      method:'POST',
+      headers:{'Prefer':'return=representation'},
+      body:JSON.stringify({business_name:biz,email:email,phone:phone||null,status:status,role:'client',product:product,location:loc||null,notes:notes||null})
+    });
+    if(!res.ok && res.status!==201) throw new Error('Failed to create client');
+    var data = await res.json();
+    var newClient = Array.isArray(data)?data[0]:data;
+    if(email && newClient && newClient.id){
+      try {
+        var invRes = await fetch(SB_URL+'/auth/v1/invite',{
+          method:'POST',
+          headers:{'apikey':SB_ANON,'Authorization':'Bearer '+authToken,'Content-Type':'application/json'},
+          body:JSON.stringify({email:email,data:{client_id:newClient.id,role:'director',business_name:biz}})
+        });
+        var invData = await invRes.json();
+        if(invData.id){
+          await sbFetch('/rest/v1/client_members',{
+            method:'POST',
+            body:JSON.stringify({client_id:newClient.id,user_id:invData.id,role:'director',user_type:'client'})
+          });
+        }
+      } catch(invErr){ console.warn('Invite failed:',invErr.message); }
+    }
+    closeSheet('addClientSh');
+    showToast('Client "'+biz+'" created!'+(email?' Invite sent.':''));
+    await loadAdminData();
+    window._adminDashTab='clients';
+    if(curTab==='dashboard') render();
+  } catch(e){
+    showToast('Error: '+e.message);
+  } finally {
+    if(btn){ btn.textContent='Create Client'; btn.disabled=false; }
+  }
+}
+
+</script>
 </body>
 </html>
