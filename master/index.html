@@ -890,6 +890,9 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
       <div class="menu-item" onclick="closeMenu();adminShowTab('commissions')">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>Commissions
       </div>
+      <div class="menu-item" onclick="closeMenu();openPlansSheet()">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Plans &amp; Pricing
+      </div>
     </div>
     <!-- Adviuz account management — only shown to Adviuz account -->
     <div id="adviuzMgmt" style="display:none">
@@ -928,6 +931,45 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
   </div>
 </div>
 
+<!-- ═══ PLANS & PRICING SHEET ═══ -->
+<div class="sheet-ov" id="plansSh" onclick="if(event.target===this)closeSheet('plansSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sh-head">
+      <div class="sh-title">Plans &amp; Pricing</div>
+      <button class="sh-x" onclick="closeSheet('plansSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body">
+      <div style="font-size:12px;color:var(--sub);margin-bottom:14px;line-height:1.6">
+        Define your service packages here. When creating a quote, select from this list to instantly add line items — no retyping.
+      </div>
+
+      <!-- Existing plans list -->
+      <div id="plansList"></div>
+
+      <!-- Add new plan -->
+      <div style="background:var(--bg);border-radius:12px;padding:14px;margin-top:12px">
+        <div style="font-size:12px;font-weight:700;color:var(--sub);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em">Add New Plan</div>
+        <input class="finp" id="pl-name" placeholder="Plan name (e.g. Digital Flyers Starter)" style="margin-bottom:8px">
+        <textarea class="fta" id="pl-desc" placeholder="Description" style="min-height:60px;margin-bottom:8px"></textarea>
+        <div class="fg2">
+          <div><label class="flbl">Price (CAD $)</label>
+            <input class="finp" id="pl-price" type="number" min="0" step="0.01" placeholder="500.00"></div>
+          <div><label class="flbl">Unit</label>
+            <select class="fsel" id="pl-unit">
+              <option>one-time</option>
+              <option>per month</option>
+              <option>per campaign</option>
+              <option>per 1000 views</option>
+              <option>per user</option>
+            </select>
+          </div>
+        </div>
+        <button onclick="savePlan()" style="width:100%;margin-top:10px;padding:11px;border-radius:10px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">+ Save Plan</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ CREATE QUOTE SHEET ═══ -->
 <div class="sheet-ov" id="createQuoteSh" onclick="if(event.target===this)closeSheet('createQuoteSh')">
   <div class="sheet"><div class="sheet-handle"></div>
@@ -942,6 +984,34 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
       </div>
       <div class="fg"><label class="flbl">Email *</label>
         <input class="finp" id="q-email" type="email" placeholder="client@email.com">
+      </div>
+
+      <div class="fg"><label class="flbl">Province</label>
+        <select class="fsel" id="q-province" onchange="setProvinceTax()">
+          <option value="">Select province...</option>
+          <option value="AB">Alberta (5% GST)</option>
+          <option value="BC">British Columbia (5% GST + 7% PST)</option>
+          <option value="MB">Manitoba (5% GST + 7% PST)</option>
+          <option value="NB">New Brunswick (15% HST)</option>
+          <option value="NL">Newfoundland (15% HST)</option>
+          <option value="NS">Nova Scotia (15% HST)</option>
+          <option value="NT">Northwest Territories (5% GST)</option>
+          <option value="NU">Nunavut (5% GST)</option>
+          <option value="ON">Ontario (13% HST)</option>
+          <option value="PE">PEI (15% HST)</option>
+          <option value="QC">Quebec (5% GST + 9.975% QST)</option>
+          <option value="SK" selected>Saskatchewan (5% GST + 6% PST)</option>
+          <option value="YT">Yukon (5% GST)</option>
+        </select>
+      </div>
+
+      <div class="fg"><label class="flbl">Quick Add from Plans</label>
+        <div style="display:flex;gap:8px">
+          <select class="fsel" id="q-plan-sel" style="flex:1">
+            <option value="">Select a plan to add...</option>
+          </select>
+          <button onclick="addPlanToQuote()" style="padding:10px 14px;border-radius:9px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0">+ Add</button>
+        </div>
       </div>
 
       <div class="fg"><label class="flbl">Line Items</label>
@@ -1017,6 +1087,22 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
       <div class="fg2">
         <div><label class="flbl">Guest Name</label><input class="finp" id="mt-name" placeholder="Client name"></div>
         <div><label class="flbl">Guest Email</label><input class="finp" id="mt-email" type="email" placeholder="client@email.com"></div>
+      </div>
+
+      <div class="fg"><label class="flbl">Client Province (for timezone)</label>
+        <select class="fsel" id="mt-province" onchange="updateMeetingTimezone()">
+          <option value="SK">Saskatchewan (CST - UTC-6, no DST)</option>
+          <option value="AB">Alberta (MST/MDT - UTC-7/-6)</option>
+          <option value="BC">British Columbia (PST/PDT - UTC-8/-7)</option>
+          <option value="MB">Manitoba (CST/CDT - UTC-6/-5)</option>
+          <option value="ON">Ontario (EST/EDT - UTC-5/-4)</option>
+          <option value="QC">Quebec (EST/EDT - UTC-5/-4)</option>
+          <option value="NB">New Brunswick (AST/ADT - UTC-4/-3)</option>
+          <option value="NS">Nova Scotia (AST/ADT - UTC-4/-3)</option>
+          <option value="NL">Newfoundland (NST/NDT - UTC-3:30/-2:30)</option>
+          <option value="PE">PEI (AST/ADT - UTC-4/-3)</option>
+        </select>
+        <div id="mt-tz-note" style="font-size:11px;color:var(--sub);margin-top:4px">Slots shown in Saskatoon CST. Client is also in CST.</div>
       </div>
 
       <div class="fg"><label class="flbl">Meeting Date (Saskatoon)</label>
@@ -1906,12 +1992,13 @@ async function doLogin() {
 
       // Persist session
       localStorage.setItem('adviuz_master_session', JSON.stringify({
-        token: data.access_token,
+        token:   data.access_token,
         refresh: data.refresh_token,
-        expires: Date.now() + (data.expires_in * 1000),
-        user: data.user,
-        role: window._staffRole
+        expires: Date.now() + ((data.expires_in || 3600) * 1000),
+        user:    data.user,
+        role:    window._staffRole
       }));
+      console.log('[Login] Session saved for', data.user.email, 'role:', window._staffRole);
       onLoginSuccess();
     } else {
       throw new Error('Login failed — no token received');
@@ -1950,42 +2037,56 @@ function togglePassVis() {
 async function refreshSession() {
   var saved = localStorage.getItem('adviuz_master_session');
   if (!saved) return false;
+
   var session;
   try { session = JSON.parse(saved); } catch(e) { return false; }
   if (!session || !session.token) return false;
 
-  // Restore role from saved session
+  // Always restore role immediately
   window._staffRole = session.role || 'super_admin';
 
-  // Token still valid (not expiring within next 60s)
-  if (session.expires > Date.now() + 60000) {
-    authToken = session.token;
-    currentUser = session.user;
+  // Token still valid — use it directly
+  if (session.expires && session.expires > Date.now() + 30000) {
+    authToken    = session.token;
+    currentUser  = session.user;
+    console.log('[Session] Token valid, restoring session for', currentUser && currentUser.email);
     return true;
   }
 
-  // Token expired — try refresh
-  try {
-    var res = await fetch(SB_URL + '/auth/v1/token?grant_type=refresh_token', {
-      method: 'POST',
-      headers: { apikey: SB_ANON, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: session.refresh })
-    });
-    var data = await res.json();
-    if (data.access_token) {
-      authToken = data.access_token;
-      currentUser = data.user;
-      // Save with role preserved
-      localStorage.setItem('adviuz_master_session', JSON.stringify({
-        token: data.access_token,
-        refresh: data.refresh_token,
-        expires: Date.now() + (data.expires_in * 1000),
-        user: data.user,
-        role: session.role || 'super_admin'
-      }));
+  // Token expired — try refresh token
+  if (session.refresh) {
+    try {
+      var res = await fetch(SB_URL + '/auth/v1/token?grant_type=refresh_token', {
+        method: 'POST',
+        headers: { apikey: SB_ANON, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: session.refresh })
+      });
+      var data = await res.json();
+      if (data.access_token) {
+        authToken    = data.access_token;
+        currentUser  = data.user;
+        localStorage.setItem('adviuz_master_session', JSON.stringify({
+          token:   data.access_token,
+          refresh: data.refresh_token,
+          expires: Date.now() + ((data.expires_in || 3600) * 1000),
+          user:    data.user,
+          role:    session.role || 'super_admin'
+        }));
+        console.log('[Session] Token refreshed for', currentUser && currentUser.email);
+        return true;
+      }
+      console.warn('[Session] Refresh failed:', data.error_description || data.error);
+    } catch(e) {
+      console.warn('[Session] Refresh error:', e.message);
+      // Network error — keep using old token, it might still work
+      authToken   = session.token;
+      currentUser = session.user;
       return true;
     }
-  } catch(e) {}
+  }
+
+  // No refresh token or refresh failed — clear session
+  console.warn('[Session] Could not restore session, clearing');
   localStorage.removeItem('adviuz_master_session');
   return false;
 }
@@ -4397,8 +4498,198 @@ async function convertToClient(lid, product) {
 }
 
 // ═══════════════════════════════════════
-// QUOTES
+// PROVINCE — TAX & TIMEZONE
 // ═══════════════════════════════════════
+var PROVINCE_TAX = {
+  AB:5, BC:12, MB:12, NB:15, NL:15, NS:15,
+  NT:5, NU:5, ON:13, PE:15, QC:14.975, SK:11, YT:5
+};
+var PROVINCE_TZ = {
+  BC:{name:'PST/PDT',utc:-8,dst:true},
+  AB:{name:'MST/MDT',utc:-7,dst:true},
+  SK:{name:'CST',utc:-6,dst:false},
+  MB:{name:'CST/CDT',utc:-6,dst:true},
+  ON:{name:'EST/EDT',utc:-5,dst:true},
+  QC:{name:'EST/EDT',utc:-5,dst:true},
+  NB:{name:'AST/ADT',utc:-4,dst:true},
+  NS:{name:'AST/ADT',utc:-4,dst:true},
+  PE:{name:'AST/ADT',utc:-4,dst:true},
+  NL:{name:'NST/NDT',utc:-3.5,dst:true}
+};
+
+function isDST() {
+  // DST in Canada: second Sunday March to first Sunday November
+  var d = new Date();
+  var jan = new Date(d.getFullYear(),0,1).getTimezoneOffset();
+  var jul = new Date(d.getFullYear(),6,1).getTimezoneOffset();
+  return d.getTimezoneOffset() < Math.max(jan,jul);
+}
+
+function setProvinceTax() {
+  var prov = (document.getElementById('q-province')||{}).value;
+  var rate = PROVINCE_TAX[prov] || 0;
+  var sel  = document.getElementById('q-tax');
+  if(!sel) return;
+  // Find closest matching option
+  var options = Array.from(sel.options);
+  var best = options.find(function(o){return parseFloat(o.value)===rate;});
+  if(best) sel.value = rate;
+  else sel.value = rate; // set directly even if not in list
+  // Add custom option if needed
+  var exists = options.some(function(o){return parseFloat(o.value)===rate;});
+  if(!exists){
+    var opt = document.createElement('option');
+    opt.value = rate; opt.text = rate+'% ('+prov+')'; opt.selected = true;
+    sel.appendChild(opt);
+  }
+  recalcQuote();
+}
+
+function updateMeetingTimezone() {
+  var prov = (document.getElementById('mt-province')||{}).value || 'SK';
+  var tz   = PROVINCE_TZ[prov] || PROVINCE_TZ['SK'];
+  var note = document.getElementById('mt-tz-note');
+  if(!note) return;
+  var dst    = tz.dst && isDST();
+  var offset = tz.utc + (dst ? 1 : 0);
+  var diff   = offset - (-6); // difference from Saskatoon CST
+  var tzLabel= tz.name + ' (UTC' + (offset>=0?'+':'') + offset + ')';
+  if(diff === 0){
+    note.textContent = 'Client is in the same timezone as Saskatoon (CST).';
+    note.style.color = 'var(--sub)';
+  } else {
+    var ahead = diff > 0 ? diff+'h ahead of Saskatoon' : Math.abs(diff)+'h behind Saskatoon';
+    note.innerHTML = '<strong>'+tzLabel+'</strong> — client is '+ahead+'. Slots below are in your Saskatoon time. Client\'s equivalent time shown in brackets.';
+    note.style.color = 'var(--amber)';
+  }
+  // Re-render time slots with client time shown
+  renderTimeSlotsWithClientTime(diff);
+}
+
+function renderTimeSlotsWithClientTime(clientDiff) {
+  var el = document.getElementById('timeSlots');
+  if(!el) return;
+  var slots = [];
+  for(var h=9; h<17; h++){
+    slots.push({h:h,m:0});
+    slots.push({h:h,m:30});
+  }
+  el.innerHTML = slots.map(function(s){
+    var label = formatCSTTime(s.h,s.m);
+    var key   = s.h+':'+String(s.m).padStart(2,'0');
+    var isSelected = _selectedTime === key;
+    var clientNote = '';
+    if(clientDiff !== 0){
+      var ch = s.h + clientDiff;
+      var cm = s.m;
+      if(ch<0) ch+=24; if(ch>=24) ch-=24;
+      clientNote = ' <span style="font-size:10px;color:var(--muted)">('+formatCSTTime(ch,cm)+' client)</span>';
+    }
+    return '<div onclick="selectTimeSlot(\''+key+'\')" style="padding:9px 6px;border-radius:9px;border:1.5px solid '+(isSelected?'var(--green)':'var(--border)')+';background:'+(isSelected?'var(--greenl)':'var(--white)')+';cursor:pointer;text-align:center;font-family:var(--f);font-size:12px;font-weight:'+(isSelected?'700':'500')+';color:'+(isSelected?'var(--green)':'var(--text)')+'">'+label+clientNote+'</div>';
+  }).join('');
+}
+
+// ═══════════════════════════════════════
+// PLANS & PRICING
+// ═══════════════════════════════════════
+var PLANS_KEY = 'adviuz_plans';
+
+function getPlans(){
+  try{ return JSON.parse(localStorage.getItem(PLANS_KEY)||'[]'); }catch(e){ return []; }
+}
+function savePlansToStorage(plans){
+  localStorage.setItem(PLANS_KEY, JSON.stringify(plans));
+}
+
+function openPlansSheet(){
+  renderPlansList();
+  loadPlansIntoQuoteDropdown();
+  openSheet('plansSh');
+}
+
+function renderPlansList(){
+  var plans = getPlans();
+  var el = document.getElementById('plansList');
+  if(!el) return;
+  if(!plans.length){
+    el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);font-size:13px">No plans yet — add one below</div>';
+    return;
+  }
+  el.innerHTML = '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-bottom:8px">'
+    + plans.map(function(p,i){
+      return '<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;'+(i?'border-top:1px solid var(--border)':'')+'">'
+        +'<div style="flex:1;min-width:0">'
+          +'<div style="font-size:13px;font-weight:700;color:var(--text)">'+p.name+'</div>'
+          +(p.description?'<div style="font-size:11px;color:var(--sub);margin-top:2px">'+p.description+'</div>':'')
+        +'</div>'
+        +'<div style="text-align:right;flex-shrink:0">'
+          +'<div style="font-size:14px;font-weight:800;color:var(--green)">$'+parseFloat(p.price).toFixed(2)+'</div>'
+          +'<div style="font-size:10px;color:var(--muted)">'+p.unit+'</div>'
+        +'</div>'
+        +'<button onclick="deletePlan('+i+')" style="width:28px;height:28px;border-radius:8px;background:var(--redl);border:none;color:var(--red);cursor:pointer;font-size:14px;flex-shrink:0">&#x2715;</button>'
+      +'</div>';
+    }).join('')
+  +'</div>';
+}
+
+function savePlan(){
+  var name  = (document.getElementById('pl-name')||{}).value.trim();
+  var desc  = (document.getElementById('pl-desc')||{}).value.trim();
+  var price = parseFloat((document.getElementById('pl-price')||{}).value||0);
+  var unit  = (document.getElementById('pl-unit')||{}).value;
+  if(!name)  { showToast('Plan name required'); return; }
+  if(!price) { showToast('Price required'); return; }
+  var plans = getPlans();
+  plans.push({name:name, description:desc, price:price, unit:unit});
+  savePlansToStorage(plans);
+  // Clear form
+  ['pl-name','pl-desc','pl-price'].forEach(function(id){
+    var el=document.getElementById(id); if(el) el.value='';
+  });
+  renderPlansList();
+  loadPlansIntoQuoteDropdown();
+  showToast('Plan saved!');
+}
+
+function deletePlan(idx){
+  var plans = getPlans();
+  plans.splice(idx,1);
+  savePlansToStorage(plans);
+  renderPlansList();
+  loadPlansIntoQuoteDropdown();
+}
+
+function loadPlansIntoQuoteDropdown(){
+  var sel = document.getElementById('q-plan-sel');
+  if(!sel) return;
+  var plans = getPlans();
+  sel.innerHTML = '<option value="">Select a plan to add...</option>'
+    + plans.map(function(p,i){
+      return '<option value="'+i+'">'+p.name+' — $'+parseFloat(p.price).toFixed(2)+' '+p.unit+'</option>';
+    }).join('');
+}
+
+function addPlanToQuote(){
+  var sel = document.getElementById('q-plan-sel');
+  if(!sel || !sel.value) { showToast('Select a plan first'); return; }
+  var plans = getPlans();
+  var p = plans[parseInt(sel.value)];
+  if(!p) return;
+  _quoteItems.push({
+    id: Date.now(),
+    name: p.name,
+    description: p.description || '',
+    qty: 1,
+    unit_price: p.price,
+    total: p.price
+  });
+  renderQuoteItems();
+  recalcQuote();
+  sel.value = '';
+  showToast('Added: '+p.name);
+}
+
+
 var _quoteLeadId = null;
 var _quoteItems = [{id:1, name:'', description:'', qty:1, unit_price:0, total:0}];
 
@@ -4415,6 +4706,11 @@ function openCreateQuoteSheet(lid) {
   // Set default valid date (30 days from now)
   var d = new Date(Date.now() + 30*86400000);
   document.getElementById('q-valid').value = d.toISOString().split('T')[0];
+  // Set default province to SK and apply tax
+  var provSel = document.getElementById('q-province');
+  if(provSel) provSel.value = 'SK';
+  setProvinceTax();
+  loadPlansIntoQuoteDropdown();
   renderQuoteItems();
   recalcQuote();
   openSheet('createQuoteSh');
@@ -4581,20 +4877,12 @@ function openMeetingSheet(lid) {
 }
 
 function renderTimeSlots() {
-  var el = document.getElementById('timeSlots');
-  if(!el) return;
-  // Business hours 9am-5pm CST in 30-min increments
-  var slots = [];
-  for(var h=9; h<17; h++){
-    slots.push({h:h, m:0});
-    slots.push({h:h, m:30});
-  }
-  el.innerHTML = slots.map(function(s){
-    var label = formatCSTTime(s.h, s.m);
-    var key   = s.h+':'+String(s.m).padStart(2,'0');
-    var isSelected = _selectedTime === key;
-    return '<div onclick="selectTimeSlot(\''+key+'\')" style="padding:10px;border-radius:9px;border:1.5px solid '+(isSelected?'var(--green)':'var(--border)')+';background:'+(isSelected?'var(--greenl)':'var(--white)')+';cursor:pointer;text-align:center;font-family:var(--f);font-size:13px;font-weight:'+(isSelected?'700':'500')+';color:'+(isSelected?'var(--green)':'var(--text)')+'">'+label+'</div>';
-  }).join('');
+  var prov = (document.getElementById('mt-province')||{}).value || 'SK';
+  var tz = PROVINCE_TZ[prov] || PROVINCE_TZ['SK'];
+  var dst = tz.dst && isDST();
+  var offset = tz.utc + (dst ? 1 : 0);
+  var diff = offset - (-6);
+  renderTimeSlotsWithClientTime(diff);
 }
 
 function formatCSTTime(h, m) {
@@ -4755,9 +5043,7 @@ async function saveClientSetup() {
   }
 }
 
-</script>
-</body>
-</html>
+// ── Manual Add Client ──
 function openAddClientSheet() {
   ['ac-biz','ac-name','ac-email','ac-phone','ac-location','ac-notes'].forEach(function(id){
     var el = document.getElementById(id); if(el) el.value = '';
