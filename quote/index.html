@@ -158,15 +158,19 @@ async function loadQuote(){
       }
     }
     renderQuote(q);
-  }catch(e){ showError("Failed to load","Please try again or contact sales@adviuz.ca"); }
+  }catch(e){
+    console.error("[loadQuote] Error:", e.message, e.stack);
+    showError("Failed to load", e.message || "Please try again or contact sales@adviuz.ca");
+  }
 }
 
 function renderQuote(q){
+  try {
   var sMap={draft:"Draft",sent:"Sent",viewed:"Viewed",accepted:"Accepted",paid:"Paid",rejected:"Declined",expired:"Expired"};
   var sCls={draft:"s-draft",sent:"s-sent",viewed:"s-viewed",accepted:"s-accepted",paid:"s-paid",rejected:"s-rejected",expired:"s-expired"};
-  var pill=document.getElementById("statusPill");
-  pill.textContent=sMap[q.status]||q.status;
-  pill.className="status-pill "+(sCls[q.status]||"s-draft");
+  var pill=document.getElementById("statusPill"); // may be null - that's ok
+  if(pill) pill.textContent=sMap[q.status]||q.status;
+  if(pill) pill.className="status-pill "+(sCls[q.status]||"s-draft");
 
   var items=q.items||[];
   var province=q.recipient_province||"SK";
@@ -348,6 +352,11 @@ function renderQuote(q){
   }
 
   setupWhatsAppShare(q, total);
+
+  } catch(renderErr) {
+    console.error("[renderQuote] Error:", renderErr.message, renderErr.stack);
+    showError("Render error", renderErr.message);
+  }
 }
 
 async function payWithStripe(qid, installmentNum){
@@ -392,8 +401,7 @@ async function acceptQuote(qid){
     headers:{"apikey":SB_ANON,"Authorization":"Bearer "+SB_ANON,"Content-Type":"application/json"},
     body:JSON.stringify({status:"accepted",accepted_at:new Date().toISOString()})
   });
-  document.getElementById("statusPill").textContent="Accepted";
-  document.getElementById("statusPill").className="status-pill s-accepted";
+  var _sp=document.getElementById("statusPill"); if(_sp){_sp.textContent="Accepted";_sp.className="status-pill s-accepted";}
   // Log to activity
   var qData = await fetch(SB_URL+"/rest/v1/quotes?id=eq."+qid+"&select=lead_id,client_id,quote_number,total",{
     headers:{"apikey":SB_ANON,"Authorization":"Bearer "+SB_ANON}
@@ -416,7 +424,7 @@ async function acceptQuote(qid){
 
 function showError(title,sub){
   document.getElementById("main").innerHTML="<div class='error-card'><div style='font-size:18px;font-weight:700;color:var(--red);margin-bottom:8px'>"+title+"</div><div style='font-size:13px;color:#92400e'>"+sub+"</div></div>";
-  document.getElementById("statusPill").textContent="Error";
+  var _spe=document.getElementById("statusPill"); if(_spe) _spe.textContent="Error";
 }
 
 // ── PDF DOWNLOAD ──
