@@ -1151,8 +1151,19 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
         </div>
       </div>
 
-      <div class="fg"><label class="flbl">Discount (CAD $) — optional</label>
-        <input class="finp" id="q-discount" type="number" min="0" step="0.01" placeholder="0.00 — e.g. 50 for a $50 discount" oninput="recalcQuote()">
+      <div class="fg"><label class="flbl">Discount / Final Amount</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div>
+            <div style="font-size:10px;color:var(--sub);margin-bottom:5px;font-weight:600">CLIENT PAYS (final total)</div>
+            <input class="finp" id="q-final-amount" type="number" min="0" step="0.01" placeholder="e.g. 980.00" oninput="setFinalAmount(this.value)">
+            <div style="font-size:10px;color:var(--muted);margin-top:3px">Enter what client agreed to pay (tax included)</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--sub);margin-bottom:5px;font-weight:600">DISCOUNT AMOUNT</div>
+            <input class="finp" id="q-discount" type="number" min="0" step="0.01" placeholder="e.g. 50.00" oninput="setDiscountAmount(this.value)" style="color:var(--red)">
+            <div style="font-size:10px;color:var(--muted);margin-top:3px">Or enter a fixed discount</div>
+          </div>
+        </div>
       </div>
 
       <div class="fg"><label class="flbl">Valid Until</label>
@@ -4995,6 +5006,9 @@ function openCreateQuoteSheet(lid) {
   // Set default valid date (30 days from now)
   var d = new Date(Date.now() + 30*86400000);
   document.getElementById('q-valid').value = d.toISOString().split('T')[0];
+  // Clear discount/final amount fields
+  var dEl = document.getElementById('q-discount'); if(dEl) dEl.value = '';
+  var fEl = document.getElementById('q-final-amount'); if(fEl) fEl.value = '';
   // Set default province to SK and apply tax
   var provSel = document.getElementById('q-province');
   if(provSel) provSel.value = 'SK';
@@ -5045,18 +5059,71 @@ function updateQItem(id, field, val) {
 
 function recalcQuote() {
   _quoteItems.forEach(function(i){ i.total = (i.qty||1) * (i.unit_price||0); });
-  var sub      = _quoteItems.reduce(function(s,i){return s+i.total;}, 0);
-  var discount = parseFloat((document.getElementById('q-discount')||{}).value||0);
-  var subAfter = Math.max(0, sub - discount);
-  var taxRate  = parseFloat((document.getElementById('q-tax')||{}).value||0);
-  var taxAmt   = subAfter * taxRate / 100;
-  var total    = subAfter + taxAmt;
-  var fmt = function(n){ return 'CAD $' + n.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}); };
-  var s = document.getElementById('q-subtotal');    if(s) s.textContent = fmt(sub);
-  var d = document.getElementById('q-discount-row'); if(d) d.style.display = discount > 0 ? 'flex' : 'none';
-  var da= document.getElementById('q-discount-amt'); if(da) da.textContent = '- '+fmt(discount);
-  var a = document.getElementById('q-tax-amt');      if(a) a.textContent = fmt(taxAmt);
-  var t = document.getElementById('q-total');        if(t) t.textContent = fmt(total);
+  var sub     = _quoteItems.reduce(function(s,i){return s+i.total;}, 0);
+  var taxRate = parseFloat((document.getElementById('q-tax')||{}).value||0);
+  var discount= parseFloat((document.getElementById('q-discount')||{}).value||0);
+  var subAfter= Math.max(0, sub - discount);
+  var taxAmt  = subAfter * taxRate / 100;
+  var total   = subAfter + taxAmt;
+
+  // Update final amount field if not being edited
+  var fa = document.getElementById('q-final-amount');
+  if(fa && document.activeElement !== fa) {
+    fa.value = total > 0 ? total.toFixed(2) : '';
+  }
+
+  updateQuoteTotalsUI(sub, discount, taxAmt, total);
+}
+
+// Client enters what they want to pay → we work backwards
+function setFinalAmount(val) {
+  var finalTotal = parseFloat(val||0);
+  if(!finalTotal) { recalcQuote(); return; }
+
+  _quoteItems.forEach(function(i){ i.total = (i.qty||1) * (i.unit_price||0); });
+  var sub     = _quoteItems.reduce(function(s,i){return s+i.total;}, 0);
+  var taxRate = parseFloat((document.getElementById('q-tax')||{}).value||0);
+
+  // Work backwards: finalTotal = subAfter * (1 + taxRate/100)
+  // subAfter = finalTotal / (1 + taxRate/100)
+  var subAfter = finalTotal / (1 + taxRate/100);
+  var taxAmt   = finalTotal - subAfter;
+  var discount = Math.max(0, sub - subAfter);
+
+  // Update discount field
+  var dEl = document.getElementById('q-discount');
+  if(dEl && document.activeElement !== dEl) {
+    dEl.value = discount > 0.005 ? discount.toFixed(2) : '';
+  }
+
+  updateQuoteTotalsUI(sub, discount, taxAmt, finalTotal);
+}
+
+// User enters fixed discount → recalc total
+function setDiscountAmount(val) {
+  var discount = parseFloat(val||0);
+  _quoteItems.forEach(function(i){ i.total = (i.qty||1) * (i.unit_price||0); });
+  var sub     = _quoteItems.reduce(function(s,i){return s+i.total;}, 0);
+  var taxRate = parseFloat((document.getElementById('q-tax')||{}).value||0);
+  var subAfter= Math.max(0, sub - discount);
+  var taxAmt  = subAfter * taxRate / 100;
+  var total   = subAfter + taxAmt;
+
+  var fa = document.getElementById('q-final-amount');
+  if(fa && document.activeElement !== fa) {
+    fa.value = total > 0.005 ? total.toFixed(2) : '';
+  }
+
+  updateQuoteTotalsUI(sub, discount, taxAmt, total);
+}
+
+function updateQuoteTotalsUI(sub, discount, taxAmt, total) {
+  var fmt = function(n){ return 'CAD $' + Math.abs(n).toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  var s  = document.getElementById('q-subtotal');    if(s)  s.textContent  = fmt(sub);
+  var dr = document.getElementById('q-discount-row'); if(dr) dr.style.display = discount > 0.005 ? 'flex' : 'none';
+  var da = document.getElementById('q-discount-amt'); if(da) da.textContent = '- '+fmt(discount);
+  var a  = document.getElementById('q-tax-amt');      if(a)  a.textContent  = fmt(taxAmt);
+  var t  = document.getElementById('q-total');        if(t)  t.textContent  = fmt(total);
 }
 
 async function saveAndSendQuote() {
@@ -5069,6 +5136,7 @@ async function saveAndSendQuote() {
   var valid    = (document.getElementById('q-valid')||{}).value;
   var taxRate  = parseFloat((document.getElementById('q-tax')||{}).value||0);
   var discount = parseFloat((document.getElementById('q-discount')||{}).value||0);
+  var finalAmt = parseFloat((document.getElementById('q-final-amount')||{}).value||0);
 
   if(!name)  { showToast('Client name required'); return; }
   if(!email) { showToast('Email required'); return; }
@@ -5076,10 +5144,20 @@ async function saveAndSendQuote() {
     showToast('Add at least one item with a name'); return;
   }
 
-  var sub      = _quoteItems.reduce(function(s,i){return s+(i.total||0);},0);
-  var subAfter = Math.max(0, sub - discount);
-  var taxAmt   = subAfter * taxRate / 100;
-  var total    = subAfter + taxAmt;
+  var sub = _quoteItems.reduce(function(s,i){return s+(i.total||0);},0);
+  var total, subAfter, taxAmt;
+
+  if(finalAmt > 0) {
+    // Client agreed on a final price — work backwards
+    total    = finalAmt;
+    subAfter = finalAmt / (1 + taxRate/100);
+    taxAmt   = finalAmt - subAfter;
+    discount = Math.max(0, sub - subAfter);
+  } else {
+    subAfter = Math.max(0, sub - discount);
+    taxAmt   = subAfter * taxRate / 100;
+    total    = subAfter + taxAmt;
+  }
 
   var btn = document.getElementById('sendQuoteBtn');
   if(btn){ btn.textContent='Saving...'; btn.disabled=true; }
