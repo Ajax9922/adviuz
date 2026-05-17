@@ -2172,20 +2172,25 @@ async function refreshSession() {
 
   // Restore role immediately
   window._staffRole = session.role || 'super_admin';
+  authToken   = session.token;
+  currentUser = session.user;
 
-  // Token still valid (more than 2 minutes left)
-  if (session.expires && session.expires > Date.now() + 120000) {
-    authToken   = session.token;
-    currentUser = session.user;
-    console.log('[Session] Token valid for', Math.round((session.expires - Date.now()) / 60000), 'more minutes');
-    // Schedule auto-refresh 5 mins before expiry
-    scheduleTokenRefresh(session.expires - Date.now() - 300000);
+  // Token still valid (more than 2 minutes left) — use directly
+  var expiresIn = session.expires - Date.now();
+  if (session.expires && !isNaN(expiresIn) && expiresIn > 120000) {
+    console.log('[Session] Token valid for', Math.round(expiresIn / 60000), 'more minutes');
+    scheduleTokenRefresh(expiresIn - 300000);
+    return true;
+  }
+
+  // No expiry info — just use the token and hope it works
+  if (!session.expires || isNaN(session.expires)) {
+    console.log('[Session] No expiry info — using token directly');
     return true;
   }
 
   console.log('[Session] Token expired or expiring soon — refreshing...');
 
-  // Token expired — try Supabase refresh
   if (session.refresh) {
     try {
       var res = await fetch(SB_URL + '/auth/v1/token?grant_type=refresh_token', {
@@ -5054,7 +5059,7 @@ function renderQuoteItems() {
     return '<div style="background:var(--bg);border-radius:10px;padding:12px;margin-bottom:8px" data-qid="'+item.id+'">'
       +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
         +'<div style="font-size:12px;font-weight:700;color:var(--sub)">Item '+(idx+1)+'</div>'
-        +(_quoteItems.length>1?'<button onclick="removeQuoteItem('+item.id+')" style="border:none;background:none;cursor:pointer;color:var(--red);font-size:12px;font-weight:600;padding:2px 6px">Remove</button>':'')
+        +'<button onclick="removeQuoteItem('+item.id+')" style="border:none;background:none;cursor:pointer;color:var(--red);font-size:12px;font-weight:600;padding:2px 6px">Remove</button>'
       +'</div>'
       +'<input class="finp" placeholder="Item name *" value="'+item.name+'" oninput="updateQItem('+item.id+',\'name\',this.value)" style="margin-bottom:6px">'
       +'<input class="finp" placeholder="Description (optional)" value="'+item.description+'" oninput="updateQItem('+item.id+',\'description\',this.value)" style="margin-bottom:6px">'
