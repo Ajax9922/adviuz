@@ -3104,6 +3104,51 @@ function openLead(id) {
   var idx = leads.findIndex(function(l){ return l.id === id; });
   document.getElementById('lsPrev').disabled = idx <= 0;
   document.getElementById('lsNext').disabled = idx >= leads.length - 1;
+
+  // Load activity from DB (non-blocking)
+  var l = leads.find(function(x){ return x.id === id; });
+  if(l && l.dbId) loadLeadActivity(id, l.dbId);
+}
+
+async function loadLeadActivity(localId, dbId) {
+  try {
+    var res = await sbFetch('/rest/v1/activity_log?lead_id=eq.'+dbId+'&select=*&order=created_at.desc&limit=50');
+    if(!res.ok) return;
+    var rows = await res.json();
+    if(!rows || !rows.length) return;
+
+    // Convert DB rows to local format
+    var icons = {
+      quote_sent:'📄',quote_viewed:'👁',quote_accepted:'✅',quote_paid:'💳',
+      invoice_created:'🧾',invoice_emailed:'📧',email_sent:'📧',email_opened:'👁',
+      email_clicked:'🔗',sms_sent:'💬',call:'📞',meeting:'📅',note:'📝',
+      stage_change:'🔄',reminder_sent:'⏰',payment_received:'💳',lead_created:'✨',
+      email_event:'📊'
+    };
+
+    var dbActs = rows.map(function(row) {
+      var d = new Date(row.created_at);
+      var timeStr = d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+
+                    d.toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit',hour12:true});
+      return {
+        type:  row.type,
+        label: row.label || row.type,
+        time:  timeStr,
+        body:  row.body || '',
+        rec:   false
+      };
+    });
+
+    // Merge with local (DB is source of truth, dedupe by time+type)
+    var existing = leadAct[localId] || [];
+    var existingJustNow = existing.filter(function(a){ return a.time === 'Just now'; });
+    leadAct[localId] = existingJustNow.concat(dbActs);
+
+    // Re-render if this lead is still open
+    if(curLid === localId) renderLeadScreen(localId);
+  } catch(e) {
+    console.warn('[loadLeadActivity]', e.message);
+  }
 }
 
 function closeLead() {
