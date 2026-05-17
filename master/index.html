@@ -1088,6 +1088,35 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
   </div>
 </div>
 
+<!-- ═══ QUOTES LIST SHEET ═══ -->
+<div class="sheet-ov" id="quotesListSh">
+  <div class="sheet" style="max-height:90dvh">
+    <div class="sheet-hd">
+      <div class="sheet-title">Quotes</div>
+      <button class="sheet-x" onclick="closeQuotesList()">&#x2715;</button>
+    </div>
+    <div style="padding:0 0 6px">
+      <button onclick="newQuoteFromList()" style="display:flex;align-items:center;justify-content:center;gap:8px;width:calc(100% - 32px);margin:12px 16px;padding:13px;background:var(--green);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;font-family:var(--f)">
+        + New Quote
+      </button>
+      <div id="quotesListBody"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ INVOICES LIST SHEET ═══ -->
+<div class="sheet-ov" id="invoicesListSh">
+  <div class="sheet" style="max-height:90dvh">
+    <div class="sheet-hd">
+      <div class="sheet-title">Invoices</div>
+      <button class="sheet-x" onclick="closeInvoicesList()">&#x2715;</button>
+    </div>
+    <div style="padding:0 0 6px">
+      <div id="invoicesListBody"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ CREATE QUOTE SHEET ═══ -->
 <div class="sheet-ov" id="createQuoteSh" style="z-index:900">
   <div class="sheet"><div class="sheet-handle"></div>
@@ -3362,8 +3391,8 @@ function renderLeadScreen(id) {
   h += '<div style="background:var(--white);padding:12px 16px;margin-bottom:4px">';
   h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">';
   h += ldQuickBtn('🤝','Meeting','#ede9fe','#7c3aed','openMeetingSheet('+l.id+')');
-  h += ldQuickBtn('📄','Quote','#fef3c7','#d97706','openCreateQuoteSheet('+l.id+')');
-  h += ldQuickBtn('🧾','Invoice','#d1fae5','#00a884','showToast(\'Invoice coming soon\')');
+  h += ldQuickBtn('📄','Quotes','#fef3c7','#d97706','openLeadQuotes('+l.id+')');
+  h += ldQuickBtn('🧾','Invoices','#d1fae5','#00a884','openLeadInvoices('+l.id+')');
   h += '</div></div>';
   h += '<div style="height:4px;background:var(--bg)"></div>';
 
@@ -5190,6 +5219,129 @@ function addPlanToQuote(){
 var _quoteLeadId = null;
 var _quoteItems = [];
 
+// ═══════════════════════════════════════════════════════
+// QUOTES LIST SHEET — shows lead's quote history + New Quote
+// ═══════════════════════════════════════════════════════
+async function openLeadQuotes(lid) {
+  var l = leads.find(function(x){ return x.id===lid; });
+  if(!l) return;
+
+  // Show loading sheet
+  var el = document.getElementById('quotesListSh');
+  if(!el) return;
+  el.classList.add('open');
+
+  var body = document.getElementById('quotesListBody');
+  if(body) body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--sub)">Loading quotes...</div>';
+
+  // Store lid for new quote button
+  window._quotesListLid = lid;
+
+  // Load quotes from DB
+  try {
+    var res = await sbFetch('/rest/v1/quotes?lead_id=eq.'+(l.dbId||lid)+'&select=*&order=created_at.desc&limit=20');
+    var quotes = res.ok ? await res.json() : [];
+    var fmtDate = function(s){ return s ? new Date(s).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : ''; };
+    var fmtAmt  = function(n){ return 'CAD $'+parseFloat(n||0).toLocaleString('en-CA',{minimumFractionDigits:2}); };
+    var stColors = {sent:'#d97706',viewed:'#3b82f6',accepted:'#059669',paid:'#059669',expired:'#6b7280',draft:'#9ca3af'};
+
+    var html = '';
+    if(!quotes.length) {
+      html = '<div style="text-align:center;padding:40px;color:var(--sub);font-size:14px">No quotes yet for this lead</div>';
+    } else {
+      quotes.forEach(function(q) {
+        var stColor = stColors[q.status]||'#6b7280';
+        var qUrl = 'https://latest-promo.com/quote/?id='+q.id;
+        html += '<div style="display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border);cursor:pointer" onclick="window.open(\''+qUrl+'\',\'_blank\')">'
+          +'<div style="flex:1;min-width:0">'
+            +'<div style="font-size:14px;font-weight:700;color:var(--text)">'+(q.quote_number||'Quote')+'</div>'
+            +'<div style="font-size:12px;color:var(--sub);margin-top:2px">'+fmtDate(q.created_at)+(q.valid_until ? ' · Expires '+fmtDate(q.valid_until) : '')+'</div>'
+          +'</div>'
+          +'<div style="text-align:right;flex-shrink:0">'
+            +'<div style="font-size:14px;font-weight:800;color:var(--text)">'+fmtAmt(q.total)+'</div>'
+            +'<div style="font-size:10px;font-weight:700;color:'+stColor+';text-transform:uppercase;letter-spacing:.04em">'+q.status+'</div>'
+          +'</div>'
+          +'<div style="font-size:18px;color:var(--sub)">&#x276F;</div>'
+          +'</div>';
+      });
+    }
+    if(body) body.innerHTML = html;
+  } catch(e) {
+    if(body) body.innerHTML = '<div style="padding:20px;color:var(--red)">Error loading quotes: '+e.message+'</div>';
+  }
+}
+
+function closeQuotesList() {
+  var el = document.getElementById('quotesListSh');
+  if(el) el.classList.remove('open');
+}
+
+function newQuoteFromList() {
+  closeQuotesList();
+  setTimeout(function(){ openCreateQuoteSheet(window._quotesListLid); }, 150);
+}
+
+// ═══════════════════════════════════════════════════════
+// INVOICES LIST SHEET — shows lead's invoice history
+// ═══════════════════════════════════════════════════════
+async function openLeadInvoices(lid) {
+  var l = leads.find(function(x){ return x.id===lid; });
+  if(!l) return;
+
+  var el = document.getElementById('invoicesListSh');
+  if(!el) return;
+  el.classList.add('open');
+
+  var body = document.getElementById('invoicesListBody');
+  if(body) body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--sub)">Loading invoices...</div>';
+
+  window._invoicesListLid = lid;
+
+  try {
+    // Look up invoices by quote lead_id or client_id
+    var res = await sbFetch('/rest/v1/invoices?select=*&order=invoice_date.desc&limit=20');
+    // Filter to this lead's quotes
+    var qRes = await sbFetch('/rest/v1/quotes?lead_id=eq.'+(l.dbId||lid)+'&select=id');
+    var quoteIds = qRes.ok ? (await qRes.json()).map(function(q){return q.id;}) : [];
+
+    var invoices = res.ok ? (await res.json()).filter(function(inv){
+      return quoteIds.includes(inv.quote_id);
+    }) : [];
+
+    var fmtDate = function(s){ return s ? new Date(s).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : ''; };
+    var fmtAmt  = function(n){ return 'CAD $'+parseFloat(n||0).toLocaleString('en-CA',{minimumFractionDigits:2}); };
+
+    var html = '';
+    if(!invoices.length) {
+      html = '<div style="text-align:center;padding:40px;color:var(--sub);font-size:14px">No invoices yet for this lead</div>';
+    } else {
+      invoices.forEach(function(inv) {
+        var isPaid = inv.payment_status==='paid';
+        var stColor = isPaid ? '#059669' : '#d97706';
+        html += '<div style="display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border)">'
+          +'<div style="flex:1;min-width:0">'
+            +'<div style="font-size:14px;font-weight:700;color:var(--text)">'+inv.invoice_number+'</div>'
+            +'<div style="font-size:12px;color:var(--sub);margin-top:2px">'+fmtDate(inv.invoice_date)+' · '+(inv.payment_method||'pending')+'</div>'
+          +'</div>'
+          +'<div style="text-align:right;flex-shrink:0">'
+            +'<div style="font-size:14px;font-weight:800;color:var(--text)">'+fmtAmt(inv.total)+'</div>'
+            +'<div style="font-size:10px;font-weight:700;color:'+stColor+';text-transform:uppercase">'+inv.payment_status+'</div>'
+          +'</div>'
+          +(inv.pdf_url ? '<a href="'+inv.pdf_url+'" target="_blank" style="flex-shrink:0;font-size:20px;text-decoration:none">📄</a>' : '')
+          +'</div>';
+      });
+    }
+    if(body) body.innerHTML = html;
+  } catch(e) {
+    if(body) body.innerHTML = '<div style="padding:20px;color:var(--red)">Error loading invoices: '+e.message+'</div>';
+  }
+}
+
+function closeInvoicesList() {
+  var el = document.getElementById('invoicesListSh');
+  if(el) el.classList.remove('open');
+}
+
 function openCreateQuoteSheet(lid) {
   // lid can be local numeric id or UUID — get the dbId (UUID)
   var dbLeadId = null;
@@ -5358,6 +5510,8 @@ async function saveAndSendQuote() {
   var terms    = (document.getElementById('q-terms')||{}).value;
   var valid    = (document.getElementById('q-valid')||{}).value;
   var taxRate  = parseFloat((document.getElementById('q-tax')||{}).value||0);
+  var taxType  = (document.getElementById('q-tax')||{}).options ? ((document.getElementById('q-tax')||{}).options[(document.getElementById('q-tax')||{}).selectedIndex]||{}).text||'' : '';
+  taxType = taxType.replace(/[\d.%\s-]+/,'').trim(); // extract e.g. "GST+PST"
   var discount = parseFloat((document.getElementById('q-discount')||{}).value||0);
   var finalAmt = parseFloat((document.getElementById('q-final-amount')||{}).value||0);
 
@@ -5435,14 +5589,14 @@ async function saveAndSendQuote() {
     try {
       await fetch(SB_URL+'/functions/v1/send-email', {
         method:'POST',
-        headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken,'apikey':SB_ANON},
+        headers:{'Content-Type':'application/json','apikey':SB_ANON},
         body: JSON.stringify({
           to:         email,
-          subject:    'Your Quote '+(q.quote_number||'')+(biz?' - '+biz:''),
+          subject:    'Your Quote '+(q.quote_number||'')+(biz?' — '+biz:''),
           type:       'transactional',
           from_email: 'sales@adviuz.com',
           from_name:  'Adviuz',
-          reply_to:   'sales@adviuz.com',
+          reply_to:   'sales@adviuz.ca',
           lead_id:    _quoteLeadId||null,
           template:   'quote_sent',
           template_data: {
@@ -5452,11 +5606,11 @@ async function saveAndSendQuote() {
             province:        province,
             quote_number:    q.quote_number||'',
             quote_id:        q.id||'',
-            quote_date:      new Date().toLocaleDateString('en-CA',{day:'2-digit',month:'short',year:'numeric'}),
-            valid_until:     valid ? new Date(valid).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : '',
+            quote_date:      new Date().toLocaleDateString('en-CA',{day:'numeric',month:'short',year:'numeric'}),
+            valid_until:     valid ? new Date(valid).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : 'Upon receipt',
             subtotal:        subAfter.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}),
             discount_amount: discount > 0 ? discount.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}) : '0',
-            tax_label:       taxRate+'%',
+            tax_label:       taxRate+'% '+taxType,
             tax_amount:      taxAmt.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}),
             total:           total.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}),
             installments:    String(parseInt((document.getElementById('q-installments')||{}).value||1)),
