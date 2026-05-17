@@ -370,6 +370,40 @@ function showError(title, sub) {
 }
 
 loadQuote();
+
+async function payWithStripe(qid) {
+  var btn = document.getElementById('stripePayBtn');
+  if(btn){ btn.textContent = 'Redirecting to payment...'; btn.style.opacity = '.7'; btn.disabled = true; }
+  try {
+    var res = await fetch(SB_URL + '/functions/v1/stripe-checkout', {
+      method: 'POST',
+      headers: { 'apikey': SB_ANON, 'Authorization': 'Bearer ' + SB_ANON, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quote_id: qid })
+    });
+    var data = await res.json();
+    if (data.error) throw new Error(data.error);
+    window.location.href = data.checkout_url;
+  } catch(e) {
+    if(btn){ btn.textContent = 'Accept & Pay Online'; btn.style.opacity = '1'; btn.disabled = false; }
+    alert('Payment error: ' + e.message + '\n\nPlease contact accounts@adviuz.com');
+  }
+}
+
+// Handle return from Stripe success
+(function(){
+  var params = new URLSearchParams(window.location.search);
+  if(params.get('paid') === '1') {
+    // Update quote status
+    var qid = params.get('id');
+    if(qid) {
+      fetch(SB_URL + '/rest/v1/quotes?id=eq.' + qid, {
+        method:'PATCH',
+        headers:{'apikey':SB_ANON,'Authorization':'Bearer '+SB_ANON,'Content-Type':'application/json'},
+        body:JSON.stringify({status:'paid',paid_at:new Date().toISOString()})
+      });
+    }
+  }
+})();
 </script>
 </body>
 </html>
