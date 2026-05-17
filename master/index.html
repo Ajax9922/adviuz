@@ -1117,14 +1117,17 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
   </div>
 </div>
 
-<!-- ═══ CREATE QUOTE SHEET ═══ -->
-<div class="sheet-ov" id="createQuoteSh" style="z-index:900;position:fixed;top:0;left:0;width:100%;height:100%;width:100vw;height:100vh">
-  <div class="sheet"><div class="sheet-handle"></div>
-    <div class="sheet-head">
-      <div class="sheet-title">Create Quote</div>
-      <button class="sheet-x" onclick="closeSheet('createQuoteSh')">&#x2715;</button>
-    </div>
-    <div class="sh-body">
+<!-- ═══ CREATE QUOTE — FULL SCREEN ═══ -->
+<div id="createQuoteScreen" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:var(--bg);z-index:800;overflow-y:auto;flex-direction:column;max-width:430px;margin:0 auto;left:50%;transform:translateX(-50%)">
+  <!-- Top bar -->
+  <div style="position:sticky;top:0;background:var(--white);z-index:10;display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--border)">
+    <button onclick="closeCreateQuote()" style="background:none;border:none;cursor:pointer;padding:4px;color:var(--text);font-size:22px;line-height:1;display:flex;align-items:center">&#x2190;</button>
+    <div style="font-size:16px;font-weight:700;color:var(--text);flex:1">Create Quote</div>
+  </div>
+
+  <!-- Form body -->
+  <div style="padding:18px;flex:1">
+
       <div class="fg2">
         <div><label class="flbl">Client Name *</label><input class="finp" id="q-name" placeholder="John Smith"></div>
         <div><label class="flbl">Business</label><input class="finp" id="q-biz" placeholder="Their Business"></div>
@@ -1246,12 +1249,15 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
         &#x2705; <strong>Stripe connected</strong> — client will see "Accept &amp; Pay Online" button on the quote page. Payment auto-generates invoice.
       </div>
     </div>
-    <div class="sh-foot">
-      <button class="btn btn-ghost" onclick="closeSheet('createQuoteSh')" style="flex:1">Cancel</button>
-      <button class="btn" id="sendQuoteBtn" onclick="saveAndSendQuote()" style="flex:2;justify-content:center;background:var(--green);color:#fff">Send Quote</button>
-    </div>
+  </div>
+
+  <!-- Send button -->
+  <div style="position:sticky;bottom:0;background:var(--white);padding:14px 18px;border-top:1px solid var(--border);display:flex;gap:10px">
+    <button class="btn btn-ghost" onclick="closeCreateQuote()" style="flex:1">Cancel</button>
+    <button class="btn" id="sendQuoteBtn" onclick="saveAndSendQuote()" style="flex:2;justify-content:center;background:var(--green);color:#fff">Send Quote</button>
   </div>
 </div>
+
 
 <!-- ═══ SCHEDULE MEETING SHEET ═══ -->
 <div class="sheet-ov" id="meetingSh" onclick="if(event.target===this)closeSheet('meetingSh')">
@@ -5342,10 +5348,25 @@ function closeInvoicesList() {
   if(el) el.classList.remove('open');
 }
 
+// ── Open/close Create Quote full-screen view ──
+function openCreateQuote() {
+  var el = document.getElementById('createQuoteScreen');
+  if(el) el.style.display = 'flex';
+  document.querySelector('.tabbar') && (document.querySelector('.tabbar').style.display = 'none');
+}
+function closeCreateQuote() {
+  var el = document.getElementById('createQuoteScreen');
+  if(el) el.style.display = 'none';
+  document.querySelector('.tabbar') && (document.querySelector('.tabbar').style.display = 'flex');
+  // Reset quote form
+  _quoteItems = [];
+  renderQuoteItems();
+  recalcQuote();
+}
+
 function openCreateQuoteSheet(lid) {
   // lid can be local numeric id or UUID — get the dbId (UUID)
-  var dbLeadId = null;
-  if(lid) {
+  var dbLeadId = null;  if(lid) {
     var l = leads.find(function(x){ return x.id===lid || x.dbId===lid; });
     dbLeadId = (l && l.dbId) ? l.dbId : null;
     // If lid looks like a UUID (contains dashes), use it directly
@@ -5388,7 +5409,7 @@ function openCreateQuoteSheet(lid) {
   loadPlansIntoQuoteDropdown();
   renderQuoteItems();
   recalcQuote();
-  openSheet('createQuoteSh');
+  openCreateQuote();
 }
 
 function addQuoteItem() {
@@ -5627,7 +5648,7 @@ async function saveAndSendQuote() {
       // Don't fail the whole operation if email fails
     }
 
-    closeSheet('createQuoteSh');
+    closeCreateQuote();
     showToast('Quote '+(q.quote_number||'')+' created!');
 
     // Log to activity timeline
