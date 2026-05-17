@@ -189,9 +189,9 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
 .co-ms{background:var(--badge);color:var(--muted)}
 
 /* Sheet */
-.sheet-ov{display:none;position:fixed;inset:0;z-index:850;background:rgba(0,0,0,.45);align-items:flex-end;justify-content:center}
+.sheet-ov{display:none;position:fixed;inset:0;z-index:850;background:rgba(0,0,0,.55);align-items:flex-end;justify-content:center}
 .sheet-ov.open{display:flex}
-.sheet{background:var(--white);border-radius:18px 18px 0 0;width:100%;max-width:430px;max-height:92dvh;overflow-y:auto;animation:shUp .26s cubic-bezier(.34,1.1,.64,1);padding-bottom:var(--sb)}
+.sheet{background:var(--white);border-radius:18px 18px 0 0;width:100%;max-width:560px;max-height:94dvh;overflow-y:auto;animation:shUp .26s cubic-bezier(.34,1.1,.64,1);padding-bottom:env(safe-area-inset-bottom,16px)}
 .sheet::-webkit-scrollbar{display:none}
 @keyframes shUp{from{transform:translateY(50px);opacity:0}to{transform:translateY(0);opacity:1}}
 .sheet-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:12px auto 0}
@@ -213,6 +213,7 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
 .fta{height:80px;resize:none;line-height:1.5}
 .fg{margin-bottom:13px}
 .fg2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:13px}
+@media(max-width:400px){.fg2{grid-template-columns:1fr}}
 
 /* Buttons */
 .btn{display:inline-flex;align-items:center;gap:6px;padding:11px 18px;border-radius:10px;border:none;cursor:pointer;font-family:var(--f);font-size:14px;font-weight:600;transition:opacity .12s;white-space:nowrap}
@@ -3503,14 +3504,24 @@ function renderLeadScreen(id) {
     h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase">Activity</div>';
     if(acts.length>5) h += '<div style="font-size:12px;font-weight:700;color:var(--green);cursor:pointer">All ('+acts.length+')</div>';
     h += '</div>';
-    var icons={call:'📞',sms:'💬',email:'📧',note:'📝',fu:'📅',stage_change:'🔄'};
+    var icons={call:'📞',sms:'💬',email_sent:'📧',email:'📧',note:'📝',fu:'📅',stage_change:'🔄',
+               quote_sent:'📄',quote_viewed:'👁',quote_accepted:'✅',quote_paid:'💳',
+               invoice_created:'🧾',invoice_emailed:'📧',payment_received:'💳',reminder_sent:'⏰',meeting:'📅'};
     acts.slice(0,5).forEach(function(item,i){
-      h += '<div class="ld-act-item">';
+      // Determine if this item is clickable and what it opens
+      var clickable = item.type==='quote_sent'||item.type==='quote_viewed'||item.type==='quote_accepted'||item.type==='quote_paid'||item.type==='email_sent'||item.type==='email';
+      var clickStyle = clickable ? 'cursor:pointer;' : '';
+      var quoteId = (item.meta && item.meta.quote_id) ? item.meta.quote_id : '';
+      var onClick = '';
+      if(item.type==='quote_sent'||item.type==='quote_viewed'||item.type==='quote_accepted'||item.type==='quote_paid') {
+        onClick = quoteId ? 'onclick="viewQuoteFromActivity(\''+quoteId+'\')"' : '';
+      }
+      h += '<div class="ld-act-item" '+onClick+' style="'+clickStyle+'">';
       if(i<Math.min(acts.length,5)-1) h += '<div class="ld-act-line"></div>';
       h += '<div class="ld-act-dot">'+(icons[item.type]||'📋')+'</div>';
       h += '<div class="ld-act-body">';
       h += '<span class="ld-act-label">'+item.label+'</span><span class="ld-act-time">'+item.time+'</span>';
-      h += '<div class="ld-act-text">'+item.body+'</div>';
+      h += '<div class="ld-act-text">'+item.body+(clickable&&quoteId ? ' <span style="color:var(--green);font-size:11px">↗ View</span>':'')+'</div>';
       if(item.rec){
         h += '<div style="display:flex;align-items:center;gap:8px;margin-top:7px;padding:7px 11px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">';
         h += '<button onclick="showToast(\'▶ Playing...\')" style="width:26px;height:26px;border-radius:50%;background:var(--red);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg fill="white" viewBox="0 0 24 24" style="width:10px;height:10px;margin-left:2px"><polygon points="5,3 19,12 5,21"/></svg></button>';
@@ -3524,6 +3535,11 @@ function renderLeadScreen(id) {
 
   h += '<div style="height:120px"></div>';
   document.getElementById('lsBody').innerHTML = h;
+}
+
+function viewQuoteFromActivity(quoteId) {
+  var qUrl = 'https://latest-promo.com/quote/?id=' + quoteId;
+  window.open(qUrl, '_blank');
 }
 
 // ── Helper: info row ──
