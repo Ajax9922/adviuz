@@ -1082,7 +1082,7 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
 </div>
 
 <!-- ═══ CREATE QUOTE SHEET ═══ -->
-<div class="sheet-ov" id="createQuoteSh" onclick="if(event.target===this)closeSheet('createQuoteSh')">
+<div class="sheet-ov" id="createQuoteSh">
   <div class="sheet"><div class="sheet-handle"></div>
     <div class="sheet-head">
       <div class="sheet-title">Create Quote</div>
@@ -1116,18 +1116,15 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
         </select>
       </div>
 
-      <div class="fg"><label class="flbl">Quick Add from Plans</label>
-        <div style="display:flex;gap:8px">
-          <select class="fsel" id="q-plan-sel" style="flex:1">
-            <option value="">Select a plan to add...</option>
-          </select>
-          <button onclick="addPlanToQuote()" style="padding:10px 14px;border-radius:9px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0">+ Add</button>
-        </div>
+      <div class="fg"><label class="flbl">Select Plan to Add</label>
+        <select class="fsel" id="q-plan-sel" onchange="addPlanToQuote()">
+          <option value="">— tap to select a plan —</option>
+        </select>
       </div>
 
       <div class="fg"><label class="flbl">Line Items</label>
         <div id="quoteItemsList"></div>
-        <button onclick="addQuoteItem()" style="width:100%;padding:10px;border-radius:9px;border:1.5px dashed var(--border);background:none;font-family:var(--f);font-size:13px;font-weight:600;color:var(--sub);cursor:pointer;margin-top:8px">+ Add Item</button>
+        <button onclick="addQuoteItem()" style="width:100%;padding:10px;border-radius:9px;border:1.5px dashed var(--border);background:none;font-family:var(--f);font-size:13px;font-weight:600;color:var(--sub);cursor:pointer;margin-top:8px">+ Add Custom Item</button>
       </div>
 
       <div class="fg2">
@@ -1193,8 +1190,8 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
         </div>
       </div>
 
-      <div style="background:var(--amberl);border-radius:10px;padding:12px 14px;font-size:12px;color:#92400e;margin-top:12px;line-height:1.6">
-        <strong>Stripe tip:</strong> Add your Stripe key in Settings to enable the "Accept &amp; Pay Online" button on the quote page. For now quotes can be accepted manually.
+      <div style="background:var(--greenl);border-radius:10px;padding:12px 14px;font-size:12px;color:#065f46;line-height:1.6">
+        &#x2705; <strong>Stripe connected</strong> — client will see "Accept &amp; Pay Online" button on the quote page. Payment auto-generates invoice.
       </div>
     </div>
     <div class="sh-foot">
@@ -4973,16 +4970,13 @@ async function loadPlansIntoQuoteDropdown(){
 
 function addPlanToQuote(){
   var sel = document.getElementById('q-plan-sel');
-  if(!sel || !sel.value) { showToast('Select a plan first'); return; }
+  if(!sel || !sel.value) return;
   var opt = sel.options[sel.selectedIndex];
-  if(!opt) return;
+  if(!opt || !opt.value) return;
   var name  = opt.dataset.name || opt.text.split(' — ')[0];
   var desc  = opt.dataset.desc || '';
   var price = parseFloat(opt.dataset.price || 0);
-  _quoteItems.push({
-    id: Date.now(), name: name, description: desc,
-    qty: 1, unit_price: price, total: price
-  });
+  _quoteItems.push({id:Date.now(), name:name, description:desc, qty:1, unit_price:price, total:price});
   renderQuoteItems();
   recalcQuote();
   sel.value = '';
@@ -4991,28 +4985,51 @@ function addPlanToQuote(){
 
 
 var _quoteLeadId = null;
-var _quoteItems = [{id:1, name:'', description:'', qty:1, unit_price:0, total:0}];
+var _quoteItems = [];
 
 function openCreateQuoteSheet(lid) {
-  _quoteLeadId = lid;
-  _quoteItems = [{id:Date.now(), name:'', description:'', qty:1, unit_price:0, total:0}];
-  // Pre-fill from lead if available
-  var l = leads.find(function(x){return x.id===lid;});
-  if(l){
-    document.getElementById('q-name').value  = l.name || '';
-    document.getElementById('q-email').value = l.em   || '';
-    document.getElementById('q-biz').value   = l.company || '';
+  // lid can be local numeric id or UUID — get the dbId (UUID)
+  var dbLeadId = null;
+  if(lid) {
+    var l = leads.find(function(x){ return x.id===lid || x.dbId===lid; });
+    dbLeadId = (l && l.dbId) ? l.dbId : null;
+    // If lid looks like a UUID (contains dashes), use it directly
+    if(!dbLeadId && typeof lid === 'string' && lid.indexOf('-') > 0) dbLeadId = lid;
   }
-  // Set default valid date (30 days from now)
-  var d = new Date(Date.now() + 30*86400000);
-  document.getElementById('q-valid').value = d.toISOString().split('T')[0];
-  // Clear discount/final amount fields
+  _quoteLeadId = dbLeadId;
+
+  // Start with NO items — user selects from plans or adds manually
+  _quoteItems = [];
+
+  // Pre-fill from lead if available
+  var l = lid ? leads.find(function(x){return x.id===lid||x.dbId===lid;}) : null;
+  if(l){
+    var nameEl = document.getElementById('q-name');
+    var emailEl = document.getElementById('q-email');
+    var bizEl   = document.getElementById('q-biz');
+    if(nameEl)  nameEl.value  = l.name  || '';
+    if(emailEl) emailEl.value = l.em    || '';
+    if(bizEl)   bizEl.value   = l.company || '';
+  } else {
+    var nameEl2 = document.getElementById('q-name');   if(nameEl2)  nameEl2.value  = '';
+    var emailEl2= document.getElementById('q-email');  if(emailEl2) emailEl2.value = '';
+    var bizEl2  = document.getElementById('q-biz');    if(bizEl2)   bizEl2.value   = '';
+  }
+
+  // Clear discount/final amount
   var dEl = document.getElementById('q-discount'); if(dEl) dEl.value = '';
   var fEl = document.getElementById('q-final-amount'); if(fEl) fEl.value = '';
-  // Set default province to SK and apply tax
+
+  // Set default province SK
   var provSel = document.getElementById('q-province');
   if(provSel) provSel.value = 'SK';
   setProvinceTax();
+
+  // Set valid date 30 days from now
+  var d = new Date(Date.now() + 30*86400000);
+  var validEl = document.getElementById('q-valid');
+  if(validEl) validEl.value = d.toISOString().split('T')[0];
+
   loadPlansIntoQuoteDropdown();
   renderQuoteItems();
   recalcQuote();
