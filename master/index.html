@@ -5435,13 +5435,16 @@ async function saveAndSendQuote() {
             email:           email,
             province:        province,
             quote_number:    q.quote_number||'',
+            quote_id:        q.id||'',
             quote_date:      new Date().toLocaleDateString('en-CA',{day:'2-digit',month:'short',year:'numeric'}),
             valid_until:     valid ? new Date(valid).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : '',
-            subtotal:        (subAfter).toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}),
+            subtotal:        subAfter.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}),
+            discount_amount: discount > 0 ? discount.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}) : '0',
             tax_label:       taxRate+'%',
             tax_amount:      taxAmt.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}),
-            contract_total:  total.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}),
             total:           total.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}),
+            installments:    String(parseInt((document.getElementById('q-installments')||{}).value||1)),
+            installment_schedule_json: JSON.stringify(buildInstallments(total, parseInt((document.getElementById('q-installments')||{}).value||1))),
             items_json:      JSON.stringify(_quoteItems.map(function(i){return{qty:i.qty,name:i.name,total:i.total};})),
             notes:           notes||'',
             quote_url:       qUrl,
@@ -5468,6 +5471,15 @@ async function saveAndSendQuote() {
         meta:      { quote_id:q.id, quote_number:q.quote_number, total:total }
       });
     }
+
+    // Generate quote PDF via pdfmonkey (non-blocking)
+    fetch(SB_URL+'/functions/v1/generate-invoice',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken,'apikey':SB_ANON},
+      body:JSON.stringify({quote_id:q.id, pdf_type:'quote', send_email:false})
+    }).then(function(r){return r.json();}).then(function(d){
+      if(d.pdf_url) console.log('[Quote] PDF generated:', d.pdf_url);
+    }).catch(function(e){ console.warn('[Quote] PDF generation failed:', e.message); });
     setTimeout(function(){
       if(confirm('Quote created and email sent!\n\nOpen quote link to share directly?\n\n'+qUrl)){
         window.open(qUrl,'_blank');
