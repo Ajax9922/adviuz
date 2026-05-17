@@ -95,7 +95,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);min-height:100v
 
 <div class="topbar">
   <div style="display:flex;align-items:center;gap:10px">
-    <img src="https://i.imgur.com/rfPAzdI.png" alt="Adviuz" style="height:28px;display:block">
+    <img src="https://i.imgur.com/rfPAzdI.png" alt="Adviuz" style="height:20px;max-width:90px;display:block;object-fit:contain">
   </div>
   <div style="display:flex;align-items:center;gap:12px">
     <div class="q-badge">Quote</div>
@@ -258,14 +258,14 @@ function renderQuote(q){
 
   // Direct Stripe checkout URL (GET redirect)
   var CHECKOUT_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co/functions/v1/stripe-checkout';
-  var directPayUrl = CHECKOUT_URL+'?quote_id='+q.id+'&installment='+(schedule.length>0?schedule.findIndex(function(i){return i.status!=='paid';})+1:1)+'&redirect=1';
+  var firstUnpaidIdx = schedule.length > 0 ? Math.max(0, schedule.findIndex(function(i){return i.status!=='paid';})) : 0;
 
   // Pay section
   if(canPay){
     html+="<div class='pay-section'>"
       +"<div class='pay-amount-lbl'>"+installLabel+"</div>"
       +"<div class='pay-total'>"+fmtCAD(amountDueNow)+"</div>"
-      +"<a href='"+directPayUrl+"' class='btn-pay' id='stripePayBtn'>&#x1F4B3; Pay Now &rarr; &nbsp;Secure online payment via Stripe</a>"
+      +"<button class='btn-pay' id='stripePayBtn' onclick='payWithStripe(\""+q.id+"\","+( firstUnpaidIdx+1)+")'>&#x1F4B3; Pay Now &rarr; &nbsp;Secure online payment</button>"
       +"<a href='#' data-qid='"+q.id+"' onclick='acceptQuote(this.dataset.qid); return false;' class='btn-accept'>&#x2714; Accept &mdash; I will pay via e-transfer or bank transfer</a>"
       +"<div class='secure-note'>&#x1F512; Secure payment &bull; CAD only &bull; All major cards accepted</div>"
       +"</div>";
@@ -362,23 +362,40 @@ function renderQuote(q){
   setupWhatsAppShare(q, total);
 }
 
-async function payWithStripe(qid){
+async function payWithStripe(qid, installmentNum){
   var btn=document.getElementById("stripePayBtn");
-  if(btn){btn.textContent="Connecting to Stripe...";btn.style.opacity=".7";btn.disabled=true;}
+  if(btn){btn.innerHTML="&#x23F3; Connecting to Stripe...";btn.style.opacity=".7";btn.disabled=true;}
   try{
     var res=await fetch(SB_URL+"/functions/v1/stripe-checkout",{
       method:"POST",
-      headers:{"apikey":SB_ANON,"Authorization":"Bearer "+SB_ANON,"Content-Type":"application/json"},
-      body:JSON.stringify({quote_id:qid})
+      headers:{"apikey":SB_ANON,"Content-Type":"application/json"},
+      body:JSON.stringify({quote_id:qid, installment_num: installmentNum||1})
     });
+    if(!res.ok){
+      var errText=await res.text();
+      throw new Error("Server error ("+res.status+"): "+errText.slice(0,200));
+    }
     var data=await res.json();
     if(data.error)throw new Error(data.error);
+    if(!data.checkout_url)throw new Error("No checkout URL returned");
     window.location.href=data.checkout_url;
   }catch(e){
-    if(btn){btn.textContent="Pay Now \u2192 Secure online payment";btn.style.opacity="1";btn.disabled=false;}
-    alert("Payment error: "+e.message+"\n\nPlease use bank transfer or contact sales@adviuz.ca");
+    console.error("[payWithStripe]",e);
+    if(btn){btn.innerHTML="&#x1F4B3; Pay Now &rarr; Secure online payment";btn.style.opacity="1";btn.disabled=false;}
+    alert("Payment setup failed: "+e.message+"\n\nAlternatively, e-transfer to sales@adviuz.ca");
   }
 }
+
+// Auto-trigger pay if ?action=pay in URL
+window.addEventListener('load',function(){
+  var params=new URLSearchParams(window.location.search);
+  if(params.get('action')==='pay'){
+    setTimeout(function(){
+      var btn=document.getElementById('stripePayBtn');
+      if(btn&&!btn.disabled) btn.click();
+    },800);
+  }
+});
 
 async function acceptQuote(qid){
   if(!confirm("Accept this quote and pay via e-transfer or bank transfer?\n\nOur team will follow up to confirm your payment."))return;
