@@ -1485,6 +1485,9 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
         <div><label class="flbl">First Name *</label><input class="finp" id="aFn" placeholder="John"></div>
         <div><label class="flbl">Last Name</label><input class="finp" id="aLn" placeholder="Smith"></div>
       </div>
+      <div class="fg"><label class="flbl">Company / Business Name</label>
+        <input class="finp" id="aCompany" placeholder="e.g. Markham Dental Studio">
+      </div>
       <div class="fg"><label class="flbl">Phone *</label>
         <div style="display:flex;gap:8px">
           <select class="fsel" id="aPhCC" style="width:110px;flex-shrink:0">
@@ -2481,7 +2484,8 @@ async function loadLeadsFromDB() {
 function mapLead(l, i) {
   return {
     id: i + 1, dbId: l.id,
-    name: l.name || '', ph: l.phone || '', em: l.email || '',
+    name: l.name || '', company: l.company || '',
+    ph: l.phone || '', em: l.email || '',
     ph2: l.phone2 || '', ph3: l.phone3 || '',
     em2: l.email2 || '', em3: l.email3 || '',
     em4: l.email4 || '', em5: l.email5 || '',
@@ -3339,9 +3343,9 @@ function renderLeadScreen(id) {
   var lastAct = acts[0];
   var recAct  = acts.find(function(a){ return a.type==='call' && a.rec; });
 
-  // Update topbar
-  document.getElementById('lsName').textContent = l.name;
-  document.getElementById('lsSub').textContent   = (l.svc||'Lead') + (l.src?' · '+l.src:'');
+  // Update topbar — show company if available
+  document.getElementById('lsName').textContent = l.company || l.name;
+  document.getElementById('lsSub').textContent  = l.company ? l.name + ' · ' + (l.svc||'Lead') + (l.src?' · '+l.src:'') : (l.svc||'Lead') + (l.src?' · '+l.src:'');
 
   // ── tomorrow default for date picker ──
   var tmrw   = new Date(Date.now()+86400000);
@@ -4050,7 +4054,8 @@ async function saveNewLead(){
   if(em && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)){if(emErr)emErr.style.display='block';showToast('Invalid email address');return}
 
   var ph = cc + rawPh;
-  var lead={id:nxtId,name:(fn+' '+ln).trim(),ph:ph,em:em,
+  var company = (document.getElementById('aCompany')||{}).value && document.getElementById('aCompany').value.trim();
+  var lead={id:nxtId,name:(fn+' '+ln).trim(),company:company||'',ph:ph,em:em,
     stage:document.getElementById('aStg').value,
     src:document.getElementById('aSrc').value,
     svc:document.getElementById('aSvc').value,
@@ -4131,7 +4136,7 @@ async function doSaveLead(lead) {
       method: 'POST',
       headers: { Prefer: 'return=representation' },
       body: JSON.stringify({
-        name: lead.name, phone: lead.ph, email: lead.em||null,
+        name: lead.name, company: lead.company||null, phone: lead.ph, email: lead.em||null,
         stage: lead.stage, source: lead.src||'Manual',
         service: lead.svc||null, notes: lead.note||null,
         sms_consent: true, call_consent: true, email_consent: true,
@@ -4147,7 +4152,7 @@ async function doSaveLead(lead) {
     leads.unshift(lead);
     closeSheet('addLeadSh');
     showToast('✅ '+lead.name+' saved');
-    ['aFn','aLn','aPh','aEm','aNt'].forEach(function(id){var el=document.getElementById(id);if(el)el.value=''});
+    ['aFn','aLn','aPh','aEm','aNt','aCompany'].forEach(function(id){var el=document.getElementById(id);if(el)el.value=''});
     render();
   } catch(e) {
     showToast('❌ Save failed: '+e.message);
@@ -5627,7 +5632,11 @@ async function saveAndSendQuote() {
         headers:{'Content-Type':'application/json','apikey':SB_ANON},
         body: JSON.stringify({
           to:         email,
-          subject:    'Your Quote '+(q.quote_number||'')+(biz?' — '+biz:''),
+          subject:    (function(){
+            var co = biz || name;
+            var item1Name = _quoteItems.length > 0 ? _quoteItems[0].name : '';
+            return 'Quote: '+co+(item1Name?' | '+item1Name:'');
+          })(),
           type:       'transactional',
           from_email: 'sales@adviuz.com',
           from_name:  'Adviuz',
@@ -5643,14 +5652,14 @@ async function saveAndSendQuote() {
             quote_id:        q.id||'',
             quote_date:      new Date().toLocaleDateString('en-CA',{day:'numeric',month:'short',year:'numeric'}),
             valid_until:     valid ? new Date(valid).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : 'Upon receipt',
-            subtotal:        subAfter.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}),
-            discount_amount: discount > 0 ? discount.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}) : '0',
-            tax_label:       taxRate+'% '+taxType,
-            tax_amount:      taxAmt.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}),
-            total:           total.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}),
+            subtotal:        subAfter.toFixed(2),
+            discount_amount: discount > 0 ? discount.toFixed(2) : '0',
+            tax_label:       taxRate+'%',
+            tax_amount:      taxAmt.toFixed(2),
+            total:           total.toFixed(2),
             installments:    String(parseInt((document.getElementById('q-installments')||{}).value||1)),
             installment_schedule_json: JSON.stringify(buildInstallments(total, parseInt((document.getElementById('q-installments')||{}).value||1))),
-            items_json:      JSON.stringify(_quoteItems.map(function(i){return{qty:i.qty,name:i.name,total:i.total};})),
+            items_json:      JSON.stringify(_quoteItems.map(function(i){return{qty:i.qty,name:i.name,total:typeof i.total==='number'?i.total:parseFloat(String(i.total).replace(/,/g,''))||0};})),
             notes:           notes||'',
             quote_url:       qUrl,
             lead_id:         _quoteLeadId||''
