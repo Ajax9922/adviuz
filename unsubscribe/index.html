@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Unsubscribe | Adviuz</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',system-ui,sans-serif;background:#f0f2f5;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
+.card{background:#fff;border-radius:20px;padding:40px 32px;max-width:440px;width:100%;text-align:center;box-shadow:0 2px 16px rgba(0,0,0,.08)}
+.logo{width:52px;height:52px;background:#00a884;border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:900;color:#fff;margin:0 auto 20px}
+h1{font-size:22px;font-weight:800;color:#111b21;margin-bottom:8px}
+p{font-size:14px;color:#667781;line-height:1.7;margin-bottom:20px}
+.btn{display:block;width:100%;padding:14px;border-radius:12px;border:none;font-family:'Inter',sans-serif;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:10px;transition:opacity .1s}
+.btn:active{opacity:.8}
+.btn-confirm{background:#cc0000;color:#fff}
+.btn-cancel{background:#f0f2f5;color:#667781}
+.success{background:#f0fdf9;border:1px solid #00a884;border-radius:12px;padding:20px;margin-top:16px;display:none}
+.success-icon{font-size:36px;margin-bottom:8px}
+.success-title{font-size:16px;font-weight:700;color:#065f46}
+.success-sub{font-size:13px;color:#667781;margin-top:4px}
+.note{font-size:12px;color:#aab8c0;margin-top:20px;line-height:1.6}
+a{color:#00a884}
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="logo">A</div>
+  <h1>Unsubscribe</h1>
+  <p id="desc">You're about to unsubscribe from marketing emails from Adviuz. You'll no longer receive our promotional emails and follow-up sequences.</p>
+  <p style="background:#fef3c7;border-radius:10px;padding:12px;font-size:13px;color:#92400e;margin-bottom:20px">
+    <strong>Note:</strong> You'll still receive important transactional emails like quotes, meeting confirmations, and account information.
+  </p>
+  <button class="btn btn-confirm" id="confirmBtn" onclick="unsubscribe()">Unsubscribe from Marketing Emails</button>
+  <button class="btn btn-cancel" onclick="history.back()">Cancel — Keep Me Subscribed</button>
+  <div class="success" id="successMsg">
+    <div class="success-icon">✅</div>
+    <div class="success-title">You've been unsubscribed</div>
+    <div class="success-sub">You won't receive marketing emails from us anymore.<br>You can still receive quotes and meeting confirmations.</div>
+  </div>
+  <div class="note">
+    Changed your mind? <a href="mailto:relations@adviuz.com">Email us</a> to resubscribe anytime.
+  </div>
+</div>
+
+<script>
+var SB_URL  = 'https://crhvvfomwkrgwlnfruad.supabase.co';
+var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
+var leadId  = new URLSearchParams(window.location.search).get('id');
+
+if(!leadId) {
+  document.getElementById('desc').textContent = 'Invalid unsubscribe link. Please use the link from your email.';
+  document.getElementById('confirmBtn').disabled = true;
+}
+
+async function unsubscribe() {
+  if(!leadId) return;
+  var btn = document.getElementById('confirmBtn');
+  btn.textContent = 'Processing...';
+  btn.disabled = true;
+  try {
+    await fetch(SB_URL + '/rest/v1/leads?id=eq.' + leadId, {
+      method: 'PATCH',
+      headers: {
+        'apikey': SB_ANON,
+        'Authorization': 'Bearer ' + SB_ANON,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        marketing_subscribed: false,
+        email_unsubscribed_at: new Date().toISOString()
+      })
+    });
+    // Also cancel active sequences
+    await fetch(SB_URL + '/rest/v1/email_sequences?lead_id=eq.' + leadId + '&status=eq.active', {
+      method: 'PATCH',
+      headers: {
+        'apikey': SB_ANON,
+        'Authorization': 'Bearer ' + SB_ANON,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        status: 'cancelled',
+        cancelled_at: new Date().toISOString(),
+        cancel_reason: 'unsubscribed'
+      })
+    });
+    btn.style.display = 'none';
+    document.getElementById('successMsg').style.display = 'block';
+  } catch(e) {
+    btn.textContent = 'Unsubscribe from Marketing Emails';
+    btn.disabled = false;
+    alert('Something went wrong. Please try again or email relations@adviuz.com');
+  }
+}
+</script>
+</body>
+</html>
