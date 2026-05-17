@@ -1088,7 +1088,7 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
 </div>
 
 <!-- ═══ CREATE QUOTE SHEET ═══ -->
-<div class="sheet-ov" id="createQuoteSh">
+<div class="sheet-ov" id="createQuoteSh" style="z-index:900">
   <div class="sheet"><div class="sheet-handle"></div>
     <div class="sheet-head">
       <div class="sheet-title">Create Quote</div>
@@ -2119,24 +2119,16 @@ async function doLogin() {
         window._staffRole = 'super_admin';
       }
 
-      // Persist session — respect Remember Me
-      var rememberMe = document.getElementById('rememberMe');
-      var remember = rememberMe ? rememberMe.checked : true;
-      var sessionData = JSON.stringify({
-        token:   data.access_token,
-        refresh: data.refresh_token,
-        expires: Date.now() + ((data.expires_in || 3600) * 1000),
-        user:    data.user,
-        role:    window._staffRole,
-        remember: remember
-      });
-      // Always save to sessionStorage (current tab)
-      sessionStorage.setItem('adviuz_master_session', sessionData);
-      // Only save to localStorage if Remember Me checked
-      if (remember) {
-        localStorage.setItem('adviuz_master_session', sessionData);
-      }
-      console.log('[Login] Session saved. Remember Me:', remember, '| Role:', window._staffRole);
+      // Save session using unified saveSession function
+      var remember = document.getElementById('rememberMe');
+      saveSession(
+        data.access_token,
+        data.refresh_token,
+        data.user,
+        window._staffRole,
+        remember ? remember.checked : true
+      );
+      console.log('[Login] Session saved. Role:', window._staffRole);
       onLoginSuccess();
     } else {
       throw new Error('Login failed — no token received');
@@ -2173,87 +2165,106 @@ function togglePassVis() {
 }
 
 async function refreshSession() {
-  // Check sessionStorage first (current tab), then localStorage (persistent)
   var raw = sessionStorage.getItem('adviuz_master_session')
          || localStorage.getItem('adviuz_master_session');
   if (!raw) {
-    console.log('[Session] No saved session found');
+    console.log('[Session] No saved session');
     return false;
   }
 
   var session;
-  try { session = JSON.parse(raw); } catch(e) {
-    console.warn('[Session] Invalid session data');
-    clearSavedSession();
-    return false;
-  }
-  if (!session || !session.token) {
-    clearSavedSession();
-    return false;
-  }
+  try { session = JSON.parse(raw); }
+  catch(e) { clearSavedSession(); return false; }
+  if (!session || !session.token) { clearSavedSession(); return false; }
 
-  // Restore role immediately
+  // Restore role + credentials immediately
   window._staffRole = session.role || 'super_admin';
   authToken   = session.token;
   currentUser = session.user;
 
-  // Token still valid (more than 2 minutes left) — use directly
-  var expiresIn = session.expires - Date.now();
-  if (session.expires && !isNaN(expiresIn) && expiresIn > 120000) {
-    console.log('[Session] Token valid for', Math.round(expiresIn / 60000), 'more minutes');
-    scheduleTokenRefresh(expiresIn - 300000);
-    return true;
-  }
+  // ── STEP 1: Test if current token still works ──
+  try {
+    var testRes = await fetch(SB_URL + '/auth/v1/user', {
+      headers: { 'Authorization': 'Bearer ' + session.token, 'apikey': SB_ANON }
+    });
 
-  // No expiry info — just use the token and hope it works
-  if (!session.expires || isNaN(session.expires)) {
-    console.log('[Session] No expiry info — using token directly');
-    return true;
-  }
-
-  console.log('[Session] Token expired or expiring soon — refreshing...');
-
-  if (session.refresh) {
-    try {
-      var res = await fetch(SB_URL + '/auth/v1/token?grant_type=refresh_token', {
-        method: 'POST',
-        headers: { apikey: SB_ANON, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: session.refresh })
-      });
-      var data = await res.json();
-      if (data.access_token) {
-        authToken    = data.access_token;
-        currentUser  = data.user;
-        var newSession = JSON.stringify({
-          token:    data.access_token,
-          refresh:  data.refresh_token || session.refresh,
-          expires:  Date.now() + ((data.expires_in || 3600) * 1000),
-          user:     data.user,
-          role:     session.role || 'super_admin',
-          remember: session.remember !== false
-        });
-        sessionStorage.setItem('adviuz_master_session', newSession);
-        if (session.remember !== false) {
-          localStorage.setItem('adviuz_master_session', newSession);
-        }
-        console.log('[Session] Token refreshed successfully');
-        scheduleTokenRefresh((data.expires_in || 3600) * 1000 - 300000);
-        return true;
-      }
-      console.warn('[Session] Refresh failed:', data.error_description || data.error);
-    } catch(e) {
-      console.warn('[Session] Network error during refresh — using existing token as fallback');
-      // Network error — try using existing token anyway, it might still work
-      authToken   = session.token;
-      currentUser = session.user;
+    if (testRes.ok) {
+      var userData = await testRes.json();
+      currentUser = userData;
+      console.log('[Session] Token valid ✅', userData.email);
+      // Save fresh user data
+      saveSession(session.token, session.refresh, userData, session.role, session.remember);
+      // Schedule background refresh in 50 minutes
+      scheduleTokenRefresh(50 * 60 * 1000);
       return true;
     }
+
+    // Token rejected (401) — try refresh token
+    console.log('[Session] Token expired, trying refresh...');
+
+  } catch(networkErr) {
+    // Network error — use cached credentials, app might be offline
+    console.warn('[Session] Network error — using cached token');
+    scheduleTokenRefresh(5 * 60 * 1000); // retry in 5 mins
+    return true;
   }
 
-  // Could not refresh — clear session
-  console.warn('[Session] Could not refresh — clearing session');
-  clearSavedSession();
-  return false;
+  // ── STEP 2: Try refresh token ──
+  if (!session.refresh) {
+    console.warn('[Session] No refresh token available');
+    clearSavedSession();
+    return false;
+  }
+
+  try {
+    var refreshRes = await fetch(SB_URL + '/auth/v1/token?grant_type=refresh_token', {
+      method:  'POST',
+      headers: { 'apikey': SB_ANON, 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ refresh_token: session.refresh })
+    });
+    var refreshData = await refreshRes.json();
+
+    if (refreshData.access_token) {
+      authToken   = refreshData.access_token;
+      currentUser = refreshData.user;
+      saveSession(
+        refreshData.access_token,
+        refreshData.refresh_token || session.refresh,
+        refreshData.user,
+        session.role,
+        session.remember
+      );
+      console.log('[Session] Token refreshed ✅');
+      scheduleTokenRefresh(50 * 60 * 1000);
+      return true;
+    }
+
+    console.warn('[Session] Refresh failed:', refreshData.error_description || refreshData.error);
+    // Don't clear session on refresh failure — user may just be offline
+    // Try using the old token anyway
+    return true;
+
+  } catch(e) {
+    console.warn('[Session] Refresh network error — using cached token');
+    return true;
+  }
+}
+
+function saveSession(token, refresh, user, role, remember) {
+  var data = JSON.stringify({
+    token:    token,
+    refresh:  refresh,
+    user:     user,
+    role:     role || 'super_admin',
+    remember: remember !== false,
+    savedAt:  Date.now()
+  });
+  // Always save to sessionStorage
+  sessionStorage.setItem('adviuz_master_session', data);
+  // Save to localStorage only if Remember Me
+  if (remember !== false) {
+    localStorage.setItem('adviuz_master_session', data);
+  }
 }
 
 function clearSavedSession() {
@@ -2264,13 +2275,11 @@ function clearSavedSession() {
 var _refreshTimer = null;
 function scheduleTokenRefresh(msFromNow) {
   if (_refreshTimer) clearTimeout(_refreshTimer);
-  if (msFromNow < 0) msFromNow = 10000; // refresh in 10s if already past
-  console.log('[Session] Auto-refresh scheduled in', Math.round(msFromNow/60000), 'minutes');
+  if (msFromNow < 60000) msFromNow = 60000; // minimum 1 minute
+  console.log('[Session] Next refresh in', Math.round(msFromNow/60000), 'mins');
   _refreshTimer = setTimeout(async function() {
-    console.log('[Session] Auto-refreshing token...');
     var ok = await refreshSession();
     if (!ok) {
-      console.warn('[Session] Auto-refresh failed — logging out');
       showToast('Session expired — please sign in again');
       setTimeout(doLogout, 2000);
     }
@@ -5332,9 +5341,8 @@ async function saveAndSendQuote() {
       total:          total,
       currency:       'CAD',
       payment_terms:  terms,
-      installments:   parseInt((document.getElementById('q-installments')||{}).value||1),
-      installment_schedule: buildInstallments(total, parseInt((document.getElementById('q-installments')||{}).value||1)),
       valid_until:    valid||null,
+      installments:   parseInt((document.getElementById('q-installments')||{}).value||1),
       notes:          notes||null,
       status:         'sent',
       sent_at:        new Date().toISOString(),
@@ -5349,7 +5357,12 @@ async function saveAndSendQuote() {
 
     if(!res.ok && res.status!==201) {
       var errData = await res.json().catch(function(){return {};});
-      throw new Error(errData.message || errData.hint || 'Save failed (status '+res.status+')');
+      var errMsg = errData.message || errData.hint || errData.details || 'Save failed (status '+res.status+')';
+      // If it's a missing column error, give specific guidance
+      if(errMsg.includes('column') && errMsg.includes('schema cache')) {
+        throw new Error('Database column missing. Please run the quotes SQL update in Supabase SQL Editor first.');
+      }
+      throw new Error(errMsg);
     }
 
     var data = await res.json();
