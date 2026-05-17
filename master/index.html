@@ -1135,8 +1135,11 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
           <select class="fsel" id="q-tax" onchange="recalcQuote()">
             <option value="0">0% - No Tax</option>
             <option value="5">5% - GST</option>
+            <option value="11" selected>11% - GST+PST (SK)</option>
+            <option value="12">12% - GST+PST (BC/MB)</option>
             <option value="13">13% - HST (ON)</option>
-            <option value="15">15% - HST (NB/NS/PEI)</option>
+            <option value="14.975">14.975% - GST+QST (QC)</option>
+            <option value="15">15% - HST (NB/NS/NL/PE)</option>
           </select>
         </div>
         <div><label class="flbl">Payment Terms</label>
@@ -1148,6 +1151,10 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
         </div>
       </div>
 
+      <div class="fg"><label class="flbl">Discount (CAD $) — optional</label>
+        <input class="finp" id="q-discount" type="number" min="0" step="0.01" placeholder="0.00 — e.g. 50 for a $50 discount" oninput="recalcQuote()">
+      </div>
+
       <div class="fg"><label class="flbl">Valid Until</label>
         <input class="finp" id="q-valid" type="date">
       </div>
@@ -1156,11 +1163,14 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
         <textarea class="fta" id="q-notes" placeholder="Any special notes for this quote..."></textarea>
       </div>
 
-      <!-- Totals preview -->
       <div style="background:var(--bg);border-radius:12px;padding:14px;margin-top:4px">
         <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px">
           <span style="color:var(--sub)">Subtotal</span>
           <span id="q-subtotal" style="font-weight:600">CAD $0.00</span>
+        </div>
+        <div style="display:none;justify-content:space-between;font-size:13px;margin-bottom:6px;color:var(--red)" id="q-discount-row">
+          <span>Discount</span>
+          <span id="q-discount-amt" style="font-weight:600">- CAD $0.00</span>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px" id="q-tax-row">
           <span style="color:var(--sub)">Tax</span>
@@ -4899,34 +4909,73 @@ function deletePlan(idx){
   loadPlansIntoQuoteDropdown();
 }
 
-function loadPlansIntoQuoteDropdown(){
+async function loadPlansIntoQuoteDropdown(){
   var sel = document.getElementById('q-plan-sel');
   if(!sel) return;
-  var plans = getPlans();
-  sel.innerHTML = '<option value="">Select a plan to add...</option>'
-    + plans.map(function(p,i){
-      return '<option value="'+i+'">'+p.name+' — $'+parseFloat(p.price).toFixed(2)+' '+p.unit+'</option>';
-    }).join('');
+  sel.innerHTML = '<option value="">Loading plans...</option>';
+  try {
+    // Load from DB plans table
+    var res = await sbFetch('/rest/v1/plans?select=*&is_active=eq.true&order=sort_order.asc');
+    var dbPlans = res.ok ? await res.json() : [];
+    // Also get local plans from localStorage
+    var localPlans = getPlans();
+    sel.innerHTML = '<option value="">Select a plan to add...</option>';
+    // DB plans
+    if (dbPlans.length) {
+      var opt = document.createElement('optgroup');
+      opt.label = 'Standard Plans';
+      dbPlans.forEach(function(p) {
+        var label = p.name + ' — $' + parseFloat(p.price_cad).toLocaleString('en-CA',{minimumFractionDigits:2}) + (p.billing!=='one_time'?'/mo':'');
+        var o = document.createElement('option');
+        o.value = 'db:'+p.id;
+        o.dataset.name = p.name;
+        o.dataset.desc = p.description||'';
+        o.dataset.price = p.price_cad;
+        o.textContent = label;
+        opt.appendChild(o);
+      });
+      sel.appendChild(opt);
+    }
+    // Local custom plans
+    if (localPlans.length) {
+      var opt2 = document.createElement('optgroup');
+      opt2.label = 'Custom Plans';
+      localPlans.forEach(function(p, i) {
+        var o = document.createElement('option');
+        o.value = 'local:'+i;
+        o.dataset.name = p.name;
+        o.dataset.desc = p.description||'';
+        o.dataset.price = p.price;
+        o.textContent = p.name + ' — $' + parseFloat(p.price).toFixed(2);
+        opt2.appendChild(o);
+      });
+      sel.appendChild(opt2);
+    }
+    if (!dbPlans.length && !localPlans.length) {
+      sel.innerHTML = '<option value="">No plans saved yet — add in Plans & Pricing</option>';
+    }
+  } catch(e) {
+    console.warn('[Plans] Load failed:', e.message);
+    sel.innerHTML = '<option value="">Could not load plans</option>';
+  }
 }
 
 function addPlanToQuote(){
   var sel = document.getElementById('q-plan-sel');
   if(!sel || !sel.value) { showToast('Select a plan first'); return; }
-  var plans = getPlans();
-  var p = plans[parseInt(sel.value)];
-  if(!p) return;
+  var opt = sel.options[sel.selectedIndex];
+  if(!opt) return;
+  var name  = opt.dataset.name || opt.text.split(' — ')[0];
+  var desc  = opt.dataset.desc || '';
+  var price = parseFloat(opt.dataset.price || 0);
   _quoteItems.push({
-    id: Date.now(),
-    name: p.name,
-    description: p.description || '',
-    qty: 1,
-    unit_price: p.price,
-    total: p.price
+    id: Date.now(), name: name, description: desc,
+    qty: 1, unit_price: price, total: price
   });
   renderQuoteItems();
   recalcQuote();
   sel.value = '';
-  showToast('Added: '+p.name);
+  showToast('Added: '+name);
 }
 
 
@@ -4996,65 +5045,123 @@ function updateQItem(id, field, val) {
 
 function recalcQuote() {
   _quoteItems.forEach(function(i){ i.total = (i.qty||1) * (i.unit_price||0); });
-  var sub = _quoteItems.reduce(function(s,i){return s+i.total;}, 0);
-  var taxRate = parseFloat((document.getElementById('q-tax')||{}).value||0);
-  var taxAmt = sub * taxRate / 100;
-  var total = sub + taxAmt;
+  var sub      = _quoteItems.reduce(function(s,i){return s+i.total;}, 0);
+  var discount = parseFloat((document.getElementById('q-discount')||{}).value||0);
+  var subAfter = Math.max(0, sub - discount);
+  var taxRate  = parseFloat((document.getElementById('q-tax')||{}).value||0);
+  var taxAmt   = subAfter * taxRate / 100;
+  var total    = subAfter + taxAmt;
   var fmt = function(n){ return 'CAD $' + n.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}); };
-  var s = document.getElementById('q-subtotal'); if(s) s.textContent = fmt(sub);
-  var a = document.getElementById('q-tax-amt'); if(a) a.textContent = fmt(taxAmt);
-  var t = document.getElementById('q-total'); if(t) t.textContent = fmt(total);
+  var s = document.getElementById('q-subtotal');    if(s) s.textContent = fmt(sub);
+  var d = document.getElementById('q-discount-row'); if(d) d.style.display = discount > 0 ? 'flex' : 'none';
+  var da= document.getElementById('q-discount-amt'); if(da) da.textContent = '- '+fmt(discount);
+  var a = document.getElementById('q-tax-amt');      if(a) a.textContent = fmt(taxAmt);
+  var t = document.getElementById('q-total');        if(t) t.textContent = fmt(total);
 }
 
 async function saveAndSendQuote() {
-  var name  = (document.getElementById('q-name')||{}).value.trim();
-  var email = (document.getElementById('q-email')||{}).value.trim();
-  var biz   = (document.getElementById('q-biz')||{}).value.trim();
-  var notes = (document.getElementById('q-notes')||{}).value.trim();
-  var terms = (document.getElementById('q-terms')||{}).value;
-  var valid = (document.getElementById('q-valid')||{}).value;
-  var taxRate = parseFloat((document.getElementById('q-tax')||{}).value||0);
+  var name     = (document.getElementById('q-name')||{}).value.trim();
+  var email    = (document.getElementById('q-email')||{}).value.trim();
+  var biz      = (document.getElementById('q-biz')||{}).value.trim();
+  var province = (document.getElementById('q-province')||{}).value || 'SK';
+  var notes    = (document.getElementById('q-notes')||{}).value.trim();
+  var terms    = (document.getElementById('q-terms')||{}).value;
+  var valid    = (document.getElementById('q-valid')||{}).value;
+  var taxRate  = parseFloat((document.getElementById('q-tax')||{}).value||0);
+  var discount = parseFloat((document.getElementById('q-discount')||{}).value||0);
+
   if(!name)  { showToast('Client name required'); return; }
   if(!email) { showToast('Email required'); return; }
-  if(_quoteItems.some(function(i){return !i.name;})) { showToast('All items need a name'); return; }
+  if(!_quoteItems.length || _quoteItems.some(function(i){return !i.name;})) {
+    showToast('Add at least one item with a name'); return;
+  }
 
-  var sub   = _quoteItems.reduce(function(s,i){return s+i.total;},0);
-  var taxAmt = sub*taxRate/100;
-  var total = sub+taxAmt;
+  var sub      = _quoteItems.reduce(function(s,i){return s+(i.total||0);},0);
+  var subAfter = Math.max(0, sub - discount);
+  var taxAmt   = subAfter * taxRate / 100;
+  var total    = subAfter + taxAmt;
 
   var btn = document.getElementById('sendQuoteBtn');
-  if(btn){ btn.textContent='Sending...'; btn.disabled=true; }
+  if(btn){ btn.textContent='Saving...'; btn.disabled=true; }
 
   try {
     var payload = {
-      recipient_name: name, recipient_email: email, recipient_biz: biz||null,
-      lead_id: _quoteLeadId||null,
-      items: _quoteItems.map(function(i){return {name:i.name,description:i.description,qty:i.qty,unit_price:i.unit_price,total:i.total};}),
-      subtotal: sub, tax_rate: taxRate, tax_amount: taxAmt, total: total,
-      currency: 'CAD', payment_terms: terms,
-      valid_until: valid||null, notes: notes||null,
-      status: 'sent', sent_at: new Date().toISOString(),
-      created_by: currentUser ? currentUser.id : null
+      recipient_name:     name,
+      recipient_email:    email,
+      recipient_biz:      biz||null,
+      recipient_province: province,
+      lead_id:            _quoteLeadId||null,
+      items:              _quoteItems.map(function(i){
+        return {name:i.name, description:i.description||'', qty:i.qty, unit_price:i.unit_price, total:i.total};
+      }),
+      subtotal:       sub,
+      discount_amount: discount,
+      tax_rate:       taxRate,
+      tax_amount:     taxAmt,
+      total:          total,
+      currency:       'CAD',
+      payment_terms:  terms,
+      valid_until:    valid||null,
+      notes:          notes||null,
+      status:         'sent',
+      sent_at:        new Date().toISOString(),
+      created_by:     currentUser ? currentUser.id : null
     };
+
     var res = await sbFetch('/rest/v1/quotes', {
       method:'POST',
       headers:{'Prefer':'return=representation'},
       body:JSON.stringify(payload)
     });
-    if(!res.ok && res.status!==201) throw new Error('Failed to save quote');
+
+    if(!res.ok && res.status!==201) {
+      var errData = await res.json().catch(function(){return {};});
+      throw new Error(errData.message || errData.hint || 'Save failed (status '+res.status+')');
+    }
+
     var data = await res.json();
-    var q = Array.isArray(data)?data[0]:data;
+    var q = Array.isArray(data) ? data[0] : data;
+    if(!q || !q.id) throw new Error('Quote saved but no ID returned');
+
+    // Send email to client
+    var qUrl = 'https://latest-promo.com/quote/?id='+q.id;
+    try {
+      await fetch(SB_URL+'/functions/v1/send-email', {
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken,'apikey':SB_ANON},
+        body: JSON.stringify({
+          to:         email,
+          subject:    'Your Quote '+(q.quote_number||'')+(biz?' - '+biz:''),
+          type:       'transactional',
+          from_email: 'sales@adviuz.com',
+          from_name:  'Adviuz',
+          reply_to:   'sales@adviuz.com',
+          lead_id:    _quoteLeadId||null,
+          template:   'quote_sent',
+          template_data: {
+            name:         name,
+            quote_number: q.quote_number||'',
+            total:        total.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}),
+            valid_until:  valid ? new Date(valid).toLocaleDateString('en-CA',{month:'long',day:'numeric',year:'numeric'}) : '30 days',
+            quote_url:    qUrl
+          }
+        })
+      });
+    } catch(emailErr) {
+      console.warn('[Quote] Email send failed:', emailErr.message);
+      // Don't fail the whole operation if email fails
+    }
+
     closeSheet('createQuoteSh');
-    // Open the quote link for sharing
-    var qUrl = window.location.origin+'/quote/?id='+q.id;
-    showToast('Quote '+q.quote_number+' created!');
+    showToast('Quote '+(q.quote_number||'')+'  created!');
     setTimeout(function(){
-      if(confirm('Quote created! Open the quote link to copy/send to client?\n\n'+qUrl)){
+      if(confirm('Quote created and email sent!\n\nOpen quote link to share directly?\n\n'+qUrl)){
         window.open(qUrl,'_blank');
       }
-    }, 500);
+    }, 400);
     loadAdminData();
   } catch(e){
+    console.error('[saveAndSendQuote]', e);
     showToast('Error: '+e.message);
   } finally {
     if(btn){ btn.textContent='Send Quote'; btn.disabled=false; }
