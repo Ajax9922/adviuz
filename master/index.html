@@ -891,6 +891,12 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
       <div class="menu-item" onclick="closeMenu();goTab('dashboard',document.getElementById('tab-dashboard'))">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Dashboard
       </div>
+      <div class="menu-item" onclick="closeMenu();adminShowTab('quotes')">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>Quotes
+      </div>
+      <div class="menu-item" onclick="closeMenu();adminShowTab('invoices')">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>Invoices
+      </div>
       <div class="menu-item" onclick="closeMenu();adminShowTab('clients')">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>All Clients
       </div>
@@ -1148,7 +1154,19 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
         </div>
       </div>
 
-      <div class="fg"><label class="flbl">Discount / Final Amount</label>
+      <div class="fg"><label class="flbl">Payment Schedule</label>
+        <select class="fsel" id="q-installments" onchange="updateInstallmentPreview()">
+          <option value="1">Single Payment — Full amount due</option>
+          <option value="2">2 Installments — Split into 2 payments</option>
+          <option value="3">3 Installments — Split into 3 payments</option>
+          <option value="4">4 Installments — Quarterly</option>
+          <option value="5">5 Installments — Split into 5 payments</option>
+          <option value="6">6 Installments — Monthly (6 months)</option>
+          <option value="12">12 Installments — Monthly (1 year)</option>
+          <option value="custom">Custom — Enter amounts manually</option>
+        </select>
+        <div id="installment-preview" style="margin-top:8px;display:none;background:var(--bg);border-radius:10px;padding:12px;font-size:12px;color:var(--sub)"></div>
+      </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
           <div>
             <div style="font-size:10px;color:var(--sub);margin-bottom:5px;font-weight:600">CLIENT PAYS (final total)</div>
@@ -1177,8 +1195,12 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
           <span id="q-subtotal" style="font-weight:600">CAD $0.00</span>
         </div>
         <div style="display:none;justify-content:space-between;font-size:13px;margin-bottom:6px;color:var(--red)" id="q-discount-row">
-          <span>Discount</span>
+          <span>Less: Discount</span>
           <span id="q-discount-amt" style="font-weight:600">- CAD $0.00</span>
+        </div>
+        <div style="display:none;justify-content:space-between;font-size:13px;margin-bottom:6px" id="q-net-row">
+          <span style="color:var(--sub)">Net Amount</span>
+          <span id="q-net-amt" style="font-weight:600">CAD $0.00</span>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px" id="q-tax-row">
           <span style="color:var(--sub)">Tax</span>
@@ -3555,6 +3577,18 @@ function lsSetStage(stage){
   var hdBadge = document.querySelector('.ls-header .stg-badge');
   if(hdBadge) hdBadge.outerHTML = stgBadge(stage);
   if(l.dbId) sbFetch('/rest/v1/leads?id=eq.'+l.dbId,{method:'PATCH',body:JSON.stringify({stage:stage,updated_at:new Date().toISOString()})}).catch(function(){});
+
+  // Log stage change to timeline
+  if(l.dbId && stage !== oldStage) {
+    logActivity({
+      lead_id:   l.dbId,
+      client_id: window._clientId||null,
+      type:      'stage_change',
+      label:     'Stage Changed',
+      body:      '🔄 '+oldStage+' → '+stage,
+      meta:      { from:oldStage, to:stage }
+    });
+  }
   showToast('Stage → '+stage);
   if(curTab==='leads') render();
 }
@@ -4068,6 +4102,47 @@ function openEmail(id){
 var _emailLeadId = null;
 var SB_FUNC_URL = SB_URL + '/functions/v1';
 
+// ═══════════════════════════════════════════════════════
+// CENTRALIZED ACTIVITY LOGGER
+// Logs every client event to DB + updates local timeline
+// ═══════════════════════════════════════════════════════
+var ACTIVITY_ICONS = {
+  quote_created:'📄',quote_sent:'📧',quote_viewed:'👁',quote_accepted:'✅',
+  quote_paid:'💳',quote_expired:'⏰',invoice_created:'🧾',invoice_emailed:'📧',
+  email_sent:'📧',email_opened:'👁',email_clicked:'🔗',sms_sent:'💬',
+  call:'📞',meeting:'📅',note:'📝',stage_change:'🔄',
+  reminder_sent:'⏰',payment_received:'💳',lead_created:'✨'
+};
+
+async function logActivity(opts) {
+  var lid = opts.lead_id;
+  // Update local timeline immediately
+  if(lid) {
+    if(!leadAct[lid]) leadAct[lid] = [];
+    var icon = ACTIVITY_ICONS[opts.type]||'•';
+    leadAct[lid].unshift({
+      type:opts.type, label:opts.label,
+      time:'Just now', body:opts.body||'', rec:false
+    });
+    if(curLid===lid) renderLeadScreen(lid);
+  }
+  // Persist to DB (non-blocking, never fail silently in UI)
+  try {
+    await sbFetch('/rest/v1/activity_log',{
+      method:'POST',
+      body:JSON.stringify({
+        lead_id:   opts.lead_id||null,
+        client_id: opts.client_id||null,
+        type:      opts.type,
+        label:     opts.label,
+        body:      opts.body||'',
+        meta:      opts.meta||{},
+        created_at:new Date().toISOString()
+      })
+    });
+  } catch(e){ console.warn('[logActivity]',e.message); }
+}
+
 var FROM_NAMES = {
   'relations@adviuz.com':'Relations Team',
   'support@adviuz.com':'Support Team',
@@ -4137,10 +4212,17 @@ async function sendEmail(){
     });
     var data = await res.json();
     if(data.error) throw new Error(data.error);
-    if(_emailLeadId){
-      if(!leadAct[_emailLeadId]) leadAct[_emailLeadId]=[];
-      leadAct[_emailLeadId].unshift({type:'email',label:'Email Sent',time:'Just now',body:'From: '+fromEmail+' | To: '+to+' | '+subj,rec:false});
-    }
+
+    // Log to activity timeline
+    logActivity({
+      lead_id:   _emailLeadId||null,
+      client_id: window._clientId||null,
+      type:      'email_sent',
+      label:     'Email Sent',
+      body:      '📧 From: '+fromEmail+' → To: '+to+'\n'+subj,
+      meta:      { from:fromEmail, to:to, subject:subj }
+    });
+
     closeSheet('emailSh');
     showToast('Sent from '+fromEmail);
     if(curLid) renderLeadScreen(curLid);
@@ -4973,6 +5055,52 @@ async function loadPlansIntoQuoteDropdown(){
   }
 }
 
+function updateInstallmentPreview() {
+  var sel = document.getElementById('q-installments');
+  var preview = document.getElementById('installment-preview');
+  if(!sel || !preview) return;
+  var n = parseInt(sel.value);
+  if(!n || n <= 1) { preview.style.display='none'; return; }
+
+  var total = parseFloat((document.getElementById('q-total')||{}).textContent.replace(/[^0-9.]/g,'')||0);
+  if(!total) { preview.style.display='none'; return; }
+
+  var perInstallment = total / n;
+  var html = '<div style="font-weight:700;color:var(--text);margin-bottom:8px">Payment Schedule Preview</div>';
+  var today = new Date();
+  for(var i = 1; i <= n; i++) {
+    var due = new Date(today);
+    due.setMonth(due.getMonth() + (i-1));
+    html += '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)">'
+      +'<span>Payment '+i+' &bull; Due: '+due.toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'})+'</span>'
+      +'<strong>CAD $'+perInstallment.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2})+'</strong>'
+      +'</div>';
+  }
+  html += '<div style="margin-top:8px;color:var(--muted);font-size:11px">Installment dates start today and are monthly. You can adjust in the notes field.</div>';
+  preview.innerHTML = html;
+  preview.style.display = 'block';
+}
+
+function buildInstallments(total, n) {
+  var installments = [];
+  var perInstallment = +(total / n).toFixed(2);
+  var today = new Date();
+  var runningTotal = 0;
+  for(var i = 1; i <= n; i++) {
+    var due = new Date(today);
+    due.setMonth(due.getMonth() + (i-1));
+    var amt = i === n ? +(total - runningTotal).toFixed(2) : perInstallment; // last payment handles rounding
+    runningTotal += amt;
+    installments.push({
+      number: i,
+      amount: amt,
+      due_date: due.toISOString().split('T')[0],
+      status: 'pending'
+    });
+  }
+  return installments;
+}
+
 function addPlanToQuote(){
   var sel = document.getElementById('q-plan-sel');
   if(!sel || !sel.value) return;
@@ -5141,9 +5269,12 @@ function setDiscountAmount(val) {
 
 function updateQuoteTotalsUI(sub, discount, taxAmt, total) {
   var fmt = function(n){ return 'CAD $' + Math.abs(n).toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  var netAmt = Math.max(0, sub - discount);
   var s  = document.getElementById('q-subtotal');    if(s)  s.textContent  = fmt(sub);
   var dr = document.getElementById('q-discount-row'); if(dr) dr.style.display = discount > 0.005 ? 'flex' : 'none';
   var da = document.getElementById('q-discount-amt'); if(da) da.textContent = '- '+fmt(discount);
+  var nr = document.getElementById('q-net-row');     if(nr) nr.style.display = discount > 0.005 ? 'flex' : 'none';
+  var na = document.getElementById('q-net-amt');     if(na) na.textContent = fmt(netAmt);
   var a  = document.getElementById('q-tax-amt');      if(a)  a.textContent  = fmt(taxAmt);
   var t  = document.getElementById('q-total');        if(t)  t.textContent  = fmt(total);
 }
@@ -5201,6 +5332,8 @@ async function saveAndSendQuote() {
       total:          total,
       currency:       'CAD',
       payment_terms:  terms,
+      installments:   parseInt((document.getElementById('q-installments')||{}).value||1),
+      installment_schedule: buildInstallments(total, parseInt((document.getElementById('q-installments')||{}).value||1)),
       valid_until:    valid||null,
       notes:          notes||null,
       status:         'sent',
@@ -5239,11 +5372,22 @@ async function saveAndSendQuote() {
           lead_id:    _quoteLeadId||null,
           template:   'quote_sent',
           template_data: {
-            name:         name,
-            quote_number: q.quote_number||'',
-            total:        total.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}),
-            valid_until:  valid ? new Date(valid).toLocaleDateString('en-CA',{month:'long',day:'numeric',year:'numeric'}) : '30 days',
-            quote_url:    qUrl
+            name:            name,
+            biz:             biz||name,
+            email:           email,
+            province:        province,
+            quote_number:    q.quote_number||'',
+            quote_date:      new Date().toLocaleDateString('en-CA',{day:'2-digit',month:'short',year:'numeric'}),
+            valid_until:     valid ? new Date(valid).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : '',
+            subtotal:        (subAfter).toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}),
+            tax_label:       taxRate+'%',
+            tax_amount:      taxAmt.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}),
+            contract_total:  total.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}),
+            total:           total.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}),
+            items_json:      JSON.stringify(_quoteItems.map(function(i){return{qty:i.qty,name:i.name,total:i.total};})),
+            notes:           notes||'',
+            quote_url:       qUrl,
+            lead_id:         _quoteLeadId||''
           }
         })
       });
@@ -5253,7 +5397,19 @@ async function saveAndSendQuote() {
     }
 
     closeSheet('createQuoteSh');
-    showToast('Quote '+(q.quote_number||'')+'  created!');
+    showToast('Quote '+(q.quote_number||'')+' created!');
+
+    // Log to activity timeline
+    if(_quoteLeadId) {
+      logActivity({
+        lead_id:   _quoteLeadId,
+        client_id: window._clientId||null,
+        type:      'quote_sent',
+        label:     'Quote Sent',
+        body:      '📄 Quote '+(q.quote_number||'')+' — '+fmtCAD(total)+' CAD sent to '+email,
+        meta:      { quote_id:q.id, quote_number:q.quote_number, total:total }
+      });
+    }
     setTimeout(function(){
       if(confirm('Quote created and email sent!\n\nOpen quote link to share directly?\n\n'+qUrl)){
         window.open(qUrl,'_blank');
@@ -5711,6 +5867,30 @@ async function confirmMarkPaid() {
 
     closeSheet('markPaidSh');
     showToast('Marked as paid' + (doEmail?' — invoice emailed':''));
+
+    // Find the quote/invoice lead and log payment
+    var paidQuote = (_adminData.quotes||[]).find(function(q){return q.id===_markPaidQuoteId;});
+    if(paidQuote && paidQuote.lead_id) {
+      var methodLabels = {etransfer:'E-Transfer',cash:'Cash',cheque:'Cheque',stripe:'Stripe (Online)'};
+      logActivity({
+        lead_id:   paidQuote.lead_id,
+        client_id: paidQuote.client_id||window._clientId||null,
+        type:      'payment_received',
+        label:     'Payment Received',
+        body:      '💳 Payment received for '+(paidQuote.quote_number||'quote')+' via '+(methodLabels[method]||method)+(ref?' (Ref: '+ref+')':''),
+        meta:      { quote_id:_markPaidQuoteId, method:method, ref:ref }
+      });
+      if(doEmail) {
+        logActivity({
+          lead_id:   paidQuote.lead_id,
+          client_id: paidQuote.client_id||window._clientId||null,
+          type:      'invoice_emailed',
+          label:     'Invoice Emailed',
+          body:      '🧾 Tax invoice generated and emailed to '+paidQuote.recipient_email,
+          meta:      { quote_id:_markPaidQuoteId }
+        });
+      }
+    }
     await loadAdminData();
     window._adminDashTab = 'invoices';
     if(curTab==='dashboard') render();
