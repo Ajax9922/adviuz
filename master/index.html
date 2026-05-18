@@ -3348,18 +3348,50 @@ async function generateAiSms(){
   ta.disabled = false;
 }
 
-function sendSmsFromSheet(src){
+async function sendSmsFromSheet(src){
   var l = window._smsLead || leads.find(function(x){return x.id===curLid});
   if(!l){closeSmsSheet();return;}
   var taId = src==='ai' ? 'smsAiText' : 'smsTplText';
   var msg = document.getElementById(taId).value.trim();
   if(!msg){showToast('Please write or select a message');return;}
-  // Log in activity
-  if(!leadAct[l.id])leadAct[l.id]=[];
-  leadAct[l.id].unshift({type:'sms',label:'SMS sent',time:'Just now',body:msg,rec:false});
-  showToast('💬 SMS sent to '+l.name);
-  closeSmsSheet();
-  renderLeadScreen(l.id);
+
+  // Normalize phone to E.164
+  var phone = l.ph || '';
+  var digits = phone.replace(/\D/g,'');
+  if(digits.length===10)       phone = '+1'+digits;
+  else if(digits.length===11)  phone = '+'+digits;
+  else if(!phone.startsWith('+')) phone = '+'+digits;
+
+  if(!phone){ showToast('❌ No phone number for this lead'); return; }
+
+  // Show sending state
+  var btn = document.querySelector('.sms-send-btn');
+  if(btn){ btn.textContent='Sending...'; btn.disabled=true; }
+
+  try {
+    var res = await sbFetch('/functions/v1/twilio-sms', {
+      method: 'POST',
+      body: JSON.stringify({
+        to:       phone,
+        message:  msg,
+        lead_id:  l.dbId || '',
+        client_id: window._clientId || ''
+      })
+    });
+    var data = await res.json();
+    if(!res.ok || data.error) throw new Error(data.error || 'SMS failed');
+
+    // Log in activity
+    if(!leadAct[l.id]) leadAct[l.id]=[];
+    leadAct[l.id].unshift({type:'sms',label:'SMS Sent',time:'Just now',body:msg,rec:false});
+    showToast('✅ SMS sent to '+(l.company||l.name));
+    closeSmsSheet();
+    renderLeadScreen(l.id);
+  } catch(e) {
+    showToast('❌ '+e.message);
+  } finally {
+    if(btn){ btn.textContent='Send SMS ➤'; btn.disabled=false; }
+  }
 }
 
 function openMoreModal(){ var el=document.getElementById('moreModalOv');if(el)el.classList.add('open'); }
