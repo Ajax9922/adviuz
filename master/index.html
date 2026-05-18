@@ -1280,6 +1280,27 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
 </div>
 
 
+<!-- ═══ INCOMING CALL OVERLAY ═══ -->
+<div id="incomingCallOv" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,.7);align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:20px;width:90%;max-width:360px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4)">
+    <div style="background:linear-gradient(135deg,#001f3f,#0a3d6b);padding:28px 24px;text-align:center">
+      <div style="width:72px;height:72px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-size:32px">📞</div>
+      <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px">Incoming Call</div>
+      <div id="icName"  style="font-size:20px;font-weight:800;color:#fff;margin-bottom:4px">Unknown</div>
+      <div id="icPhone" style="font-size:13px;color:rgba(255,255,255,.6);margin-bottom:4px"></div>
+      <div id="icStage" style="font-size:11px;color:rgba(255,255,255,.5)"></div>
+    </div>
+    <div style="padding:20px;display:flex;gap:12px">
+      <button onclick="rejectCall()" style="flex:1;padding:14px;border-radius:12px;background:#fee2e2;border:none;font-size:14px;font-weight:700;color:#dc2626;cursor:pointer;font-family:var(--f)">
+        ✕ Decline
+      </button>
+      <button onclick="answerCall()" style="flex:2;padding:14px;border-radius:12px;background:#059669;border:none;font-size:14px;font-weight:700;color:#fff;cursor:pointer;font-family:var(--f)">
+        📞 Answer
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ SCHEDULE MEETING SHEET ═══ -->
 <div class="sheet-ov" id="meetingSh" onclick="if(event.target===this)closeSheet('meetingSh')">
   <div class="sheet"><div class="sheet-handle"></div>
@@ -4198,23 +4219,144 @@ function saveFu(){
 // ═══════════════════════════════════════
 // CALL
 // ═══════════════════════════════════════
-function doCall(id){
-  var l=leads.find(function(x){return x.id===id})||leads[0];
-  var init=l.name.split(' ').map(function(w){return w[0]}).join('').slice(0,2);
-  document.getElementById('cuAv').textContent=init;
-  document.getElementById('cuAv').style.background=l.col;
-  document.getElementById('cuName').textContent=l.name;
-  document.getElementById('cuStat').textContent='Connecting via Twilio...';
-  callSec=0;document.getElementById('cuClock').textContent='0:00';muted=false;
-  var mb=document.getElementById('muteBtn');if(mb){mb.style.background='';mb.style.color='';mb.style.borderColor=''}
-  closeSheet('leadSh');openSheet('callSh');
-  var wv=document.getElementById('cuWave');
-  if(wv)wv.innerHTML=Array.from({length:22},function(){var h=6+Math.random()*20,d=(.4+Math.random()*.8).toFixed(2);return'<div class="cu-bar" style="--h:'+h+'px;--d:'+d+'s"></div>'}).join('');
-  setTimeout(function(){var s=document.getElementById('cuStat');if(s)s.textContent='Connected — '+l.ph;startCallTimer();if(l.stage==='New')l.stage='Called'},1400);
+// ═══════════════════════════════════════════════════════
+// TWILIO BROWSER CALLS
+// ═══════════════════════════════════════════════════════
+var twilioDevice  = null;
+var activeCall    = null;
+var callIv        = null;
+var callSec       = 0;
+var muted         = false;
+var _callLeadId   = null;
+
+async function initTwilioDevice() {
+  try {
+    var res  = await sbFetch('/functions/v1/twilio-voice?action=token&identity=agent');
+    var data = await res.json();
+    if (!data.token) throw new Error('No token');
+
+    if (!window.Twilio) {
+      await new Promise(function(resolve, reject) {
+        var s = document.createElement('script');
+        s.src = 'https://sdk.twilio.com/js/client/v1.14/twilio.min.js';
+        s.onload = resolve; s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    }
+
+    twilioDevice = new Twilio.Device(data.token, {
+      codecPreferences: ['opus','pcmu'], fakeLocalDTMF: true, enableRingingState: true
+    });
+
+    twilioDevice.on('incoming', function(conn) {
+      activeCall = conn;
+      var from   = conn.parameters.From || 'Unknown';
+      var phone  = from.replace(/\D/g,'').slice(-10);
+      var lead   = leads.find(function(l){ return l.ph.replace(/\D/g,'').slice(-10) === phone; });
+      _callLeadId = lead ? lead.id : null;
+      showIncomingCall(lead ? (lead.company||lead.name) : from, from, lead);
+    });
+
+    twilioDevice.on('ready', function(){ console.log('[Twilio] Ready'); });
+    twilioDevice.on('error', function(e){ console.error('[Twilio]', e.message); });
+    setInterval(initTwilioDevice, 50*60*1000);
+    console.log('[Twilio] Device initialized');
+  } catch(e) {
+    console.warn('[Twilio] Init failed:', e.message);
+  }
 }
-function startCallTimer(){clearInterval(callIv);callIv=setInterval(function(){callSec++;var m=Math.floor(callSec/60),s=callSec%60;var el=document.getElementById('cuClock');if(el)el.textContent=m+':'+(s<10?'0':'')+s},1000)}
-function stopCall(){clearInterval(callIv);callIv=null;callSec=0;muted=false}
-function toggleMute(btn){muted=!muted;btn.style.background=muted?'var(--red)':'';btn.style.color=muted?'#fff':'';btn.style.borderColor=muted?'var(--red)':'';showToast(muted?'Muted':'Unmuted')}
+
+function showIncomingCall(name, from, lead) {
+  var ov = document.getElementById('incomingCallOv');
+  if (!ov) return;
+  document.getElementById('icName').textContent  = name;
+  document.getElementById('icPhone').textContent = from;
+  document.getElementById('icStage').textContent = lead ? lead.stage : '';
+  ov.style.display = 'flex';
+  window._icTimeout = setTimeout(rejectCall, 30000);
+}
+
+function answerCall() {
+  if (!activeCall) return;
+  clearTimeout(window._icTimeout);
+  var name = document.getElementById('icName').textContent;
+  activeCall.accept();
+  document.getElementById('incomingCallOv').style.display = 'none';
+  openCallSheet(name, document.getElementById('icPhone').textContent);
+  startCallTimer();
+}
+
+function rejectCall() {
+  clearTimeout(window._icTimeout);
+  if (activeCall) { activeCall.reject(); activeCall = null; }
+  document.getElementById('incomingCallOv').style.display = 'none';
+}
+
+function doCall(id) {
+  var l = leads.find(function(x){ return x.id===id||x.dbId===id; });
+  if (!l) return;
+  _callLeadId = id;
+
+  if (!twilioDevice) {
+    showToast('Connecting Twilio...');
+    initTwilioDevice().then(function(){ setTimeout(function(){ doCall(id); }, 2000); });
+    return;
+  }
+
+  activeCall = twilioDevice.connect({ To: l.ph });
+  activeCall.on('accept',     function(){ startCallTimer(); });
+  activeCall.on('disconnect', function(){ endCallSheet(); });
+  activeCall.on('error',      function(e){ showToast('❌ '+e.message); endCallSheet(); });
+
+  openCallSheet(l.company||l.name, l.ph);
+}
+
+function openCallSheet(name, ph) {
+  var av   = document.getElementById('cuAv');
+  var lead = leads.find(function(l){ return l.id===_callLeadId||l.dbId===_callLeadId; });
+  if (av) { av.textContent = (name||'?').split(' ').map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase(); av.style.background = lead ? lead.col : '#001f3f'; }
+  if (document.getElementById('cuName'))  document.getElementById('cuName').textContent  = name||'';
+  if (document.getElementById('cuStat'))  document.getElementById('cuStat').textContent  = 'Connecting...';
+  if (document.getElementById('cuClock')) document.getElementById('cuClock').textContent = '0:00';
+  muted = false;
+  var mb = document.getElementById('muteBtn'); if(mb){mb.style.background='';mb.style.color='';}
+  var wv = document.getElementById('cuWave');
+  if (wv) wv.innerHTML = Array.from({length:22},function(){ var h=6+Math.random()*20,d=(.4+Math.random()*.8).toFixed(2); return '<div class="cu-bar" style="--h:'+h+'px;--d:'+d+'s"></div>';}).join('');
+  openSheet('callSh');
+  setTimeout(function(){ var s=document.getElementById('cuStat'); if(s) s.textContent='Connected'; }, 1200);
+}
+
+function endCallSheet() {
+  clearInterval(callIv); callIv=null; callSec=0; muted=false; activeCall=null;
+  closeSheet('callSh');
+}
+
+function startCallTimer() {
+  clearInterval(callIv);
+  callIv = setInterval(function(){
+    callSec++;
+    var m=Math.floor(callSec/60), s=callSec%60;
+    var el=document.getElementById('cuClock');
+    if(el) el.textContent = m+':'+(s<10?'0':'')+s;
+  },1000);
+}
+
+function stopCall() {
+  if (activeCall) { activeCall.disconnect(); activeCall=null; }
+  endCallSheet();
+}
+
+function toggleMute(btn) {
+  if (!activeCall) return;
+  muted = !muted;
+  activeCall.mute(muted);
+  btn.style.background = muted?'var(--red)':'';
+  btn.style.color      = muted?'#fff':'';
+  showToast(muted?'🔇 Muted':'🎙 Unmuted');
+}
+
+window.addEventListener('load', function(){ setTimeout(initTwilioDevice, 2000); });
+
 
 // ═══════════════════════════════════════
 // SMS / EMAIL
@@ -4223,11 +4365,33 @@ function openSms(id){var l=leads.find(function(x){return x.id===id});if(!l)retur
 var SMS_T={fu:'Hi {name}, following up on your interest in nail fungus treatment at Laser Clinic Ontario. Reply STOP to opt out.',appt:'Hi {name}, reminder about your appointment at Laser Cosmetics Clinic. Reply YES to confirm. Reply STOP to opt out.',offer:'Hi {name}, this week only: FREE consultation for nail fungus treatment. Limited spots! Reply STOP to opt out.'};
 function setSmsT(k){if(!k)return;var b=document.getElementById('smsBody');if(b)b.value=SMS_T[k]||''}
 async function sendSms(){
-  var l=leads.find(function(x){return x.id===curLid});
-  if(!l){closeSheet('smsSh');return}
-  var msg=document.getElementById('smsBody')?.value||'';
-  var ok=await sendRealSms(l.id,l.ph,msg,l.name.split(' ')[0]);
-  if(ok)closeSheet('smsSh');
+  var l = leads.find(function(x){ return x.id===curLid; });
+  if (!l) { closeSheet('smsSh'); return; }
+  var msg = (document.getElementById('smsBody')||{}).value||'';
+  if (!msg.trim()) { showToast('Enter a message'); return; }
+  var name = (l.name||'').split(' ')[0];
+  msg = msg.replace(/\{name\}/gi, name);
+
+  var btn = document.querySelector('#smsSh .btn-primary');
+  if (btn) { btn.textContent='Sending...'; btn.disabled=true; }
+
+  try {
+    var res = await sbFetch('/functions/v1/twilio-sms?action=send', {
+      method: 'POST',
+      body: JSON.stringify({ to: l.ph, message: msg, lead_id: l.dbId })
+    });
+    var data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'SMS failed');
+
+    showToast('✅ SMS sent to '+(l.company||l.name));
+    logActivity({ lead_id: l.id, type: 'sms_sent', label: 'SMS Sent', body: msg });
+    closeSheet('smsSh');
+    if (document.getElementById('smsBody')) document.getElementById('smsBody').value = '';
+  } catch(e) {
+    showToast('❌ '+e.message);
+  } finally {
+    if (btn) { btn.textContent='Send SMS'; btn.disabled=false; }
+  }
 }
 function openEmail(id){
   var l=leads.find(function(x){return x.id===id});
