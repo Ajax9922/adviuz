@@ -4422,7 +4422,7 @@ function toggleMute(btn) {
 // LEAD ASSIGNMENT
 // ═══════════════════════════════════════════════════════
 var _assignLeadId = null;
-var _orgMembers   = null; // cached
+var _orgMembers   = null;
 
 async function loadOrgMembers() {
   if (_orgMembers) return _orgMembers;
@@ -4431,99 +4431,112 @@ async function loadOrgMembers() {
     if (!res.ok) return [];
     _orgMembers = await res.json();
     return _orgMembers || [];
-  } catch(e) {
-    console.warn('[assign] loadOrgMembers:', e.message);
-    return [];
-  }
+  } catch(e) { console.warn('[assign]', e.message); return []; }
 }
 
 async function openAssignSheet(leadId) {
   _assignLeadId = leadId;
   var l = leads.find(function(x){ return x.id === leadId; });
-
   var list = document.getElementById('assignAgentList');
   list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--sub);font-size:13px">Loading team...</div>';
   openSheet('assignSh');
 
   var members = await loadOrgMembers();
-
   if (!members.length) {
-    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--sub);font-size:13px">No team members found.<br><span style="font-size:12px">Add members via user_profiles in Supabase.</span></div>';
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--sub);font-size:13px">No team members found.<br><small>Add members via user_profiles in Supabase.</small></div>';
     return;
   }
 
   var roleLabel = { super_admin:'Super Admin', telecaller:'Telecaller', affiliate:'Affiliate', director:'Director' };
   var roleColor = { super_admin:'#7c3aed', telecaller:'#2563eb', affiliate:'#059669', director:'#d97706' };
 
-  var h = '';
+  list.innerHTML = '';
   members.forEach(function(m) {
     var isAssigned = l && l.assignedTo === m.user_id;
     var closeRate  = m.total_assigned > 0 ? Math.round((m.total_closed / m.total_assigned) * 100) : 0;
     var initials   = (m.display_name || '?').split(' ').map(function(w){ return w[0]; }).join('').slice(0,2).toUpperCase();
+    var bgColor    = roleColor[m.role] || '#6b7280';
+    var label      = roleLabel[m.role] || m.role;
 
-    h += '<div onclick="assignLeadTo(''+m.user_id+'',''+m.display_name+'')" style="'
-       + 'display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;'
-       + 'border-bottom:1px solid var(--border);'
-       + (isAssigned ? 'background:#f0fdf9;' : '')
-       + 'transition:background 0.15s" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''+(isAssigned?'#f0fdf9':'')+''">';
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;border-bottom:1px solid var(--border);background:' + (isAssigned ? '#f0fdf9' : 'transparent') + ';transition:background 0.15s';
+    row.addEventListener('mouseover',  function(){ this.style.background = 'var(--bg)'; });
+    row.addEventListener('mouseout',   function(){ this.style.background = isAssigned ? '#f0fdf9' : 'transparent'; });
+    row.addEventListener('click',      function(){ assignLeadTo(m.user_id, m.display_name); });
 
     // Avatar
-    h += '<div style="width:40px;height:40px;border-radius:12px;background:'+(roleColor[m.role]||'#6b7280')+';'
-       + 'display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;flex-shrink:0">'
-       + initials + '</div>';
+    var av = document.createElement('div');
+    av.style.cssText = 'width:40px;height:40px;border-radius:12px;background:' + bgColor + ';display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;flex-shrink:0';
+    av.textContent = initials;
+    row.appendChild(av);
 
     // Info
-    h += '<div style="flex:1;min-width:0">';
-    h += '<div style="display:flex;align-items:center;gap:6px">';
-    h += '<span style="font-size:14px;font-weight:700;color:var(--text)">' + (m.display_name||'Unknown') + '</span>';
-    if (isAssigned) h += '<span style="font-size:10px;background:#d1fae5;color:#059669;padding:2px 7px;border-radius:20px;font-weight:700">Current</span>';
-    h += '</div>';
-    h += '<div style="display:flex;gap:8px;margin-top:3px">';
-    h += '<span style="font-size:11px;color:'+(roleColor[m.role]||'#6b7280')+';font-weight:600">'+(roleLabel[m.role]||m.role)+'</span>';
-    h += '<span style="font-size:11px;color:var(--sub)">· '+m.total_assigned+' leads</span>';
-    if (m.total_assigned > 0) h += '<span style="font-size:11px;color:var(--sub)">· '+closeRate+'% close rate</span>';
-    h += '</div></div>';
+    var info = document.createElement('div');
+    info.style.cssText = 'flex:1;min-width:0';
 
-    // Phone indicator
-    if (m.phone) h += '<div style="font-size:10px;color:var(--sub);flex-shrink:0">📱</div>';
+    var nameRow = document.createElement('div');
+    nameRow.style.cssText = 'display:flex;align-items:center;gap:6px';
+    var nameEl = document.createElement('span');
+    nameEl.style.cssText = 'font-size:14px;font-weight:700;color:var(--text)';
+    nameEl.textContent = m.display_name || 'Unknown';
+    nameRow.appendChild(nameEl);
+    if (isAssigned) {
+      var cur = document.createElement('span');
+      cur.style.cssText = 'font-size:10px;background:#d1fae5;color:#059669;padding:2px 7px;border-radius:20px;font-weight:700';
+      cur.textContent = 'Current';
+      nameRow.appendChild(cur);
+    }
+    info.appendChild(nameRow);
 
-    h += '</div>';
+    var metaRow = document.createElement('div');
+    metaRow.style.cssText = 'display:flex;gap:8px;margin-top:3px';
+    var roleEl = document.createElement('span');
+    roleEl.style.cssText = 'font-size:11px;color:' + bgColor + ';font-weight:600';
+    roleEl.textContent = label;
+    metaRow.appendChild(roleEl);
+    var leadsEl = document.createElement('span');
+    leadsEl.style.cssText = 'font-size:11px;color:var(--sub)';
+    leadsEl.textContent = '· ' + m.total_assigned + ' leads';
+    metaRow.appendChild(leadsEl);
+    if (m.total_assigned > 0) {
+      var rateEl = document.createElement('span');
+      rateEl.style.cssText = 'font-size:11px;color:var(--sub)';
+      rateEl.textContent = '· ' + closeRate + '% close rate';
+      metaRow.appendChild(rateEl);
+    }
+    info.appendChild(metaRow);
+    row.appendChild(info);
+
+    // Phone badge
+    if (m.phone) {
+      var ph = document.createElement('div');
+      ph.style.cssText = 'font-size:13px;flex-shrink:0';
+      ph.textContent = '📱';
+      row.appendChild(ph);
+    }
+
+    list.appendChild(row);
   });
-
-  list.innerHTML = h;
 }
 
 async function assignLeadTo(userId, userName) {
   var l = leads.find(function(x){ return x.id === _assignLeadId; });
   if (!l || !l.dbId) { showToast('❌ Lead not saved yet'); return; }
-
   closeSheet('assignSh');
   showToast('⏳ Assigning to ' + userName + '...');
-
   try {
     var res = await sbFetch('/functions/v1/assign-lead', {
       method: 'POST',
-      body: JSON.stringify({
-        lead_id:     l.dbId,
-        client_id:   window._clientId,
-        source:      'manual',
-        assigned_to: userId
-      })
+      body: JSON.stringify({ lead_id: l.dbId, client_id: window._clientId, source: 'manual', assigned_to: userId })
     });
     var data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Assignment failed');
-
-    // Update local lead object
     l.assignedTo   = userId;
     l.assignedName = userName;
-    _orgMembers    = null; // clear cache so stats refresh next time
-
+    _orgMembers    = null;
     showToast('✅ Assigned to ' + userName);
     if (curLid === _assignLeadId) renderLeadScreen(_assignLeadId);
-
-  } catch(e) {
-    showToast('❌ ' + e.message);
-  }
+  } catch(e) { showToast('❌ ' + e.message); }
 }
 
 window.addEventListener('load', function(){ setTimeout(initTwilioDevice, 2000); });
