@@ -192,8 +192,7 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
 .sheet-ov{display:none;position:fixed;top:0;left:0;width:100%;height:100%;min-width:100vw;min-height:100vh;z-index:850;background:rgba(0,0,0,.55);align-items:flex-end;justify-content:center;box-sizing:border-box}
 .sheet-ov.open{display:flex}
 .sheet{background:var(--white);border-radius:18px 18px 0 0;width:100%;max-width:430px;max-height:94dvh;overflow-y:auto;animation:shUp .26s cubic-bezier(.34,1.1,.64,1);padding-bottom:env(safe-area-inset-bottom,16px)}
-#callSh .sheet{height:82dvh;max-height:82dvh;overflow:hidden}
-#callSh .call-ui{height:100%;display:flex;flex-direction:column;justify-content:space-between;padding:28px 20px 24px}
+
 .sheet::-webkit-scrollbar{display:none}
 @keyframes shUp{from{transform:translateY(50px);opacity:0}to{transform:translateY(0);opacity:1}}
 .sheet-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:12px auto 0}
@@ -1618,21 +1617,69 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
     </div>
   </div>
 </div>
-<!-- Email sheet moved to after lead screen for correct z-index stacking -->
-<!-- Call UI -->
-<div class="sheet-ov" id="callSh" onclick="if(event.target===this){closeSheet('callSh');stopCall()}">
-  <div class="sheet"><div class="sheet-handle"></div>
-    <div class="call-ui">
-      <div class="cu-ring-wrap"><div class="cu-ring"></div><div class="cu-ring" style="animation-delay:.6s"></div><div class="cu-av" id="cuAv" style="background:var(--green)">P</div></div>
-      <div class="cu-name" id="cuName">Lead</div>
-      <div class="cu-stat" id="cuStat">Connecting via Twilio...</div>
-      <div class="cu-clock" id="cuClock">0:00</div>
-      <div class="cu-wave" id="cuWave"></div>
-      <div class="cu-btns">
-        <button class="cu-btn cb-mute" id="muteBtn" onclick="toggleMute(this)"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg></button>
-        <button class="cu-btn cb-hang" onclick="stopCall();closeSheet('callSh');showToast('Call ended')"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.68 13.31a16 16 0 003.41 2.6l1.27-1.27a2 2 0 012.11-.45c.98.37 2.03.63 3.11.77a2 2 0 011.72 2v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.42 19.42 0 01-3.33-2.67m-2.67-3.34a19.79 19.79 0 01-3.07-8.63A2 2 0 014.11 2h3a2 2 0 012 1.72"/><line x1="23" y1="1" x2="1" y2="23"/></svg></button>
-        <button class="cu-btn cb-spk" onclick="showToast('Speaker on')"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/></svg></button>
+<!-- Call UI — Full Screen Overlay -->
+<div id="callSh" style="display:none;position:fixed;inset:0;z-index:900;background:linear-gradient(160deg,#0f172a 0%,#1a2744 60%,#0f2027 100%);flex-direction:column;align-items:center;justify-content:flex-start;padding-top:env(safe-area-inset-top,0px)">
+
+  <!-- Top bar -->
+  <div style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:16px 20px 0">
+    <button onclick="stopCall();document.getElementById('callSh').style.display='none';showToast('Call ended')" style="background:rgba(255,255,255,.1);border:none;color:#fff;font-size:13px;font-weight:600;padding:8px 14px;border-radius:20px;cursor:pointer;font-family:var(--f)">✕ End</button>
+    <div style="font-size:12px;color:rgba(255,255,255,.4);font-weight:600;letter-spacing:.08em;text-transform:uppercase">IVR Call</div>
+    <div style="width:60px"></div>
+  </div>
+
+  <!-- Avatar + name — centered upper area -->
+  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:20%">
+    <!-- Ring animation -->
+    <div style="position:relative;width:110px;height:110px;margin-bottom:24px">
+      <div id="cuRing1" style="position:absolute;inset:-14px;border-radius:50%;border:1.5px solid rgba(255,255,255,.12);animation:cuRing 2s ease-out infinite"></div>
+      <div id="cuRing2" style="position:absolute;inset:-7px;border-radius:50%;border:1.5px solid rgba(255,255,255,.18);animation:cuRing 2s ease-out infinite .7s"></div>
+      <div id="cuAv" style="width:110px;height:110px;border-radius:50%;background:linear-gradient(135deg,#1A56DB,#7c3aed);display:flex;align-items:center;justify-content:center;font-size:44px;font-weight:800;color:#fff">A</div>
+    </div>
+
+    <div id="cuName" style="font-size:26px;font-weight:800;color:#fff;letter-spacing:-.02em;margin-bottom:6px">Lead</div>
+    <div id="cuStat" style="font-size:14px;color:rgba(255,255,255,.5);margin-bottom:18px">Connecting...</div>
+    <div id="cuClock" style="font-size:52px;font-weight:200;color:#fff;font-variant-numeric:tabular-nums;letter-spacing:-.02em">0:00</div>
+
+    <!-- Audio wave -->
+    <div id="cuWave" style="display:flex;align-items:center;justify-content:center;gap:4px;height:36px;margin-top:16px">
+      <div class="cu-bar" style="--d:0.8s;height:8px"></div>
+      <div class="cu-bar" style="--d:1.1s;height:16px"></div>
+      <div class="cu-bar" style="--d:0.7s;height:24px"></div>
+      <div class="cu-bar" style="--d:1.3s;height:32px"></div>
+      <div class="cu-bar" style="--d:0.9s;height:24px"></div>
+      <div class="cu-bar" style="--d:1.2s;height:16px"></div>
+      <div class="cu-bar" style="--d:0.8s;height:8px"></div>
+    </div>
+  </div>
+
+  <!-- Control buttons — fixed at 80% from top -->
+  <div style="width:100%;padding:0 40px 40px;padding-bottom:calc(40px + env(safe-area-inset-bottom,0px))">
+    <div style="display:flex;align-items:center;justify-content:space-around">
+
+      <!-- Mute -->
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+        <button id="muteBtn" onclick="toggleMute(this)" style="width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,.12);border:1.5px solid rgba(255,255,255,.2);cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff">
+          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:26px;height:26px"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+        </button>
+        <span style="font-size:12px;color:rgba(255,255,255,.5)">Mute</span>
       </div>
+
+      <!-- Hang up — large red centre -->
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+        <button onclick="stopCall();document.getElementById('callSh').style.display='none';showToast('📞 Call ended')" style="width:80px;height:80px;border-radius:50%;background:#ef4444;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:0 8px 32px rgba(239,68,68,.5)">
+          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:32px;height:32px"><path d="M10.68 13.31a16 16 0 003.41 2.6l1.27-1.27a2 2 0 012.11-.45c.98.37 2.03.63 3.11.77a2 2 0 011.72 2v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.42 19.42 0 01-3.33-2.67m-2.67-3.34a19.79 19.79 0 01-3.07-8.63A2 2 0 014.11 2h3a2 2 0 012 1.72"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
+        </button>
+        <span style="font-size:12px;color:rgba(255,255,255,.5)">End Call</span>
+      </div>
+
+      <!-- Speaker -->
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+        <button onclick="showToast('Speaker toggled')" style="width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,.12);border:1.5px solid rgba(255,255,255,.2);cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff">
+          <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:26px;height:26px"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/></svg>
+        </button>
+        <span style="font-size:12px;color:rgba(255,255,255,.5)">Speaker</span>
+      </div>
+
     </div>
   </div>
 </div>
@@ -4529,7 +4576,7 @@ function doCall(id) {
         var s2 = document.getElementById('cuStat');
         if (s2) s2.textContent = '❌ Check Twilio setup';
         showToast('❌ Twilio not configured — check Supabase secrets');
-        setTimeout(function(){ closeSheet('callSh'); }, 3000);
+        setTimeout(function(){ document.getElementById('callSh').style.display='none'; }, 3000);
         return;
       }
       setTimeout(function(){ _makeCall(l); }, 1000);
@@ -4566,6 +4613,8 @@ function _makeCall(l) {
 }
 
 function openCallSheet(name, ph) {
+  var el = document.getElementById('callSh');
+  if(el) el.style.display = 'flex';
   var av   = document.getElementById('cuAv');
   var lead = leads.find(function(l){ return l.id===_callLeadId||l.dbId===_callLeadId; });
   if (av) { av.textContent = (name||'?').split(' ').map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase(); av.style.background = lead ? lead.col : '#001f3f'; }
