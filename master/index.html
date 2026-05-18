@@ -5630,16 +5630,26 @@ async function loadAdminData() {
       sbFetch('/rest/v1/clients?select=*&order=created_at.desc&limit=200'),
       sbFetch('/rest/v1/campaigns?select=*,clients(business_name)&order=created_at.desc&limit=200'),
       sbFetch('/rest/v1/leads?select=*,clients(business_name)&order=created_at.desc&limit=500'),
-      sbFetch('/rest/v1/affiliates?select=*,clients(business_name,email)&order=joined_at.desc&limit=100'),
-      sbFetch('/rest/v1/referral_commissions?select=*,leads(name),affiliates(clients(business_name))&status=eq.pending&order=submitted_at.asc&limit=100'),
+      sbFetch('/rest/v1/sales_partners?select=*&order=created_at.desc&limit=100'),
+      sbFetch('/rest/v1/partner_applications?select=*&status=eq.pending&order=created_at.desc&limit=100'),
+      sbFetch('/rest/v1/partner_commissions?select=*,leads(name)&status=eq.earned&order=earned_at.desc&limit=100'),
+      sbFetch('/rest/v1/lead_registrations?select=*,sales_partners(full_name,ref_code)&status=eq.active&order=created_at.desc&limit=50'),
       sbFetch('/rest/v1/quotes?select=*&order=created_at.desc&limit=200'),
       sbFetch('/rest/v1/invoices?select=*&order=created_at.desc&limit=200')
     ]);
     if (cRes.ok)    _adminData.clients     = await cRes.json();
     if (campRes.ok) _adminData.campaigns   = await campRes.json();
     if (lRes.ok)    _adminData.allLeads    = await lRes.json();
-    if (affRes.ok)  _adminData.affiliates  = await affRes.json();
-    if (commRes.ok) _adminData.commissions = await commRes.json();
+    var _pResponses = await Promise.allSettled([
+      sbFetch('/rest/v1/sales_partners?select=*&order=created_at.desc&limit=100'),
+      sbFetch('/rest/v1/partner_applications?select=*&status=eq.pending&order=created_at.desc&limit=100'),
+      sbFetch('/rest/v1/partner_commissions?select=*,leads(name)&status=eq.earned&order=earned_at.desc&limit=100'),
+      sbFetch('/rest/v1/lead_registrations?select=*,sales_partners(full_name,ref_code)&status=eq.active&order=created_at.desc&limit=50')
+    ]);
+    _adminData.partners      = _pResponses[0].status==='fulfilled' && _pResponses[0].value.ok ? await _pResponses[0].value.json() : [];
+    _adminData.applications  = _pResponses[1].status==='fulfilled' && _pResponses[1].value.ok ? await _pResponses[1].value.json() : [];
+    _adminData.commissions   = _pResponses[2].status==='fulfilled' && _pResponses[2].value.ok ? await _pResponses[2].value.json() : [];
+    _adminData.registrations = _pResponses[3].status==='fulfilled' && _pResponses[3].value.ok ? await _pResponses[3].value.json() : [];
     if (qRes.ok)    _adminData.quotes      = await qRes.json();
     if (invRes.ok)  _adminData.invoices    = await invRes.json();
     _adminLoaded = true;
@@ -5750,60 +5760,190 @@ function adAllLeadsHTML() {
 }
 
 function adAffiliatesHTML() {
-  var affs = _adminData.affiliates;
+  var subtabs = [
+    {k:'applications', label:'Applications', count:(_adminData.applications||[]).length},
+    {k:'partners',     label:'Partners',     count:(_adminData.partners||[]).length},
+    {k:'commissions',  label:'Commissions',  count:(_adminData.commissions||[]).length},
+    {k:'registrations',label:'Lead Claims',  count:(_adminData.registrations||[]).length}
+  ];
+  if (!_partnerSubTab) _partnerSubTab = 'applications';
   var h = '<div style="padding:0 12px 12px;margin-top:10px">';
-  if (!affs.length) return h+'<div style="text-align:center;padding:40px;color:var(--sub)">No affiliates yet</div></div>';
-  h += '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
-  affs.forEach(function(a, i) {
-    var biz = (a.clients&&a.clients.business_name)||'Unknown';
-    var email = (a.clients&&a.clients.email)||'';
-    var earned = '$'+(a.total_earned||0).toLocaleString('en',{maximumFractionDigits:0});
-    var pending = '$'+(a.total_pending||0).toLocaleString('en',{maximumFractionDigits:0});
-    var stCol = a.status==='active'?'var(--green)':'var(--amber)';
-    h += '<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;'+(i?'border-top:1px solid var(--border)':'')+'">'
-      +'<div style="width:40px;height:40px;border-radius:12px;background:var(--greenl);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;color:var(--green)">'+biz.charAt(0)+'</div>'
-      +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;color:var(--text)">'+biz+'</div>'
-      +'<div style="font-size:11px;color:var(--sub)">'+email+'</div>'
-      +'<div style="font-size:10px;margin-top:2px"><span style="color:var(--green);font-weight:700">'+earned+'</span> earned - <span style="color:var(--amber)">'+pending+' pending</span></div></div>'
-      +'<div style="font-size:10px;font-weight:700;color:'+stCol+';padding:3px 8px;border-radius:20px;background:'+stCol+'18">'+a.status+'</div>'
-    +'</div>';
+  h += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">';
+  subtabs.forEach(function(t) {
+    var active = _partnerSubTab === t.k;
+    h += '<button onclick="setPartnerSubTab(\'' + t.k + '\')" style="padding:6px 12px;border-radius:20px;border:1px solid '+(active?'var(--green)':'var(--border)')+';background:'+(active?'var(--greenl)':'var(--white)')+';color:'+(active?'var(--green)':'var(--sub)')+';font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">'+t.label+(t.count?' ('+t.count+')':'')+'</button>';
   });
-  return h+'</div></div>';
+  h += '</div>';
+  if (_partnerSubTab === 'applications')  h += adPartnerAppsHTML();
+  if (_partnerSubTab === 'partners')      h += adPartnersListHTML();
+  if (_partnerSubTab === 'commissions')   h += adCommissionsHTML();
+  if (_partnerSubTab === 'registrations') h += adRegistrationsHTML();
+  return h + '</div>';
+}
+var _partnerSubTab = 'applications';
+function setPartnerSubTab(tab) {
+  _partnerSubTab = tab;
+  document.getElementById('content').innerHTML = adminDashHTML();
+}
+
+function adPartnerAppsHTML() {
+  var apps = _adminData.applications || [];
+  if (!apps.length) return '<div style="text-align:center;padding:40px;color:var(--sub);font-size:13px">No pending applications ✅</div>';
+  var h = '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
+  apps.forEach(function(a, i) {
+    var dt = a.created_at ? new Date(a.created_at).toLocaleDateString('en-CA',{month:'short',day:'numeric'}) : '';
+    var safeName  = (a.full_name||'').replace(/'/g,'');
+    var safeEmail = (a.email||'').replace(/'/g,'');
+    var safePhone = (a.phone||'').replace(/'/g,'');
+    var safeCity  = (a.city||'').replace(/'/g,'');
+    h += '<div style="padding:14px;'+(i?'border-top:1px solid var(--border)':'')+'">';
+    h += '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px">';
+    h += '<div><div style="font-size:14px;font-weight:700;color:var(--text)">' + (a.full_name||'') + '</div>';
+    h += '<div style="font-size:12px;color:var(--sub)">' + (a.email||'') + ' &nbsp;·&nbsp; ' + (a.phone||'') + '</div>';
+    h += '<div style="font-size:11px;color:var(--muted)">' + (a.city||'') + (a.province?', '+a.province:'') + ' &nbsp;·&nbsp; Applied ' + dt + '</div>';
+    if (a.sales_experience) h += '<div style="font-size:11px;color:var(--sub);margin-top:3px">Exp: ' + a.sales_experience + '</div>';
+    if (a.monthly_target)   h += '<div style="font-size:11px;color:var(--sub)">Target: ' + a.monthly_target + '</div>';
+    h += '</div><span style="font-size:10px;font-weight:700;color:var(--amber);background:var(--amberl);padding:3px 8px;border-radius:10px;white-space:nowrap">Pending</span></div>';
+    h += '<div style="display:flex;gap:8px">';
+    h += '<button onclick="adRejectApp(\'' + a.id + '\')" style="flex:1;padding:9px;border-radius:8px;background:var(--redl);border:none;font-family:var(--f);font-size:12px;font-weight:700;color:var(--red);cursor:pointer">Reject</button>';
+    h += '<button onclick="adApproveApp(\'' + a.id + '\',\'' + safeName + '\',\'' + safeEmail + '\',\'' + safePhone + '\',\'' + safeCity + '\')" style="flex:2;padding:9px;border-radius:8px;background:var(--green);border:none;font-family:var(--f);font-size:12px;font-weight:700;color:#fff;cursor:pointer">✓ Approve</button>';
+    h += '</div></div>';
+  });
+  return h + '</div>';
+}
+
+async function adApproveApp(appId, name, email, phone, city) {
+  if (!confirm('Approve ' + name + ' as Sales Partner?')) return;
+  showToast('Creating account...');
+  var code = name.split(' ')[0].toUpperCase().replace(/[^A-Z]/g,'').slice(0,8) + new Date().getFullYear();
+  try {
+    await sbFetch('/rest/v1/sales_partners', {
+      method: 'POST',
+      body: JSON.stringify({
+        application_id: appId, full_name: name, email: email, phone: phone, city: city,
+        ref_code: code, ref_url: 'https://latest-promo.com/?ref='+code,
+        status: 'active', activity_status: 'active', approved_at: new Date().toISOString()
+      })
+    });
+    await sbFetch('/rest/v1/partner_applications?id=eq.'+appId, {
+      method: 'PATCH', body: JSON.stringify({ status: 'approved', reviewed_at: new Date().toISOString() })
+    });
+    await sbFetch('/functions/v1/send-email', {
+      method: 'POST',
+      body: JSON.stringify({
+        to: email,
+        subject: '🎉 Welcome to Adviuz Sales Partner Programme!',
+        html: '<h2>Welcome, '+name+'!</h2><p>You are approved as a Sales Partner.</p><p><b>Referral code:</b> '+code+'</p><p><b>Link:</b> https://latest-promo.com/?ref='+code+'</p><p>Reply to this email with any questions.</p>',
+        text: 'Welcome '+name+'! Code: '+code+'. Link: https://latest-promo.com/?ref='+code,
+        from_email: 'relations@adviuz.com', from_name: 'Adviuz Team'
+      })
+    });
+    _adminData.applications = (_adminData.applications||[]).filter(function(a){return a.id!==appId;});
+    showToast('✅ ' + name + ' approved! Code: ' + code);
+    document.getElementById('content').innerHTML = adminDashHTML();
+  } catch(e) { showToast('❌ ' + e.message); }
+}
+
+async function adRejectApp(appId) {
+  if (!confirm('Reject this application?')) return;
+  await sbFetch('/rest/v1/partner_applications?id=eq.'+appId, {
+    method: 'PATCH', body: JSON.stringify({ status: 'rejected', reviewed_at: new Date().toISOString() })
+  });
+  _adminData.applications = (_adminData.applications||[]).filter(function(a){return a.id!==appId;});
+  showToast('Application rejected');
+  document.getElementById('content').innerHTML = adminDashHTML();
+}
+
+function adPartnersListHTML() {
+  var partners = _adminData.partners || [];
+  if (!partners.length) return '<div style="text-align:center;padding:40px;color:var(--sub);font-size:13px">No partners yet</div>';
+  var h = '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
+  partners.forEach(function(p, i) {
+    var stCol  = p.status==='active'?'var(--green)':p.status==='warning'?'var(--amber)':'var(--red)';
+    var earned = 'CAD $'+(p.total_earned_cad||0).toFixed(2);
+    var paid   = 'CAD $'+(p.total_paid_cad||0).toFixed(2);
+    var recurRate = p.active_client_count<=10?'5%':p.active_client_count<=20?'6%':p.active_client_count<=35?'7%':p.active_client_count<=50?'8%':p.active_client_count<=75?'9%':'10%';
+    h += '<div style="padding:12px 14px;'+(i?'border-top:1px solid var(--border)':'')+'">';
+    h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">';
+    h += '<div style="width:38px;height:38px;border-radius:10px;background:var(--greenl);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;color:var(--green)">'+(p.full_name||'?').charAt(0)+'</div>';
+    h += '<div style="flex:1;min-width:0">';
+    h += '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:13px;font-weight:700;color:var(--text)">'+(p.full_name||'')+'</span>';
+    h += '<span style="font-size:10px;font-weight:700;color:'+stCol+';background:'+stCol+'18;padding:2px 7px;border-radius:10px">'+p.status+'</span></div>';
+    h += '<div style="font-size:11px;color:var(--sub)">'+(p.email||'')+' &nbsp;·&nbsp; <b>'+(p.ref_code||'')+'</b></div>';
+    h += '<div style="font-size:11px;color:var(--sub)">'+(p.city||'')+' &nbsp;·&nbsp; <span style="color:var(--green)">'+(p.active_client_count||0)+' active clients</span> &nbsp;·&nbsp; Recurring: <b style="color:var(--green)">'+recurRate+'</b></div>';
+    h += '</div></div>';
+    h += '<div style="display:flex;gap:12px;font-size:11px;color:var(--sub)">';
+    h += '<span>Earned: <b style="color:var(--text)">'+earned+'</b></span>';
+    h += '<span>Paid: <b style="color:var(--green)">'+paid+'</b></span>';
+    h += '</div></div>';
+  });
+  return h + '</div>';
 }
 
 function adCommissionsHTML() {
-  var comms = _adminData.commissions;
-  var h = '<div style="padding:0 12px 12px;margin-top:10px">';
-  if (!comms.length) return h+'<div style="text-align:center;padding:40px;color:var(--sub)">No pending commissions</div></div>';
+  var comms = _adminData.commissions || [];
+  if (!comms.length) return '<div style="text-align:center;padding:40px;color:var(--sub);font-size:13px">No commissions to pay out</div>';
+  var total = comms.reduce(function(s,c){return s+(c.commission_cad||0);},0);
+  var h = '<div style="padding:10px 14px;background:var(--greenl);border-radius:10px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">';
+  h += '<div style="font-size:12px;font-weight:700;color:var(--green)">'+comms.length+' commissions to pay</div>';
+  h += '<div style="font-size:16px;font-weight:800;color:var(--green)">CAD $'+total.toFixed(2)+'</div></div>';
   h += '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
   comms.forEach(function(c, i) {
-    var aff = (c.affiliates&&c.affiliates.clients&&c.affiliates.clients.business_name)||'Unknown';
     var lead = (c.leads&&c.leads.name)||'Unknown';
-    var amt = '$'+(c.commission_amount||0).toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2});
-    var days = c.auto_approve_at ? Math.ceil((new Date(c.auto_approve_at)-new Date())/86400000) : null;
-    h += '<div style="padding:12px 14px;'+(i?'border-top:1px solid var(--border)':'')+'">'
-      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">'
-      +'<div><div style="font-size:13px;font-weight:700;color:var(--text)">'+lead+'</div>'
-      +'<div style="font-size:11px;color:var(--sub)">via '+aff+'</div></div>'
-      +'<div style="font-size:15px;font-weight:800;color:var(--green)">'+amt+'</div></div>'
-      +(days&&days>0?'<div style="font-size:10px;color:var(--amber);font-weight:600;margin-bottom:6px">Auto-approves in '+days+'d</div>':'')
-      +'<div style="display:flex;gap:8px">'
-      +'<button data-cid="'+c.id+'" onclick="adApproveComm(this.dataset.cid, this.dataset.action)" data-action="rejected" style="flex:1;padding:8px;border-radius:8px;background:var(--redl);border:none;font-family:var(--f);font-size:12px;font-weight:700;color:var(--red);cursor:pointer">Reject</button>'
-      +'<button data-cid="'+c.id+'" onclick="adApproveComm(this.dataset.cid, this.dataset.action)" data-action="approved" style="flex:2;padding:8px;border-radius:8px;background:var(--green);border:none;font-family:var(--f);font-size:12px;font-weight:700;color:#fff;cursor:pointer">Approve</button>'
-      +'</div></div>';
+    var amt  = 'CAD $'+(c.commission_cad||0).toFixed(2);
+    var type = c.commission_type==='first_order'?'💼 First Order':c.commission_type==='recurring'?'♻️ Recurring':'🏆 Bonus';
+    var dt   = c.earned_at ? new Date(c.earned_at).toLocaleDateString('en-CA',{month:'short',day:'numeric'}) : '';
+    h += '<div style="padding:12px 14px;'+(i?'border-top:1px solid var(--border)':'')+'">'      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'      +'<div><div style="font-size:13px;font-weight:700;color:var(--text)">'+lead+'</div>'      +'<div style="font-size:11px;color:var(--sub)">'+type+' · '+dt+'</div></div>'      +'<div style="font-size:16px;font-weight:800;color:var(--green)">'+amt+'</div></div>'      +'<button onclick="adMarkPaid(\'' + c.id + '\')" style="width:100%;padding:8px;border-radius:8px;background:var(--green);border:none;font-family:var(--f);font-size:12px;font-weight:700;color:#fff;cursor:pointer">Mark as Paid</button>'    +'</div>';
   });
-  return h+'</div></div>';
+  return h + '</div>';
 }
 
-async function adApproveComm(id, status) {
-  var body = {status:status};
-  if (status==='approved') body.approved_at = new Date().toISOString();
-  var res = await sbFetch('/rest/v1/referral_commissions?id=eq.'+id, {method:'PATCH',body:JSON.stringify(body)});
-  if (res.ok||res.status===204) {
-    _adminData.commissions = _adminData.commissions.filter(function(c){return c.id!==id;});
-    showToast(status==='approved'?'Commission approved':'Commission rejected');
+async function adMarkPaid(id) {
+  var res = await sbFetch('/rest/v1/partner_commissions?id=eq.'+id, {
+    method: 'PATCH', body: JSON.stringify({ status: 'paid', paid_at: new Date().toISOString() })
+  });
+  if (res.ok || res.status === 204) {
+    _adminData.commissions = (_adminData.commissions||[]).filter(function(c){return c.id!==id;});
+    showToast('✅ Marked as paid');
     document.getElementById('content').innerHTML = adminDashHTML();
-  } else { showToast('Update failed'); }
+  } else { showToast('Failed'); }
+}
+
+function adRegistrationsHTML() {
+  var regs = _adminData.registrations || [];
+  if (!regs.length) return '<div style="text-align:center;padding:40px;color:var(--sub);font-size:13px">No active lead claims</div>';
+  var h = '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
+  regs.forEach(function(r, i) {
+    var pName    = (r.sales_partners&&r.sales_partners.full_name)||'Unknown';
+    var pCode    = (r.sales_partners&&r.sales_partners.ref_code)||'';
+    var expires  = r.lock_expires_at ? new Date(r.lock_expires_at) : null;
+    var daysLeft = expires ? Math.ceil((expires - new Date()) / 86400000) : 0;
+    var urgCol   = daysLeft <= 7 ? 'var(--red)' : daysLeft <= 14 ? 'var(--amber)' : 'var(--green)';
+    h += '<div style="padding:12px 14px;'+(i?'border-top:1px solid var(--border)':'')+'">';
+    h += '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">';
+    h += '<div style="flex:1;min-width:0">';
+    h += '<div style="font-size:13px;font-weight:700;color:var(--text)">'+(r.company_name||r.contact_name||'Unknown')+'</div>';
+    h += '<div style="font-size:11px;color:var(--sub)">'+pName+' ('+pCode+')</div>';
+    h += '<div style="font-size:11px;color:var(--sub)">'+(r.contact_email||'')+(r.contact_phone?' · '+r.contact_phone:'')+'</div>';
+    h += '<div style="font-size:11px;color:var(--sub)">'+(r.city||'')+' · Stage: <b>'+(r.current_stage||'')+'</b></div>';
+    h += '</div>';
+    h += '<div style="text-align:right;flex-shrink:0">';
+    h += '<div style="font-size:13px;font-weight:700;color:'+urgCol+'">'+daysLeft+'d</div>';
+    h += '<div style="font-size:10px;color:var(--muted)">'+(expires?expires.toLocaleDateString('en-CA',{month:'short',day:'numeric'}):'')+'</div>';
+    h += '<button onclick="adReleaseReg(\'' + r.id + '\')" style="margin-top:4px;padding:3px 9px;border-radius:6px;background:var(--redl);border:none;font-family:var(--f);font-size:11px;font-weight:700;color:var(--red);cursor:pointer">Release</button>';
+    h += '</div></div></div>';
+  });
+  return h + '</div>';
+}
+
+async function adReleaseReg(id) {
+  if (!confirm('Release this lead claim to the open pool?')) return;
+  await sbFetch('/rest/v1/lead_registrations?id=eq.'+id, {
+    method: 'PATCH', body: JSON.stringify({ status: 'released', released_at: new Date().toISOString(), released_reason: 'admin_manual' })
+  });
+  _adminData.registrations = (_adminData.registrations||[]).filter(function(r){return r.id!==id;});
+  showToast('Lead released');
+  document.getElementById('content').innerHTML = adminDashHTML();
 }
 
 // ── Helper: product button for Convert to Client ──
