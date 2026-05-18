@@ -4239,14 +4239,15 @@ async function initTwilioDevice() {
     if (!window.Twilio) {
       await new Promise(function(resolve, reject) {
         var s = document.createElement('script');
-        s.src = 'https://sdk.twilio.com/js/client/v1.14/twilio.min.js';
+        s.src = 'https://sdk.twilio.com/js/voice/releases/2.10.1/twilio.min.js';
         s.onload = resolve; s.onerror = reject;
         document.head.appendChild(s);
       });
     }
 
     twilioDevice = new Twilio.Device(data.token, {
-      codecPreferences: ['opus','pcmu'], fakeLocalDTMF: true, enableRingingState: true
+      codecPreferences: ['opus','pcmu'],
+      logLevel: 1
     });
 
     twilioDevice.on('incoming', function(conn) {
@@ -4258,9 +4259,10 @@ async function initTwilioDevice() {
       showIncomingCall(lead ? (lead.company||lead.name) : from, from, lead);
     });
 
-    twilioDevice.on('ready',   function(){ console.log('[Twilio] Device ready ✅'); });
-    twilioDevice.on('error',   function(e){ console.error('[Twilio]', e.message); showToast('📞 Twilio: '+e.message); });
-    twilioDevice.on('offline', function(){ console.warn('[Twilio] Offline'); twilioDevice=null; });
+    twilioDevice.on('registered',   function(){ console.log('[Twilio] Device ready ✅'); });
+    twilioDevice.on('error',        function(e){ console.error('[Twilio]', e.message); showToast('📞 Twilio: '+e.message); });
+    twilioDevice.on('unregistered', function(){ console.warn('[Twilio] Offline'); twilioDevice=null; });
+    twilioDevice.register();
     setInterval(initTwilioDevice, 50*60*1000);
     console.log('[Twilio] Device initialized ✅');
     return true;
@@ -4323,17 +4325,24 @@ function doCall(id) {
 }
 
 function _makeCall(l) {
-  try {
-    var s = document.getElementById('cuStat');
-    if (s) s.textContent = 'Calling...';
-    activeCall = twilioDevice.connect({ To: l.ph });
-    activeCall.on('accept',     function(){ if(s) s.textContent='Connected ✅'; startCallTimer(); });
-    activeCall.on('disconnect', function(){ endCallSheet(); showToast('Call ended'); });
-    activeCall.on('error',      function(e){ showToast('❌ '+e.message); endCallSheet(); });
-  } catch(e) {
+  var s = document.getElementById('cuStat');
+  if (s) s.textContent = 'Calling...';
+  // v2.x: connect() returns a Promise<Call>
+  twilioDevice.connect({
+    params: {
+      To:       l.ph,
+      leadId:   l.dbId || l.id || '',
+      clientId: _clientId || ''
+    }
+  }).then(function(call) {
+    activeCall = call;
+    call.on('accept',     function(){ if(s) s.textContent='Connected ✅'; startCallTimer(); });
+    call.on('disconnect', function(){ endCallSheet(); showToast('Call ended'); });
+    call.on('error',      function(e){ showToast('❌ '+e.message); endCallSheet(); });
+  }).catch(function(e) {
     showToast('❌ '+e.message);
     endCallSheet();
-  }
+  });
 }
 
 function openCallSheet(name, ph) {
