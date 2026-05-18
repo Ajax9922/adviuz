@@ -101,6 +101,23 @@ async function submitLeadLive(formData) {
   Object.keys(payload).forEach(k => payload[k] === null && delete payload[k]);
   const result = await SB.insert('leads', payload);
   console.log('[Adviuz] Lead captured:', result ? 'success' : 'failed');
+
+  // Auto-assign via round-robin/performance (for ad/facebook leads)
+  if (result && result[0] && result[0].id && payload.client_id) {
+    const source = payload.source || payload.utm_source || 'facebook';
+    fetch(`${SUPABASE_URL.replace('/rest/v1/','')}functions/v1/assign-lead`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY },
+      body: JSON.stringify({
+        lead_id:   result[0].id,
+        client_id: payload.client_id,
+        source:    source   // uses assignment_config.method (round_robin or performance)
+      })
+    }).then(r => r.json())
+      .then(d => console.log('[Adviuz] Lead assigned to:', d.agent_name || 'unassigned'))
+      .catch(e => console.warn('[Adviuz] Assignment failed:', e.message));
+  }
+
   return result;
 }
 
