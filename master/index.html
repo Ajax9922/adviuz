@@ -3693,7 +3693,7 @@ function renderLeadScreen(id) {
     var isActive = actFilter === tab.k;
     var count = acts.filter(filterGroups[tab.k]).length;
     if(tab.k !== 'all' && count === 0) return; // hide empty filters
-    h += '<button onclick="window._actFilter=''+tab.k+'';renderLeadScreen('+l.id+')" style="'
+    h += '<button onclick="setActFilter(this)" data-filter="'+tab.k+'" data-lid="'+l.id+'" style="'
        + 'flex-shrink:0;display:flex;align-items:center;gap:4px;padding:5px 12px;border-radius:20px;'
        + 'border:1.5px solid '+(isActive?'var(--brand)':'var(--border)')+';'
        + 'background:'+(isActive?'var(--brand)':'#fff')+';'
@@ -3974,6 +3974,10 @@ function lsQuickSmsReply(lid) {
   showToast('↩ Type your reply below');
 }
 
+function setActFilter(btn) {
+  window._actFilter = btn.dataset.filter || 'all';
+  renderLeadScreen(parseInt(btn.dataset.lid));
+}
 function lsDialer(){
   var l=lsGetLead();
   if(!l||!l.ph){ showToast('No phone number'); return; }
@@ -4722,10 +4726,20 @@ async function assignLeadTo(userId, userName) {
 // CALL SUMMARY GENERATOR (Claude AI)
 // ═══════════════════════════════════════════════════════
 async function generateCallSummary(lead, durationSec) {
-  if(!lead || !lead.dbId) return;
-  var mins = Math.floor(durationSec/60), secs = durationSec%60;
-  var durStr = mins+'m '+secs+'s';
-  var recentActs = (leadAct[lead.id]||[]).slice(0,5).map(function(a){ return a.label+': '+a.body; }).join('. ');
+  if (!lead || !lead.dbId) return;
+  var mins   = Math.floor(durationSec / 60);
+  var secs   = durationSec % 60;
+  var durStr = mins + 'm ' + secs + 's';
+  var acts   = (leadAct[lead.id] || []).slice(0, 5);
+  var actsStr = acts.map(function(a) { return a.label + ': ' + (a.body || '').slice(0, 60); }).join('. ');
+  var leadName = (lead.company || lead.name || 'Lead');
+  var prompt = 'Write a 1-2 sentence CRM note summarising this sales call. '
+    + 'Lead: ' + leadName + '. '
+    + 'Product: ' + (lead.svc || 'unknown') + '. '
+    + 'Stage: ' + (lead.stage || 'unknown') + '. '
+    + 'Call duration: ' + durStr + '. '
+    + 'Recent activity: ' + actsStr + '. '
+    + 'Be concise and professional. Start with the outcome.';
 
   try {
     var res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -4734,24 +4748,15 @@ async function generateCallSummary(lead, durationSec) {
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 200,
-        messages: [{
-          role: 'user',
-          content: 'Generate a 1-2 sentence CRM call summary for: Lead: '+(lead.company||lead.name)+
-                   ', Product: '+(lead.svc||'unknown')+
-                   ', Call duration: '+durStr+
-                   ', Stage: '+lead.stage+
-                   ', Recent activity: '+recentActs+
-                   '. Be concise and professional. Start with the outcome.'
-        }]
+        messages: [{ role: 'user', content: prompt }]
       })
     });
     var data = await res.json();
     var summary = data.content && data.content[0] && data.content[0].text;
-    if(!summary) return;
+    if (!summary) return;
 
-    // Save summary as a note in activity
-    if(!leadAct[lead.id]) leadAct[lead.id]=[];
-    leadAct[lead.id].unshift({type:'note',label:'🤖 AI Call Summary',time:'Just now',body:summary,rec:false});
+    if (!leadAct[lead.id]) leadAct[lead.id] = [];
+    leadAct[lead.id].unshift({ type: 'note', label: '🤖 AI Call Summary', time: 'Just now', body: summary, rec: false });
     logActivity({
       lead_id:    lead.id,
       db_lead_id: lead.dbId,
@@ -4760,13 +4765,13 @@ async function generateCallSummary(lead, durationSec) {
       label:      '🤖 AI Call Summary',
       body:       summary
     });
-
-    if(curLid===lead.id) renderLeadScreen(lead.id);
+    if (curLid === lead.id) renderLeadScreen(lead.id);
     showToast('✅ Call summary generated');
   } catch(e) {
     console.warn('[callSummary]', e.message);
   }
 }
+
 
 window.addEventListener('load', function(){ setTimeout(initTwilioDevice, 2000); });
 
