@@ -2491,7 +2491,7 @@ async function loadLeadsFromDB() {
     }
     // Load leads scoped to this client
     var cFilter = '&client_id=eq.'+window._clientId;
-    var res = await sbFetch('/rest/v1/leads?select=*,user_profiles!leads_assigned_to_fkey(display_name)'+cFilter+'&order=created_at.desc&limit=500');
+    var res = await sbFetch('/rest/v1/leads?select=*'+cFilter+'&order=created_at.desc&limit=500');
     if (!res.ok) {
       var err = await res.json().catch(function(){return{}});
       console.error('[Adviuz] Load leads error:', err);
@@ -2499,6 +2499,21 @@ async function loadLeadsFromDB() {
     }
     var data = await res.json();
     console.log('[Adviuz] Loaded', data.length, 'leads');
+
+    // Fetch assigned names from user_profiles separately
+    var assignedIds = [...new Set(data.filter(function(l){ return l.assigned_to; }).map(function(l){ return l.assigned_to; }))];
+    if (assignedIds.length) {
+      try {
+        var pRes = await sbFetch('/rest/v1/user_profiles?user_id=in.('+assignedIds.join(',')+')'+'&select=user_id,display_name');
+        if (pRes.ok) {
+          var profiles = await pRes.json();
+          var pMap = {};
+          profiles.forEach(function(p){ pMap[p.user_id] = p.display_name; });
+          data.forEach(function(l){ if(l.assigned_to) l._assignedName = pMap[l.assigned_to] || ''; });
+        }
+      } catch(e) { console.warn('[Adviuz] assignee names:', e.message); }
+    }
+
     DB_READY = true;
     return data;
   } catch(e) {
@@ -2513,7 +2528,7 @@ function mapLead(l, i) {
     name: l.name || '', company: l.company || '',
     ph: l.phone || '', em: l.email || '',
     assignedTo:   l.assigned_to || null,
-    assignedName: (l.user_profiles && l.user_profiles.display_name) || '',
+    assignedName: l._assignedName || '',
     ph2: l.phone2 || '', ph3: l.phone3 || '',
     em2: l.email2 || '', em3: l.email3 || '',
     em4: l.email4 || '', em5: l.email5 || '',
