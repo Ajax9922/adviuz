@@ -192,6 +192,8 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
 .sheet-ov{display:none;position:fixed;top:0;left:0;width:100%;height:100%;min-width:100vw;min-height:100vh;z-index:850;background:rgba(0,0,0,.55);align-items:flex-end;justify-content:center;box-sizing:border-box}
 .sheet-ov.open{display:flex}
 .sheet{background:var(--white);border-radius:18px 18px 0 0;width:100%;max-width:430px;max-height:94dvh;overflow-y:auto;animation:shUp .26s cubic-bezier(.34,1.1,.64,1);padding-bottom:env(safe-area-inset-bottom,16px)}
+#callSh .sheet{height:82dvh;max-height:82dvh;overflow:hidden}
+#callSh .call-ui{height:100%;display:flex;flex-direction:column;justify-content:space-between;padding:28px 20px 24px}
 .sheet::-webkit-scrollbar{display:none}
 @keyframes shUp{from{transform:translateY(50px);opacity:0}to{transform:translateY(0);opacity:1}}
 .sheet-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:12px auto 0}
@@ -3230,18 +3232,26 @@ async function loadLeadActivity(localId, dbId) {
 
     // Normalize lead_activity (webhook writes: activity_type, description)
     var norm1 = rows1.map(function(row) {
-      var type  = row.activity_type || 'note';
+      var type    = row.activity_type || 'note';
+      var rawBody = (row.description || '').replace(/\s*\(SID:[^)]+\)/g,'').trim();
+      // Extract just the message text from "📩 Reply from Name: "msg""
+      var body = rawBody;
+      if(type === 'sms_received') {
+        var m = rawBody.match(/:\s*"?(.+?)"?\s*$/);
+        if(m) body = m[1];
+      }
       var label = type === 'sms_received' ? '📩 SMS Reply'
                 : type === 'sms_sent'     ? '💬 SMS Sent'
                 : type === 'call'         ? '📞 Call'
                 : type === 'assignment'   ? '👤 Assigned'
-                : (row.description || type).slice(0, 50);
-      return { type:type, label:label, time:row.created_at, body:row.description||'', rec:false, isInbound:type==='sms_received' };
+                : rawBody.slice(0, 50);
+      return { type:type, label:label, time:row.created_at, body:body, rec:false, isInbound:type==='sms_received' };
     });
 
     // Normalize activity_log (panel writes: type, label, body)
     var norm2 = rows2.map(function(row) {
-      return { type:row.type||'note', label:row.label||row.type, time:row.created_at, body:row.body||'', rec:false };
+      var body = (row.body||'').replace(/\s*\(SID:[^)]+\)/g,'').trim();
+      return { type:row.type||'note', label:row.label||row.type, time:row.created_at, body:body, rec:false };
     });
 
     // Merge both, sort newest first
@@ -3493,7 +3503,16 @@ function renderLeadScreen(id) {
   h += '</div>'; // end info card
   h += '<div style="height:4px;background:var(--bg)"></div>';
 
-  // ══ SECTION 2 — MESSAGE & CALL ══
+  // ══ SECTION 2 — MEETING | QUOTE | INVOICE ══
+  h += '<div style="background:var(--white);padding:12px 16px;margin-bottom:4px">';
+  h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">';
+  h += ldQuickBtn('🤝','Meeting','#ede9fe','#7c3aed','openMeetingSheet('+l.id+')');
+  h += ldQuickBtn('📄','Quotes','#fef3c7','#d97706','openLeadQuotes('+l.id+')');
+  h += ldQuickBtn('🧾','Invoices','#d1fae5','#00a884','openLeadInvoices('+l.id+')');
+  h += '</div></div>';
+  h += '<div style="height:4px;background:var(--bg)"></div>';
+
+  // ══ SECTION 3 — MESSAGE & CALL ══
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
   h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Message</div>';
   h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">';
@@ -3503,18 +3522,9 @@ function renderLeadScreen(id) {
   h += '</div>';
   h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Call</div>';
   h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">';
-  h += ldCallBtn('📞','Dialer','#ffe0e0','var(--red)','lsDoCall()');
+  h += ldCallBtn('📞','Dialer','#ffe0e0','var(--red)','lsDialer()');
   h += ldCallBtn('🤖','AI Call','linear-gradient(135deg,#ede9fe,#dbeafe)','#6366f1','lsDoAiCall()');
   h += ldCallBtn('📣','IVR Call','#ede9fe','#7c3aed','lsDoIvrCall()');
-  h += '</div></div>';
-  h += '<div style="height:4px;background:var(--bg)"></div>';
-
-  // ══ SECTION 3 — MEETING | QUOTE | INVOICE ══
-  h += '<div style="background:var(--white);padding:12px 16px;margin-bottom:4px">';
-  h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">';
-  h += ldQuickBtn('🤝','Meeting','#ede9fe','#7c3aed','openMeetingSheet('+l.id+')');
-  h += ldQuickBtn('📄','Quotes','#fef3c7','#d97706','openLeadQuotes('+l.id+')');
-  h += ldQuickBtn('🧾','Invoices','#d1fae5','#00a884','openLeadInvoices('+l.id+')');
   h += '</div></div>';
   h += '<div style="height:4px;background:var(--bg)"></div>';
 
@@ -3649,17 +3659,63 @@ function renderLeadScreen(id) {
   // ══════════════════════════════════════════════
   // SECTION 7 — ACTIVITY THREAD
   // ══════════════════════════════════════════════
-  if(acts.length){
-    h += '<div style="background:var(--white);padding:14px 16px">';
-    h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
-    h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase">Activity</div>';
-    if(acts.length>5) h += '<div style="font-size:12px;font-weight:700;color:var(--green);cursor:pointer">All ('+acts.length+')</div>';
-    h += '</div>';
-    var icons={call:'📞',sms:'💬',email_sent:'📧',email:'📧',note:'📝',fu:'📅',stage_change:'🔄',
-               quote_sent:'📄',quote_viewed:'👁',quote_accepted:'✅',quote_paid:'💳',
-               invoice_created:'🧾',invoice_emailed:'📧',payment_received:'💳',reminder_sent:'⏰',meeting:'📅'};
-    acts.slice(0,5).forEach(function(item,i){
-      // Determine if this item is clickable and what it opens
+  var actFilter = window._actFilter || 'all';
+  var filterGroups = {
+    all:     function(a){ return true; },
+    call:    function(a){ return a.type==='call'; },
+    sms:     function(a){ return a.type==='sms'||a.type==='sms_sent'||a.type==='sms_received'; },
+    note:    function(a){ return a.type==='note'; },
+    quote:   function(a){ return a.type&&a.type.indexOf('quote')>-1; },
+    invoice: function(a){ return a.type&&a.type.indexOf('invoice')>-1; },
+    email:   function(a){ return a.type==='email'||a.type==='email_sent'||a.type==='email_opened'; },
+  };
+  var filteredActs = acts.filter(filterGroups[actFilter]||filterGroups.all);
+  var filterTabs = [
+    {k:'all',    icon:'🕐', label:'All'},
+    {k:'call',   icon:'📞', label:'Calls'},
+    {k:'sms',    icon:'💬', label:'SMS'},
+    {k:'note',   icon:'📝', label:'Notes'},
+    {k:'email',  icon:'📧', label:'Email'},
+    {k:'quote',  icon:'📄', label:'Quotes'},
+    {k:'invoice',icon:'🧾', label:'Invoices'},
+  ];
+
+  h += '<div style="background:var(--white);padding:14px 16px">';
+  // Header row
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase">Activity</div>';
+  h += '<div style="font-size:12px;color:var(--sub)">'+(filteredActs.length)+' entries</div>';
+  h += '</div>';
+
+  // Filter chips row (horizontal scroll)
+  h += '<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:10px;scrollbar-width:none;-ms-overflow-style:none;margin:0 -16px;padding:0 16px 10px">';
+  filterTabs.forEach(function(tab){
+    var isActive = actFilter === tab.k;
+    var count = acts.filter(filterGroups[tab.k]).length;
+    if(tab.k !== 'all' && count === 0) return; // hide empty filters
+    h += '<button onclick="window._actFilter=''+tab.k+'';renderLeadScreen('+l.id+')" style="'
+       + 'flex-shrink:0;display:flex;align-items:center;gap:4px;padding:5px 12px;border-radius:20px;'
+       + 'border:1.5px solid '+(isActive?'var(--brand)':'var(--border)')+';'
+       + 'background:'+(isActive?'var(--brand)':'#fff')+';'
+       + 'color:'+(isActive?'#fff':'var(--sub)')+';'
+       + 'font-size:12px;font-weight:'+(isActive?'700':'600')+';cursor:pointer;font-family:var(--f);'
+       + 'white-space:nowrap;transition:all .15s">'
+       + tab.icon+' '+tab.label
+       + (tab.k==='all'?'':' <span style="opacity:.7;font-size:10px">('+count+')</span>')
+       + '</button>';
+  });
+  h += '</div>';
+
+  if(!filteredActs.length){
+    h += '<div style="text-align:center;color:var(--sub);font-size:13px;padding:20px 0">No '+actFilter+' activity yet</div>';
+  } else {
+
+  var icons={call:'📞',sms:'💬',sms_sent:'💬',sms_received:'📩',email_sent:'📧',email:'📧',note:'📝',fu:'📅',stage_change:'🔄',
+             quote_sent:'📄',quote_viewed:'👁',quote_accepted:'✅',quote_paid:'💳',
+             invoice_created:'🧾',invoice_emailed:'📧',payment_received:'💳',reminder_sent:'⏰',meeting:'📅',assignment:'👤'};
+  var showCount = actFilter==='all' ? Math.min(filteredActs.length, 10) : filteredActs.length;
+filteredActs.slice(0,showCount).forEach(function(item,i){
+    // Determine if this item is clickable and what it opens
       var clickable = item.type==='quote_sent'||item.type==='quote_viewed'||item.type==='quote_accepted'||item.type==='quote_paid'||item.type==='email_sent'||item.type==='email';
       var clickStyle = clickable ? 'cursor:pointer;' : '';
       var quoteId = (item.meta && item.meta.quote_id) ? item.meta.quote_id : '';
@@ -3667,12 +3723,28 @@ function renderLeadScreen(id) {
       if(item.type==='quote_sent'||item.type==='quote_viewed'||item.type==='quote_accepted'||item.type==='quote_paid') {
         onClick = quoteId ? 'onclick="viewQuoteFromActivity(\''+quoteId+'\')"' : '';
       }
+      var isInboundSms = item.type === 'sms_received';
+      var isOutboundSms = item.type === 'sms_sent' || item.type === 'sms';
+      var smsBubbleBg   = isInboundSms ? '#f0fdf9' : (isOutboundSms ? '#eff6ff' : '');
+      var smsBubbleBorder = isInboundSms ? '#00a884' : (isOutboundSms ? '#2563eb' : '');
+
       h += '<div class="ld-act-item" '+onClick+' style="'+clickStyle+'">';
-      if(i<Math.min(acts.length,5)-1) h += '<div class="ld-act-line"></div>';
+      if(i<showCount-1) h += '<div class="ld-act-line"></div>';
       h += '<div class="ld-act-dot">'+(icons[item.type]||'📋')+'</div>';
-      h += '<div class="ld-act-body">';
+      h += '<div class="ld-act-body" style="width:100%">';
       h += '<span class="ld-act-label">'+item.label+'</span><span class="ld-act-time">'+item.time+'</span>';
-      h += '<div class="ld-act-text">'+item.body+(clickable&&quoteId ? ' <span style="color:var(--green);font-size:11px">↗ View</span>':'')+'</div>';
+
+      // SMS bubble styling for inbound/outbound
+      if(isInboundSms || isOutboundSms){
+        h += '<div style="margin-top:6px;padding:9px 12px;background:'+smsBubbleBg+';border-left:3px solid '+smsBubbleBorder+';border-radius:0 8px 8px 0;font-size:13px;color:var(--text);line-height:1.5">'+item.body+'</div>';
+        // Reply button for inbound SMS
+        if(isInboundSms){
+          h += '<button onclick="lsQuickSmsReply('+l.id+')" style="margin-top:6px;padding:5px 12px;border-radius:20px;border:1.5px solid var(--green);background:#fff;color:var(--green);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f);display:flex;align-items:center;gap:5px">↩ Reply</button>';
+        }
+      } else {
+        h += '<div class="ld-act-text">'+item.body+(clickable&&quoteId ? ' <span style="color:var(--green);font-size:11px">↗ View</span>':'')+'</div>';
+      }
+
       if(item.rec){
         h += '<div style="display:flex;align-items:center;gap:8px;margin-top:7px;padding:7px 11px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">';
         h += '<button onclick="showToast(\'▶ Playing...\')" style="width:26px;height:26px;border-radius:50%;background:var(--red);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg fill="white" viewBox="0 0 24 24" style="width:10px;height:10px;margin-left:2px"><polygon points="5,3 19,12 5,21"/></svg></button>';
@@ -3682,7 +3754,8 @@ function renderLeadScreen(id) {
       h += '</div></div>';
     });
     h += '</div>';
-  }
+  } // end filteredActs.length else
+  h += '</div>'; // end activity section
 
   h += '<div style="height:120px"></div>';
   document.getElementById('lsBody').innerHTML = h;
@@ -3886,6 +3959,27 @@ function lsAddNote(lid){
 }
 
 // Floating action handlers
+function lsQuickSmsReply(lid) {
+  var l = leads.find(function(x){ return x.id === lid; });
+  if (!l) return;
+  // Open SMS sheet pre-focused for reply
+  window._smsLead = l;
+  curLid = lid;
+  openSmsSheet();
+  // Scroll to and focus the SMS input
+  setTimeout(function(){
+    var ta = document.getElementById('smsTplText') || document.getElementById('smsAiText');
+    if (ta) { ta.focus(); }
+  }, 300);
+  showToast('↩ Type your reply below');
+}
+
+function lsDialer(){
+  var l=lsGetLead();
+  if(!l||!l.ph){ showToast('No phone number'); return; }
+  logActivity({lead_id:l.id,db_lead_id:l.dbId,client_id:window._clientId,type:'call',label:'📞 Dialer',body:'Called via device dialer'});
+  window.location.href='tel:'+l.ph.replace(/[^0-9+]/g,'');
+}
 function lsDoCall(){ var l=lsGetLead();if(l)doCall(l.id); }
 function lsDoIvrCall(){ var l=lsGetLead();if(l){ showToast('📣 Starting IVR call...'); doCall(l.id); } }
 function lsDoWa(){
@@ -4444,7 +4538,12 @@ function _makeCall(l) {
   }).then(function(call) {
     activeCall = call;
     call.on('accept',     function(){ if(s) s.textContent='Connected ✅'; startCallTimer(); });
-    call.on('disconnect', function(){ endCallSheet(); showToast('Call ended'); });
+    call.on('disconnect', function(){ 
+      var dur = callSec;
+      endCallSheet(); 
+      showToast('Call ended');
+      generateCallSummary(l, dur);
+    });
     call.on('error',      function(e){ showToast('❌ '+e.message); endCallSheet(); });
   }).catch(function(e) {
     showToast('❌ '+e.message);
@@ -4616,6 +4715,57 @@ async function assignLeadTo(userId, userName) {
     showToast('✅ Assigned to ' + userName);
     if (curLid === _assignLeadId) renderLeadScreen(_assignLeadId);
   } catch(e) { showToast('❌ ' + e.message); }
+}
+
+
+// ═══════════════════════════════════════════════════════
+// CALL SUMMARY GENERATOR (Claude AI)
+// ═══════════════════════════════════════════════════════
+async function generateCallSummary(lead, durationSec) {
+  if(!lead || !lead.dbId) return;
+  var mins = Math.floor(durationSec/60), secs = durationSec%60;
+  var durStr = mins+'m '+secs+'s';
+  var recentActs = (leadAct[lead.id]||[]).slice(0,5).map(function(a){ return a.label+': '+a.body; }).join('. ');
+
+  try {
+    var res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 200,
+        messages: [{
+          role: 'user',
+          content: 'Generate a 1-2 sentence CRM call summary for: Lead: '+(lead.company||lead.name)+
+                   ', Product: '+(lead.svc||'unknown')+
+                   ', Call duration: '+durStr+
+                   ', Stage: '+lead.stage+
+                   ', Recent activity: '+recentActs+
+                   '. Be concise and professional. Start with the outcome.'
+        }]
+      })
+    });
+    var data = await res.json();
+    var summary = data.content && data.content[0] && data.content[0].text;
+    if(!summary) return;
+
+    // Save summary as a note in activity
+    if(!leadAct[lead.id]) leadAct[lead.id]=[];
+    leadAct[lead.id].unshift({type:'note',label:'🤖 AI Call Summary',time:'Just now',body:summary,rec:false});
+    logActivity({
+      lead_id:    lead.id,
+      db_lead_id: lead.dbId,
+      client_id:  window._clientId,
+      type:       'note',
+      label:      '🤖 AI Call Summary',
+      body:       summary
+    });
+
+    if(curLid===lead.id) renderLeadScreen(lead.id);
+    showToast('✅ Call summary generated');
+  } catch(e) {
+    console.warn('[callSummary]', e.message);
+  }
 }
 
 window.addEventListener('load', function(){ setTimeout(initTwilioDevice, 2000); });
