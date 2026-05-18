@@ -3217,39 +3217,46 @@ function openLead(id) {
 
 async function loadLeadActivity(localId, dbId) {
   try {
-    var res = await sbFetch('/rest/v1/lead_activity?lead_id=eq.'+dbId+'&select=*&order=created_at.desc&limit=50');
-    if(!res.ok) return;
-    var rows = await res.json();
-    if(!rows || !rows.length) return;
+    // Read from BOTH tables — lead_activity (webhook events) + activity_log (panel events)
+    var [r1, r2] = await Promise.all([
+      sbFetch('/rest/v1/lead_activity?lead_id=eq.'+dbId+'&select=*&order=created_at.desc&limit=50'),
+      sbFetch('/rest/v1/activity_log?lead_id=eq.'+dbId+'&select=*&order=created_at.desc&limit=50')
+    ]);
 
-    // Convert DB rows to local format
-    var icons = {
-      quote_sent:'📄',quote_viewed:'👁',quote_accepted:'✅',quote_paid:'💳',
-      invoice_created:'🧾',invoice_emailed:'📧',email_sent:'📧',email_opened:'👁',
-      email_clicked:'🔗',sms_sent:'💬',sms_received:'📩',call:'📞',meeting:'📅',note:'📝',
-      stage_change:'🔄',reminder_sent:'⏰',payment_received:'💳',lead_created:'✨',
-      email_event:'📊'
-    };
+    var rows1 = (r1.ok ? await r1.json().catch(function(){return[];}) : []) || [];
+    var rows2 = (r2.ok ? await r2.json().catch(function(){return[];}) : []) || [];
 
-    var dbActs = rows.map(function(row) {
-      var d = new Date(row.created_at);
-      var timeStr = d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+
-                    d.toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit',hour12:true});
-      return {
-        type:  row.type,
-        label: row.label || row.type,
-        time:  timeStr,
-        body:  row.body || '',
-        rec:   false
-      };
+    console.log('[Adviuz] Activity: lead_activity='+rows1.length+' activity_log='+rows2.length);
+
+    // Normalize lead_activity (webhook writes: activity_type, description)
+    var norm1 = rows1.map(function(row) {
+      var type  = row.activity_type || 'note';
+      var label = type === 'sms_received' ? '📩 SMS Reply'
+                : type === 'sms_sent'     ? '💬 SMS Sent'
+                : type === 'call'         ? '📞 Call'
+                : type === 'assignment'   ? '👤 Assigned'
+                : (row.description || type).slice(0, 50);
+      return { type:type, label:label, time:row.created_at, body:row.description||'', rec:false, isInbound:type==='sms_received' };
     });
 
-    // Merge with local (DB is source of truth, dedupe by time+type)
-    var existing = leadAct[localId] || [];
-    var existingJustNow = existing.filter(function(a){ return a.time === 'Just now'; });
-    leadAct[localId] = existingJustNow.concat(dbActs);
+    // Normalize activity_log (panel writes: type, label, body)
+    var norm2 = rows2.map(function(row) {
+      return { type:row.type||'note', label:row.label||row.type, time:row.created_at, body:row.body||'', rec:false };
+    });
 
-    // Re-render if this lead is still open
+    // Merge both, sort newest first
+    var all = norm1.concat(norm2).sort(function(a,b){ return new Date(b.time)-new Date(a.time); });
+
+    // Format timestamps
+    var dbActs = all.map(function(row) {
+      var d = new Date(row.time);
+      var ts = isNaN(d) ? row.time : d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit',hour12:true});
+      return Object.assign({}, row, {time:ts});
+    });
+
+    var existing   = leadAct[localId] || [];
+    var justNow    = existing.filter(function(a){ return a.time==='Just now'; });
+    leadAct[localId] = justNow.concat(dbActs);
     if(curLid === localId) renderLeadScreen(localId);
   } catch(e) {
     console.warn('[loadLeadActivity]', e.message);
@@ -3844,13 +3851,38 @@ function lsUseTemplate(text){
 function lsAddNote(lid){
   var el=document.getElementById('lsNoteInp');
   if(!el||!el.value.trim()){showToast('Write something first');return}
-  if(!leadAct[lid])leadAct[lid]=[];
-  leadAct[lid].unshift({type:'note',label:'Note added',time:'Just now',body:el.value.trim(),rec:false});
-  var l=leads.find(function(x){return x.id===lid});
-  if(l){l.note=el.value.trim();if(l.dbId)sbFetch('/rest/v1/leads?id=eq.'+l.dbId,{method:'PATCH',body:JSON.stringify({notes:l.note})}).catch(function(){})}
+  var noteText = el.value.trim();
+  var l = leads.find(function(x){return x.id===lid});
+
+  // Add to local activity immediately
+  if(!leadAct[lid]) leadAct[lid]=[];
+  leadAct[lid].unshift({type:'note',label:'📝 Note',time:'Just now',body:noteText,rec:false});
+
+  // Update local lead note
+  if(l) l.note = noteText;
+
   el.value='';
-  showToast('&#x2705; Note saved');
+  showToast('✅ Note saved');
   renderLeadScreen(lid);
+
+  // Persist to DB (non-blocking)
+  if(l && l.dbId){
+    // Save note text on lead record
+    sbFetch('/rest/v1/leads?id=eq.'+l.dbId,{
+      method:'PATCH',
+      body:JSON.stringify({notes:noteText, updated_at:new Date().toISOString()})
+    }).catch(function(){});
+
+    // Save to activity_log so it persists after refresh
+    logActivity({
+      lead_id:   lid,
+      db_lead_id: l.dbId,
+      client_id: window._clientId,
+      type:      'note',
+      label:     '📝 Note',
+      body:      noteText
+    });
+  }
 }
 
 // Floating action handlers
@@ -4661,12 +4693,16 @@ async function logActivity(opts) {
     });
     if(curLid===lid) renderLeadScreen(lid);
   }
-  // Persist to DB (non-blocking, never fail silently in UI)
+  // Persist to DB — write to activity_log
   try {
+    var dbLeadId = opts.db_lead_id || (function(){
+      var lead = leads.find(function(x){ return x.id===opts.lead_id; });
+      return lead ? lead.dbId : null;
+    })();
     await sbFetch('/rest/v1/activity_log',{
       method:'POST',
       body:JSON.stringify({
-        lead_id:   opts.lead_id||null,
+        lead_id:   dbLeadId||null,
         client_id: opts.client_id||null,
         type:      opts.type,
         label:     opts.label,
