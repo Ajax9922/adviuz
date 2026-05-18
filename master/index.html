@@ -2491,7 +2491,7 @@ async function loadLeadsFromDB() {
     }
     // Load leads scoped to this client
     var cFilter = '&client_id=eq.'+window._clientId;
-    var res = await sbFetch('/rest/v1/leads?select=*'+cFilter+'&order=created_at.desc&limit=500');
+    var res = await sbFetch('/rest/v1/leads?select=*,user_profiles!leads_assigned_to_fkey(display_name)'+cFilter+'&order=created_at.desc&limit=500');
     if (!res.ok) {
       var err = await res.json().catch(function(){return{}});
       console.error('[Adviuz] Load leads error:', err);
@@ -2512,6 +2512,8 @@ function mapLead(l, i) {
     id: i + 1, dbId: l.id,
     name: l.name || '', company: l.company || '',
     ph: l.phone || '', em: l.email || '',
+    assignedTo:   l.assigned_to || null,
+    assignedName: (l.user_profiles && l.user_profiles.display_name) || '',
     ph2: l.phone2 || '', ph3: l.phone3 || '',
     em2: l.email2 || '', em3: l.email3 || '',
     em4: l.email4 || '', em5: l.email5 || '',
@@ -3419,6 +3421,14 @@ function renderLeadScreen(id) {
   // Last Event
   h += ldInfoRow('⚡','Last Event', lastAct ? lastAct.label+' · '+lastAct.time : 'No activity yet');
 
+  // Assigned To
+  var assignedName = l.assignedName || l.assigned_name || '';
+  var assignedHtml = assignedName
+    ? '<span style="font-weight:600;color:var(--text)">'+assignedName+'</span>'
+      + ' <span onclick="openAssignSheet('+l.id+')" style="color:var(--blue);font-size:12px;cursor:pointer;font-weight:600;margin-left:6px">Change</span>'
+    : '<span onclick="openAssignSheet('+l.id+')" style="color:var(--blue);font-weight:600;cursor:pointer">+ Assign to someone</span>';
+  h += ldInfoRow('👤','Assigned To', assignedHtml);
+
   h += '</div>';
 
   // AI Summary only in top card (recording moved below)
@@ -4180,6 +4190,20 @@ async function doSaveLead(lead) {
     lead.id = nxtId++;
     if(saved && saved.id) lead.dbId = saved.id;
     leads.unshift(lead);
+
+    // Auto-assign lead to the person who created it (manual = creator owns it)
+    if(saved && saved.id && window._clientId && window.currentUser) {
+      sbFetch('/functions/v1/assign-lead', {
+        method: 'POST',
+        body: JSON.stringify({
+          lead_id:     saved.id,
+          client_id:   window._clientId,
+          source:      'manual',
+          assigned_to: window.currentUser.id
+        })
+      }).catch(function(e){ console.warn('[Adviuz] Assignment failed:', e.message); });
+    }
+
     closeSheet('addLeadSh');
     showToast('✅ '+lead.name+' saved');
     ['aFn','aLn','aPh','aEm','aNt','aCompany'].forEach(function(id){var el=document.getElementById(id);if(el)el.value=''});
@@ -4231,7 +4255,9 @@ var _callLeadId   = null;
 
 async function initTwilioDevice() {
   try {
-    var res  = await sbFetch('/functions/v1/twilio-voice?action=token&identity=agent');
+    // Use client-specific identity so inbound calls route to the right affiliate
+    var identity = window._clientId ? 'agent-' + window._clientId : 'agent';
+    var res  = await sbFetch('/functions/v1/twilio-voice?action=token&identity=' + encodeURIComponent(identity));
     if (!res.ok) throw new Error('Token request failed: ' + res.status);
     var data = await res.json();
     if (!data.token) throw new Error('No token — check TWILIO_APP_SID secret in Supabase');
@@ -4389,6 +4415,115 @@ function toggleMute(btn) {
   btn.style.background = muted?'var(--red)':'';
   btn.style.color      = muted?'#fff':'';
   showToast(muted?'🔇 Muted':'🎙 Unmuted');
+}
+
+
+// ═══════════════════════════════════════════════════════
+// LEAD ASSIGNMENT
+// ═══════════════════════════════════════════════════════
+var _assignLeadId = null;
+var _orgMembers   = null; // cached
+
+async function loadOrgMembers() {
+  if (_orgMembers) return _orgMembers;
+  try {
+    var res = await sbFetch('/rest/v1/user_profiles?client_id=eq.'+window._clientId+'&is_active=eq.true&select=user_id,display_name,phone,role,total_assigned,total_closed&order=display_name.asc');
+    if (!res.ok) return [];
+    _orgMembers = await res.json();
+    return _orgMembers || [];
+  } catch(e) {
+    console.warn('[assign] loadOrgMembers:', e.message);
+    return [];
+  }
+}
+
+async function openAssignSheet(leadId) {
+  _assignLeadId = leadId;
+  var l = leads.find(function(x){ return x.id === leadId; });
+
+  var list = document.getElementById('assignAgentList');
+  list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--sub);font-size:13px">Loading team...</div>';
+  openSheet('assignSh');
+
+  var members = await loadOrgMembers();
+
+  if (!members.length) {
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--sub);font-size:13px">No team members found.<br><span style="font-size:12px">Add members via user_profiles in Supabase.</span></div>';
+    return;
+  }
+
+  var roleLabel = { super_admin:'Super Admin', telecaller:'Telecaller', affiliate:'Affiliate', director:'Director' };
+  var roleColor = { super_admin:'#7c3aed', telecaller:'#2563eb', affiliate:'#059669', director:'#d97706' };
+
+  var h = '';
+  members.forEach(function(m) {
+    var isAssigned = l && l.assignedTo === m.user_id;
+    var closeRate  = m.total_assigned > 0 ? Math.round((m.total_closed / m.total_assigned) * 100) : 0;
+    var initials   = (m.display_name || '?').split(' ').map(function(w){ return w[0]; }).join('').slice(0,2).toUpperCase();
+
+    h += '<div onclick="assignLeadTo(''+m.user_id+'',''+m.display_name+'')" style="'
+       + 'display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;'
+       + 'border-bottom:1px solid var(--border);'
+       + (isAssigned ? 'background:#f0fdf9;' : '')
+       + 'transition:background 0.15s" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''+(isAssigned?'#f0fdf9':'')+''">';
+
+    // Avatar
+    h += '<div style="width:40px;height:40px;border-radius:12px;background:'+(roleColor[m.role]||'#6b7280')+';'
+       + 'display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;flex-shrink:0">'
+       + initials + '</div>';
+
+    // Info
+    h += '<div style="flex:1;min-width:0">';
+    h += '<div style="display:flex;align-items:center;gap:6px">';
+    h += '<span style="font-size:14px;font-weight:700;color:var(--text)">' + (m.display_name||'Unknown') + '</span>';
+    if (isAssigned) h += '<span style="font-size:10px;background:#d1fae5;color:#059669;padding:2px 7px;border-radius:20px;font-weight:700">Current</span>';
+    h += '</div>';
+    h += '<div style="display:flex;gap:8px;margin-top:3px">';
+    h += '<span style="font-size:11px;color:'+(roleColor[m.role]||'#6b7280')+';font-weight:600">'+(roleLabel[m.role]||m.role)+'</span>';
+    h += '<span style="font-size:11px;color:var(--sub)">· '+m.total_assigned+' leads</span>';
+    if (m.total_assigned > 0) h += '<span style="font-size:11px;color:var(--sub)">· '+closeRate+'% close rate</span>';
+    h += '</div></div>';
+
+    // Phone indicator
+    if (m.phone) h += '<div style="font-size:10px;color:var(--sub);flex-shrink:0">📱</div>';
+
+    h += '</div>';
+  });
+
+  list.innerHTML = h;
+}
+
+async function assignLeadTo(userId, userName) {
+  var l = leads.find(function(x){ return x.id === _assignLeadId; });
+  if (!l || !l.dbId) { showToast('❌ Lead not saved yet'); return; }
+
+  closeSheet('assignSh');
+  showToast('⏳ Assigning to ' + userName + '...');
+
+  try {
+    var res = await sbFetch('/functions/v1/assign-lead', {
+      method: 'POST',
+      body: JSON.stringify({
+        lead_id:     l.dbId,
+        client_id:   window._clientId,
+        source:      'manual',
+        assigned_to: userId
+      })
+    });
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Assignment failed');
+
+    // Update local lead object
+    l.assignedTo   = userId;
+    l.assignedName = userName;
+    _orgMembers    = null; // clear cache so stats refresh next time
+
+    showToast('✅ Assigned to ' + userName);
+    if (curLid === _assignLeadId) renderLeadScreen(_assignLeadId);
+
+  } catch(e) {
+    showToast('❌ ' + e.message);
+  }
 }
 
 window.addEventListener('load', function(){ setTimeout(initTwilioDevice, 2000); });
@@ -6423,5 +6558,19 @@ async function markQuotePaid(quoteId) {
 }
 
 </script>
+
+<!-- ══ ASSIGN LEAD SHEET ══════════════════════════════════ -->
+<div class="sheet-ov" id="assignSh" onclick="if(event.target===this)closeSheet('assignSh')" style="z-index:700">
+  <div class="sheet" style="max-height:70vh">
+    <div class="sheet-head">
+      <div class="sheet-title">Assign Lead</div>
+      <button class="sheet-x" onclick="closeSheet('assignSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" style="padding:0">
+      <div style="padding:12px 16px 8px;font-size:13px;color:var(--sub)">Select who should handle this lead:</div>
+      <div id="assignAgentList" style="padding:0 8px 16px"></div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
