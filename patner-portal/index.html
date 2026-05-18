@@ -21,6 +21,8 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);min-height:100v
 
 /* ── AUTH SCREEN ── */
 #authScreen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;background:linear-gradient(160deg,var(--navy) 0%,#1e3a5f 100%)}
+.auth-card{animation:fadeIn .2s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 .auth-card{width:100%;max-width:380px;background:var(--white);border-radius:20px;padding:32px 28px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
 .auth-logo{text-align:center;margin-bottom:24px}
 .auth-logo img{height:28px}
@@ -105,7 +107,9 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);min-height:100v
 
 <!-- ── AUTH ── -->
 <div id="authScreen">
-  <div class="auth-card">
+
+  <!-- SIGN IN -->
+  <div class="auth-card" id="authCardLogin">
     <div class="auth-logo"><img src="https://i.imgur.com/rfPAzdI.png" alt="Adviuz"></div>
     <div class="auth-title">Partner Portal</div>
     <div class="auth-sub">Sign in to your Adviuz Sales Partner account</div>
@@ -115,10 +119,47 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);min-height:100v
     <input class="auth-input" id="authPass" type="password" placeholder="Your password" autocomplete="current-password">
     <button class="auth-btn" onclick="doLogin()">Sign In →</button>
     <div class="auth-err" id="authErr"></div>
-    <div style="text-align:center;margin-top:16px;font-size:12px;color:var(--sub)">
+    <div style="text-align:center;margin-top:14px">
+      <button onclick="showAuthCard('forgot')" style="background:none;border:none;color:var(--sub);font-size:12px;cursor:pointer;font-family:var(--f)">Forgot password?</button>
+    </div>
+    <div style="text-align:center;margin-top:8px;font-size:12px;color:var(--sub)">
       Questions? <a href="mailto:relations@adviuz.com" style="color:var(--green)">relations@adviuz.com</a>
     </div>
   </div>
+
+  <!-- FORGOT PASSWORD -->
+  <div class="auth-card" id="authCardForgot" style="display:none">
+    <div class="auth-logo"><img src="https://i.imgur.com/rfPAzdI.png" alt="Adviuz"></div>
+    <div class="auth-title">Reset Password</div>
+    <div class="auth-sub">Enter your email and we'll send you a reset link</div>
+    <label class="auth-label">Email</label>
+    <input class="auth-input" id="forgotEmail" type="email" placeholder="you@email.com" autocomplete="email">
+    <button class="auth-btn" onclick="doForgotPassword()">Send Reset Link →</button>
+    <div class="auth-err" id="forgotErr"></div>
+    <div id="forgotSuccess" style="display:none;margin-top:12px;padding:12px;background:#f0fdf9;border:1px solid #6ee7b7;border-radius:8px;font-size:13px;color:#065f46;text-align:center">
+      ✅ Reset link sent! Check your inbox and spam folder.
+    </div>
+    <div style="text-align:center;margin-top:14px">
+      <button onclick="showAuthCard('login')" style="background:none;border:none;color:var(--sub);font-size:12px;cursor:pointer;font-family:var(--f)">← Back to sign in</button>
+    </div>
+  </div>
+
+  <!-- SET NEW PASSWORD (from email link) -->
+  <div class="auth-card" id="authCardSetPassword" style="display:none">
+    <div class="auth-logo"><img src="https://i.imgur.com/rfPAzdI.png" alt="Adviuz"></div>
+    <div class="auth-title">Set Your Password</div>
+    <div class="auth-sub">Welcome! Choose a password for your partner account</div>
+    <label class="auth-label">New Password</label>
+    <input class="auth-input" id="newPass1" type="password" placeholder="Min 8 characters" autocomplete="new-password">
+    <label class="auth-label">Confirm Password</label>
+    <input class="auth-input" id="newPass2" type="password" placeholder="Repeat password" autocomplete="new-password">
+    <div style="margin-bottom:16px;padding:10px 12px;background:var(--bg);border-radius:8px;font-size:12px;color:var(--sub);line-height:1.7">
+      Password must be at least 8 characters and include a number.
+    </div>
+    <button class="auth-btn" onclick="doSetPassword()">Set Password & Sign In →</button>
+    <div class="auth-err" id="setPassErr"></div>
+  </div>
+
 </div>
 
 <!-- ── APP SHELL ── -->
@@ -364,6 +405,63 @@ function showToast(msg) {
 function setLoading(on) { document.getElementById('loadingOverlay').classList.toggle('show', on); }
 
 // ── AUTH ─────────────────────────────────────────────────────
+function showAuthCard(which) {
+  document.querySelectorAll('.auth-card').forEach(function(c){ c.style.display='none'; });
+  var map = { login:'authCardLogin', forgot:'authCardForgot', setPassword:'authCardSetPassword' };
+  var el = document.getElementById(map[which]);
+  if (el) el.style.display = 'block';
+}
+
+async function doForgotPassword() {
+  var email = document.getElementById('forgotEmail').value.trim();
+  var errEl = document.getElementById('forgotErr');
+  var okEl  = document.getElementById('forgotSuccess');
+  errEl.classList.remove('show'); okEl.style.display='none';
+  if (!email) { errEl.textContent='Please enter your email'; errEl.classList.add('show'); return; }
+  setLoading(true);
+  try {
+    var res = await sbAuth('/recover', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: email,
+        gotrue_meta_security: {},
+        // Redirect back to this portal after reset
+        options: { redirectTo: window.location.origin + window.location.pathname }
+      })
+    });
+    // Supabase always returns 200 for security (doesn't confirm if email exists)
+    okEl.style.display = 'block';
+    document.getElementById('forgotEmail').value = '';
+  } catch(e) {
+    errEl.textContent = e.message; errEl.classList.add('show');
+  } finally { setLoading(false); }
+}
+
+async function doSetPassword() {
+  var p1    = document.getElementById('newPass1').value;
+  var p2    = document.getElementById('newPass2').value;
+  var errEl = document.getElementById('setPassErr');
+  errEl.classList.remove('show');
+  if (p1.length < 8)  { errEl.textContent='Password must be at least 8 characters'; errEl.classList.add('show'); return; }
+  if (!/[0-9]/.test(p1)) { errEl.textContent='Password must include at least one number'; errEl.classList.add('show'); return; }
+  if (p1 !== p2)      { errEl.textContent='Passwords do not match'; errEl.classList.add('show'); return; }
+  setLoading(true);
+  try {
+    // Update password using the recovery token already in the session
+    var res  = await fetch(SB_URL + '/auth/v1/user', {
+      method: 'PUT',
+      headers: { 'Content-Type':'application/json', 'apikey':SB_ANON, 'Authorization':'Bearer '+authToken },
+      body: JSON.stringify({ password: p1 })
+    });
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to set password');
+    showToast('✅ Password set! Loading your dashboard...');
+    await loadPartnerData();
+  } catch(e) {
+    errEl.textContent = e.message; errEl.classList.add('show');
+  } finally { setLoading(false); }
+}
+
 async function doLogin() {
   var email = document.getElementById('authEmail').value.trim();
   var pass  = document.getElementById('authPass').value;
@@ -678,21 +776,48 @@ function copyRefLink() {
 
 // ── INIT ─────────────────────────────────────────────────────
 (async function init() {
+  // ── Check for recovery/invite token in URL hash ──────────
+  var hash = window.location.hash;
+  var params = {};
+  hash.replace(/^#/, '').split('&').forEach(function(pair) {
+    var parts = pair.split('=');
+    if (parts.length === 2) params[decodeURIComponent(parts[0])] = decodeURIComponent(parts[1]);
+  });
+
+  var tokenType = params['type'] || '';
+  var accessToken = params['access_token'] || '';
+
+  if (accessToken && (tokenType === 'recovery' || tokenType === 'invite' || tokenType === 'signup')) {
+    // Partner clicked the reset/invite link from their email
+    authToken = accessToken;
+    // Clear the hash from URL so it's not visible
+    history.replaceState(null, '', window.location.pathname);
+    // Show set-password screen
+    document.getElementById('authScreen').style.display = 'flex';
+    showAuthCard('setPassword');
+    return;
+  }
+
+  // ── Try restoring saved session ──────────────────────────
   var saved = localStorage.getItem('partner_session');
   if (saved) {
     try {
       var session = JSON.parse(saved);
       authToken   = session.token;
       currentUser = session.user;
-      // Verify token is still valid
       var me = await sbAuth('/user');
       if (me.ok) {
+        var meData = await me.json();
+        currentUser = meData;
         await loadPartnerData();
         return;
       }
-    } catch(e) { localStorage.removeItem('partner_session'); }
+    } catch(e) { /* session expired */ }
+    localStorage.removeItem('partner_session');
   }
+
   document.getElementById('authScreen').style.display = 'flex';
+  showAuthCard('login');
 })();
 </script>
 </body>
