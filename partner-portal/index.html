@@ -138,6 +138,29 @@ html,body{width:100%;height:100%;font-family:var(--f);background:var(--bg);-webk
 .mktg-name{font-size:12px;font-weight:700;color:var(--text)}
 .mktg-sub{font-size:11px;color:var(--sub);margin-top:2px}
 
+/* ── LEAD SCREEN ── */
+.lead-screen{display:none;position:fixed;inset:0;z-index:700;background:var(--bg);flex-direction:column;max-width:430px;margin:0 auto;animation:slideIn .22s ease}
+.lead-screen.open{display:flex}
+@keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
+.ls-topbar{background:var(--top);padding:calc(8px + var(--st)) 10px 10px;display:flex;align-items:center;gap:8px;flex-shrink:0}
+.ls-back{width:36px;height:36px;border:none;background:none;cursor:pointer;color:rgba(255,255,255,.8);display:flex;align-items:center;justify-content:center;border-radius:50%;flex-shrink:0}
+.ls-back svg{width:22px;height:22px;stroke-width:2.5}
+.ls-title{flex:1;min-width:0}
+.ls-name{font-size:15px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ls-sub{font-size:11px;color:rgba(255,255,255,.45);margin-top:1px}
+.ls-nav{display:flex;gap:4px;flex-shrink:0}
+.ls-nav-btn{width:32px;height:32px;border:none;background:rgba(255,255,255,.08);cursor:pointer;color:rgba(255,255,255,.7);display:flex;align-items:center;justify-content:center;border-radius:8px}
+.ls-nav-btn svg{width:16px;height:16px}
+.ls-nav-btn:disabled{opacity:.25;cursor:default}
+.ls-scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-bottom:24px}
+.ls-card{background:var(--white);padding:16px;margin-bottom:0}
+.ls-sec-lbl{font-size:10px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px}
+.ls-info-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)}
+.ls-info-row:last-child{border-bottom:none}
+.ls-info-lbl{font-size:11px;font-weight:700;color:var(--muted);width:66px;flex-shrink:0;text-transform:uppercase;letter-spacing:.03em}
+.ls-quick-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.ls-quick-btn{display:flex;flex-direction:column;align-items:center;gap:5px;padding:12px 6px;border-radius:12px;border:1.5px solid var(--border);cursor:pointer;font-family:var(--f);font-size:12px;font-weight:700;width:100%}
+.ls-quick-btn:active{opacity:.7}
 /* ── TOAST ── */
 #toast{position:fixed;bottom:calc(var(--sb)+68px);left:50%;transform:translateX(-50%) translateY(12px);background:#1f2c34;color:#fff;padding:9px 18px;border-radius:9px;font-size:13px;font-weight:600;opacity:0;transition:all .25s;z-index:9999;white-space:nowrap;pointer-events:none}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -296,6 +319,27 @@ html,body{width:100%;height:100%;font-family:var(--f);background:var(--bg);-webk
     <div class="sheet-head"><div class="sheet-title">My Profile</div><button class="sheet-x" onclick="closeSheet('profileSh')">&#x2715;</button></div>
     <div id="profileContent" style="padding:16px"></div>
   </div>
+</div>
+
+<div class="lead-screen" id="leadScreen">
+  <div class="ls-topbar">
+    <button class="ls-back" onclick="closeLead()">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <div class="ls-title">
+      <div class="ls-name" id="lsName">Lead</div>
+      <div class="ls-sub" id="lsSub"></div>
+    </div>
+    <div class="ls-nav">
+      <button class="ls-nav-btn" id="lsPrev" onclick="navLead(-1)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <button class="ls-nav-btn" id="lsNext" onclick="navLead(1)">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="9 6 15 12 9 18"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="ls-scroll" id="lsBody"></div>
 </div>
 
 <div id="toast"></div>
@@ -481,33 +525,65 @@ function leadsHTML(){
   return h+'</div>';
 }
 
+var _curLid=null;
 function openLead(id){
+  _curLid=id;renderLeadScreen(id);
+  document.getElementById('leadScreen').classList.add('open');
+  var idx=myLeads.findIndex(function(l){return l.id===id;});
+  document.getElementById('lsPrev').disabled=idx<=0;
+  document.getElementById('lsNext').disabled=idx>=myLeads.length-1;
+}
+function closeLead(){document.getElementById('leadScreen').classList.remove('open');}
+function navLead(dir){
+  var idx=myLeads.findIndex(function(l){return l.id===_curLid;});
+  var ni=idx+dir;if(ni>=0&&ni<myLeads.length)openLead(myLeads[ni].id);
+}
+function renderLeadScreen(id){
   var l=myLeads.find(function(x){return x.id===id;});if(!l)return;
   var s=l.stage_code||'fresh_lead',nm=l.company||l.name||'Unknown',col=avC(nm);
+  var init=nm.split(' ').map(function(w){return(w[0]||'').toUpperCase();}).join('').slice(0,2);
   var stgs=['fresh_lead','call_not_connected','follow_up','meeting_locked','meeting_done','ready_to_pay','deal_closed','future_budget_issue','future_need_more_time','not_interested'];
-  var h='<div style="text-align:center;padding:20px 0 16px">'
-    +'<div style="width:60px;height:60px;border-radius:50%;background:'+col+';display:flex;align-items:center;justify-content:center;font-weight:800;font-size:24px;color:#fff;margin:0 auto 10px">'+nm.charAt(0).toUpperCase()+'</div>'
-    +'<div style="font-size:17px;font-weight:700;color:var(--text)">'+nm+'</div>'
-    +'<div style="font-size:12px;color:var(--sub);margin-top:3px">'+(l.email||'')+(l.phone?' · '+l.phone:'')+'</div>'
-    +'<span class="sbadge s-'+s+'" style="margin-top:8px">'+sLabel(s)+'</span></div>';
-  if(l.phone||l.email){
-    h+='<div style="display:flex;gap:8px;margin-bottom:16px">';
-    if(l.phone)h+='<a href="tel:'+l.phone+'" style="flex:1;padding:11px;background:var(--greenl);border-radius:10px;text-align:center;text-decoration:none;font-size:13px;font-weight:700;color:var(--green)">📞 Call</a>';
-    if(l.phone)h+='<a href="sms:'+l.phone+'" style="flex:1;padding:11px;background:var(--bg);border-radius:10px;text-align:center;text-decoration:none;font-size:13px;font-weight:700;color:var(--text)">💬 SMS</a>';
-    if(l.email)h+='<a href="mailto:'+l.email+'" style="flex:1;padding:11px;background:var(--bluel);border-radius:10px;text-align:center;text-decoration:none;font-size:13px;font-weight:700;color:var(--blue)">📧 Email</a>';
-    h+='</div>';
-  }
-  h+='<div class="fg"><label class="flbl">Update Stage</label>'
-    +'<select onchange="updStage(\''+id+'\',this.value)" class="fsel">'
-    +stgs.map(function(st){return'<option value="'+st+'"'+(st===s?' selected':'')+'>'+sLabel(st)+'</option>';}).join('')
-    +'</select></div>';
-  if(l.notes)h+='<div style="background:var(--amberl);border-radius:8px;padding:10px 12px;font-size:12px;color:#92400e;margin-bottom:12px">📝 '+l.notes+'</div>';
-  h+='<div class="fg"><label class="flbl">Add Note / Outcome</label>'
-    +'<textarea id="ldNote" class="fta" placeholder="Call outcome, next steps, client feedback..."></textarea>'
-    +'<button onclick="saveNote(\''+id+'\')" style="margin-top:6px;padding:9px 16px;background:var(--top);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">Save Note</button>'
-    +'</div>';
-  document.getElementById('leadShContent').innerHTML=h;
-  openSheet('leadSh');
+  document.getElementById('lsName').textContent=nm;
+  document.getElementById('lsSub').textContent=sLabel(s)+(l.source?' - '+l.source:'');
+  var h='';
+  // Card 1: Info
+  h+='<div class="ls-card">';
+  h+='<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">';
+  h+='<div style="width:52px;height:52px;border-radius:14px;background:'+col+';display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px;color:#fff;flex-shrink:0">'+init+'</div>';
+  h+='<div style="flex:1;min-width:0"><div style="font-size:16px;font-weight:800;color:var(--text)">'+nm+'</div>';
+  if(l.company&&l.name&&l.company!==l.name)h+='<div style="font-size:13px;color:var(--sub)">'+l.name+'</div>';
+  h+='</div><span class="sbadge s-'+s+'">'+sLabel(s)+'</span></div>';
+  h+='<div>';
+  if(l.email)h+='<div class="ls-info-row"><span class="ls-info-lbl">Email</span><a href="mailto:'+l.email+'" style="color:var(--blue);font-size:13px;text-decoration:none;flex:1">'+l.email+'</a></div>';
+  if(l.phone)h+='<div class="ls-info-row"><span class="ls-info-lbl">Phone</span><a href="tel:'+l.phone+'" style="color:var(--blue);font-size:13px;text-decoration:none;flex:1">'+l.phone+'</a></div>';
+  if(l.location)h+='<div class="ls-info-row"><span class="ls-info-lbl">Location</span><span style="font-size:13px;color:var(--text);flex:1">'+l.location+'</span></div>';
+  if(l.source)h+='<div class="ls-info-row"><span class="ls-info-lbl">Source</span><span style="font-size:13px;color:var(--text);flex:1">'+l.source+'</span></div>';
+  var dt=l.created_at?new Date(l.created_at).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}):'--';
+  h+='<div class="ls-info-row"><span class="ls-info-lbl">Added</span><span style="font-size:13px;color:var(--text);flex:1">'+dt+'</span></div>';
+  h+='</div>';
+  if(l.notes)h+='<div style="background:var(--amberl);border-left:3px solid var(--amber);border-radius:0 8px 8px 0;padding:10px 12px;margin-top:12px;font-size:12px;color:#92400e;line-height:1.6"><b>Note:</b> '+l.notes+'</div>';
+  h+='</div>';
+  // Card 2: Contact
+  h+='<div style="height:4px;background:var(--bg)"></div><div class="ls-card">';
+  h+='<div class="ls-sec-lbl">Contact</div><div class="ls-quick-grid">';
+  if(l.phone)h+='<a href="tel:'+l.phone+'" class="ls-quick-btn" style="background:var(--greenl);color:var(--green);border-color:var(--green);text-decoration:none"><span style="font-size:22px">&#128222;</span>Call</a>';
+  if(l.phone)h+='<a href="sms:'+l.phone+'" class="ls-quick-btn" style="background:var(--bg);color:var(--text);text-decoration:none"><span style="font-size:22px">&#128172;</span>SMS</a>';
+  if(l.email)h+='<a href="mailto:'+l.email+'" class="ls-quick-btn" style="background:var(--bluel);color:var(--blue);text-decoration:none"><span style="font-size:22px">&#128231;</span>Email</a>';
+  if(l.phone)h+='<a href="https://wa.me/'+l.phone.replace(/[^0-9]/g,'')+'" class="ls-quick-btn" style="background:#dcfce7;color:#25d366;text-decoration:none" target="_blank"><span style="font-size:22px">&#128994;</span>WhatsApp</a>';
+  h+='</div></div>';
+  // Card 3: Stage
+  h+='<div style="height:4px;background:var(--bg)"></div><div class="ls-card">';
+  h+='<div class="ls-sec-lbl">Pipeline Stage</div>';
+  h+='<select data-lid="'+id+'" onchange="updStage(this.dataset.lid,this.value)" class="fsel">';
+  h+=stgs.map(function(st){return'<option value="'+st+'"'+(st===s?' selected':'')+'>'+sLabel(st)+'</option>';}).join('');
+  h+='</select></div>';
+  // Card 4: Note
+  h+='<div style="height:4px;background:var(--bg)"></div><div class="ls-card">';
+  h+='<div class="ls-sec-lbl">Note / Call Outcome</div>';
+  h+='<textarea id="ldNote" class="fta" placeholder="What did they say? Next steps?"></textarea>';
+  h+='<button data-lid="'+id+'" onclick="saveNote(this.dataset.lid)" style="margin-top:8px;width:100%;padding:11px;background:var(--top);color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--f)">Save Note</button>';
+  h+='</div>';
+  document.getElementById('lsBody').innerHTML=h;
 }
 
 async function updStage(id,s){
