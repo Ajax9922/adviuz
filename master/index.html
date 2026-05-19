@@ -3685,7 +3685,7 @@ function renderLeadScreen(id) {
   // ══ SECTION 2 — MEETING | QUOTE | INVOICE ══
   h += '<div style="background:var(--white);padding:12px 16px;margin-bottom:4px">';
   h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">';
-  h += ldQuickBtn('🤝','Meeting','#ede9fe','#7c3aed','openMeetingSheet('+l.id+')');
+  h += ldQuickBtn('🤝','Meeting','#ede9fe','#7c3aed','openMeetingScreen('+l.id+')');
   h += ldQuickBtn('📄','Quotes','#fef3c7','#d97706','openLeadQuotes('+l.id+')');
   h += ldQuickBtn('🧾','Invoices','#d1fae5','#00a884','openLeadInvoices('+l.id+')');
   h += '</div></div>';
@@ -7296,8 +7296,197 @@ function adQuotesHTML() {
 
 // ═══════════════════════════════════════
 // ═══════════════════════════════════════
-// MEETINGS
+// MEETING FULL SCREEN
 // ═══════════════════════════════════════
+var _mtScreenLid = null;
+var _mtScreenMeetings = [];
+
+async function openMeetingScreen(lid) {
+  _mtScreenLid = lid;
+  var l = leads.find(function(x){return x.id===lid;});
+  if (!l) return;
+  renderMeetingScreen(l, [], 'loading');
+  try {
+    var res = await sbFetch('/rest/v1/meetings?lead_id=eq.'+(l.dbId||l.id)+'&order=starts_at.desc&limit=50');
+    _mtScreenMeetings = res.ok ? await res.json() : [];
+  } catch(e) { _mtScreenMeetings = []; }
+  renderMeetingScreen(l, _mtScreenMeetings, 'ready');
+}
+
+function renderMeetingScreen(l, meetings, state) {
+  var now = new Date();
+  var upcoming = meetings.filter(function(m){ return new Date(m.starts_at) >= now && m.status !== 'cancelled'; });
+  var past     = meetings.filter(function(m){ return new Date(m.starts_at) < now || m.status === 'completed'; });
+  var h = '';
+
+  // Back header
+  h += '<div style="background:var(--white);padding:12px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10">';
+  h += '<button onclick="renderLeadScreen('+l.id+')" style="width:32px;height:32px;border-radius:9px;background:var(--bg);border:1px solid var(--border);cursor:pointer;display:flex;align-items:center;justify-content:center">';
+  h += '<svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>';
+  h += '<div><div style="font-size:15px;font-weight:700;color:var(--text)">Meetings</div>';
+  h += '<div style="font-size:11px;color:var(--sub)">'+(l.company||l.name)+'</div></div></div>';
+
+  // Action buttons
+  h += '<div style="padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:10px;background:var(--bg)">';
+  h += '<button onclick="startInstantMeeting('+l.id+')" style="padding:16px 10px;border-radius:14px;background:var(--purple);border:none;color:#fff;font-family:var(--f);font-weight:700;font-size:13px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px"><span style="font-size:22px">⚡</span>Instant Meeting</button>';
+  h += '<button onclick="openMeetingSheet('+l.id+')" style="padding:16px 10px;border-radius:14px;background:var(--white);border:1.5px solid var(--purple);color:var(--purple);font-family:var(--f);font-weight:700;font-size:13px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px"><span style="font-size:22px">📅</span>Schedule Later</button>';
+  h += '</div>';
+
+  if (state === 'loading') {
+    h += '<div style="text-align:center;padding:40px;color:var(--sub);font-size:13px">⏳ Loading meetings...</div>';
+    document.getElementById('content').innerHTML = h; return;
+  }
+
+  // Upcoming
+  h += '<div style="background:var(--white);margin-bottom:4px">';
+  h += '<div style="padding:14px 16px 8px;font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.07em">Upcoming ('+upcoming.length+')</div>';
+  if (!upcoming.length) {
+    h += '<div style="padding:12px 16px 16px;font-size:13px;color:var(--sub)">No upcoming meetings — book one above ☝️</div>';
+  } else {
+    upcoming.forEach(function(m) {
+      var dt = new Date(m.starts_at);
+      var dateLabel = dt.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'});
+      var timeLabel = dt.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit',hour12:true});
+      var typeEmoji = m.meeting_type==='AI Sales Engine'?'🤖':m.meeting_type==='Both'?'⚡':'🖼️';
+      h += '<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px">';
+      h += '<div style="width:44px;height:44px;border-radius:12px;background:#ede9fe;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0">';
+      h += '<div style="font-size:10px;font-weight:700;color:var(--purple);text-transform:uppercase">'+dt.toLocaleDateString('en-CA',{month:'short'})+'</div>';
+      h += '<div style="font-size:16px;font-weight:800;color:var(--purple)">'+dt.getDate()+'</div></div>';
+      h += '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;color:var(--text)">'+typeEmoji+' '+timeLabel+'</div>';
+      h += '<div style="font-size:11px;color:var(--sub);margin-top:2px">'+dateLabel+' · '+(m.duration_mins||60)+' min</div>';
+      if (m.meet_link) h += '<a href="'+m.meet_link+'" target="_blank" style="font-size:11px;color:var(--purple);font-weight:600;text-decoration:none">🔗 Join Meet</a>';
+      h += '</div>';
+      h += '<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">';
+      if (m.meet_link) h += '<a href="'+m.meet_link+'" target="_blank" style="padding:6px 10px;background:var(--purple);color:#fff;border-radius:8px;font-size:11px;font-weight:700;text-decoration:none;text-align:center">Join</a>';
+      h += '<button onclick="openReschedule(\''+m.id+'\')" style="padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:11px;font-weight:600;color:var(--sub);cursor:pointer;font-family:var(--f)">Reschedule</button>';
+      h += '</div></div>';
+    });
+  }
+  h += '</div>';
+
+  // Past
+  h += '<div style="background:var(--white);margin-bottom:4px">';
+  h += '<div style="padding:14px 16px 8px;font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.07em">Past ('+past.length+')</div>';
+  if (!past.length) {
+    h += '<div style="padding:12px 16px 16px;font-size:13px;color:var(--sub)">No past meetings yet</div>';
+  } else {
+    past.forEach(function(m) {
+      var dt = new Date(m.starts_at);
+      var dateLabel = dt.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
+      var timeLabel = dt.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit',hour12:true});
+      var typeEmoji = m.meeting_type==='AI Sales Engine'?'🤖':m.meeting_type==='Both'?'⚡':'🖼️';
+      h += '<div style="padding:12px 16px;border-bottom:1px solid var(--border)">';
+      h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">';
+      h += '<div style="font-size:12px;font-weight:700;color:var(--text)">'+typeEmoji+' '+dateLabel+' at '+timeLabel+'</div>';
+      h += '<div style="margin-left:auto;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:#f3f4f6;color:var(--sub)">'+(m.status||'done').toUpperCase()+'</div></div>';
+      if (m.notes) h += '<div style="font-size:12px;color:var(--sub);margin-bottom:6px">📝 '+m.notes+'</div>';
+      h += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+      if (m.meet_link) h += '<a href="'+m.meet_link+'" target="_blank" style="font-size:11px;font-weight:600;color:var(--purple);text-decoration:none">🔗 Meeting Link</a>';
+      if (m.recording_url) h += '<a href="'+m.recording_url+'" target="_blank" style="font-size:11px;font-weight:600;color:var(--blue);text-decoration:none">🎙️ Recording</a>';
+      if (m.summary) h += '<div style="font-size:11px;color:var(--sub);width:100%;margin-top:4px;background:var(--bg);padding:8px;border-radius:8px">🤖 '+m.summary+'</div>';
+      h += '</div></div>';
+    });
+  }
+  h += '</div>';
+  h += '<div style="height:80px"></div>';
+  document.getElementById('content').innerHTML = h;
+}
+
+// ── Instant Meeting ──────────────────────────────────────────
+async function startInstantMeeting(lid) {
+  var l = leads.find(function(x){return x.id===lid;});
+  if (!l) return;
+
+  document.getElementById('content').innerHTML =
+    '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;padding:32px;text-align:center">'
+    +'<div style="font-size:48px;margin-bottom:16px">⚡</div>'
+    +'<div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px">Creating your Meet link...</div>'
+    +'<div style="font-size:13px;color:var(--sub)">Sending invite to '+l.name+'</div></div>';
+
+  var now   = new Date();
+  var end   = new Date(now.getTime() + 60*60000);
+  var token = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  var partnerName  = currentUser ? (currentUser.user_metadata && currentUser.user_metadata.full_name) || currentUser.email : 'Your Adviuz Partner';
+  var partnerEmail = currentUser ? currentUser.email : '';
+
+  try {
+    // Save meeting record
+    await sbFetch('/rest/v1/meetings', {
+      method: 'POST',
+      body: JSON.stringify({
+        lead_id: l.dbId || null, guest_name: l.name, guest_email: l.em || null,
+        guest_province: '', starts_at: now.toISOString(), ends_at: end.toISOString(),
+        duration_mins: 60, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        meeting_type: 'Digital Flyers', meet_link: null, status: 'scheduled',
+        reschedule_token: token, reschedule_count: 0,
+        partner_name: partnerName, partner_email: partnerEmail
+      })
+    });
+
+    // Generate Meet link + send emails
+    var createRes = await sbFetch('/functions/v1/create-meeting', {
+      method: 'POST',
+      body: JSON.stringify({
+        lead_id: l.dbId || null, meeting_type: 'Digital Flyers',
+        starts_at: now.toISOString(), ends_at: end.toISOString(), duration_mins: 60,
+        guest_name: l.name, guest_email: l.em || '', guest_province: '', guest_province_name: '',
+        guest_company: l.company || '', guest_phone: l.ph || '',
+        recipient_emails: [l.em, partnerEmail].filter(Boolean).join(','),
+        partner_name: partnerName, partner_email: partnerEmail,
+        notes: 'Instant meeting', reschedule_token: token, send_now: true, instant: true
+      })
+    });
+
+    var meetLink = '';
+    if (createRes.ok) { var cd = await createRes.json(); meetLink = cd.meet_link || ''; }
+
+    // Log activity + update stage
+    if (!leadAct[lid]) leadAct[lid] = [];
+    leadAct[lid].unshift({ type:'meeting', label:'Instant Meeting Started', time:'Just now', body: meetLink||'Meet link pending' });
+    l.stage = 'Meeting Locked'; l.stage_code = 'meeting_locked';
+    await sbFetch('/rest/v1/leads?id=eq.'+(l.dbId||l.id), {
+      method:'PATCH',
+      body: JSON.stringify({stage_code:'meeting_locked', stage_changed_at: now.toISOString(), last_activity_at: now.toISOString()})
+    });
+
+    renderInstantMeetingJoin(l, meetLink, partnerEmail);
+  } catch(e) {
+    showToast('❌ Error: ' + e.message);
+    openMeetingScreen(lid);
+  }
+}
+
+function renderInstantMeetingJoin(l, meetLink, partnerEmail) {
+  var h = '';
+  h += '<div style="background:var(--white);padding:12px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border)">';
+  h += '<button onclick="openMeetingScreen('+l.id+')" style="width:32px;height:32px;border-radius:9px;background:var(--bg);border:1px solid var(--border);cursor:pointer;display:flex;align-items:center;justify-content:center">';
+  h += '<svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>';
+  h += '<div><div style="font-size:15px;font-weight:700;color:var(--text)">Instant Meeting</div>';
+  h += '<div style="font-size:11px;color:var(--sub)">'+(l.company||l.name)+'</div></div></div>';
+
+  h += '<div style="padding:32px 24px;display:flex;flex-direction:column;align-items:center;text-align:center">';
+  if (meetLink) {
+    h += '<div style="width:88px;height:88px;border-radius:24px;background:linear-gradient(135deg,#ede9fe,#dbeafe);display:flex;align-items:center;justify-content:center;font-size:40px;margin-bottom:20px">🎥</div>';
+    h += '<div style="font-size:20px;font-weight:800;color:var(--text);margin-bottom:8px">Meeting is live! 🚀</div>';
+    h += '<div style="font-size:13px;color:var(--sub);margin-bottom:28px;line-height:1.6">Invite sent to <strong>'+l.name+'</strong>'+(l.em?' at '+l.em:'')+'<br>and to <strong>'+partnerEmail+'</strong></div>';
+    h += '<a href="'+meetLink+'" target="_blank" style="display:block;width:100%;max-width:320px;padding:18px;background:var(--purple);color:#fff;border-radius:16px;font-size:17px;font-weight:800;text-decoration:none;margin-bottom:14px;box-shadow:0 4px 20px #7c3aed33">🚀 Join Meeting Now</a>';
+    h += '<div style="font-size:11px;color:var(--sub);word-break:break-all;padding:10px 14px;background:var(--bg);border-radius:8px;max-width:320px;margin-bottom:20px;line-height:1.5">'+meetLink+'</div>';
+    h += '<button onclick="navigator.clipboard.writeText(\''+meetLink+'\').then(function(){showToast(\'Link copied ✅\')})" style="padding:12px 24px;background:var(--bg);border:1.5px solid var(--border);border-radius:12px;font-size:13px;font-weight:700;color:var(--sub);cursor:pointer;font-family:var(--f)">📋 Copy Link</button>';
+  } else {
+    h += '<div style="font-size:48px;margin-bottom:16px">⚠️</div>';
+    h += '<div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:8px">Meeting saved</div>';
+    h += '<div style="font-size:13px;color:var(--sub)">Meet link could not be generated.<br>Check your Google Workspace integration.</div>';
+  }
+  h += '</div><div style="height:80px"></div>';
+  document.getElementById('content').innerHTML = h;
+}
+
+function openReschedule(meetingId) {
+  showToast('Use the reschedule link sent in the confirmation email');
+}
+
+// ═══════════════════════════════════════
+// MEETINGS (Scheduling Sheet)
 var _meetingLeadId = null;
 var _selectedTime  = null;
 var CST_OFFSET_HRS = -6; // Saskatoon, UTC-6, no DST year-round
@@ -7594,6 +7783,13 @@ async function saveMeetingCore(sendNow) {
   var partnerName  = currentUser ? (currentUser.user_metadata && currentUser.user_metadata.full_name) || currentUser.email : 'Your Adviuz Partner';
   var partnerEmail = currentUser ? currentUser.email : '';
 
+  // Resolve actual DB UUID for lead_id
+  var leadDbId = null;
+  if (_meetingLeadId) {
+    var _l = leads.find(function(x){return x.id===_meetingLeadId;});
+    if (_l) { leadDbId = _l.dbId || null; }
+  }
+
   var btn = document.getElementById('saveMeetingBtn');
   if (btn) { btn.textContent='Scheduling...'; btn.disabled=true; }
 
@@ -7602,7 +7798,7 @@ async function saveMeetingCore(sendNow) {
     var meetRes = await sbFetch('/rest/v1/meetings', {
       method:'POST',
       body: JSON.stringify({
-        lead_id:        _meetingLeadId || null,
+        lead_id:        leadDbId,
         guest_name:     name,
         guest_email:    email,
         guest_province: prov,
