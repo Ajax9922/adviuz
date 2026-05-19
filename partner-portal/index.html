@@ -90,6 +90,7 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);min-height:100v
 #loadingOverlay.show{display:flex}
 .spinner{width:36px;height:36px;border:3px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
 
 /* ── STATUS COLOURS ── */
 .fresh_lead{background:#dbeafe;color:#1e40af}
@@ -407,7 +408,7 @@ function setLoading(on) { document.getElementById('loadingOverlay').classList.to
 // ── AUTH ─────────────────────────────────────────────────────
 function showAuthCard(which) {
   document.querySelectorAll('.auth-card').forEach(function(c){ c.style.display='none'; });
-  var map = { login:'authCardLogin', forgot:'authCardForgot', setPassword:'authCardSetPassword' };
+  var map = { login:'authCardLogin', otp:'authCardOTP', forgot:'authCardForgot', setPassword:'authCardSetPassword' };
   var el = document.getElementById(map[which]);
   if (el) el.style.display = 'block';
 }
@@ -462,24 +463,128 @@ async function doSetPassword() {
   } finally { setLoading(false); }
 }
 
-async function doLogin() {
+var _otpEmail = '';
+var _resendTimeout = null;
+
+async function doSendOTP() {
   var email = document.getElementById('authEmail').value.trim();
-  var pass  = document.getElementById('authPass').value;
   var errEl = document.getElementById('authErr');
   errEl.classList.remove('show');
-  if (!email || !pass) { errEl.textContent = 'Please enter email and password'; errEl.classList.add('show'); return; }
+  if (!email || !email.includes('@')) {
+    errEl.textContent = 'Please enter a valid email address';
+    errEl.classList.add('show');
+    return;
+  }
+  setLoading(true);
+  document.getElementById('sendOtpBtn').disabled = true;
+  try {
+    var res = await sbAuth('/otp', {
+      method: 'POST',
+      body: JSON.stringify({ email: email, options: { shouldCreateUser: false } })
+    });
+    if (!res.ok) {
+      var err = await res.json();
+      throw new Error(err.msg || err.message || 'No partner account found for this email.');
+    }
+    _otpEmail = email;
+    document.getElementById('otpSubText').textContent = 'We sent a 6-digit code to ' + email;
+    showAuthCard('otp');
+    setTimeout(function(){ var p = document.getElementById('p0'); if(p) p.focus(); }, 300);
+    startResendTimer(60);
+  } catch(e) {
+    errEl.textContent = e.message;
+    errEl.classList.add('show');
+    document.getElementById('sendOtpBtn').disabled = false;
+  } finally { setLoading(false); }
+}
+
+async function doResendOTP() {
+  document.getElementById('resendBtn').disabled = true;
+  for(var i=0;i<6;i++){var p=document.getElementById('p'+i);if(p){p.value='';p.classList.remove('filled');}}
+  document.getElementById('otpErr').classList.remove('show');
   setLoading(true);
   try {
-    var res  = await sbAuth('/token?grant_type=password', { method:'POST', body:JSON.stringify({ email, password:pass }) });
+    var res = await sbAuth('/otp', {
+      method: 'POST',
+      body: JSON.stringify({ email: _otpEmail, options: { shouldCreateUser: false } })
+    });
+    if (!res.ok) throw new Error('Could not resend. Try again.');
+    showToast('New code sent to ' + _otpEmail);
+    startResendTimer(60);
+    setTimeout(function(){ document.getElementById('p0').focus(); }, 200);
+  } catch(e) {
+    showToast('\u274c ' + e.message);
+    document.getElementById('resendBtn').disabled = false;
+  } finally { setLoading(false); }
+}
+
+function startResendTimer(seconds) {
+  var btn = document.getElementById('resendBtn');
+  var timerEl = document.getElementById('resendTimer');
+  btn.style.display = 'none';
+  var remaining = seconds;
+  timerEl.textContent = '(' + remaining + 's)';
+  if (_resendTimeout) clearInterval(_resendTimeout);
+  _resendTimeout = setInterval(function() {
+    remaining--;
+    if (remaining <= 0) {
+      clearInterval(_resendTimeout);
+      timerEl.textContent = '';
+      btn.style.display = 'inline';
+      btn.disabled = false;
+    } else {
+      timerEl.textContent = '(' + remaining + 's)';
+    }
+  }, 1000);
+}
+
+async function doVerifyOTP() {
+  var code = '';
+  for(var i=0;i<6;i++){var p=document.getElementById('p'+i);code+=(p?p.value.trim():'');}
+  var errEl = document.getElementById('otpErr');
+  errEl.classList.remove('show');
+  if (code.length !== 6) { errEl.textContent='Enter all 6 digits'; errEl.classList.add('show'); return; }
+  setLoading(true);
+  document.getElementById('verifyBtn').disabled = true;
+  try {
+    var res  = await sbAuth('/verify', {
+      method: 'POST',
+      body: JSON.stringify({ email: _otpEmail, token: code, type: 'email' })
+    });
     var data = await res.json();
-    if (!res.ok) throw new Error(data.error_description || data.message || 'Login failed');
+    if (!res.ok) throw new Error(data.msg || data.message || 'Invalid or expired code.');
     authToken   = data.access_token;
     currentUser = data.user;
     localStorage.setItem('partner_session', JSON.stringify({ token:authToken, user:currentUser }));
     await loadPartnerData();
   } catch(e) {
-    errEl.textContent = e.message; errEl.classList.add('show');
+    errEl.textContent = e.message;
+    errEl.classList.add('show');
+    document.getElementById('pinBoxes').style.animation = 'shake .3s ease';
+    setTimeout(function(){ document.getElementById('pinBoxes').style.animation=''; }, 400);
+    document.getElementById('verifyBtn').disabled = false;
   } finally { setLoading(false); }
+}
+
+function pinInput(el, idx) {
+  el.value = el.value.replace(/[^0-9]/g,'');
+  if (el.value) {
+    el.classList.add('filled');
+    var next = document.getElementById('p'+(idx+1));
+    if (next) next.focus();
+    var code='';
+    for(var i=0;i<6;i++){var p=document.getElementById('p'+i);code+=(p?p.value:'');}
+    if (code.length === 6) setTimeout(doVerifyOTP, 300);
+  } else { el.classList.remove('filled'); }
+}
+
+function pinKey(el, e, idx) {
+  if (e.key==='Backspace' && !el.value) {
+    var prev=document.getElementById('p'+(idx-1));
+    if(prev){prev.value='';prev.classList.remove('filled');prev.focus();}
+  }
+  if (e.key==='ArrowLeft'  && idx>0) document.getElementById('p'+(idx-1)).focus();
+  if (e.key==='ArrowRight' && idx<5) document.getElementById('p'+(idx+1)).focus();
 }
 
 async function doLogout() {
