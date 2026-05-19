@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adviuz — Signing you in...</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;background:linear-gradient(160deg,#001f3f 0%,#1e3a5f 100%);min-height:100vh;display:flex;align-items:center;justify-content:center}
+.card{text-align:center;padding:40px 32px;max-width:360px;width:100%}
+.logo{margin-bottom:28px}
+.logo img{height:30px}
+.spinner-wrap{margin:0 auto 20px;width:48px;height:48px}
+.spinner{width:48px;height:48px;border:3px solid rgba(255,255,255,.2);border-top-color:#00a884;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.status{font-size:15px;font-weight:600;color:#fff;margin-bottom:8px}
+.sub{font-size:13px;color:rgba(255,255,255,.5);line-height:1.6}
+.error-card{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:12px;padding:16px;margin-top:16px;display:none}
+.error-text{font-size:13px;color:#fca5a5;margin-bottom:12px;line-height:1.5}
+.error-links{display:flex;flex-direction:column;gap:8px}
+.link-btn{display:block;padding:10px 16px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;text-align:center}
+.link-partner{background:rgba(0,168,132,.2);color:#00a884;border:1px solid rgba(0,168,132,.3)}
+.link-support{background:rgba(255,255,255,.08);color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.15)}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <img src="https://i.imgur.com/rfPAzdI.png" alt="Adviuz">
+  </div>
+  <div class="spinner-wrap">
+    <div class="spinner"></div>
+  </div>
+  <div class="status" id="statusText">Verifying your account...</div>
+  <div class="sub" id="subText">Please wait while we sign you in securely</div>
+
+  <div class="error-card" id="errorCard">
+    <div class="error-text" id="errorText">Something went wrong. Please try signing in again.</div>
+    <div class="error-links">
+      <a href="/partner-portal/" class="link-btn link-partner">Partner Portal →</a>
+      <a href="/master/" class="link-btn link-partner" style="background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.2)">Admin Panel →</a>
+      <a href="mailto:support@adviuz.com" class="link-btn link-support">support@adviuz.com</a>
+    </div>
+  </div>
+</div>
+
+<script>
+var SB_URL  = 'https://crhvvfomwkrgwlnfruad.supabase.co';
+var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
+
+function setStatus(text, sub) {
+  document.getElementById('statusText').textContent = text;
+  if (sub) document.getElementById('subText').textContent = sub;
+}
+
+function showError(msg) {
+  document.querySelector('.spinner-wrap').style.display = 'none';
+  document.getElementById('statusText').textContent = 'Sign in failed';
+  document.getElementById('subText').textContent = '';
+  document.getElementById('errorText').textContent = msg;
+  document.getElementById('errorCard').style.display = 'block';
+}
+
+// ── Destination map by role ──────────────────────────────────
+function getDestination(role, tokenType) {
+  // For set-password flows (recovery, invite, signup)
+  // sales_partner always goes to partner portal
+  // everyone else goes to master
+  var setPassDest = {
+    sales_partner: '/partner-portal/',
+    super_admin:   '/master/',
+    manager:       '/master/',
+    telecaller:    '/master/',
+    client:        '/client/',
+    director:      '/master/'
+  };
+  return setPassDest[role] || '/partner-portal/';
+}
+
+(async function init() {
+  // ── Parse URL hash for Supabase tokens ──────────────────────
+  var hash = window.location.hash.replace(/^#/, '');
+  var params = {};
+  hash.split('&').forEach(function(pair) {
+    var parts = pair.split('=');
+    if (parts.length >= 2) {
+      params[decodeURIComponent(parts[0])] = decodeURIComponent(parts.slice(1).join('='));
+    }
+  });
+
+  var accessToken = params['access_token'] || '';
+  var tokenType   = params['type'] || '';
+  var errorDesc   = params['error_description'] || params['error'] || '';
+
+  // ── Handle Supabase errors in URL ────────────────────────────
+  if (errorDesc) {
+    showError(decodeURIComponent(errorDesc.replace(/\+/g,' ')));
+    return;
+  }
+
+  // ── No token — redirect based on where they came from ────────
+  if (!accessToken) {
+    // Check for existing session in localStorage
+    var partnerSession = localStorage.getItem('partner_session');
+    if (partnerSession) {
+      window.location.replace('/partner-portal/');
+      return;
+    }
+    // Default to partner portal for now
+    showError('No sign-in token found. Please use the link from your email.');
+    return;
+  }
+
+  setStatus('Verifying token...', 'Almost there');
+
+  try {
+    // ── Get user info from token ────────────────────────────────
+    var res = await fetch(SB_URL + '/auth/v1/user', {
+      headers: {
+        'apikey':        SB_ANON,
+        'Authorization': 'Bearer ' + accessToken
+      }
+    });
+
+    if (!res.ok) {
+      var err = await res.json();
+      throw new Error(err.message || 'Token is invalid or expired. Please request a new sign-in link.');
+    }
+
+    var user = await res.json();
+    setStatus('Welcome back!', 'Redirecting to your dashboard...');
+
+    // ── Determine role ───────────────────────────────────────────
+    var role = (user.user_metadata && user.user_metadata.role) || '';
+
+    // If role not in metadata, check client_members table
+    if (!role) {
+      var memberRes = await fetch(SB_URL + '/rest/v1/client_members?user_id=eq.' + user.id + '&limit=1&select=role', {
+        headers: { 'apikey': SB_ANON, 'Authorization': 'Bearer ' + accessToken }
+      });
+      if (memberRes.ok) {
+        var members = await memberRes.json();
+        if (members.length) role = members[0].role;
+      }
+    }
+
+    // If still no role, check sales_partners table
+    if (!role) {
+      var partnerRes = await fetch(SB_URL + '/rest/v1/sales_partners?user_id=eq.' + user.id + '&limit=1&select=id,status', {
+        headers: { 'apikey': SB_ANON, 'Authorization': 'Bearer ' + accessToken }
+      });
+      if (partnerRes.ok) {
+        var partners = await partnerRes.json();
+        if (partners.length) role = 'sales_partner';
+      }
+    }
+
+    console.log('[auth-router] user:', user.email, '| role:', role, '| type:', tokenType);
+
+    // ── Build destination URL with token ─────────────────────────
+    var destination = getDestination(role, tokenType);
+
+    // For recovery/invite/signup — pass token so portal can show set-password
+    var isSetPassword = (tokenType === 'recovery' || tokenType === 'invite' || tokenType === 'signup');
+    if (isSetPassword) {
+      destination = destination + '#access_token=' + accessToken + '&type=' + tokenType;
+    } else {
+      // For regular sign-in — store session and redirect
+      localStorage.setItem('partner_session', JSON.stringify({ token: accessToken, user: user }));
+    }
+
+    // Redirect after brief delay so user sees the success message
+    setTimeout(function() {
+      window.location.replace(destination);
+    }, 800);
+
+  } catch(e) {
+    showError(e.message || 'Something went wrong. Please try again.');
+  }
+})();
+</script>
+</body>
+</html>
