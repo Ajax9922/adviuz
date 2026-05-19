@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Reschedule Meeting — Adviuz</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--green:#00a884;--navy:#001f3f;--text:#111827;--sub:#6b7280;--border:#e5e7eb;--red:#ef4444;--f:'Segoe UI',Arial,sans-serif}
+body{font-family:var(--f);background:linear-gradient(160deg,var(--navy) 0%,#1e3a5f 100%);min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:24px 16px}
+.card{width:100%;max-width:460px;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.card-head{background:var(--navy);padding:20px 24px;display:flex;align-items:center;gap:12px}
+.card-head img{height:22px}
+.card-title{font-size:16px;font-weight:700;color:#fff}
+.card-sub{font-size:12px;color:rgba(255,255,255,.5);margin-top:2px}
+.section{padding:20px 24px;border-bottom:1px solid var(--border)}
+.section:last-child{border-bottom:none}
+.lbl{font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:5px}
+.val{font-size:14px;font-weight:600;color:var(--text)}
+.inp{width:100%;padding:11px 13px;border:1.5px solid var(--border);border-radius:9px;font-size:14px;font-family:var(--f);color:var(--text);outline:none}
+.inp:focus{border-color:var(--green)}
+.slots{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.slot{padding:10px 6px;border-radius:8px;border:1.5px solid var(--border);background:#fff;cursor:pointer;font-family:var(--f);font-size:12px;font-weight:500;color:var(--sub);text-align:center;transition:all .15s}
+.slot.active{background:#ede9fe;border-color:#7c3aed;color:#5b21b6;font-weight:700}
+.btn{width:100%;padding:13px;background:var(--green);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:var(--f)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.err{font-size:12px;color:var(--red);margin-top:6px;display:none}
+.err.show{display:block}
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.info-box{padding:10px;background:#f9fafb;border-radius:8px;border:1px solid var(--border)}
+.spinner{display:inline-block;width:32px;height:32px;border:3px solid #e5e7eb;border-top-color:var(--green);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="card-head">
+    <img src="https://i.imgur.com/rfPAzdI.png" alt="Adviuz">
+    <div>
+      <div class="card-title">Reschedule Your Meeting</div>
+      <div class="card-sub">Pick a new date and time below</div>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div id="vLoad" style="text-align:center;padding:40px 24px">
+    <div class="spinner"></div>
+    <p style="margin-top:12px;font-size:13px;color:var(--sub)">Loading your meeting...</p>
+  </div>
+
+  <!-- Not found -->
+  <div id="vBad" style="display:none;text-align:center;padding:40px 24px">
+    <div style="font-size:40px;margin-bottom:12px">⚠️</div>
+    <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:6px">Link not found</div>
+    <p style="font-size:13px;color:var(--sub)">This link has expired or is invalid.<br>Email <a href="mailto:sales@adviuz.ca" style="color:var(--green)">sales@adviuz.ca</a> for help.</p>
+  </div>
+
+  <!-- Main form -->
+  <div id="vMain" style="display:none">
+    <div class="section">
+      <p style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px">Current booking</p>
+      <div class="info-grid">
+        <div class="info-box"><span class="lbl">Type</span><span class="val" id="mType"></span></div>
+        <div class="info-box"><span class="lbl">Date</span><span class="val" id="mDate"></span></div>
+        <div class="info-box"><span class="lbl">Time (CST)</span><span class="val" id="mTime"></span></div>
+        <div class="info-box"><span class="lbl">Duration</span><span class="val" id="mDur"></span></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <p style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px">Choose a new time</p>
+      <label class="lbl">Date</label>
+      <input class="inp" type="date" id="newDate" onchange="loadSlots()" style="margin-bottom:0">
+      <div id="slotsWrap" style="display:none;margin-top:14px">
+        <label class="lbl">Time — Saskatoon CST</label>
+        <div class="slots" id="slots"></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <label class="lbl">Reason (optional)</label>
+      <textarea class="inp" id="reason" placeholder="Why do you need to reschedule?" style="min-height:70px;resize:vertical"></textarea>
+    </div>
+
+    <div class="section">
+      <button class="btn" id="confirmBtn" onclick="doReschedule()" disabled>Confirm New Time</button>
+      <div class="err" id="errMsg"></div>
+    </div>
+  </div>
+
+  <!-- Success -->
+  <div id="vOk" style="display:none;text-align:center;padding:36px 24px">
+    <div style="font-size:48px;margin-bottom:14px">🎉</div>
+    <div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:8px">All set!</div>
+    <p style="font-size:14px;color:var(--sub);line-height:1.7" id="okMsg">Your meeting has been rescheduled. New confirmation sent.</p>
+  </div>
+</div>
+
+<script>
+var SB  = 'https://crhvvfomwkrgwlnfruad.supabase.co';
+var AK  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
+var _mtg=null, _time=null;
+
+function show(id){['vLoad','vBad','vMain','vOk'].forEach(function(v){document.getElementById(v).style.display=v===id?'block':'none';});}
+function ft(h,m){var p=h>=12?'PM':'AM';var h12=h>12?h-12:h===0?12:h;return h12+':'+(m===0?'00':'30')+' '+p+' CST';}
+
+(async function(){
+  var tok=new URLSearchParams(window.location.search).get('token')||'';
+  if(!tok){show('vBad');return;}
+  var r=await fetch(SB+'/rest/v1/meetings?reschedule_token=eq.'+encodeURIComponent(tok)+'&select=*&limit=1',{headers:{'apikey':AK,'Authorization':'Bearer '+AK}});
+  var d=r.ok?await r.json():null;
+  if(!d||!d.length||d[0].status==='cancelled'){show('vBad');return;}
+  _mtg=d[0];
+  var s=new Date(_mtg.starts_at);
+  var h=s.getUTCHours()-6, m=s.getUTCMinutes();
+  document.getElementById('mType').textContent=_mtg.meeting_type||'Demo';
+  document.getElementById('mDate').textContent=s.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
+  document.getElementById('mTime').textContent=ft(h,m);
+  document.getElementById('mDur').textContent=(_mtg.duration_mins||60)+' min';
+  var tmrw=new Date(Date.now()+86400000);
+  var ymd=tmrw.getFullYear()+'-'+String(tmrw.getMonth()+1).padStart(2,'0')+'-'+String(tmrw.getDate()).padStart(2,'0');
+  var nd=document.getElementById('newDate');nd.min=ymd;nd.value=ymd;
+  show('vMain');loadSlots();
+})();
+
+function loadSlots(){
+  _time=null;document.getElementById('confirmBtn').disabled=true;
+  var wrap=document.getElementById('slotsWrap'),sl=document.getElementById('slots');
+  wrap.style.display='block';sl.innerHTML='';
+  for(var h=10;h<18;h++){for(var m=0;m<60;m+=30){
+    var k=String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
+    var b=document.createElement('button');
+    b.className='slot';b.dataset.k=k;b.textContent=ft(h,m);
+    b.onclick=function(){_time=this.dataset.k;document.querySelectorAll('.slot').forEach(function(x){x.classList.remove('active');});this.classList.add('active');document.getElementById('confirmBtn').disabled=false;};
+    sl.appendChild(b);
+  }}
+}
+
+async function doReschedule(){
+  if(!_time||!_mtg)return;
+  var date=document.getElementById('newDate').value;
+  var reason=document.getElementById('reason').value.trim();
+  var btn=document.getElementById('confirmBtn');
+  btn.disabled=true;btn.textContent='Saving...';
+  document.getElementById('errMsg').classList.remove('show');
+  try{
+    var p=_time.split(':'),h=parseInt(p[0]),m=parseInt(p[1]);
+    var dp=date.split('-');
+    var s=new Date(Date.UTC(parseInt(dp[0]),parseInt(dp[1])-1,parseInt(dp[2]),h+6,m));
+    var dur=_mtg.duration_mins||60;
+    var e=new Date(s.getTime()+dur*60000);
+    var res=await fetch(SB+'/rest/v1/meetings?id=eq.'+_mtg.id,{
+      method:'PATCH',headers:{'Content-Type':'application/json','apikey':AK,'Authorization':'Bearer '+AK,'Prefer':'return=minimal'},
+      body:JSON.stringify({starts_at:s.toISOString(),ends_at:e.toISOString(),status:'rescheduled',reschedule_count:(_mtg.reschedule_count||0)+1,rescheduled_at:new Date().toISOString(),reschedule_reason:reason||null})
+    });
+    if(!res.ok&&res.status!==204)throw new Error('Update failed');
+    if(_mtg.lead_id){
+      await fetch(SB+'/rest/v1/leads?id=eq.'+_mtg.lead_id,{
+        method:'PATCH',headers:{'Content-Type':'application/json','apikey':AK,'Authorization':'Bearer '+AK,'Prefer':'return=minimal'},
+        body:JSON.stringify({stage_code:'meeting_rescheduled',last_activity_at:new Date().toISOString()})
+      }).catch(function(){});
+    }
+    // Send updated confirmation
+    var dateStr=s.toLocaleDateString('en-CA',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+    // Build calendar links for the new time
+    var fmt=function(iso){return iso.replace(/[-:]/g,'').split('.')[0]+'Z';};
+    var gcalLink='https://calendar.google.com/calendar/r/eventedit?'
+      +'text='+encodeURIComponent((_mtg.meeting_type||'Demo')+' — Adviuz Demo')
+      +'&dates='+fmt(s.toISOString())+'/'+fmt(e.toISOString())
+      +'&location='+encodeURIComponent(_mtg.meet_link||'')
+      +'&details='+encodeURIComponent('Join: '+(_mtg.meet_link||''));
+    var icsLines=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Adviuz//EN','BEGIN:VEVENT',
+      'DTSTART:'+fmt(s.toISOString()),'DTEND:'+fmt(e.toISOString()),
+      'SUMMARY:'+(_mtg.meeting_type||'Demo')+' — Adviuz Demo',
+      'LOCATION:'+(_mtg.meet_link||''),
+      'DESCRIPTION:Join: '+(_mtg.meet_link||''),
+      'END:VEVENT','END:VCALENDAR'];
+    var icsBlob='data:text/calendar;charset=utf-8,'+encodeURIComponent(icsLines.join('\r\n'));
+
+    // Notify via create-meeting edge function to send rescheduled email
+    await fetch(SB+'/functions/v1/send-reschedule-email',{
+      method:'POST',headers:{'Content-Type':'application/json','apikey':AK,'Authorization':'Bearer '+AK},
+      body:JSON.stringify({
+        meet_id:_mtg.id, meeting_type:_mtg.meeting_type, date_str:dateStr,
+        cst_time:ft(h,m), meet_link:_mtg.meet_link||'',
+        guest_name:_mtg.guest_name, guest_email:_mtg.guest_email,
+        guest_province:_mtg.guest_province||'SK',
+        partner_name:_mtg.partner_name, partner_email:_mtg.partner_email,
+        company:_mtg.guest_company||_mtg.guest_name,
+        reschedule_url:'', gcal_link:gcalLink, ics_link:icsBlob,
+        reason:reason||''
+      })
+    }).catch(function(){});
+    document.getElementById('okMsg').innerHTML='New time: <strong>'+dateStr+' at '+ft(h,m)+'</strong>.<br>Confirmation emails sent.<br><br>'
+      +'<a href="'+gcalLink+'" target="_blank" style="display:inline-block;background:#f0f9ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;color:#1d4ed8;text-decoration:none;margin-right:8px">&#x1F4C5; Update Google Calendar</a>'
+      +'<a href="'+icsBlob+'" download="adviuz-meeting.ics" style="display:inline-block;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;color:#166534;text-decoration:none">&#x1F4E5; Download .ics</a>';
+    show('vOk');
+  }catch(err){
+    document.getElementById('errMsg').textContent=err.message||'Something went wrong. Email sales@adviuz.ca';
+    document.getElementById('errMsg').classList.add('show');
+    btn.disabled=false;btn.textContent='Confirm New Time';
+  }
+}
+</script>
+</body>
+</html>
