@@ -1618,6 +1618,66 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
     </div>
   </div>
 </div>
+
+<!-- Add Partner Sheet -->
+<div class="sheet-ov" id="addPartnerSh" onclick="if(event.target===this)closeSheet('addPartnerSh')">
+  <div class="sheet" style="max-height:90dvh;overflow-y:auto">
+    <div class="sheet-handle"></div>
+    <div style="padding:16px 16px 4px;display:flex;align-items:center;justify-content:space-between">
+      <div style="font-size:16px;font-weight:700;color:var(--text)">Add Sales Partner</div>
+      <button onclick="closeSheet('addPartnerSh')" style="width:28px;height:28px;border-radius:50%;border:none;background:var(--bg);cursor:pointer;font-size:16px;color:var(--sub)">×</button>
+    </div>
+    <div style="padding:12px 16px;font-size:12px;color:var(--sub);background:var(--greenl);margin:8px 16px;border-radius:8px">
+      Adding manually skips the application form. Partner gets a welcome email with their ref code.
+    </div>
+    <div style="padding:8px 16px 20px">
+      <div style="margin-bottom:12px">
+        <label style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:5px">Full Name *</label>
+        <input id="ap-name" type="text" placeholder="Rahul Sharma" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:var(--f);color:var(--text);background:var(--white)">
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:5px">Email *</label>
+        <input id="ap-email" type="email" placeholder="rahul@email.com" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:var(--f);color:var(--text);background:var(--white)">
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:5px">Phone</label>
+        <input id="ap-phone" type="tel" placeholder="+1 416 555 0100" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:var(--f);color:var(--text);background:var(--white)">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:5px">City</label>
+          <input id="ap-city" type="text" placeholder="Vancouver" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:var(--f);color:var(--text);background:var(--white)">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:5px">Province</label>
+          <select id="ap-province" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:var(--f);color:var(--text);background:var(--white)">
+            <option value="">Select</option>
+            <option>Alberta</option><option>British Columbia</option>
+            <option>Manitoba</option><option>Ontario</option>
+            <option selected>Saskatchewan</option><option>Quebec</option>
+            <option>Other</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom:16px">
+        <label style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:5px">Notes (internal)</label>
+        <textarea id="ap-notes" placeholder="How they were found, who referred them..." style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:var(--f);color:var(--text);background:var(--white);min-height:70px;resize:vertical"></textarea>
+      </div>
+      <button onclick="saveAddPartner()" style="width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:var(--f)">
+        Create Sales Partner →
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Partner Detail Sheet -->
+<div class="sheet-ov" id="partnerDetailSh" onclick="if(event.target===this)closeSheet('partnerDetailSh')">
+  <div class="sheet" style="max-height:92dvh;overflow-y:auto">
+    <div class="sheet-handle"></div>
+    <div id="partnerDetailContent" style="padding:16px"></div>
+  </div>
+</div>
+
 <!-- Call UI — Full Screen Overlay -->
 <div id="callSh" style="display:none;position:fixed;inset:0;z-index:900;background:linear-gradient(160deg,#0f172a 0%,#1a2744 60%,#0f2027 100%);flex-direction:column;align-items:center;justify-content:flex-start;padding-top:env(safe-area-inset-top,0px)">
 
@@ -2237,12 +2297,21 @@ async function doLogin() {
         var mRes = await sbFetch('/rest/v1/client_members?select=role,user_type&user_id=eq.'+data.user.id+'&limit=1');
         var members = mRes.ok ? await mRes.json() : [];
         var m = members[0] || {};
-        var allowed = (m.user_type === 'staff') || (m.role === 'super_admin') || (m.role === 'manager');
-        if (!allowed) {
-          authToken = null; currentUser = null;
-          throw new Error('Access denied. This portal is for Adviuz staff only.');
+        var isStaff = (m.user_type === 'staff') || (m.role === 'super_admin') || (m.role === 'manager');
+
+        // Check if sales_partner
+        var isPartner = false;
+        if (!isStaff) {
+          var pRes = await sbFetch('/rest/v1/sales_partners?user_id=eq.'+data.user.id+'&limit=1');
+          var pArr = pRes.ok ? await pRes.json() : [];
+          if (pArr.length) { isPartner = true; window._partnerData = pArr[0]; }
         }
-        window._staffRole = m.role || 'super_admin';
+
+        if (!isStaff && !isPartner) {
+          authToken = null; currentUser = null;
+          throw new Error('Access denied. Contact relations@adviuz.com for access.');
+        }
+        window._staffRole = isPartner ? 'sales_partner' : (m.role || 'super_admin');
       } catch(gateErr) {
         if (gateErr.message.indexOf('Access denied') > -1 || gateErr.message.indexOf('staff') > -1) {
           authToken = null; currentUser = null;
@@ -2424,11 +2493,13 @@ function scheduleTokenRefresh(msFromNow) {
 
 function onLoginSuccess() {
   document.getElementById('loginScreen').style.display = 'none';
-  var sub = document.getElementById('tbSub');
-  if (sub && currentUser) sub.textContent = currentUser.email;
   leads = []; nxtId = 1;
   syncStageSelects();
-  showAdminUI();
+  if (window._staffRole === 'sales_partner') {
+    showPartnerUI();
+  } else {
+    showAdminUI();
+  }
 
   // Activate leads tab properly
   var leadsBtn = document.getElementById('tab-leads');
@@ -2505,6 +2576,7 @@ async function callFn(name, body) {
 
 // ═══ SUPABASE DATA FUNCTIONS ═══
 async function refreshLeads() {
+  if (isPartnerMode()) { await loadPartnerLeads(); render(); return; }
   var refBtn = document.getElementById('tbRefresh');
   if(refBtn) { refBtn.style.opacity='0.4'; refBtn.style.pointerEvents='none'; }
   document.getElementById('content').innerHTML =
@@ -5064,9 +5136,9 @@ async function sendLowBalanceAlert(clientId, clientName, clientEmail, balance, t
         html:         html,
         text:         'Hi ' + clientName + ', your view balance is low (' + balance + ' remaining). Top up at: ' + topupUrl,
         type:         'transactional',
-        from_email:   'relations@adviuz.com',
-        from_name:    'Adviuz',
-        reply_to:     'relations@adviuz.com',
+        from_email:   'accounts@adviuz.com',
+        from_name:    'Adviuz Accounts',
+        reply_to:     'accounts@adviuz.com',
         client_id:    clientId
       })
     });
@@ -5457,7 +5529,23 @@ sessionStorage.removeItem('adviuz_session');
     var loggedIn = await refreshSession();
     if (loggedIn) {
       window._staffRole = window._staffRole || 'super_admin';
-      showAdminUI();
+      if (window._staffRole === 'sales_partner') {
+        // Re-fetch partner data
+        if (!window._partnerData && window.currentUser) {
+          var pRes = await sbFetch('/rest/v1/sales_partners?user_id=eq.'+window.currentUser.id+'&limit=1');
+          var pArr = pRes.ok ? await pRes.json() : [];
+          if (pArr.length) window._partnerData = pArr[0];
+          if (!pArr.length) {
+            // Try by email
+            var pRes2 = await sbFetch('/rest/v1/sales_partners?email=eq.'+encodeURIComponent(window.currentUser.email)+'&limit=1');
+            var pArr2 = pRes2.ok ? await pRes2.json() : [];
+            if (pArr2.length) window._partnerData = pArr2[0];
+          }
+        }
+        showPartnerUI();
+      } else {
+        showAdminUI();
+      }
       onLoginSuccess();
     }
   } catch(e) {
@@ -5614,6 +5702,213 @@ function showAdminUI() {
   loadAdminData();
 }
 
+// ══════════════════════════════════════════════════════
+// PARTNER VIEW
+// ══════════════════════════════════════════════════════
+window._partnerData = window._partnerData || null;
+window._partnerComms = [];
+
+async function showPartnerUI() {
+  var p = window._partnerData;
+  if (!p) { showToast('Partner account not found'); return; }
+
+  // Update top bar
+  var title = document.getElementById('tbTitle');
+  var sub   = document.getElementById('tbSub');
+  if (title) title.textContent = p.ref_code || 'Partner';
+  if (sub)   sub.textContent   = partnerGetRate(p.active_client_count||0) + ' recurring · ' + (p.status||'active');
+
+  // Hide admin-only elements
+  var adminMenu = document.getElementById('adminMenuSection');
+  if (adminMenu) adminMenu.style.display = 'none';
+  var menuBtn = document.querySelector('.tb-menu');
+  if (menuBtn) menuBtn.style.display = 'none'; // Hide hamburger for partners
+
+  // Hide + button (partners use their own add lead)
+  var plusBtn = document.getElementById('tbPlusBtn');
+  if (plusBtn) plusBtn.style.display = 'none';
+
+  // Show dashboard tab (for earnings)
+  var dt = document.getElementById('tab-dashboard');
+  if (dt) dt.style.display = 'flex';
+
+  // Load partner data
+  await loadPartnerLeads();
+  await loadPartnerComms();
+
+  // Show leads tab
+  var leadsBtn = document.getElementById('tab-leads');
+  if (leadsBtn) goTab('leads', leadsBtn);
+}
+
+function partnerGetRate(n) {
+  if(n<=10)return'5%';if(n<=20)return'6%';if(n<=35)return'7%';if(n<=50)return'8%';if(n<=75)return'9%';return'10%';
+}
+
+async function loadPartnerLeads() {
+  var p = window._partnerData; if(!p) return;
+  try {
+    var res = await sbFetch('/rest/v1/leads?partner_id=eq.'+p.id+'&order=created_at.desc&limit=200');
+    if (res.ok) {
+      var dbLeads = await res.json();
+      leads = dbLeads.map(function(l, i) {
+        var name = (l.name||'').trim();
+        var nameParts = name.split(' ');
+        return {
+          id: i+1, dbId: l.id, name: name,
+          company: l.company||'', ph: l.phone||'', em: l.email||'',
+          location: l.location||'', src: l.source||'', svc: '',
+          stage: partnerStageLabel(l.stage_code||'fresh_lead'),
+          stage_code: l.stage_code||'fresh_lead',
+          note: l.notes||'', t: l.created_at ? new Date(l.created_at).toLocaleDateString('en-CA',{month:'short',day:'numeric'}) : '',
+          col: ['#00a884','#2563eb','#7c3aed','#d97706','#0891b2','#db2777'][name.charCodeAt(0)%6]||'#00a884',
+          partner_id: l.partner_id
+        };
+      });
+    }
+  } catch(e) { console.warn('[loadPartnerLeads]', e.message); }
+}
+
+async function loadPartnerComms() {
+  var p = window._partnerData; if(!p) return;
+  try {
+    var res = await sbFetch('/rest/v1/partner_commissions?partner_id=eq.'+p.id+'&order=earned_at.desc&limit=100');
+    if (res.ok) window._partnerComms = await res.json();
+  } catch(e) { window._partnerComms = []; }
+}
+
+function partnerStageLabel(s) {
+  var m = {fresh_lead:'Fresh Lead',call_not_connected:'Not Connected',follow_up:'Follow-up',
+    meeting_locked:'Meeting Booked',meeting_done:'Meeting Done',ready_to_pay:'Ready to Pay',
+    deal_closed:'Deal Closed',future_budget_issue:'Budget Issue',future_need_more_time:'More Time',
+    future_custom_solution:'Custom Needed',future_just_exploring:'Exploring',not_interested:'Not Interested'};
+  return m[s]||s;
+}
+
+function isPartnerMode() { return window._staffRole === 'sales_partner'; }
+
+// Partner dashboard HTML — injected into adminDashHTML() when role = partner
+function partnerDashHTML() {
+  var p = window._partnerData || {};
+  var comms = window._partnerComms || [];
+  var now = new Date(), monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  var monthEarned = comms.filter(function(c){return c.earned_at>=monthStart;}).reduce(function(s,c){return s+(c.commission_cad||0);},0);
+  var pending = comms.filter(function(c){return c.status==='earned';}).reduce(function(s,c){return s+(c.commission_cad||0);},0);
+  var totalEarned = comms.reduce(function(s,c){return s+(c.commission_cad||0);},0);
+  var rate = partnerGetRate(p.active_client_count||0);
+  var refUrl = p.ref_url||('https://latest-promo.com/?ref='+p.ref_code);
+  var n = p.active_client_count||0;
+  var milestones = [{at:10,bonus:500,l:'10 clients'},{at:25,bonus:1500,l:'25 clients'},{at:50,bonus:3000,l:'50 clients'},{at:100,bonus:10000,l:'100 clients'}];
+  var next = milestones.find(function(m){return n<m.at;});
+
+  var h = '<div style="padding:0 12px 12px">';
+
+  // Stats grid
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">';
+  h += adMini('CAD $'+monthEarned.toFixed(0), 'Earned this month');
+  h += adMini('CAD $'+pending.toFixed(0), 'Pending payout');
+  h += adMini(n, 'Active clients (30d)');
+  h += adMini(rate, 'Recurring rate');
+  h += '</div>';
+
+  // Referral link
+  h += '<div style="background:var(--white);border-radius:12px;border:1px solid var(--green);padding:14px;margin-bottom:10px">';
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Your referral link</div>';
+  h += '<div style="font-size:13px;color:var(--text);word-break:break-all;margin-bottom:10px">'+refUrl+'</div>';
+  h += '<button onclick="copyPartnerRefLink()" style="width:100%;padding:10px;background:var(--green);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--f)">Copy Link</button>';
+  h += '</div>';
+
+  // Milestone
+  if (next) {
+    var pct = Math.round(n/next.at*100);
+    h += '<div style="background:var(--white);border-radius:12px;border:1px solid var(--border);padding:14px;margin-bottom:10px">';
+    h += '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Next milestone</div>';
+    h += '<div style="font-size:13px;color:var(--text);margin-bottom:3px">'+(next.at-n)+' more clients to reach <b>'+next.l+'</b></div>';
+    h += '<div style="font-size:13px;font-weight:700;color:var(--green);margin-bottom:10px">Unlock $'+next.bonus.toLocaleString()+' bonus</div>';
+    h += '<div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:var(--green);border-radius:3px"></div></div>';
+    h += '<div style="font-size:11px;color:var(--sub);margin-top:4px">'+n+' / '+next.at+'</div></div>';
+  }
+
+  // Earning Simulator
+  h += '<div style="background:var(--white);border-radius:12px;border:1px solid var(--border);padding:14px;margin-bottom:10px">';
+  h += '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">&#x1F4A1; Earning Simulator</div>';
+  h += '<div style="font-size:12px;color:var(--sub);margin-bottom:12px">Estimate your earnings before you pitch</div>';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">';
+  h += '<div><div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:5px">DEALS TO CLOSE</div>';
+  h += '<input id="simDeals" type="number" min="1" value="5" oninput="calcPartnerSim()" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:8px;font-size:15px;font-weight:700;text-align:center;font-family:var(--f);outline:none"></div>';
+  h += '<div><div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:5px">AVG DEAL (CAD $)</div>';
+  h += '<input id="simSize" type="number" min="100" value="2000" oninput="calcPartnerSim()" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:8px;font-size:15px;font-weight:700;text-align:center;font-family:var(--f);outline:none"></div>';
+  h += '</div>';
+  h += '<div id="simResult" style="background:var(--greenl);border-radius:10px;padding:16px;text-align:center">';
+  h += '<div style="font-size:28px;font-weight:900;color:var(--green);letter-spacing:-.04em">CAD $0</div>';
+  h += '<div style="font-size:13px;color:var(--green);margin-top:4px">First order commission</div>';
+  h += '</div></div>';
+
+  // Marketing materials
+  h += '<div style="background:var(--white);border-radius:12px;border:1px solid var(--border);padding:14px;margin-bottom:10px">';
+  h += '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">&#x1F4C2; Marketing Materials</div>';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
+  var mats = [{i:'&#x1F4CA;',n:'Sales Deck',s:'Client PPT'},{i:'&#x1F4CB;',n:'Product Sheet',s:'Features PDF'},{i:'&#x1F3A8;',n:'Brand Assets',s:'Logo & colours'},{i:'&#x1F4F9;',n:'Demo Video',s:'Walkthrough'}];
+  mats.forEach(function(m){
+    h += '<div onclick="showToast(&quot;Coming soon&quot;)" style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center;cursor:pointer">';
+    h += '<div style="font-size:26px;margin-bottom:6px">'+m.i+'</div>';
+    h += '<div style="font-size:12px;font-weight:700;color:var(--text)">'+m.n+'</div>';
+    h += '<div style="font-size:11px;color:var(--sub);margin-top:2px">'+m.s+'</div></div>';
+  });
+  h += '</div></div>';
+
+  // Commission history
+  if (comms.length) {
+    h += '<div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:8px">Recent Commissions</div>';
+    h += '<div style="background:var(--white);border-radius:12px;border:1px solid var(--border);overflow:hidden;margin-bottom:10px">';
+    comms.slice(0,5).forEach(function(c,i){
+      var icons={first_order:'&#x1F4BC;',recurring:'&#x267B;&#xFE0F;',bonus:'&#x1F3C6;'};
+      var dt=c.earned_at?new Date(c.earned_at).toLocaleDateString('en-CA',{month:'short',day:'numeric'}):'';
+      var stCol=c.status==='paid'?'var(--green)':c.status==='earned'?'var(--amber)':'var(--sub)';
+      h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;'+(i?'border-top:1px solid var(--border)':'')+'">'+
+        '<div><div style="font-size:13px;font-weight:600;color:var(--text)">'+(icons[c.commission_type]||'')+'  '+(c.commission_type||'').replace('_',' ')+'</div>'+
+        '<div style="font-size:11px;color:var(--sub)">'+dt+'</div></div>'+
+        '<div style="text-align:right">'+
+        '<div style="font-size:14px;font-weight:800;color:var(--green)">CAD $'+(c.commission_cad||0).toFixed(2)+'</div>'+
+        '<span style="font-size:10px;font-weight:700;color:'+stCol+';background:'+stCol+'18;padding:2px 7px;border-radius:8px">'+c.status+'</span>'+
+        '</div></div>';
+    });
+    h += '</div>';
+  }
+
+  // All time total + profile
+  h += '<div style="background:var(--white);border-radius:12px;border:1px solid var(--border);padding:14px;margin-bottom:10px;text-align:center">';
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Total Earned (All Time)</div>';
+  h += '<div style="font-size:30px;font-weight:900;color:var(--green);letter-spacing:-.04em">CAD $'+totalEarned.toFixed(2)+'</div>';
+  h += '</div>';
+
+  h += '</div>';
+  setTimeout(calcPartnerSim, 100);
+  return h;
+}
+
+function copyPartnerRefLink() {
+  var p = window._partnerData || {};
+  var url = p.ref_url || ('https://latest-promo.com/?ref=' + p.ref_code);
+  navigator.clipboard.writeText(url).then(function(){ showToast('Referral link copied!'); });
+}
+function calcPartnerSim() {
+  var deals = parseInt((document.getElementById('simDeals')||{}).value)||0;
+  var size  = parseFloat((document.getElementById('simSize')||{}).value)||0;
+  var p     = window._partnerData||{};
+  var rev   = deals * size;
+  var rate  = rev<=5000?0.10:rev<=10000?0.11:rev<=20000?0.12:rev<=50000?0.14:0.15;
+  var comm  = rev * rate;
+  var newN  = (p.active_client_count||0) + deals;
+  var rRate = parseFloat(partnerGetRate(newN))/100;
+  var recur = newN * size * 0.3 * rRate;
+  var el = document.getElementById('simResult');
+  if (!el) return;
+  el.innerHTML = '<div style="font-size:28px;font-weight:900;color:var(--green);letter-spacing:-.04em">CAD $'+comm.toFixed(0)+'</div>'
+    + '<div style="font-size:13px;color:var(--green);margin-top:4px">First order commission ('+Math.round(rate*100)+'%)</div>'
+    + '<div style="font-size:12px;color:#065f46;margin-top:6px">+ CAD $'+recur.toFixed(0)+'/month recurring</div>';
+}
+
 function adminShowTab(sub) {
   window._adminDashTab = sub;
   var btn = document.getElementById('tab-dashboard');
@@ -5658,6 +5953,7 @@ async function loadAdminData() {
 }
 
 function adminDashHTML() {
+  if (isPartnerMode()) return partnerDashHTML();
   var tabs = [{k:'clients',l:'Clients'},{k:'campaigns',l:'Campaigns'},{k:'allleads',l:'All Leads'},{k:'quotes',l:'Quotes'},{k:'invoices',l:'Invoices'},{k:'affiliates',l:'Affiliates'},{k:'commissions',l:'Commissions'}];
   var cur = window._adminDashTab || 'clients';
   var h = '<div style="display:flex;gap:6px;padding:10px 12px 8px;overflow-x:auto;background:var(--white);border-bottom:1px solid var(--border);-webkit-overflow-scrolling:touch">';
@@ -5780,6 +6076,133 @@ function adAffiliatesHTML() {
   if (_partnerSubTab === 'registrations') h += adRegistrationsHTML();
   return h + '</div>';
 }
+
+// ══════════════════════════════════════════════════════
+// PARTNER ADMIN FUNCTIONS
+// ══════════════════════════════════════════════════════
+function copyPartnerLink(btn) {
+  navigator.clipboard.writeText(btn.dataset.url).then(function(){ showToast('Link copied!'); });
+}
+function openAddPartnerSheet() {
+  ['ap-name','ap-email','ap-phone','ap-city','ap-notes'].forEach(function(id) {
+    var el = document.getElementById(id); if(el) el.value = '';
+  });
+  var prov = document.getElementById('ap-province'); if(prov) prov.value = '';
+  openSheet('addPartnerSh');
+}
+
+async function saveAddPartner() {
+  var name  = (document.getElementById('ap-name').value||'').trim();
+  var email = (document.getElementById('ap-email').value||'').trim();
+  var phone = (document.getElementById('ap-phone').value||'').trim();
+  var city  = (document.getElementById('ap-city').value||'').trim();
+  var prov  = (document.getElementById('ap-province').value||'').trim();
+  var notes = (document.getElementById('ap-notes').value||'').trim();
+
+  if (!name || !email) { showToast('Name and email are required'); return; }
+
+  showToast('Creating partner...');
+
+  try {
+    var res = await sbFetch('/functions/v1/approve-partner', {
+      method: 'POST',
+      body: JSON.stringify({ name:name, email:email, phone:phone, city:city, province:prov, notes:notes, manual:true })
+    });
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+
+    if (!_adminData.partners) _adminData.partners = [];
+    _adminData.partners.unshift({
+      full_name: name, email: email, phone: phone, city: city,
+      ref_code: data.ref_code, ref_url: data.ref_url,
+      status: 'active', activity_status: 'active',
+      active_client_count: 0, total_earned_cad: 0, total_paid_cad: 0
+    });
+
+    closeSheet('addPartnerSh');
+    _partnerSubTab = 'partners';
+    document.getElementById('content').innerHTML = adminDashHTML();
+    showToast('\u2705 ' + name + ' added! Code: ' + data.ref_code);
+  } catch(e) {
+    showToast('\u274c ' + e.message);
+  }
+}
+
+function openPartnerDetail(partnerId) {
+  var p = (_adminData.partners||[]).find(function(x){return x.id===partnerId;});
+  if (!p) return;
+  var recurRate = p.active_client_count<=10?'5%':p.active_client_count<=20?'6%':p.active_client_count<=35?'7%':p.active_client_count<=50?'8%':p.active_client_count<=75?'9%':'10%';
+  var stCol = p.status==='active'?'var(--green)':p.status==='warning'?'var(--amber)':'var(--red)';
+  var h = '';
+  // Header
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">';
+  h += '<div style="font-size:16px;font-weight:700;color:var(--text)">Partner Details</div>';
+  h += '<button onclick="closeSheet(&quot;partnerDetailSh&quot;)" style="width:28px;height:28px;border-radius:50%;border:none;background:var(--bg);cursor:pointer;font-size:16px;color:var(--sub)">\u00d7</button></div>';
+  // Avatar + name
+  h += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;padding:14px;background:var(--bg);border-radius:12px">';
+  h += '<div style="width:52px;height:52px;border-radius:14px;background:var(--greenl);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:22px;color:var(--green)">'+(p.full_name||'?').charAt(0)+'</div>';
+  h += '<div><div style="font-size:17px;font-weight:700;color:var(--text)">'+(p.full_name||'')+'</div>';
+  h += '<div style="font-size:12px;color:var(--sub)">'+(p.city||'')+(p.province?', '+p.province:'')+'</div>';
+  h += '<span style="font-size:11px;font-weight:700;color:'+stCol+';background:'+stCol+'18;padding:2px 8px;border-radius:10px">'+p.status+'</span></div></div>';
+  // Stats grid
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">';
+  h += '<div style="background:var(--bg);border-radius:10px;padding:12px"><div style="font-size:20px;font-weight:800;color:var(--green)">CAD $'+(p.total_earned_cad||0).toFixed(2)+'</div><div style="font-size:11px;color:var(--sub)">Total Earned</div></div>';
+  h += '<div style="background:var(--bg);border-radius:10px;padding:12px"><div style="font-size:20px;font-weight:800;color:var(--text)">CAD $'+(p.total_paid_cad||0).toFixed(2)+'</div><div style="font-size:11px;color:var(--sub)">Total Paid</div></div>';
+  h += '<div style="background:var(--bg);border-radius:10px;padding:12px"><div style="font-size:20px;font-weight:800;color:var(--text)">'+(p.active_client_count||0)+'</div><div style="font-size:11px;color:var(--sub)">Active Clients (30d)</div></div>';
+  h += '<div style="background:var(--greenl);border-radius:10px;padding:12px"><div style="font-size:20px;font-weight:800;color:var(--green)">'+recurRate+'</div><div style="font-size:11px;color:var(--sub)">Recurring Rate</div></div>';
+  h += '</div>';
+  // Contact info
+  h += '<div style="background:var(--white);border-radius:12px;border:1px solid var(--border);overflow:hidden;margin-bottom:14px">';
+  h += '<div style="padding:10px 14px;font-size:11px;font-weight:700;color:var(--sub);border-bottom:1px solid var(--border);text-transform:uppercase;letter-spacing:.05em">Contact</div>';
+  h += '<div style="padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px"><span style="color:var(--sub)">Email</span><br><a href="mailto:'+(p.email||'')+'" style="color:var(--green);font-weight:600">'+(p.email||'—')+'</a></div>';
+  h += '<div style="padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px"><span style="color:var(--sub)">Phone</span><br><a href="tel:'+(p.phone||'')+'" style="color:var(--green);font-weight:600">'+(p.phone||'—')+'</a></div>';
+  h += '<div style="padding:10px 14px;font-size:13px"><span style="color:var(--sub)">Referral Code</span><br><span style="font-weight:700;color:var(--text)">'+(p.ref_code||'—')+'</span></div>';
+  h += '</div>';
+  // Referral link
+  if (p.ref_url) {
+    h += '<div style="background:var(--greenl);border-radius:10px;padding:12px 14px;margin-bottom:14px">';
+    h += '<div style="font-size:11px;font-weight:700;color:var(--green);margin-bottom:4px">REFERRAL LINK</div>';
+    h += '<div style="font-size:12px;color:var(--text);word-break:break-all">'+(p.ref_url||'')+'</div>';
+    h += '<button onclick="copyPartnerLink(this)" data-url="'+p.ref_url+'" style="margin-top:8px;padding:6px 14px;border-radius:20px;background:var(--green);border:none;font-family:var(--f);font-size:12px;font-weight:700;color:#fff;cursor:pointer">Copy Link</button>';
+    h += '</div>';
+  }
+  // Actions
+  h += '<div style="display:flex;gap:8px">';
+  h += '<div style="display:flex;gap:8px"><button onclick="adSendPartnerEmail(this)" data-pid="'+partnerId+'" style="flex:1;padding:11px;border-radius:10px;background:var(--bg);border:1px solid var(--border);font-family:var(--f);font-size:13px;font-weight:700;color:var(--text);cursor:pointer">Email</button>';
+  h += '<button onclick="adTogglePartnerStatus(this)" data-pid="'+partnerId+'" data-status="'+p.status+'" style="flex:1;padding:11px;border-radius:10px;background:'+(p.status==='active'?'var(--redl)':'var(--greenl)')+';border:none;font-family:var(--f);font-size:13px;font-weight:700;color:'+(p.status==='active'?'var(--red)':'var(--green)')+';cursor:pointer">'+(p.status==='active'?'Suspend':'Activate')+'</button></div>';
+  h += '</div>';
+
+  document.getElementById('partnerDetailContent').innerHTML = h;
+  openSheet('partnerDetailSh');
+}
+
+async function adTogglePartnerStatus(btn) {
+  var partnerId = btn.dataset.pid;
+  var currentStatus = btn.dataset.status;
+  var newStatus = currentStatus === 'active' ? 'suspended' : 'active';
+  if (!confirm('Set partner status to ' + newStatus + '?')) return;
+  var res = await sbFetch('/rest/v1/sales_partners?id=eq.'+partnerId, {
+    method: 'PATCH', body: JSON.stringify({ status: newStatus })
+  });
+  if (res.ok || res.status === 204) {
+    var p = (_adminData.partners||[]).find(function(x){return x.id===partnerId;});
+    if (p) p.status = newStatus;
+    closeSheet('partnerDetailSh');
+    document.getElementById('content').innerHTML = adminDashHTML();
+    showToast('Partner status updated to ' + newStatus);
+  } else { showToast('Update failed'); }
+}
+
+async function adSendPartnerEmail(btn) {
+  var partnerId = btn.dataset.pid;
+  var p = (_adminData.partners||[]).find(function(x){return x.id===partnerId;});
+  if (!p) return;
+  closeSheet('partnerDetailSh');
+  window._partnerEmailTarget = p.email;
+  showToast('Opening email compose for ' + p.full_name);
+}
+
+
 var _partnerSubTab = 'applications';
 function setPartnerSubTab(tab) {
   _partnerSubTab = tab;
@@ -5814,36 +6237,23 @@ function adPartnerAppsHTML() {
 
 async function adApproveApp(appId, name, email, phone, city) {
   if (!confirm('Approve ' + name + ' as Sales Partner?')) return;
-  showToast('Creating account...');
-  var code = name.split(' ')[0].toUpperCase().replace(/[^A-Z]/g,'').slice(0,8) + new Date().getFullYear();
+  showToast('Approving...');
   try {
-    await sbFetch('/rest/v1/sales_partners', {
+    // Edge function uses service role key securely on the server
+    var res = await sbFetch('/functions/v1/approve-partner', {
       method: 'POST',
-      body: JSON.stringify({
-        application_id: appId, full_name: name, email: email, phone: phone, city: city,
-        ref_code: code, ref_url: 'https://latest-promo.com/?ref='+code,
-        status: 'active', activity_status: 'active', approved_at: new Date().toISOString()
-      })
+      body: JSON.stringify({ app_id: appId, name: name, email: email, phone: phone, city: city })
     });
-    await sbFetch('/rest/v1/partner_applications?id=eq.'+appId, {
-      method: 'PATCH', body: JSON.stringify({ status: 'approved', reviewed_at: new Date().toISOString() })
-    });
-    await sbFetch('/functions/v1/send-email', {
-      method: 'POST',
-      body: JSON.stringify({
-        to: email,
-        subject: '🎉 Welcome to Adviuz Sales Partner Programme!',
-        html: '<h2>Welcome, '+name+'!</h2><p>You are approved as a Sales Partner.</p><p><b>Referral code:</b> '+code+'</p><p><b>Link:</b> https://latest-promo.com/?ref='+code+'</p><p>Reply to this email with any questions.</p>',
-        text: 'Welcome '+name+'! Code: '+code+'. Link: https://latest-promo.com/?ref='+code,
-        from_email: 'relations@adviuz.com', from_name: 'Adviuz Team'
-      })
-    });
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Approval failed');
     _adminData.applications = (_adminData.applications||[]).filter(function(a){return a.id!==appId;});
-    showToast('✅ ' + name + ' approved! Code: ' + code);
+    showToast('\u2705 ' + name + ' approved! Code: ' + data.ref_code + ' \u2014 Welcome email sent');
     document.getElementById('content').innerHTML = adminDashHTML();
-  } catch(e) { showToast('❌ ' + e.message); }
+  } catch(e) {
+    console.error('[adApproveApp]', e);
+    showToast('\u274c ' + (e.message || 'Something went wrong'));
+  }
 }
-
 async function adRejectApp(appId) {
   if (!confirm('Reject this application?')) return;
   await sbFetch('/rest/v1/partner_applications?id=eq.'+appId, {
@@ -5856,14 +6266,18 @@ async function adRejectApp(appId) {
 
 function adPartnersListHTML() {
   var partners = _adminData.partners || [];
-  if (!partners.length) return '<div style="text-align:center;padding:40px;color:var(--sub);font-size:13px">No partners yet</div>';
-  var h = '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
+  var h = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
+  h += '<div style="font-size:12px;color:var(--sub);font-weight:600">'+partners.length+' partners</div>';
+  h += '<button onclick="openAddPartnerSheet()" style="padding:7px 14px;border-radius:9px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">+ Add Partner</button>';
+  h += '</div>';
+  if (!partners.length) return h+'<div style="text-align:center;padding:40px;color:var(--sub);font-size:13px">No partners yet — add one manually or approve an application</div>';
+  h += '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
   partners.forEach(function(p, i) {
     var stCol  = p.status==='active'?'var(--green)':p.status==='warning'?'var(--amber)':'var(--red)';
     var earned = 'CAD $'+(p.total_earned_cad||0).toFixed(2);
     var paid   = 'CAD $'+(p.total_paid_cad||0).toFixed(2);
     var recurRate = p.active_client_count<=10?'5%':p.active_client_count<=20?'6%':p.active_client_count<=35?'7%':p.active_client_count<=50?'8%':p.active_client_count<=75?'9%':'10%';
-    h += '<div style="padding:12px 14px;'+(i?'border-top:1px solid var(--border)':'')+'">';
+    h += '<div data-pid="'+p.id+'" onclick="openPartnerDetail(this.dataset.pid)" style="padding:12px 14px;cursor:pointer;'+(i?'border-top:1px solid var(--border)':'')+'">'
     h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">';
     h += '<div style="width:38px;height:38px;border-radius:10px;background:var(--greenl);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;color:var(--green)">'+(p.full_name||'?').charAt(0)+'</div>';
     h += '<div style="flex:1;min-width:0">';
@@ -6702,7 +7116,7 @@ async function saveAndSendQuote() {
           type:       'transactional',
           from_email: 'sales@adviuz.com',
           from_name:  'Adviuz',
-          reply_to:   'sales@adviuz.ca',
+          reply_to:   'sales@adviuz.com',
           lead_id:    _quoteLeadId||null,
           template:   'quote_sent',
           template_data: {
