@@ -1355,7 +1355,7 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
 
       <!-- 3. Date + Client time input -->
       <div style="background:var(--bluel);border-radius:10px;padding:11px 14px;font-size:12px;color:var(--blue);margin-bottom:12px">
-        Enter the time <strong>the client told you</strong> — system will convert to Saskatoon time automatically
+        Enter the time <strong>the client told you</strong> — system will convert to <strong>your local time</strong> automatically
       </div>
       <div class="fg2">
         <div><label class="flbl">Date</label>
@@ -1366,7 +1366,7 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
         </div>
       </div>
       <div id="mt-cst-display" style="display:none;background:var(--greenl);border:1px solid var(--green);border-radius:8px;padding:9px 13px;font-size:13px;color:#065f46;margin-bottom:12px;font-weight:600">
-        &#x1F551; Saskatoon time: <span id="mt-cst-label">—</span>
+        &#x1F551; <span id="mt-cst-prefix">Your time:</span> <span id="mt-cst-label">—</span>
       </div>
 
       <!-- 4. Duration -->
@@ -6535,11 +6535,19 @@ var PROVINCE_TZ = {
 };
 
 function isDST() {
-  // DST in Canada: second Sunday March to first Sunday November
-  var d = new Date();
-  var jan = new Date(d.getFullYear(),0,1).getTimezoneOffset();
-  var jul = new Date(d.getFullYear(),6,1).getTimezoneOffset();
-  return d.getTimezoneOffset() < Math.max(jan,jul);
+  // DST in Canada: 2nd Sunday in March (2:00 AM) → 1st Sunday in November (2:00 AM)
+  // IMPORTANT: Do NOT use browser getTimezoneOffset() — Saskatoon never observes DST
+  // so that check always returns false. Use date math instead.
+  var d   = new Date();
+  var yr  = d.getFullYear();
+  // Find 2nd Sunday of March
+  var dstStart = new Date(yr, 2, 1, 2, 0, 0);
+  var sun = 0;
+  while (sun < 2) { if (dstStart.getDay() === 0) sun++; if (sun < 2) dstStart.setDate(dstStart.getDate() + 1); }
+  // Find 1st Sunday of November
+  var dstEnd = new Date(yr, 10, 1, 2, 0, 0);
+  while (dstEnd.getDay() !== 0) dstEnd.setDate(dstEnd.getDate() + 1);
+  return d >= dstStart && d < dstEnd;
 }
 
 function setProvinceTax() {
@@ -7285,11 +7293,26 @@ function adQuotesHTML() {
 }
 
 // ═══════════════════════════════════════
-// MEETINGS (Saskatoon CST UTC-6)
+// ═══════════════════════════════════════
+// MEETINGS
 // ═══════════════════════════════════════
 var _meetingLeadId = null;
 var _selectedTime  = null;
 var CST_OFFSET_HRS = -6; // Saskatoon, UTC-6, no DST year-round
+
+// ── Logged-in user's local timezone helpers ─────────────────
+// Reads the browser timezone of the logged-in user automatically.
+// Saskatoon admins → -6 CST; Ontario users → -4 EDT; BC → -7 PDT etc.
+function getLoggedUserOffset() {
+  return -new Date().getTimezoneOffset() / 60;
+}
+function getLoggedUserTZLabel() {
+  try {
+    var parts = new Intl.DateTimeFormat('en-US', {timeZoneName:'short'}).formatToParts(new Date());
+    var tz = parts.find(function(p){return p.type==='timeZoneName';});
+    return tz ? tz.value : 'Local';
+  } catch(e) { return 'Local'; }
+}
 
 function openMeetingSheet(lid) {
   _meetingLeadId = lid;
@@ -7340,7 +7363,7 @@ function renderTimeSlots() {
 function formatCSTTime(h, m) {
   var period = h >= 12 ? 'PM' : 'AM';
   var h12 = h > 12 ? h-12 : h === 0 ? 12 : h;
-  return h12+':'+(m===0?'00':'30')+' '+period+' CST';
+  return h12+':'+String(m).padStart(2,'0')+' '+period+' '+getLoggedUserTZLabel();
 }
 
 function selectTimeSlot(key) {
@@ -7385,16 +7408,21 @@ function calcSaskatoonTime() {
   }
   var parts  = timeEl.value.split(':');
   var cH     = parseInt(parts[0]), cM = parseInt(parts[1]);
-  var offset = getMtClientOffset(prov);
-  var diff   = -6 - offset; // how many hours from client to CST
-  var cstH   = cH + diff;
+  var clientOffset = getMtClientOffset(prov);      // client's UTC offset (e.g. -4 for Ontario EDT)
+  var myOffset     = getLoggedUserOffset();         // logged-in user's UTC offset (auto from browser)
+  var diff   = myOffset - clientOffset;             // hours to add to get user's local time
+  var localH = cH + diff;
   // Handle day wrap
-  if (cstH < 0)  cstH += 24;
-  if (cstH >= 24) cstH -= 24;
-  if (lblEl) lblEl.textContent = formatCSTTime(cstH, cM);
+  if (localH < 0)   localH += 24;
+  if (localH >= 24) localH -= 24;
+  var myTZ = getLoggedUserTZLabel();
+  if (lblEl) lblEl.textContent = formatCSTTime(localH, cM);
+  // Update label prefix to show user's actual timezone
+  var prefix = document.getElementById('mt-cst-prefix');
+  if (prefix) prefix.textContent = myTZ + ' time:';
   if (dispEl) dispEl.style.display = 'block';
-  // Store CST H/M for booking
-  window._mtCSTH = cstH; window._mtCSTM = cM;
+  // Store local H/M for booking (convert to UTC when saving)
+  window._mtCSTH = localH; window._mtCSTM = cM;
 }
 
 function buildEmailCheckboxes() {
@@ -7551,11 +7579,10 @@ async function saveMeetingCore(sendNow) {
   if (_meetingLeadId) { var l=leads.find(function(x){return x.id===_meetingLeadId;}); if(l)name=l.name||''; }
   // Meet link will be auto-generated by edge function
 
-  // Build UTC times from CST selection
-  var parts  = _selectedTime.split(':');
-  var cstH   = parseInt(parts[0]), cstM = parseInt(parts[1]);
+  // Build UTC times from user's local time selection
+  var myOffset = getLoggedUserOffset(); // e.g. -6 for CST, -4 for EDT
   var dp     = date.split('-');
-  var startsAt = new Date(Date.UTC(parseInt(dp[0]),parseInt(dp[1])-1,parseInt(dp[2]),cstH+6,cstM));
+  var startsAt = new Date(Date.UTC(parseInt(dp[0]),parseInt(dp[1])-1,parseInt(dp[2]), cstH - myOffset, cstM));
   var endsAt   = new Date(startsAt.getTime() + dur*60000);
 
   // Reschedule token (unique per meeting)
@@ -7851,67 +7878,6 @@ async function saveMeetingSettings() {
   }
   if (ok) { showToast('Settings saved ✅'); closeSheet('meetingSettingsSh'); }
   else showToast('⚠️ Some settings may not have saved');
-}
-
-async function saveMeeting() {
-  var name  = (document.getElementById('mt-name')||{}).value.trim();
-  var email = (document.getElementById('mt-email')||{}).value.trim();
-  var date  = (document.getElementById('mt-date')||{}).value;
-  var dur   = parseInt((document.getElementById('mt-dur')||{}).value||60);
-  var link  = (document.getElementById('mt-link')||{}).value.trim();
-  var notes = (document.getElementById('mt-notes')||{}).value.trim();
-
-  if(!name)          { showToast('Guest name required'); return; }
-  if(!date)          { showToast('Please select a date'); return; }
-  if(!_selectedTime) { showToast('Please select a time slot'); return; }
-
-  // Convert selected CST time to UTC for storage
-  var parts = _selectedTime.split(':');
-  var cstH  = parseInt(parts[0]);
-  var cstM  = parseInt(parts[1]);
-  var dateParts = date.split('-');
-  // CST = UTC-6, so UTC = CST + 6
-  var utcH  = cstH - CST_OFFSET_HRS; // +6 hours to get UTC
-  var startsAt = new Date(Date.UTC(parseInt(dateParts[0]), parseInt(dateParts[1])-1, parseInt(dateParts[2]), utcH, cstM));
-  var endsAt   = new Date(startsAt.getTime() + dur*60000);
-
-  var btn = document.getElementById('saveMeetingBtn');
-  if(btn){ btn.textContent='Scheduling...'; btn.disabled=true; }
-
-  try {
-    await sbFetch('/rest/v1/meetings', {
-      method:'POST',
-      body:JSON.stringify({
-        lead_id: _meetingLeadId||null,
-        guest_name: name, guest_email: email||null,
-        starts_at: startsAt.toISOString(),
-        ends_at:   endsAt.toISOString(),
-        duration_mins: dur,
-        timezone: 'America/Regina',
-        meeting_type: 'google_meet',
-        meet_link: link||null,
-        notes: notes||null,
-        status: 'scheduled'
-      })
-    });
-
-    // Log in activity
-    if(_meetingLeadId && leadAct[_meetingLeadId]){
-      leadAct[_meetingLeadId].unshift({
-        type:'fu', label:'Meeting Scheduled',
-        time:'Just now ('+formatCSTTime(cstH,cstM)+')',
-        body:'Google Meet with '+name+(link?' - '+link:'')
-      });
-    }
-
-    closeSheet('meetingSh');
-    showToast('Meeting scheduled for '+formatCSTTime(cstH,cstM)+' CST');
-    if(curLid) renderLeadScreen(curLid);
-  } catch(e){
-    showToast('Error: '+e.message);
-  } finally {
-    if(btn){ btn.textContent='Schedule Meeting'; btn.disabled=false; }
-  }
 }
 
 // ═══════════════════════════════════════
