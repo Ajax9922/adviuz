@@ -7420,10 +7420,12 @@ async function startInstantMeeting(lid) {
 
   try {
     // Save meeting record
-    await sbFetch('/rest/v1/meetings', {
+    var meetSaveRes = await sbFetch('/rest/v1/meetings', {
       method: 'POST',
       body: JSON.stringify({
-        lead_id: l.dbId || null, guest_name: l.name, guest_email: l.em || null,
+        lead_id: l.dbId || null,
+        client_id: window._clientId || null,
+        guest_name: l.name, guest_email: l.em || null,
         guest_province: null, starts_at: now.toISOString(), ends_at: end.toISOString(),
         duration_mins: 60, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         meeting_type: 'Digital Flyers', meet_link: null, status: 'scheduled',
@@ -7431,8 +7433,13 @@ async function startInstantMeeting(lid) {
         partner_name: partnerName, partner_email: partnerEmail
       })
     });
+    if (!meetSaveRes.ok) {
+      var meetErr = await meetSaveRes.json().catch(function(){return{};});
+      console.error('[Meeting POST 400]', JSON.stringify(meetErr));
+      showToast('DB error: ' + (meetErr.message || meetErr.hint || meetErr.code || meetSaveRes.status));
+    }
 
-    // Generate Meet link + send emails
+    // Generate Meet link + send emails + Fireflies
     var createRes = await sbFetch('/functions/v1/create-meeting', {
       method: 'POST',
       body: JSON.stringify({
@@ -7442,12 +7449,28 @@ async function startInstantMeeting(lid) {
         guest_company: l.company || '', guest_phone: l.ph || '',
         recipient_emails: [l.em, partnerEmail].filter(Boolean).join(','),
         partner_name: partnerName, partner_email: partnerEmail,
-        notes: 'Instant meeting', reschedule_token: token, send_now: true, instant: true
+        notes: 'Instant meeting', reschedule_token: token,
+        send_now: true, instant: true,
+        send_confirmation: true,
+        invite_fireflies: true
       })
     });
 
     var meetLink = '';
     if (createRes.ok) { var cd = await createRes.json(); meetLink = cd.meet_link || ''; }
+    else {
+      var fnErr = await createRes.json().catch(function(){return{};});
+      console.error('[create-meeting 500]', JSON.stringify(fnErr));
+    }
+
+    // Add to tasks so it shows in Follow-ups tab
+    var todayStr = now.toISOString().slice(0,10);
+    var timeStr  = now.toTimeString().slice(0,5);
+    tasks.unshift({
+      id: nxtTid++, lid: lid, type: 'meeting',
+      note: '⚡ Instant Meeting — ' + (meetLink || 'Meet link pending'),
+      date: todayStr, time: timeStr, done: false
+    });
 
     // Log activity + update stage
     if (!leadAct[lid]) leadAct[lid] = [];
@@ -7813,6 +7836,7 @@ async function saveMeetingCore(sendNow) {
       method:'POST',
       body: JSON.stringify({
         lead_id:        leadDbId,
+        client_id:      window._clientId || null,
         guest_name:     name,
         guest_email:    email,
         guest_province: prov,
