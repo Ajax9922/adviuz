@@ -3863,7 +3863,7 @@ function renderLeadScreen(id) {
   h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Call</div>';
   h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">';
   h += ldCallBtn('📞','Dialer','#ffe0e0','var(--red)','lsDialer()');
-  h += ldCallBtn('🤖','AI Call','linear-gradient(135deg,#ede9fe,#dbeafe)','#6366f1','lsDoAiCall()');
+  h += ldCallBtn('🤖','AI Call','linear-gradient(135deg,#ede9fe,#dbeafe)','#6366f1', isPartnerMode() ? 'showToast("🔒 AI Calls are only available for Authorized Sellers — contact your admin to unlock")' : 'lsDoAiCall()');
   h += ldCallBtn('📣','IVR Call','#ede9fe','#7c3aed','lsDoIvrCall()');
   h += '</div></div>';
   h += '<div style="height:4px;background:var(--bg)"></div>';
@@ -3926,53 +3926,37 @@ function renderLeadScreen(id) {
 
   h += '<div style="height:4px;background:var(--bg)"></div>';
 
-  // ══ RECENT CALL RECORDING (above notes) ══
+  // ══ RECENT CALL RECORDING (above notes) — show 1 most recent only ══
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
-  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:12px">📼 Recent Call Recording</div>';
-
-  // Build call history from acts — show last 3 calls
-  var callActs = acts.filter(function(a){ return a.type==='call'; }).slice(0,3);
-  if(!callActs.length){
-    // Show dummy recording
-    callActs = [{
-      label:'AI Outbound Call',
-      time: l.t||'Today',
-      callType:'ai_outbound',
-      rec: true,
-      dur:'1:47'
-    }];
-  }
-
-  callActs.forEach(function(ca, ci){
-    var callTypeLabel = '';
-    var callTypeBg = '';
-    var ct = ca.callType || (ca.label||'').toLowerCase();
-    if(ct.indexOf('ai')>-1 && ct.indexOf('inbound')>-1)      { callTypeLabel='🤖 AI Inbound';  callTypeBg='#dbeafe'; }
-    else if(ct.indexOf('ai')>-1)                               { callTypeLabel='🤖 AI Outbound'; callTypeBg='#ede9fe'; }
-    else if(ct.indexOf('ivr')>-1 && ct.indexOf('inbound')>-1) { callTypeLabel='📣 IVR Inbound'; callTypeBg='#fef3c7'; }
-    else if(ct.indexOf('ivr')>-1)                              { callTypeLabel='📣 IVR Outbound';callTypeBg='#fef3c7'; }
-    else if(ct.indexOf('inbound')>-1)                          { callTypeLabel='📞 Inbound';     callTypeBg='#d1fae5'; }
-    else                                                        { callTypeLabel='📞 Outbound';    callTypeBg='#ffe0e0'; }
-
-    var recId = 'rec'+ci;
-    var recPct = ca.rec ? '35' : '62';
-    var recDur = ca.dur || '1:47';
-
-    h += '<div style="'+(ci>0?'margin-top:12px;padding-top:12px;border-top:1px solid var(--border)':'')+'">';
-    // Call type badge + time
-    h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
-    h += '<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;background:'+callTypeBg+';color:var(--text)">'+callTypeLabel+'</span>';
-    h += '<span style="font-size:11px;color:var(--muted)">'+ca.time+'</span>';
-    h += '</div>';
-    // Player
-    h += '<div style="display:flex;align-items:center;gap:10px;background:var(--bg);border-radius:10px;padding:10px 13px">';
-    h += '<button id="recPlayBtn'+ci+'" onclick="toggleDummyRec('+ci+')" style="width:32px;height:32px;border-radius:50%;background:var(--red);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">';
-    h += '<svg id="recPlayIco'+ci+'" fill="white" viewBox="0 0 24 24" style="width:10px;height:10px;margin-left:2px"><polygon points="5,3 19,12 5,21"/></svg></button>';
-    h += '<div style="flex:1;min-width:0">';
-    h += '<div style="height:4px;background:var(--border);border-radius:2px"><div id="recProgBar'+ci+'" style="height:100%;width:'+recPct+'%;background:var(--green);border-radius:2px;transition:width .3s"></div></div></div>';
-    h += '<span id="recTimer'+ci+'" style="font-size:11px;color:var(--muted);font-weight:600;font-family:monospace;flex-shrink:0">'+recDur+'</span>';
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">📼 Recent Call Recording</div>';
+  var recentCall = acts.find(function(a){ return a.type==='call'; });
+  if (!recentCall) {
+    h += '<div style="font-size:13px;color:var(--sub);padding:4px 0 8px">No call recordings yet</div>';
+  } else {
+    var ct0 = recentCall.callType || (recentCall.label||'').toLowerCase();
+    var isIn0 = ct0.indexOf('inbound')>-1, isAI0 = ct0.indexOf('ai')>-1, isIVR0 = ct0.indexOf('ivr')>-1;
+    var cl0 = isAI0&&isIn0?'🤖 AI Inbound':isAI0?'🤖 AI Outbound':isIVR0&&isIn0?'📣 IVR Inbound':isIVR0?'📣 IVR Outbound':isIn0?'📞 Inbound':'📞 Outbound';
+    var cb0 = isIn0?'#d1fae5':'#ffe0e0', cc0 = isIn0?'var(--green)':'var(--red)';
+    var dur0 = recentCall.dur||'—';
+    h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
+    h += '<span style="font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;background:'+cb0+';color:'+cc0+'">'+cl0+'</span>';
+    h += '<div style="display:flex;align-items:center;gap:10px">';
+    h += '<span style="font-size:12px;color:var(--sub);font-family:monospace;font-weight:600">⏱ '+dur0+'</span>';
+    h += '<span style="font-size:11px;color:var(--sub)">'+recentCall.time+'</span>';
     h += '</div></div>';
-  });
+    if (recentCall.rec) {
+      h += '<div style="display:flex;align-items:center;gap:12px;background:var(--bg);border-radius:12px;padding:12px 14px">';
+      h += '<button id="recPlayBtn0" onclick="toggleDummyRec(0)" style="width:36px;height:36px;border-radius:50%;background:var(--red);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 8px rgba(220,38,38,.3)">';
+      h += '<svg id="recPlayIco0" fill="white" viewBox="0 0 24 24" style="width:11px;height:11px;margin-left:2px"><polygon points="5,3 19,12 5,21"/></svg></button>';
+      h += '<div style="flex:1;min-width:0"><div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden"><div id="recProgBar0" style="height:100%;width:35%;background:linear-gradient(90deg,var(--red),#f87171);border-radius:3px;transition:width .3s"></div></div></div>';
+      h += '<span id="recTimer0" style="font-size:12px;color:var(--sub);font-weight:700;font-family:monospace;flex-shrink:0">'+dur0+'</span>';
+      h += '</div>';
+    }
+    if (recentCall.summary) {
+      h += '<div style="margin-top:10px;background:var(--bluel);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--blue);line-height:1.6">';
+      h += '<strong>🤖 Summary</strong> · '+recentCall.summary+'</div>';
+    }
+  }
   h += '</div>';
 
   // ══ SECTION 6 — NOTES ══
@@ -4055,44 +4039,86 @@ function renderLeadScreen(id) {
              invoice_created:'🧾',invoice_emailed:'📧',payment_received:'💳',reminder_sent:'⏰',meeting:'📅',assignment:'👤'};
   var showCount = actFilter==='all' ? Math.min(filteredActs.length, 10) : filteredActs.length;
 filteredActs.slice(0,showCount).forEach(function(item,i){
-    // Determine if this item is clickable and what it opens
-      var clickable = item.type==='quote_sent'||item.type==='quote_viewed'||item.type==='quote_accepted'||item.type==='quote_paid'||item.type==='email_sent'||item.type==='email';
-      var clickStyle = clickable ? 'cursor:pointer;' : '';
-      var quoteId = (item.meta && item.meta.quote_id) ? item.meta.quote_id : '';
-      var onClick = '';
-      if(item.type==='quote_sent'||item.type==='quote_viewed'||item.type==='quote_accepted'||item.type==='quote_paid') {
-        onClick = quoteId ? 'onclick="viewQuoteFromActivity(\''+quoteId+'\')"' : '';
-      }
-      var isInboundSms = item.type === 'sms_received';
-      var isOutboundSms = item.type === 'sms_sent' || item.type === 'sms';
-      var smsBubbleBg   = isInboundSms ? '#f0fdf9' : (isOutboundSms ? '#eff6ff' : '');
-      var smsBubbleBorder = isInboundSms ? '#00a884' : (isOutboundSms ? '#2563eb' : '');
+    var isCall = item.type === 'call';
+    var isInboundSms = item.type === 'sms_received';
+    var isOutboundSms = item.type === 'sms_sent' || item.type === 'sms';
+    var clickable = item.type==='quote_sent'||item.type==='quote_viewed'||item.type==='quote_accepted'||item.type==='quote_paid'||item.type==='email_sent'||item.type==='email';
+    var quoteId = (item.meta && item.meta.quote_id) ? item.meta.quote_id : '';
+    var onClick = (item.type.indexOf('quote')>-1 && quoteId) ? 'onclick="viewQuoteFromActivity(\''+quoteId+'\')"' : '';
 
-      h += '<div class="ld-act-item" '+onClick+' style="'+clickStyle+'">';
-      if(i<showCount-1) h += '<div class="ld-act-line"></div>';
+    h += '<div class="ld-act-item" '+onClick+' style="'+(clickable?'cursor:pointer;':'')+'">';
+    if(i<showCount-1) h += '<div class="ld-act-line"></div>';
+
+    if (isCall) {
+      // ── CALL ACTIVITY — Rich UI ──
+      var ct = item.callType || (item.label||'').toLowerCase();
+      var isIn  = ct.indexOf('inbound')>-1;
+      var isAI  = ct.indexOf('ai')>-1;
+      var isIVR = ct.indexOf('ivr')>-1;
+      var callLabel = isAI&&isIn?'🤖 AI Inbound':isAI?'🤖 AI Outbound':isIVR&&isIn?'📣 IVR Inbound':isIVR?'📣 IVR Outbound':isIn?'📞 Inbound':'📞 Outbound';
+      var callBg  = isIn ? '#d1fae5' : '#fff1f2';
+      var callCol = isIn ? 'var(--green)' : 'var(--red)';
+      var callDot = isIn ? '📞' : '📞';
+      h += '<div class="ld-act-dot">'+callDot+'</div>';
+      h += '<div class="ld-act-body" style="width:100%">';
+      // Header row
+      h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
+      h += '<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:'+callBg+';color:'+callCol+'">'+callLabel+'</span>';
+      h += '<span class="ld-act-time">'+item.time+'</span>';
+      h += '</div>';
+      // Duration + meta row
+      var callDetails = [];
+      if (item.dur) callDetails.push('⏱ '+item.dur);
+      if (item.outcome) callDetails.push(item.outcome);
+      if (callDetails.length) {
+        h += '<div style="display:flex;gap:12px;margin-bottom:8px">';
+        callDetails.forEach(function(d){ h += '<span style="font-size:12px;color:var(--sub);font-weight:600">'+d+'</span>'; });
+        h += '</div>';
+      }
+      // Recording player
+      if (item.rec) {
+        var recIdx = 'act'+i;
+        h += '<div style="display:flex;align-items:center;gap:10px;background:var(--bg);border-radius:10px;padding:10px 13px;margin-bottom:6px">';
+        h += '<button onclick="showToast(&quot;▶ Playing...&quot;)" style="width:30px;height:30px;border-radius:50%;background:var(--red);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">';
+        h += '<svg fill="white" viewBox="0 0 24 24" style="width:9px;height:9px;margin-left:1px"><polygon points="5,3 19,12 5,21"/></svg></button>';
+        h += '<div style="flex:1;min-width:0"><div style="height:4px;background:var(--border);border-radius:2px"><div style="height:100%;width:35%;background:linear-gradient(90deg,var(--red),#f87171);border-radius:2px"></div></div></div>';
+        h += '<span style="font-size:11px;color:var(--sub);font-weight:600;font-family:monospace">'+(item.dur||'—')+'</span>';
+        h += '</div>';
+      }
+      // AI Summary
+      if (item.summary) {
+        h += '<div style="background:var(--bluel);border-radius:8px;padding:9px 12px;font-size:12px;color:var(--blue);line-height:1.55">';
+        h += '<strong>🤖 Summary</strong> · '+item.summary+'</div>';
+      } else if (item.body && !item.rec) {
+        h += '<div class="ld-act-text">'+item.body+'</div>';
+      }
+
+    } else if (isInboundSms || isOutboundSms) {
+      // ── SMS ACTIVITY ──
+      var smsBg  = isInboundSms ? '#f0fdf9' : '#eff6ff';
+      var smsBdr = isInboundSms ? '#00a884' : '#2563eb';
+      h += '<div class="ld-act-dot">'+(isInboundSms?'📩':'💬')+'</div>';
+      h += '<div class="ld-act-body" style="width:100%">';
+      h += '<span class="ld-act-label">'+item.label+'</span><span class="ld-act-time">'+item.time+'</span>';
+      h += '<div style="margin-top:6px;padding:9px 12px;background:'+smsBg+';border-left:3px solid '+smsBdr+';border-radius:0 8px 8px 0;font-size:13px;color:var(--text);line-height:1.5">'+item.body+'</div>';
+      if (isInboundSms) h += '<button onclick="lsQuickSmsReply('+l.id+')" style="margin-top:6px;padding:5px 12px;border-radius:20px;border:1.5px solid var(--green);background:#fff;color:var(--green);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">↩ Reply</button>';
+
+    } else {
+      // ── DEFAULT ACTIVITY ──
       h += '<div class="ld-act-dot">'+(icons[item.type]||'📋')+'</div>';
       h += '<div class="ld-act-body" style="width:100%">';
       h += '<span class="ld-act-label">'+item.label+'</span><span class="ld-act-time">'+item.time+'</span>';
-
-      // SMS bubble styling for inbound/outbound
-      if(isInboundSms || isOutboundSms){
-        h += '<div style="margin-top:6px;padding:9px 12px;background:'+smsBubbleBg+';border-left:3px solid '+smsBubbleBorder+';border-radius:0 8px 8px 0;font-size:13px;color:var(--text);line-height:1.5">'+item.body+'</div>';
-        // Reply button for inbound SMS
-        if(isInboundSms){
-          h += '<button onclick="lsQuickSmsReply('+l.id+')" style="margin-top:6px;padding:5px 12px;border-radius:20px;border:1.5px solid var(--green);background:#fff;color:var(--green);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f);display:flex;align-items:center;gap:5px">↩ Reply</button>';
-        }
-      } else {
-        h += '<div class="ld-act-text">'+item.body+(clickable&&quoteId ? ' <span style="color:var(--green);font-size:11px">↗ View</span>':'')+'</div>';
-      }
-
-      if(item.rec){
+      h += '<div class="ld-act-text">'+item.body+(clickable&&quoteId?' <span style="color:var(--green);font-size:11px">↗ View</span>':'')+'</div>';
+      if (item.rec) {
         h += '<div style="display:flex;align-items:center;gap:8px;margin-top:7px;padding:7px 11px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">';
-        h += '<button onclick="showToast(\'▶ Playing...\')" style="width:26px;height:26px;border-radius:50%;background:var(--red);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg fill="white" viewBox="0 0 24 24" style="width:10px;height:10px;margin-left:2px"><polygon points="5,3 19,12 5,21"/></svg></button>';
+        h += '<button onclick="showToast(&quot;▶ Playing...&quot;)" style="width:26px;height:26px;border-radius:50%;background:var(--red);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center"><svg fill="white" viewBox="0 0 24 24" style="width:10px;height:10px;margin-left:2px"><polygon points="5,3 19,12 5,21"/></svg></button>';
         h += '<div style="flex:1;height:4px;background:var(--border);border-radius:2px"><div style="height:100%;width:35%;background:var(--green);border-radius:2px"></div></div>';
-        h += '<span style="font-size:11px;color:var(--muted);font-family:monospace">2:34</span></div>';
+        h += '<span style="font-size:11px;color:var(--sub);font-family:monospace">'+(item.dur||'2:34')+'</span></div>';
       }
-      h += '</div></div>';
-    });
+    }
+
+    h += '</div></div>';
+  });
     h += '</div>';
   } // end filteredActs.length else
   h += '</div>'; // end activity section
@@ -4845,7 +4871,9 @@ async function doSaveLead(lead) {
         service: lead.svc||null, notes: lead.note||null,
         sms_consent: true, call_consent: true, email_consent: true,
         color: lead.col,
-        client_id: window._clientId || null
+        client_id: window._clientId || null,
+        partner_id: (window._partnerData && window._partnerData.id) || null,
+        stage_code: 'fresh_lead'
       })
     });
     var data = await res.json();
@@ -5949,6 +5977,17 @@ async function showPartnerUI() {
   var plusBtn = document.getElementById('tbPlusBtn');
   if (plusBtn) plusBtn.style.display = 'none';
 
+  // Add logout button for partners in topbar
+  var tbRight = document.getElementById('tbRight') || document.querySelector('.tb-right');
+  if (tbRight && !document.getElementById('partnerLogoutBtn')) {
+    var logoutBtn = document.createElement('button');
+    logoutBtn.id = 'partnerLogoutBtn';
+    logoutBtn.onclick = doLogout;
+    logoutBtn.style.cssText = 'padding:6px 12px;border-radius:8px;background:var(--redl);border:1px solid var(--red);color:var(--red);font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer;margin-left:8px';
+    logoutBtn.textContent = 'Sign Out';
+    tbRight.appendChild(logoutBtn);
+  }
+
   // Show dashboard tab (for earnings)
   var dt = document.getElementById('tab-dashboard');
   if (dt) dt.style.display = 'flex';
@@ -6063,18 +6102,29 @@ function partnerDashHTML() {
 
   // Earning Simulator
   h += '<div style="background:var(--white);border-radius:12px;border:1px solid var(--border);padding:14px;margin-bottom:10px">';
-  h += '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">&#x1F4A1; Earning Simulator</div>';
-  h += '<div style="font-size:12px;color:var(--sub);margin-bottom:12px">Estimate your earnings before you pitch</div>';
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">';
-  h += '<div><div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:5px">DEALS TO CLOSE</div>';
-  h += '<input id="simDeals" type="number" min="1" value="5" oninput="calcPartnerSim()" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:8px;font-size:15px;font-weight:700;text-align:center;font-family:var(--f);outline:none"></div>';
-  h += '<div><div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:5px">AVG DEAL (CAD $)</div>';
-  h += '<input id="simSize" type="number" min="100" value="2000" oninput="calcPartnerSim()" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:8px;font-size:15px;font-weight:700;text-align:center;font-family:var(--f);outline:none"></div>';
+  h += '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">💡 Earning Simulator</div>';
+  h += '<div style="font-size:12px;color:var(--sub);margin-bottom:12px">Estimate your earnings — no limits on what you can earn</div>';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">';
+  h += '<div><div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:5px">NUMBER OF CLIENTS</div>';
+  h += '<input id="simDeals" type="number" min="1" max="10000" value="5" oninput="calcPartnerSim()" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:8px;font-size:15px;font-weight:700;text-align:center;font-family:var(--f);outline:none"></div>';
+  h += '<div><div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:5px">COST PER CLIENT (CAD $)</div>';
+  h += '<input id="simSize" type="number" min="100" max="1000000" value="2000" oninput="calcPartnerSim()" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:8px;font-size:15px;font-weight:700;text-align:center;font-family:var(--f);outline:none"></div>';
   h += '</div>';
-  h += '<div id="simResult" style="background:var(--greenl);border-radius:10px;padding:16px;text-align:center">';
-  h += '<div style="font-size:28px;font-weight:900;color:var(--green);letter-spacing:-.04em">CAD $0</div>';
-  h += '<div style="font-size:13px;color:var(--green);margin-top:4px">First order commission</div>';
-  h += '</div></div>';
+  // Results - two cards side by side
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">';
+  h += '<div id="simResultFirst" style="background:var(--greenl);border-radius:10px;padding:14px;text-align:center">';
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;margin-bottom:6px">💼 First-Time</div>';
+  h += '<div style="font-size:24px;font-weight:900;color:var(--green);letter-spacing:-.04em">CAD $0</div>';
+  h += '<div style="font-size:11px;color:var(--sub);margin-top:4px">One-time commission</div>';
+  h += '</div>';
+  h += '<div id="simResultRecur" style="background:#ede9fe;border-radius:10px;padding:14px;text-align:center">';
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;margin-bottom:6px">♻️ Recurring</div>';
+  h += '<div style="font-size:24px;font-weight:900;color:var(--purple);letter-spacing:-.04em">CAD $0</div>';
+  h += '<div style="font-size:11px;color:var(--sub);margin-top:4px">Per month ongoing</div>';
+  h += '</div>';
+  h += '</div>';
+  h += '<div id="simRateNote" style="font-size:11px;color:var(--sub);text-align:center;margin-top:8px"></div>';
+  h += '</div>';
 
   // Marketing materials
   h += '<div style="background:var(--white);border-radius:12px;border:1px solid var(--border);padding:14px;margin-bottom:10px">';
@@ -6128,17 +6178,48 @@ function calcPartnerSim() {
   var deals = parseInt((document.getElementById('simDeals')||{}).value)||0;
   var size  = parseFloat((document.getElementById('simSize')||{}).value)||0;
   var p     = window._partnerData||{};
+
+  // Clamp inputs
+  if (size > 1000000) size = 1000000;
+  if (deals > 10000) deals = 10000;
+
   var rev   = deals * size;
-  var rate  = rev<=5000?0.10:rev<=10000?0.11:rev<=20000?0.12:rev<=50000?0.14:0.15;
-  var comm  = rev * rate;
+  // First-time commission rate (scales with revenue)
+  var rate = rev <= 5000  ? 0.10 :
+             rev <= 10000 ? 0.11 :
+             rev <= 20000 ? 0.12 :
+             rev <= 50000 ? 0.14 :
+             rev <= 200000? 0.15 :
+             rev <= 500000? 0.16 : 0.17;
+  var firstComm = rev * rate;
+
+  // Recurring commission (based on total active clients after this batch)
   var newN  = (p.active_client_count||0) + deals;
   var rRate = parseFloat(partnerGetRate(newN))/100;
-  var recur = newN * size * 0.3 * rRate;
-  var el = document.getElementById('simResult');
-  if (!el) return;
-  el.innerHTML = '<div style="font-size:28px;font-weight:900;color:var(--green);letter-spacing:-.04em">CAD $'+comm.toFixed(0)+'</div>'
-    + '<div style="font-size:13px;color:var(--green);margin-top:4px">First order commission ('+Math.round(rate*100)+'%)</div>'
-    + '<div style="font-size:12px;color:#065f46;margin-top:6px">+ CAD $'+recur.toFixed(0)+'/month recurring</div>';
+  var recurComm = newN * size * 0.3 * rRate; // 30% of deal assumed recurring monthly
+
+  // Format currency
+  function fmt(n) {
+    if (n >= 1000000) return '$' + (n/1000000).toFixed(2) + 'M';
+    if (n >= 1000)    return '$' + (n/1000).toFixed(1) + 'K';
+    return '$' + n.toFixed(0);
+  }
+
+  var elFirst = document.getElementById('simResultFirst');
+  var elRecur = document.getElementById('simResultRecur');
+  var elNote  = document.getElementById('simRateNote');
+
+  if (elFirst) elFirst.innerHTML =
+    '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;margin-bottom:6px">💼 First-Time</div>' +
+    '<div style="font-size:24px;font-weight:900;color:var(--green);letter-spacing:-.04em">CAD ' + fmt(firstComm) + '</div>' +
+    '<div style="font-size:11px;color:var(--sub);margin-top:4px">One-time at ' + Math.round(rate*100) + '% on ' + fmt(rev) + '</div>';
+
+  if (elRecur) elRecur.innerHTML =
+    '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;margin-bottom:6px">♻️ Recurring</div>' +
+    '<div style="font-size:24px;font-weight:900;color:var(--purple);letter-spacing:-.04em">CAD ' + fmt(recurComm) + '</div>' +
+    '<div style="font-size:11px;color:var(--sub);margin-top:4px">Per month · ' + Math.round(rRate*100) + '% rate</div>';
+
+  if (elNote) elNote.textContent = newN + ' total active clients after closing these ' + deals + ' deal' + (deals!==1?'s':'');
 }
 
 function adminShowTab(sub) {
