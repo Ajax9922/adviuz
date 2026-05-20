@@ -2511,16 +2511,35 @@ function togglePassVis() {
 }
 
 async function refreshSession() {
-  var raw = sessionStorage.getItem('adviuz_master_session')
-         || localStorage.getItem('adviuz_master_session');
-  if (!raw) {
-    console.log('[Session] No saved session');
-    return false;
-  }
+  // Try sessionStorage first (has full token), then localStorage (has refresh token only)
+  var rawSession = sessionStorage.getItem('adviuz_master_session');
+  var rawLocal   = localStorage.getItem('adviuz_master_session');
+  var raw = rawSession || rawLocal;
+
+  if (!raw) { console.log('[Session] No saved session'); return false; }
 
   var session;
   try { session = JSON.parse(raw); }
   catch(e) { clearSavedSession(); return false; }
+
+  // If from localStorage (minimal format — no token), use refresh token to get new access token
+  if (!session.token && session.refresh) {
+    console.log('[Session] Restoring from refresh token (localStorage minimal format)');
+    try {
+      var refreshed = await sbAuth('/token?grant_type=refresh_token', { refresh_token: session.refresh });
+      if (refreshed.access_token) {
+        session.token = refreshed.access_token;
+        session.refresh = refreshed.refresh_token || session.refresh;
+        session.user = refreshed.user || session.user;
+        // Update sessionStorage with full data
+        sessionStorage.setItem('adviuz_master_session', JSON.stringify(session));
+      } else {
+        console.warn('[Session] Refresh failed:', refreshed.error);
+        clearSavedSession(); return false;
+      }
+    } catch(e) { console.warn('[Session] Refresh error:', e.message); clearSavedSession(); return false; }
+  }
+
   if (!session || !session.token) { clearSavedSession(); return false; }
 
   // Restore role + credentials immediately
@@ -2597,7 +2616,9 @@ async function refreshSession() {
 }
 
 function saveSession(token, refresh, user, role, remember) {
-  var data = JSON.stringify({
+  // Security: Store full session in sessionStorage (memory-only, cleared on tab close)
+  // In localStorage (persistent), store only a minimal fingerprint — NOT the full JWT
+  var fullData = JSON.stringify({
     token:    token,
     refresh:  refresh,
     user:     user,
@@ -2605,11 +2626,22 @@ function saveSession(token, refresh, user, role, remember) {
     remember: remember !== false,
     savedAt:  Date.now()
   });
-  // Always save to sessionStorage
-  sessionStorage.setItem('adviuz_master_session', data);
-  // Save to localStorage only if Remember Me
+  // Always save full session to sessionStorage (cleared when tab closes)
+  sessionStorage.setItem('adviuz_master_session', fullData);
+
+  // For Remember Me: save only minimal non-sensitive data to localStorage
+  // The refresh token is needed to restore the session — but NOT the access token
   if (remember !== false) {
-    localStorage.setItem('adviuz_master_session', data);
+    var minimalData = JSON.stringify({
+      refresh:  refresh,         // needed to get new access token
+      user_id:  user && user.id, // for display only
+      email:    user && user.email,
+      role:     role || 'super_admin',
+      remember: true,
+      savedAt:  Date.now()
+      // NOTE: access token (JWT) intentionally NOT stored in localStorage
+    });
+    localStorage.setItem('adviuz_master_session', minimalData);
   }
 }
 
