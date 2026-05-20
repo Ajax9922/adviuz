@@ -6925,22 +6925,62 @@ async function saveAddPartner() {
   var prov  = (document.getElementById('ap-province').value||'').trim();
   var notes = (document.getElementById('ap-notes').value||'').trim();
 
-  if (!name || !email) { showToast('Name and email are required'); return; }
+  if (!name || !email) { showToast('Name and email required'); return; }
 
   showToast('Creating partner...');
 
   try {
-    var res = await sbFetch('/functions/v1/approve-partner', {
+    // Generate ref code from name
+    var refCode = name.replace(/\s+/g,'').toUpperCase().slice(0,8) + Math.floor(Math.random()*900+100);
+    var refUrl  = 'https://latest-promo.com/ref/?ref=' + refCode;
+
+    // Check if partner already exists
+    var chk = await sbFetch('/rest/v1/sales_partners?email=eq.'+encodeURIComponent(email)+'&limit=1');
+    var existing = chk.ok ? await chk.json() : [];
+    if (existing && existing.length > 0) throw new Error('Partner with this email already exists');
+
+    // Create partner directly in DB
+    var res = await sbFetch('/rest/v1/sales_partners', {
       method: 'POST',
-      body: JSON.stringify({ name:name, email:email, phone:phone, city:city, province:prov, notes:notes, manual:true })
+      headers: { 'Prefer': 'return=representation' },
+      body: JSON.stringify({
+        full_name:       name,
+        email:           email,
+        phone:           phone,
+        city:            city,
+        province:        prov,
+        notes:           notes,
+        ref_code:        refCode,
+        ref_url:         refUrl,
+        status:          'active',
+        activity_status: 'active',
+        client_id:       window._clientId || null,
+        created_at:      new Date().toISOString()
+      })
     });
     var data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed');
+    if (!res.ok) throw new Error((data && data.message) || 'DB insert failed');
+    var partner = Array.isArray(data) ? data[0] : data;
 
+    // Send welcome email via send-email function
+    sbFetch('/functions/v1/send-email', {
+      method: 'POST',
+      body: JSON.stringify({
+        to: email, toName: name,
+        subject: 'Welcome to Adviuz Partner Program! 🎉',
+        html: '<h2>Welcome, '+name+'!</h2><p>You have been added as an Adviuz Sales Partner.</p>'
+          +'<p><strong>Your referral code:</strong> '+refCode+'</p>'
+          +'<p><strong>Your referral link:</strong> <a href="'+refUrl+'">'+refUrl+'</a></p>'
+          +'<p><strong>Partner portal:</strong> <a href="https://partner.adviuz.ca/partner-portal/">Login here</a></p>'
+          +'<p>Questions? Reply to this email or contact sales@adviuz.ca</p>'
+      })
+    }).catch(function(){});
+
+    // Update local state
     if (!_adminData.partners) _adminData.partners = [];
-    _adminData.partners.unshift({
+    _adminData.partners.unshift(partner || {
       full_name: name, email: email, phone: phone, city: city,
-      ref_code: data.ref_code, ref_url: data.ref_url,
+      ref_code: refCode, ref_url: refUrl,
       status: 'active', activity_status: 'active',
       active_client_count: 0, total_earned_cad: 0, total_paid_cad: 0
     });
@@ -6948,9 +6988,9 @@ async function saveAddPartner() {
     closeSheet('addPartnerSh');
     _partnerSubTab = 'partners';
     document.getElementById('content').innerHTML = adminDashHTML();
-    showToast('\u2705 ' + name + ' added! Code: ' + data.ref_code);
+    showToast('\u2705 ' + name + ' added! Code: ' + refCode);
   } catch(e) {
-    showToast('\u274c ' + e.message);
+    showToast('\u274c ' + (e.message||'Failed to create partner'));
   }
 }
 
