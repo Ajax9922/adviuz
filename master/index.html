@@ -2962,15 +2962,18 @@ var TICONS={call:'📞',meeting:'🤝',sms:'💬',email:'📧',demo:'💻'};
 var STAGES=[
   {name:'Fresh Lead',                      color:'#2563eb'},
   {name:'Call Not Connected',              color:'#667781'},
-  {name:'Follow-up',                       color:'#7c3aed'},
-  {name:'Meeting Locked',                  color:'#0891b2'},
-  {name:'Meeting Done',                    color:'#00a884'},
-  {name:'Meeting Done - Deal Not Closed',  color:'#d97706'},
-  {name:'Ready to Pay',                    color:'#16a34a'},
+  {name:'Connected - Callback Requested',  color:'#7c3aed'},
+  {name:'Follow-up Scheduled',             color:'#0891b2'},
+  {name:'Meeting Booked',                  color:'#00a884'},
+  {name:'Meeting Done',                    color:'#16a34a'},
+  {name:'Proposal Sent',                   color:'#d97706'},
+  {name:'Negotiating',                     color:'#f59e0b'},
   {name:'Deal Closed',                     color:'#15803d'},
-  {name:'Future Prospect',                 color:'#6366f1'},
   {name:'Not Interested',                  color:'#cc0000'},
+  {name:'Future Prospect',                 color:'#6366f1'},
+  {name:'Lost',                            color:'#991b1b'},
   {name:'Looking for Partnership',         color:'#8b5cf6'},
+  {name:'Vendor / Supplier',               color:'#0d9488'},
   {name:'Looking for Job',                 color:'#a855f7'},
 ];
 
@@ -3464,23 +3467,27 @@ function rptPeriodLabel() {
 
 function reportsHTML(){
   var filtLeads = rptFilterLeads(leads);
-  var filtCalls = rptFilterCalls(callLog);
 
-  var tot  = filtLeads.length;
-  var bkd  = filtLeads.filter(function(l){return l.stage==='Deal Closed'||l.stage==='Ready to Pay'}).length;
-  var intr = filtLeads.filter(function(l){return l.stage==='Meeting Done'||l.stage==='Meeting Locked'}).length;
-  var ans  = filtCalls.filter(function(c){return c.out==='answered'}).length;
-  var vm   = filtCalls.filter(function(c){return c.out==='voicemail'}).length;
-  var ms   = filtCalls.filter(function(c){return c.out==='missed'}).length;
-  var conv = tot ? Math.round(bkd/tot*100) : 0;
-  var rev  = bkd*850 + intr*850*.4;
+  var tot    = filtLeads.length;
+  var closed = filtLeads.filter(function(l){return l.stage==='Deal Closed';}).length;
+  var meeting= filtLeads.filter(function(l){return l.stage==='Meeting Booked'||l.stage==='Meeting Done';}).length;
+  var notInt = filtLeads.filter(function(l){return l.stage==='Not Interested'||l.stage==='Lost';}).length;
+  var conv   = tot ? Math.round(closed/tot*100) : 0;
+
+  // Activity from leadAct
+  var allActs = [];
+  Object.values(leadAct).forEach(function(acts){ allActs = allActs.concat(acts); });
+  var totalCalls  = allActs.filter(function(a){return a.type==='call';}).length;
+  var totalSms    = allActs.filter(function(a){return a.type==='sms'||a.type==='sms_sent';}).length;
+  var totalEmails = allActs.filter(function(a){return a.type==='email'||a.type==='email_sent';}).length;
+  var totalNotes  = allActs.filter(function(a){return a.type==='note';}).length;
 
   var srcC={};
-  filtLeads.forEach(function(l){srcC[l.src]=(srcC[l.src]||0)+1});
-  var srcA=Object.entries(srcC).sort(function(a,b){return b[1]-a[1]});
+  filtLeads.forEach(function(l){srcC[l.src||'Manual']=(srcC[l.src||'Manual']||0)+1;});
+  var srcA=Object.entries(srcC).sort(function(a,b){return b[1]-a[1];});
 
   var stgRows=STAGES.map(function(s){
-    var n=filtLeads.filter(function(l){return l.stage===s.name}).length;
+    var n=filtLeads.filter(function(l){return l.stage===s.name;}).length;
     if(!n)return'';
     return'<div class="bar-row"><div class="bar-label">'+s.name+'</div><div class="bar-track"><div class="bar-fill" style="width:'+Math.round(n/(tot||1)*100)+'%;background:'+s.color+'"></div></div><div class="bar-val">'+n+'</div></div>';
   }).join('');
@@ -3489,22 +3496,11 @@ function reportsHTML(){
     return'<div class="bar-row"><div class="bar-label" style="width:80px">'+s[0].split(' ')[0]+'</div><div class="bar-track"><div class="bar-fill" style="width:'+Math.round(s[1]/(tot||1)*100)+'%"></div></div><div class="bar-val">'+s[1]+'</div></div>';
   }).join('');
 
-  // Daily activity (always today)
-  var todayCalls = callLog.filter(function(c){return (c.date||'').slice(0,10)===TOD}).length;
-  var todayAnsw  = callLog.filter(function(c){return (c.date||'').slice(0,10)===TOD && c.out==='answered'}).length;
-  var todayTasks = tasks.filter(function(t){return t.done&&(t.doneDate||'').slice(0,10)===TOD}).length;
-  var todaySms=0,todayEmail=0;
-  Object.values(leadAct).forEach(function(acts){acts.forEach(function(a){
-    if((a.time||'')==='Just now'||(a.date||'').slice(0,10)===TOD){
-      if(a.type==='sms')todaySms++;
-      if(a.type==='email')todayEmail++;
-    }
-  });});
   var workGrid=[
-    {icon:'📞',label:'Calls Made',val:todayCalls,sub:todayAnsw+' answered'},
-    {icon:'✅',label:'Tasks Done',val:todayTasks,sub:'today'},
-    {icon:'💬',label:'SMS Sent',val:todaySms,sub:'today'},
-    {icon:'📧',label:'Emails',val:todayEmail,sub:'today'},
+    {icon:'📞',label:'Calls Logged',  val:totalCalls,  sub:'this period'},
+    {icon:'💬',label:'SMS Sent',      val:totalSms,    sub:'this period'},
+    {icon:'📧',label:'Emails Sent',   val:totalEmails, sub:'this period'},
+    {icon:'📝',label:'Notes Added',   val:totalNotes,  sub:'this period'},
   ].map(function(r){
     return'<div class="rpt-card" style="display:flex;align-items:flex-start;gap:10px">'
       +'<div style="font-size:22px;flex-shrink:0">'+r.icon+'</div>'
@@ -3513,7 +3509,6 @@ function reportsHTML(){
       +'<div style="font-size:10px;color:var(--muted);margin-top:1px">'+r.sub+'</div></div>'
       +'</div>';
   }).join('');
-
   // ── TIME FILTER BAR ──
   var periods=[
     {k:'today',l:'Today'},{k:'7d',l:'7 Days'},{k:'30d',l:'30 Days'},
@@ -5098,14 +5093,22 @@ function showDuplicate(dup, reason) {
 async function sendLeadApprovalRequest() {
   var p    = window._partnerData;
   var lead = pendingNewLead;
-  if (!lead) { closeSheet('dupSh'); return; }
 
   var btn = document.getElementById('approvalReqBtn');
   if (btn) { btn.textContent = 'Sending...'; btn.disabled = true; }
 
+  // If no pending lead, just close
+  if (!lead) {
+    closeSheet('dupSh');
+    showToast('Request already sent!');
+    if (btn) { btn.textContent = '📋 Send for Approval'; btn.disabled = false; }
+    return;
+  }
+
   try {
     var res = await sbFetch('/rest/v1/lead_approval_requests', {
       method: 'POST',
+      headers: { 'Prefer': 'return=minimal' },
       body: JSON.stringify({
         partner_id:    p ? p.id   : null,
         partner_name:  p ? (p.full_name||p.name||p.email) : null,
@@ -5114,24 +5117,27 @@ async function sendLeadApprovalRequest() {
         lead_phone:    lead.ph    || '',
         lead_email:    lead.em    || '',
         lead_company:  lead.company || '',
-        reason:        document.getElementById('dupReason') ? document.getElementById('dupReason').textContent : 'Duplicate found',
+        reason:        (document.getElementById('dupReason')||{}).textContent || 'Duplicate found',
         status:        'pending',
         client_id:     window._clientId || null
       })
     });
 
-    if (res.ok) {
+    pendingNewLead = null;
+
+    if (res.ok || res.status === 201) {
       closeSheet('dupSh');
       showToast('✅ Approval request sent! We will notify you once reviewed.');
     } else {
-      var err = await res.json();
-      throw new Error(err.message || 'Failed to send request');
+      var errData = {};
+      try { errData = await res.json(); } catch(e2) {}
+      throw new Error(errData.message || errData.error || ('Error ' + res.status));
     }
   } catch(e) {
+    pendingNewLead = null;
     showToast('❌ ' + e.message);
     if (btn) { btn.textContent = '📋 Send for Approval'; btn.disabled = false; }
   }
-  pendingNewLead = null;
 }
 
 async function doSaveLead(lead) {
