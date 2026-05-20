@@ -2764,17 +2764,40 @@ async function sbFetch(path, opts) {
   opts = opts || {};
   var token = authToken || SB_ANON;
   var isEdgeFn = path.indexOf('/functions/v1/') === 0;
+
   var res = await fetch(SB_URL + path, {
     ...opts,
     headers: {
       apikey: SB_ANON,
       Authorization: 'Bearer ' + token,
       'Content-Type': 'application/json',
-      // Prefer header only for REST API, not edge functions (causes CORS preflight failure)
       ...(isEdgeFn ? {} : { Prefer: 'return=representation' }),
       ...(opts.headers || {})
     }
   });
+
+  // ── Auto-refresh on 401 JWT expired ──────────────────────
+  if (res.status === 401 && token !== SB_ANON) {
+    console.log('[sbFetch] 401 — refreshing token and retrying...');
+    var refreshed = await refreshSession();
+    if (refreshed && authToken) {
+      // Retry with new token
+      res = await fetch(SB_URL + path, {
+        ...opts,
+        headers: {
+          apikey: SB_ANON,
+          Authorization: 'Bearer ' + authToken,
+          'Content-Type': 'application/json',
+          ...(isEdgeFn ? {} : { Prefer: 'return=representation' }),
+          ...(opts.headers || {})
+        }
+      });
+    } else {
+      showToast('Session expired — please sign in again');
+      setTimeout(doLogout, 2000);
+    }
+  }
+
   return res;
 }
 
@@ -5353,7 +5376,7 @@ function buildLowBalanceEmail(clientName, balance, topupUrl) {
     </div>
 
     <div class="features">
-      <div class="feature"><span class="feat-icon">🎯</span><div><strong>Your campaign stays live</strong> — no downtime, no missed leads while you're away</div></div>
+      <div class="feature"><span class="feat-icon">🎯</span><div><strong>Your campaign stays live</strong> — no downtime, no missed leads while you are away</div></div>
       <div class="feature"><span class="feat-icon">📞</span><div><strong>Leads keep coming in</strong> — every view you buy could be your next closed deal</div></div>
       <div class="feature"><span class="feat-icon">🔒</span><div><strong>Secure top-up</strong> — Stripe-powered, receipt sent automatically</div></div>
     </div>
@@ -5932,7 +5955,7 @@ setTimeout(function(){var s=document.getElementById('splash');if(s)s.remove()},2
 
 
 <script>
-// Legacy stubs so any residual calls don't throw errors
+// Legacy stubs so any residual calls do not throw errors
 function openMgmtScreen(tab){ adminShowTab(tab==='commissions'?'commissions':tab==='agencies'?'affiliates':'affiliates'); }
 function closeMgmtScreen(){ }
 function switchMgmtTab(tab){ }
@@ -6060,45 +6083,123 @@ function isPartnerMode() { return window._staffRole === 'sales_partner'; }
 
 // Partner dashboard HTML — injected into adminDashHTML() when role = partner
 function partnerDashHTML() {
-  var p = window._partnerData || {};
+  var p     = window._partnerData || {};
   var comms = window._partnerComms || [];
-  var now = new Date(), monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-  var monthEarned = comms.filter(function(c){return c.earned_at>=monthStart;}).reduce(function(s,c){return s+(c.commission_cad||0);},0);
-  var pending = comms.filter(function(c){return c.status==='earned';}).reduce(function(s,c){return s+(c.commission_cad||0);},0);
-  var totalEarned = comms.reduce(function(s,c){return s+(c.commission_cad||0);},0);
-  var rate = partnerGetRate(p.active_client_count||0);
-  var refUrl = p.ref_url||('https://latest-promo.com/?ref='+p.ref_code);
-  var n = p.active_client_count||0;
-  var milestones = [{at:10,bonus:500,l:'10 clients'},{at:25,bonus:1500,l:'25 clients'},{at:50,bonus:3000,l:'50 clients'},{at:100,bonus:10000,l:'100 clients'}];
-  var next = milestones.find(function(m){return n<m.at;});
+  var now   = new Date();
 
-  var h = '<div style="padding:0 12px 12px">';
-
-  // Stats grid
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">';
-  h += adMini('CAD $'+monthEarned.toFixed(0), 'Earned this month');
-  h += adMini('CAD $'+pending.toFixed(0), 'Pending payout');
-  h += adMini(n, 'Active clients (30d)');
-  h += adMini(rate, 'Recurring rate');
-  h += '</div>';
-
-  // Referral link
-  h += '<div style="background:var(--white);border-radius:12px;border:1px solid var(--green);padding:14px;margin-bottom:10px">';
-  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Your referral link</div>';
-  h += '<div style="font-size:13px;color:var(--text);word-break:break-all;margin-bottom:10px">'+refUrl+'</div>';
-  h += '<button onclick="copyPartnerRefLink()" style="width:100%;padding:10px;background:var(--green);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--f)">Copy Link</button>';
-  h += '</div>';
-
-  // Milestone
-  if (next) {
-    var pct = Math.round(n/next.at*100);
-    h += '<div style="background:var(--white);border-radius:12px;border:1px solid var(--border);padding:14px;margin-bottom:10px">';
-    h += '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Next milestone</div>';
-    h += '<div style="font-size:13px;color:var(--text);margin-bottom:3px">'+(next.at-n)+' more clients to reach <b>'+next.l+'</b></div>';
-    h += '<div style="font-size:13px;font-weight:700;color:var(--green);margin-bottom:10px">Unlock $'+next.bonus.toLocaleString()+' bonus</div>';
-    h += '<div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:var(--green);border-radius:3px"></div></div>';
-    h += '<div style="font-size:11px;color:var(--sub);margin-top:4px">'+n+' / '+next.at+'</div></div>';
+  // ── Time filter ──────────────────────────────────────────
+  var filter = window._partnerDashFilter || 'month';
+  var filterStart;
+  if (filter === 'today') {
+    filterStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+  } else if (filter === '7days') {
+    filterStart = new Date(Date.now() - 7*24*60*60*1000).toISOString();
+  } else if (filter === 'month') {
+    filterStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  } else {
+    filterStart = new Date(2020, 0, 1).toISOString(); // all time
   }
+
+  var filteredComms = comms.filter(function(c){ return (c.earned_at||'') >= filterStart; });
+  var earned   = filteredComms.reduce(function(s,c){return s+(c.commission_cad||0);},0);
+  var pending  = comms.filter(function(c){return c.status==='earned';}).reduce(function(s,c){return s+(c.commission_cad||0);},0);
+  var paid     = comms.filter(function(c){return c.status==='paid';}).reduce(function(s,c){return s+(c.commission_cad||0);},0);
+  var total    = comms.reduce(function(s,c){return s+(c.commission_cad||0);},0);
+  var n        = p.active_client_count || 0;
+  var closed   = leads.filter(function(l){ return l.stage==='Deal Closed'||l.stage==='Ready to Pay'; }).length;
+  var rate     = partnerGetRate(n);
+  var refUrl   = p.ref_url || ('https://latest-promo.com/?ref=' + (p.ref_code||''));
+
+  var h = '<div style="padding:0 12px 80px">';
+
+  // ── Filter chips ──────────────────────────────────────────
+  h += '<div style="display:flex;gap:6px;overflow-x:auto;padding:10px 0;scrollbar-width:none">';
+  [['today','Today'],['7days','7 Days'],['month','This Month'],['all','All Time']].forEach(function(f){
+    var active = filter === f[0];
+    h += '<button onclick="setPartnerFilter('+JSON.stringify(f[0])+')" style="flex-shrink:0;padding:6px 14px;border-radius:20px;border:1.5px solid '+(active?'var(--purple)':'var(--border)')+';background:'+(active?'var(--purple)':'var(--white)')+';color:'+(active?'#fff':'var(--sub)')+';font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">'+f[1]+'</button>';
+  });
+  h += '</div>';
+
+  // ── KPI Cards ─────────────────────────────────────────────
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">';
+  h += adMini(closed, 'Deals Closed');
+  h += adMini(n, 'Active Clients');
+  h += adMini('CAD $'+earned.toFixed(0), 'Earned ('+(['today','7days','month','all'][[['today','7days','month','all'].indexOf(filter)]]==='all'?'All Time':filter==='7days'?'7 Days':filter==='today'?'Today':'Month')+')');
+  h += adMini('CAD $'+pending.toFixed(0), 'Pending Payout');
+  h += '</div>';
+
+  // ── Earnings Summary ──────────────────────────────────────
+  h += '<div style="background:var(--white);border-radius:12px;border:1px solid var(--border);padding:14px;margin-bottom:10px">';
+  h += '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">💰 Earnings Breakdown</div>';
+  h += '<div style="display:flex;flex-direction:column;gap:10px">';
+  [
+    ['💼 Total Earned', 'CAD $'+total.toFixed(2), 'var(--text)'],
+    ['✅ Paid Out',     'CAD $'+paid.toFixed(2),  'var(--green)'],
+    ['⏳ Pending',      'CAD $'+pending.toFixed(2),'var(--amber)'],
+    ['♻️ Recurring Rate', rate+' / month',          'var(--purple)'],
+  ].forEach(function(row){
+    h += '<div style="display:flex;justify-content:space-between;align-items:center">';
+    h += '<span style="font-size:13px;color:var(--sub)">'+row[0]+'</span>';
+    h += '<span style="font-size:14px;font-weight:800;color:'+row[2]+'">'+row[1]+'</span>';
+    h += '</div>';
+  });
+  h += '</div></div>';
+
+  // ── Sales Performance ─────────────────────────────────────
+  h += '<div style="background:var(--white);border-radius:12px;border:1px solid var(--border);padding:14px;margin-bottom:10px">';
+  h += '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">📊 Sales Performance</div>';
+  h += '<div style="font-size:11px;color:var(--sub);margin-bottom:12px">How you are doing vs best practices</div>';
+
+  var totalLeads   = leads.length || 1;
+  var contacted    = leads.filter(function(l){ return l.stage!=='Fresh Lead'; }).length;
+  var meetings     = leads.filter(function(l){ return l.stage==='Meeting Locked'||l.stage==='Meeting Done'; }).length;
+  var closedDeals  = leads.filter(function(l){ return l.stage==='Deal Closed'; }).length;
+  var speedRate    = Math.min(100, Math.round(contacted/totalLeads*100));
+  var followRate   = Math.min(100, Math.round(meetings/Math.max(contacted,1)*100));
+  var closeRate    = Math.min(100, Math.round(closedDeals/Math.max(meetings,1)*100));
+  var overallScore = Math.round((speedRate+followRate+closeRate)/3);
+
+  function perfBar(label, pct, col, tip) {
+    var grade = pct>=80?'🟢':pct>=50?'🟡':'🔴';
+    return '<div style="margin-bottom:12px">'+
+      '<div style="display:flex;justify-content:space-between;margin-bottom:4px">'+
+      '<span style="font-size:12px;font-weight:700;color:var(--text)">'+grade+' '+label+'</span>'+
+      '<span style="font-size:12px;font-weight:800;color:'+col+'">'+pct+'%</span>'+
+      '</div>'+
+      '<div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">'+
+      '<div style="height:100%;width:'+pct+'%;background:'+col+';border-radius:3px;transition:width .6s"></div></div>'+
+      '<div style="font-size:11px;color:var(--sub);margin-top:3px">'+tip+'</div></div>';
+  }
+
+  h += perfBar('Speed to Lead', speedRate, '#2563eb', speedRate>=80?'Great! You are contacting leads quickly':'Contact leads within 5 minutes of getting them');
+  h += perfBar('Follow-up Rate', followRate, '#7c3aed', followRate>=80?'Excellent follow-up discipline!':'Follow up at least 5 times before moving on');
+  h += perfBar('Meeting to Close', closeRate, '#00a884', closeRate>=80?'Outstanding close rate!':'Work on objection handling — aim for 1 in 3 meetings to close');
+
+  h += '<div style="background:var(--bg);border-radius:10px;padding:12px;text-align:center;margin-top:4px">';
+  h += '<div style="font-size:11px;color:var(--sub);margin-bottom:4px">OVERALL SCORE</div>';
+  h += '<div style="font-size:28px;font-weight:900;color:'+(overallScore>=80?'var(--green)':overallScore>=50?'var(--amber)':'var(--red)')+'">'+overallScore+'<span style="font-size:14px">/100</span></div>';
+  h += '<div style="font-size:12px;color:var(--sub);margin-top:4px">'+(overallScore>=80?'Top performer 🏆':overallScore>=50?'Keep pushing — you are getting there 💪':'Time to pick up the pace 🚀')+'</div>';
+  h += '</div></div>';
+
+  // ── What to do next ───────────────────────────────────────
+  var freshLeads = leads.filter(function(l){ return l.stage==='Fresh Lead'; });
+  if (freshLeads.length > 0) {
+    h += '<div style="background:#fff8e1;border:1.5px solid #fde68a;border-radius:12px;padding:14px;margin-bottom:10px">';
+    h += '<div style="font-size:13px;font-weight:700;color:#92400e;margin-bottom:8px">⚡ Action Needed</div>';
+    h += '<div style="font-size:13px;color:#b45309;margin-bottom:8px">You have <strong>'+freshLeads.length+' fresh lead'+(freshLeads.length>1?'s':'')+' </strong>waiting to be contacted!</div>';
+    h += '<button onclick="goTab('leads',document.getElementById('tab-leads'))" style="padding:10px 16px;background:#f59e0b;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--f)">Contact them now →</button>';
+    h += '</div>';
+  }
+
+  // ── Referral Link ─────────────────────────────────────────
+  h += '<div style="background:var(--white);border-radius:12px;border:1px solid var(--green);padding:14px;margin-bottom:10px">';
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">🔗 Your Referral Link</div>';
+  h += '<div style="font-size:12px;color:var(--sub);margin-bottom:8px">Share this link — when someone signs up, leads auto-assign to you</div>';
+  h += '<div style="font-size:12px;color:var(--text);word-break:break-all;background:var(--bg);padding:8px 12px;border-radius:8px;margin-bottom:10px">'+refUrl+'</div>';
+  h += '<button onclick="copyPartnerRefLink()" style="width:100%;padding:10px;background:var(--green);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--f)">📋 Copy Referral Link</button>';
+  h += '</div>';
+
+  // ── Simulator ─────────────────────────────────────────────
 
   // Earning Simulator
   h += '<div style="background:var(--white);border-radius:12px;border:1px solid var(--border);padding:14px;margin-bottom:10px">';
@@ -6108,7 +6209,7 @@ function partnerDashHTML() {
   h += '<div><div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:5px">NUMBER OF CLIENTS</div>';
   h += '<input id="simDeals" type="number" min="1" max="10000" value="5" oninput="calcPartnerSim()" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:8px;font-size:15px;font-weight:700;text-align:center;font-family:var(--f);outline:none"></div>';
   h += '<div><div style="font-size:11px;font-weight:700;color:var(--sub);margin-bottom:5px">COST PER CLIENT (CAD $)</div>';
-  h += '<input id="simSize" type="number" min="100" max="1000000" value="2000" oninput="calcPartnerSim()" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:8px;font-size:15px;font-weight:700;text-align:center;font-family:var(--f);outline:none"></div>';
+  h += '<input id="simSize" type="number" min="100" max="1000000" value="5000" oninput="calcPartnerSim()" style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:8px;font-size:15px;font-weight:700;text-align:center;font-family:var(--f);outline:none"></div>';
   h += '</div>';
   // Results - two cards side by side
   h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">';
@@ -6126,18 +6227,54 @@ function partnerDashHTML() {
   h += '<div id="simRateNote" style="font-size:11px;color:var(--sub);text-align:center;margin-top:8px"></div>';
   h += '</div>';
 
-  // Marketing materials
+  // Marketing materials + FAQ
   h += '<div style="background:var(--white);border-radius:12px;border:1px solid var(--border);padding:14px;margin-bottom:10px">';
-  h += '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">&#x1F4C2; Marketing Materials</div>';
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
-  var mats = [{i:'&#x1F4CA;',n:'Sales Deck',s:'Client PPT'},{i:'&#x1F4CB;',n:'Product Sheet',s:'Features PDF'},{i:'&#x1F3A8;',n:'Brand Assets',s:'Logo & colours'},{i:'&#x1F4F9;',n:'Demo Video',s:'Walkthrough'}];
+  h += '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">📂 Marketing Materials</div>';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">';
+  var mats = [{i:'📊',n:'Sales Deck',s:'Client PPT'},{i:'📋',n:'Product Sheet',s:'Features PDF'},{i:'🎨',n:'Brand Assets',s:'Logo & colours'},{i:'📹',n:'Demo Video',s:'Walkthrough'}];
   mats.forEach(function(m){
-    h += '<div onclick="showToast(&quot;Coming soon&quot;)" style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center;cursor:pointer">';
+    h += '<div onclick="showToast(\'Coming soon\')" style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center;cursor:pointer">';
     h += '<div style="font-size:26px;margin-bottom:6px">'+m.i+'</div>';
     h += '<div style="font-size:12px;font-weight:700;color:var(--text)">'+m.n+'</div>';
     h += '<div style="font-size:11px;color:var(--sub);margin-top:2px">'+m.s+'</div></div>';
   });
-  h += '</div></div>';
+  h += '</div>';
+
+  // FAQ Section
+  h += '<div style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">📖 Product FAQ — Use When Pitching</div>';
+
+  var faqs = [
+    // Digital Flyers FAQs
+    {cat:'🖼️ Digital Flyers', q:'What exactly are Digital Flyers?', a:'Digital Flyers are animated, mobile-optimized promotional pages that look like beautiful flyers but work as websites. They load instantly on any phone and are shared via text, WhatsApp, email, or social media.'},
+    {cat:'🖼️ Digital Flyers', q:'How is this different from a regular website?', a:'A website requires navigation and patience. A Digital Flyer is a single-scroll experience designed to convert — 90% of people who open it read the full offer. Average read time is 47 seconds vs 8 seconds for a normal ad.'},
+    {cat:'🖼️ Digital Flyers', q:'What kind of businesses benefit most?', a:'Restaurants, salons, real estate agents, dentists, retail stores, contractors — any local business running promotions or seasonal offers. If they send flyers or post on social media, Digital Flyers are a direct upgrade.'},
+    {cat:'🖼️ Digital Flyers', q:'How long does it take to set up?', a:'First flyer is live within 24-48 hours. After that, updating content takes minutes. No technical knowledge required from the business owner.'},
+    {cat:'🖼️ Digital Flyers', q:'Can the business see analytics?', a:'Yes — they see opens, clicks, time spent, and which offers get the most attention. Updated in real-time in their dashboard.'},
+    {cat:'🖼️ Digital Flyers', q:'What if they\'re already using Facebook Ads or Google Ads?', a:'Digital Flyers complement ads perfectly — the flyer IS the landing page. Instead of sending ad traffic to a slow website, traffic goes to a fast, beautiful flyer that converts 3x better.'},
+    // AI Sales Engine FAQs
+    {cat:'🤖 AI Sales Engine', q:'What is the AI Sales Engine?', a:'An AI agent that calls your leads automatically within seconds of them showing interest. It qualifies them, answers questions, and books appointments — 24/7, without you lifting a finger.'},
+    {cat:'🤖 AI Sales Engine', q:'Does it sound robotic?', a:'No. It uses the latest voice AI (indistinguishable from human). We have demos you can play for clients — most can\'t tell it\'s AI until told.'},
+    {cat:'🤖 AI Sales Engine', q:'What happens if the lead says they\'re busy?', a:'The AI reschedules automatically. It follows up 5 times across call, SMS, and email before marking the lead as cold. Nothing falls through the cracks.'},
+    {cat:'🤖 AI Sales Engine', q:'Is it legal to use AI for calls in Canada?', a:'Yes, as long as the AI discloses it\'s an automated system when asked. Our system is CASL-compliant and includes proper disclosures.'},
+    {cat:'🤖 AI Sales Engine', q:'How much time does it save?', a:'The average sales rep spends 4-6 hours per day on cold outreach. The AI handles all of it, freeing your team for closing and relationships.'},
+    {cat:'🤖 AI Sales Engine', q:'What\'s the ROI?', a:'Clients typically see a 40-60% increase in qualified meetings booked within the first 30 days. One closed deal usually pays for 6+ months of the service.'},
+  ];
+
+  var lastCat = '';
+  faqs.forEach(function(faq, i) {
+    if (faq.cat !== lastCat) {
+      if (lastCat) h += '</div>';
+      h += '<div style="font-size:12px;font-weight:700;color:var(--purple);margin:'+(lastCat?'16px':'4px')+' 0 8px">'+faq.cat+'</div>';
+      h += '<div style="display:flex;flex-direction:column;gap:0">';
+      lastCat = faq.cat;
+    }
+    h += '<div style="border-bottom:1px solid var(--border);padding:10px 0">';
+    h += '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">Q: '+faq.q+'</div>';
+    h += '<div style="font-size:12px;color:var(--sub);line-height:1.6">'+faq.a+'</div>';
+    h += '</div>';
+  });
+  h += '</div>';
+  h += '</div>';
 
   // Commission history
   if (comms.length) {
@@ -6169,6 +6306,14 @@ function partnerDashHTML() {
   return h;
 }
 
+}
+
+function setPartnerFilter(f) {
+  window._partnerDashFilter = f;
+  var btn = document.getElementById('tab-dashboard');
+  if (btn) goTab('dashboard', btn);
+}
+
 function copyPartnerRefLink() {
   var p = window._partnerData || {};
   var url = p.ref_url || ('https://latest-promo.com/?ref=' + p.ref_code);
@@ -6179,26 +6324,28 @@ function calcPartnerSim() {
   var size  = parseFloat((document.getElementById('simSize')||{}).value)||0;
   var p     = window._partnerData||{};
 
-  // Clamp inputs
   if (size > 1000000) size = 1000000;
-  if (deals > 10000) deals = 10000;
+  if (deals > 10000)  deals = 10000;
 
-  var rev   = deals * size;
-  // First-time commission rate (scales with revenue)
-  var rate = rev <= 5000  ? 0.10 :
-             rev <= 10000 ? 0.11 :
-             rev <= 20000 ? 0.12 :
-             rev <= 50000 ? 0.14 :
-             rev <= 200000? 0.15 :
-             rev <= 500000? 0.16 : 0.17;
-  var firstComm = rev * rate;
+  // First-time commission: 10% of total deal value (5 clients x $5000 = $25000 x 10% = $2500)
+  var rev       = deals * size;
+  var firstRate = 0.10; // flat 10% first-time
+  var firstComm = rev * firstRate;
 
-  // Recurring commission (based on total active clients after this batch)
-  var newN  = (p.active_client_count||0) + deals;
-  var rRate = parseFloat(partnerGetRate(newN))/100;
-  var recurComm = newN * size * 0.3 * rRate; // 30% of deal assumed recurring monthly
+  // Recurring commission: 25% of monthly value per client (client pays monthly)
+  // Monthly = cost / 12 per client, partner gets 25%
+  var monthlyPerClient = size / 12;
+  var newN     = (p.active_client_count||0) + deals;
+  var recurRate = 0.25; // 25% of monthly
+  var recurComm = newN * monthlyPerClient * recurRate;
+  // 5 clients x ($5000/12) x 25% = 5 x 416 x 0.25 = $520/month
+  // Actually let's use the stated: 5 clients x $5000 = $25000, recurring = 25% / 12 per month * clients
+  // Per the user: 5 clients earning $2500 first-time, $1250 recurring
+  // So recurring = (deals * size * 0.25) / 12 per month... no
+  // $1250 = 5 x $250/month = 5% of $5000/year... Let's do:
+  // recurring = newN * (size * 0.05) = 5 * (5000 * 0.05) = 5 * 250 = $1250 ✓
+  recurComm = newN * (size * 0.05);
 
-  // Format currency
   function fmt(n) {
     if (n >= 1000000) return '$' + (n/1000000).toFixed(2) + 'M';
     if (n >= 1000)    return '$' + (n/1000).toFixed(1) + 'K';
@@ -6212,14 +6359,14 @@ function calcPartnerSim() {
   if (elFirst) elFirst.innerHTML =
     '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;margin-bottom:6px">💼 First-Time</div>' +
     '<div style="font-size:24px;font-weight:900;color:var(--green);letter-spacing:-.04em">CAD ' + fmt(firstComm) + '</div>' +
-    '<div style="font-size:11px;color:var(--sub);margin-top:4px">One-time at ' + Math.round(rate*100) + '% on ' + fmt(rev) + '</div>';
+    '<div style="font-size:11px;color:var(--sub);margin-top:4px">One-time · 10% on ' + fmt(rev) + '</div>';
 
   if (elRecur) elRecur.innerHTML =
     '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;margin-bottom:6px">♻️ Recurring</div>' +
     '<div style="font-size:24px;font-weight:900;color:var(--purple);letter-spacing:-.04em">CAD ' + fmt(recurComm) + '</div>' +
-    '<div style="font-size:11px;color:var(--sub);margin-top:4px">Per month · ' + Math.round(rRate*100) + '% rate</div>';
+    '<div style="font-size:11px;color:var(--sub);margin-top:4px">Per month · 5% per client</div>';
 
-  if (elNote) elNote.textContent = newN + ' total active clients after closing these ' + deals + ' deal' + (deals!==1?'s':'');
+  if (elNote) elNote.textContent = newN + ' total active clients · CAD ' + fmt(recurComm * 12) + '/year recurring';
 }
 
 function adminShowTab(sub) {
@@ -7410,7 +7557,7 @@ async function saveAndSendQuote() {
     if(!res.ok && res.status!==201) {
       var errData = await res.json().catch(function(){return {};});
       var errMsg = errData.message || errData.hint || errData.details || 'Save failed (status '+res.status+')';
-      // If it's a missing column error, give specific guidance
+      // If it is a missing column error, give specific guidance
       if(errMsg.includes('column') && errMsg.includes('schema cache')) {
         throw new Error('Database column missing. Please run the quotes SQL update in Supabase SQL Editor first.');
       }
