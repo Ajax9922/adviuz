@@ -1627,61 +1627,63 @@ async function sbAdmin(path, opts) {
 // ── Security: XSS Sanitizer ──────────────────────────────────
 function sanitize(str) {
   if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#x27;')
-    .replace(/\//g, '&#x2F;');
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#x27;').replace(/\//g,'&#x2F;');
 }
 
 // ── Security: Login Rate Limiter ─────────────────────────────
-var _loginAttempts = 0;
-var _loginLockedUntil = 0;
-var MAX_LOGIN_ATTEMPTS = 5;
-var LOGIN_LOCKOUT_MS   = 15 * 60 * 1000;
+var _loginAttempts=0,_loginLockedUntil=0,MAX_LOGIN_ATTEMPTS=5,LOGIN_LOCKOUT_MS=900000;
+function checkLoginRateLimit(){var now=Date.now();if(_loginLockedUntil>now){var m=Math.ceil((_loginLockedUntil-now)/60000);return 'Too many failed attempts. Try again in '+m+' minute'+(m!==1?'s':'')+'.';}return null;}
+function recordLoginFailure(){_loginAttempts++;if(_loginAttempts>=MAX_LOGIN_ATTEMPTS){_loginLockedUntil=Date.now()+LOGIN_LOCKOUT_MS;_loginAttempts=0;}}
+function resetLoginAttempts(){_loginAttempts=0;_loginLockedUntil=0;}
 
-function checkLoginRateLimit() {
-  var now = Date.now();
-  if (_loginLockedUntil > now) {
-    var mins = Math.ceil((_loginLockedUntil - now) / 60000);
-    return 'Too many failed attempts. Try again in ' + mins + ' minute' + (mins !== 1 ? 's' : '') + '.';
-  }
-  return null;
+// ── Security: Session Timeout (8 hours) ──────────────────────
+var SESSION_TIMEOUT_MS=28800000,_lastActivityAt=Date.now(),_sessionTimeoutIv=null;
+function touchActivity(){_lastActivityAt=Date.now();}
+function startSessionTimeoutWatch(){
+  if(_sessionTimeoutIv)clearInterval(_sessionTimeoutIv);
+  _sessionTimeoutIv=setInterval(function(){
+    if(Date.now()-_lastActivityAt>SESSION_TIMEOUT_MS){clearInterval(_sessionTimeoutIv);alert('Session expired. Please sign in again.');try{sessionStorage.clear();}catch(e){}location.reload();}
+  },300000);
 }
-function recordLoginFailure() {
-  _loginAttempts++;
-  if (_loginAttempts >= MAX_LOGIN_ATTEMPTS) {
-    _loginLockedUntil = Date.now() + LOGIN_LOCKOUT_MS;
-    _loginAttempts = 0;
-  }
-}
-function resetLoginAttempts() { _loginAttempts = 0; _loginLockedUntil = 0; }
+['click','keydown','touchstart','scroll'].forEach(function(ev){document.addEventListener(ev,touchActivity,{passive:true});});
 
-// ── Security: Session Timeout (8 hours inactivity) ───────────
-var SESSION_TIMEOUT_MS = 8 * 60 * 60 * 1000;
-var _lastActivityAt    = Date.now();
-var _sessionTimeoutIv  = null;
-
-function touchActivity() { _lastActivityAt = Date.now(); }
-
-function startSessionTimeoutWatch() {
-  if (_sessionTimeoutIv) clearInterval(_sessionTimeoutIv);
-  _sessionTimeoutIv = setInterval(function() {
-    if (Date.now() - _lastActivityAt > SESSION_TIMEOUT_MS) {
-      clearInterval(_sessionTimeoutIv);
-      alert('Session expired — please sign in again');
-      sessionStorage.clear();
-      localStorage.removeItem('adviuz_master_session');
-      location.reload();
-    }
-  }, 5 * 60 * 1000);
+// ── Audit Logging ─────────────────────────────────────────────
+async function _auditAdminLog(action,resource,rid,details,status){
+  try{await fetch(SB_URL+'/rest/v1/audit_log',{method:'POST',headers:{'apikey':SB_ANON,'Authorization':'Bearer '+(ADMIN_JWT||SB_ANON),'Content-Type':'application/json','Prefer':'return=minimal'},body:JSON.stringify({user_role:'admin',action:action,resource:resource||null,resource_id:rid?String(rid):null,details:details||null,user_agent:navigator.userAgent.slice(0,200),status:status||'success'})});}catch(e){}
 }
 
-['click','keydown','touchstart','scroll'].forEach(function(ev) {
-  document.addEventListener(ev, touchActivity, { passive: true });
-});
+// ── 2FA via Email OTP ─────────────────────────────────────────
+var _2fa_pending_data=null,_2fa_code=null,_2fa_expires=0;
+async function send2FACode(email){
+  _2fa_code=String(Math.floor(100000+Math.random()*900000));
+  _2fa_expires=Date.now()+600000;
+  try{await fetch(SB_URL+'/functions/v1/send-email',{method:'POST',headers:{'apikey':SB_ANON,'Content-Type':'application/json','Authorization':'Bearer '+SB_ANON},body:JSON.stringify({to:email,subject:'Adviuz Admin - 2FA Code',html:'<div style="font-family:Arial,sans-serif;max-width:400px;margin:0 auto"><h2 style="color:#7c3aed">Admin Login Verification</h2><p>Your 2FA code:</p><div style="font-size:36px;font-weight:900;letter-spacing:8px;background:#f5f3ff;padding:20px;border-radius:12px;text-align:center;margin:16px 0">'+_2fa_code+'</div><p style="color:#6b7280;font-size:13px">Expires in 10 minutes.</p></div>'})});}catch(e){console.error('[2FA] Failed:',e.message);}
+}
+function show2FAScreen(){
+  var overlay=document.getElementById('adminLoginOverlay');if(!overlay)return;
+  var div=document.createElement('div');
+  div.style.cssText='display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0F0F0F';
+  div.innerHTML='<div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:16px;padding:40px 32px;width:100%;max-width:360px;text-align:center"><div style="font-size:40px;margin-bottom:16px">&#x1F510;</div><h2 style="color:#fff;font-size:20px;font-weight:700;margin-bottom:8px">2-Factor Verification</h2><p style="color:#6b7280;font-size:13px;margin-bottom:24px">A 6-digit code was sent to your email</p><input id="twofa_input" type="text" maxlength="6" placeholder="000000" autocomplete="one-time-code" style="width:100%;padding:16px;border-radius:10px;border:1.5px solid #2a2a2a;background:#111;color:#fff;font-size:28px;letter-spacing:8px;text-align:center;font-family:monospace;margin-bottom:12px"><div id="twofa_err" style="color:#f87171;font-size:13px;margin-bottom:12px;display:none"></div><button id="twofa_btn" style="width:100%;padding:14px;border-radius:10px;background:#7c3aed;color:#fff;border:none;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:12px">Verify &#x2192;</button><button onclick="location.reload()" style="background:none;border:none;color:#6b7280;font-size:13px;cursor:pointer">&#x2190; Back to login</button></div>';
+  overlay.innerHTML='';overlay.appendChild(div);
+  setTimeout(function(){var el=document.getElementById('twofa_input'),btn=document.getElementById('twofa_btn');if(el){el.focus();el.addEventListener('input',function(){this.value=this.value.replace(/[^0-9]/g,'').slice(0,6);});el.addEventListener('keydown',function(e){if(e.key==='Enter')verify2FA();});}if(btn)btn.addEventListener('click',verify2FA);},100);
+}
+async function verify2FA(){
+  var input=(document.getElementById('twofa_input')||{}).value||'';
+  var err=document.getElementById('twofa_err');if(!err)return;
+  if(Date.now()>_2fa_expires){err.textContent='Code expired. Please log in again.';err.style.display='block';setTimeout(function(){location.reload();},2000);return;}
+  if(input.trim()!==_2fa_code){recordLoginFailure();err.textContent='Invalid code. Please try again.';err.style.display='block';return;}
+  err.style.display='none';
+  var data=_2fa_pending_data;
+  ADMIN_JWT=data.access_token;window._adminRefreshToken=data.refresh_token;
+  try{sessionStorage.setItem('adviuz_admin_jwt',data.access_token);sessionStorage.setItem('adviuz_admin_rt',data.refresh_token);}catch(e){}
+  setTimeout(refreshAdminToken,((data.expires_in||3600)-60)*1000);
+  document.getElementById('adminLoginOverlay').style.display='none';
+  document.getElementById('adminApp').style.display='flex';
+  _auditAdminLog('admin_login_2fa','admin',null,{email:data.user&&data.user.email},'success');
+  resetLoginAttempts();startSessionTimeoutWatch();loadAdminData();startAdminAutoRefresh();
+  try{var lp=sessionStorage.getItem('adviuz_admin_panel');if(lp&&document.getElementById('panel-'+lp))showPanel(lp);}catch(e){}
+  _2fa_pending_data=null;_2fa_code=null;
+}
 
 async function doAdminLogin() {
   const email = document.getElementById('adminLoginEmail').value.trim();
@@ -1700,10 +1702,7 @@ async function doAdminLogin() {
     });
     const data = await r.json();
     if (!r.ok) {
-      err.textContent = data.error_description || 'Invalid credentials.';
-      err.style.display = 'block';
-      btn.textContent = 'Sign in'; btn.disabled = false;
-      return;
+      err.textContent=data.error_description||'Invalid credentials.';err.style.display='block';btn.textContent='Sign in';btn.disabled=false;recordLoginFailure();_auditAdminLog('admin_login_failed','admin',null,{email:email},'failed');return;
     }
     // Verify this is the admin UUID
     if (data.user.id !== ADMIN_UUID) {
@@ -1712,27 +1711,7 @@ async function doAdminLogin() {
       btn.textContent = 'Sign in'; btn.disabled = false;
       return;
     }
-    // Store JWT — sessionStorage survives refresh but not tab close
-    ADMIN_JWT = data.access_token;
-    window._adminRefreshToken = data.refresh_token;
-    try { 
-      sessionStorage.setItem('adviuz_admin_jwt', data.access_token);
-      sessionStorage.setItem('adviuz_admin_rt', data.refresh_token);
-    } catch(e) {}
-    // Schedule token refresh before it expires (default 1 hour)
-    const expiresIn = (data.expires_in || 3600) - 60; // refresh 60s early
-    setTimeout(refreshAdminToken, expiresIn * 1000);
-    // Hide login, show app
-    document.getElementById('adminLoginOverlay').style.display = 'none';
-    document.getElementById('adminApp').style.display = 'flex';
-    // Load all data now that we have a valid JWT
-    loadAdminData();
-    startAdminAutoRefresh();
-    // Restore last active panel
-    try {
-      var lastPanel = sessionStorage.getItem('adviuz_admin_panel');
-      if (lastPanel && document.getElementById('panel-' + lastPanel)) showPanel(lastPanel);
-    } catch(e) {}
+    _2fa_pending_data=data;btn.textContent='Sending code...';_auditAdminLog('admin_login_attempt','admin',null,{email:email},'pending_2fa');await send2FACode(email);show2FAScreen();
   } catch(e) {
     err.textContent = 'Network error. Check your connection.';
     err.style.display = 'block';
