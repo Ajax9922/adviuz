@@ -4996,14 +4996,29 @@ async function saveNewLead(){
     note: '', ok: true, t: 'just now', col: COLORS[nxtId%COLORS.length]
   };
 
-  // Duplicate check by phone
+  // Duplicate check — local first, then DB
   var cleanPh = ph.replace(/[^0-9]/g,'');
   var dup = null, dupReason = '';
+
   var phoneMatch = leads.find(function(l){ return l.ph.replace(/[^0-9]/g,'') === cleanPh; });
   if(phoneMatch){ dup=phoneMatch; dupReason='Same phone number: '+ph; }
   if(!dup && em) {
     var emailMatch = leads.find(function(l){ return l.em && l.em.toLowerCase()===em.toLowerCase(); });
     if(emailMatch){ dup=emailMatch; dupReason='Same email: '+em; }
+  }
+
+  // If not found locally, check DB (catches cross-partner duplicates)
+  if (!dup) {
+    try {
+      var dbCheck = await sbFetch('/rest/v1/leads?phone=eq.'+encodeURIComponent(ph)+'&client_id=eq.'+window._clientId+'&limit=1');
+      if (dbCheck.ok) {
+        var dbMatches = await dbCheck.json();
+        if (dbMatches.length) {
+          dup = { name: dbMatches[0].name||dbMatches[0].company, ph: dbMatches[0].phone, em: dbMatches[0].email, stage: dbMatches[0].stage||'Fresh Lead', t: 'existing', col: '#7c3aed' };
+          dupReason = 'Phone already in system: ' + ph;
+        }
+      }
+    } catch(e) { console.warn('[dupCheck]', e.message); }
   }
   if(dup) { pendingNewLead=lead; showDuplicate(dup, dupReason); return; }
 
