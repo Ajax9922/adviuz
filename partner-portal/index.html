@@ -71,6 +71,66 @@ body{font-family:var(--f);background:linear-gradient(160deg,var(--navy) 0%,#1e3a
 </div>
 
 <script>
+
+// ── Security: XSS Sanitizer ──────────────────────────────────
+function sanitize(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+    .replace(/\//g, '&#x2F;');
+}
+
+// ── Security: Login Rate Limiter ─────────────────────────────
+var _loginAttempts = 0;
+var _loginLockedUntil = 0;
+var MAX_LOGIN_ATTEMPTS = 5;
+var LOGIN_LOCKOUT_MS   = 15 * 60 * 1000;
+
+function checkLoginRateLimit() {
+  var now = Date.now();
+  if (_loginLockedUntil > now) {
+    var mins = Math.ceil((_loginLockedUntil - now) / 60000);
+    return 'Too many failed attempts. Try again in ' + mins + ' minute' + (mins !== 1 ? 's' : '') + '.';
+  }
+  return null;
+}
+function recordLoginFailure() {
+  _loginAttempts++;
+  if (_loginAttempts >= MAX_LOGIN_ATTEMPTS) {
+    _loginLockedUntil = Date.now() + LOGIN_LOCKOUT_MS;
+    _loginAttempts = 0;
+  }
+}
+function resetLoginAttempts() { _loginAttempts = 0; _loginLockedUntil = 0; }
+
+// ── Security: Session Timeout (8 hours inactivity) ───────────
+var SESSION_TIMEOUT_MS = 8 * 60 * 60 * 1000;
+var _lastActivityAt    = Date.now();
+var _sessionTimeoutIv  = null;
+
+function touchActivity() { _lastActivityAt = Date.now(); }
+
+function startSessionTimeoutWatch() {
+  if (_sessionTimeoutIv) clearInterval(_sessionTimeoutIv);
+  _sessionTimeoutIv = setInterval(function() {
+    if (Date.now() - _lastActivityAt > SESSION_TIMEOUT_MS) {
+      clearInterval(_sessionTimeoutIv);
+      alert('Session expired — please sign in again');
+      sessionStorage.clear();
+      localStorage.removeItem('adviuz_master_session');
+      location.reload();
+    }
+  }, 5 * 60 * 1000);
+}
+
+['click','keydown','touchstart','scroll'].forEach(function(ev) {
+  document.addEventListener(ev, touchActivity, { passive: true });
+});
+
 var SB='https://crhvvfomwkrgwlnfruad.supabase.co';
 var AK='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 var _email='',_tTO=null;
@@ -110,8 +170,9 @@ async function verifyCode(){
 
     // Save session in master file format
     var sess=JSON.stringify({token:d.access_token,refresh:d.refresh_token||'',user:d.user,role:'sales_partner',remember:true,savedAt:Date.now()});
-    localStorage.setItem('adviuz_master_session',sess);
     sessionStorage.setItem('adviuz_master_session',sess);
+    var minSess=JSON.stringify({refresh:d.refresh_token||'',role:'sales_partner',remember:true,savedAt:Date.now()});
+    localStorage.setItem('adviuz_master_session',minSess);
 
     show('s3');
     setTimeout(function(){window.location.href='https://latest-promo.com/master/';},800);
