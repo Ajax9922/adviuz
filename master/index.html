@@ -2078,7 +2078,7 @@ Dr. Sarah
 <div class="sheet-ov" id="dupSh" onclick="if(event.target===this)closeSheet('dupSh')">
   <div class="sheet"><div class="sheet-handle"></div>
     <div class="sheet-head">
-      <div class="sheet-title">&#x26A0;&#xFE0F; Duplicate Found</div>
+      <div class="sheet-title">⚠️ Lead Already Exists</div>
       <button class="sheet-x" onclick="closeSheet('dupSh')">&#x2715;</button>
     </div>
     <div class="sh-body">
@@ -2086,13 +2086,14 @@ Dr. Sarah
         <div style="font-size:13px;font-weight:700;color:#92400e;margin-bottom:4px">A lead with this information already exists</div>
         <div style="font-size:12px;color:#b45309" id="dupReason">Same phone number found</div>
       </div>
-      <div style="font-size:12px;font-weight:700;color:var(--sub);letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px">Existing Lead</div>
-      <div id="dupExisting" style="background:var(--bg);border-radius:12px;padding:14px;margin-bottom:16px;cursor:pointer" onclick="openDupLead()">
+      <div style="background:var(--bg);border-radius:12px;padding:14px;margin-bottom:16px">
+        <div style="font-size:12px;font-weight:700;color:var(--sub);margin-bottom:8px">This lead is already in our system and being worked on.</div>
+        <div style="font-size:13px;color:var(--text)">You can request approval to be assigned this lead. Our team will review and notify you of the decision.</div>
       </div>
-      <div style="font-size:13px;color:var(--sub);margin-bottom:16px">What would you like to do?</div>
       <div style="display:flex;flex-direction:column;gap:10px">
-        <button onclick="openDupLead()" class="btn btn-dark" style="justify-content:center">&#x1F440; View Existing Lead</button>
-        <button onclick="saveAnywayDup()" class="btn btn-ghost" style="justify-content:center;color:var(--sub)">Add as New Lead Anyway</button>
+        <button onclick="sendLeadApprovalRequest()" class="btn btn-primary" style="justify-content:center;background:var(--purple)">
+          📋 Send for Approval
+        </button>
         <button onclick="closeSheet('dupSh')" class="btn btn-ghost" style="justify-content:center">Cancel</button>
       </div>
     </div>
@@ -4950,17 +4951,44 @@ function showDuplicate(dup, reason) {
   openSheet('dupSh');
 }
 
-function openDupLead() {
-  closeSheet('dupSh');
-  if(window._dupLead) openLead(window._dupLead.id);
-}
+async function sendLeadApprovalRequest() {
+  var p    = window._partnerData;
+  var lead = pendingNewLead;
+  if (!lead) { closeSheet('dupSh'); return; }
 
-async function saveAnywayDup() {
-  closeSheet('dupSh');
-  if(pendingNewLead) {
-    await doSaveLead(pendingNewLead);
-    pendingNewLead = null;
+  var btn = document.querySelector('#dupSh .btn-primary');
+  if (btn) { btn.textContent = 'Sending...'; btn.disabled = true; }
+
+  try {
+    var res = await sbFetch('/rest/v1/lead_approval_requests', {
+      method: 'POST',
+      body: JSON.stringify({
+        partner_id:    p ? p.id   : null,
+        partner_name:  p ? (p.full_name||p.name||p.email) : null,
+        partner_email: p ? p.email : (window.currentUser && window.currentUser.email),
+        lead_name:     lead.name  || lead.company || '',
+        lead_phone:    lead.ph    || '',
+        lead_email:    lead.em    || '',
+        lead_company:  lead.company || '',
+        reason:        document.getElementById('dupReason') ? document.getElementById('dupReason').textContent : 'Duplicate found',
+        status:        'pending',
+        client_id:     window._clientId || null
+      })
+    });
+
+    if (res.ok) {
+      closeSheet('dupSh');
+      showToast('✅ Approval request sent! We will notify you once reviewed.');
+    } else {
+      var err = await res.json();
+      throw new Error(err.message || 'Failed to send request');
+    }
+  } catch(e) {
+    showToast('❌ ' + e.message);
+    if (btn) { btn.textContent = '📋 Send for Approval'; btn.disabled = false; }
   }
+  pendingNewLead = null;
+}
 }
 
 async function doSaveLead(lead) {
