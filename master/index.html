@@ -3653,7 +3653,30 @@ async function loadLeadActivity(localId, dbId) {
                 : type === 'call'         ? '📞 Call'
                 : type === 'assignment'   ? '👤 Assigned'
                 : rawBody.slice(0, 50);
-      return { type:type, label:label, time:row.created_at, body:body, rec:false, isInbound:type==='sms_received' };
+      // Duration string
+      var durSec = row.duration_seconds || 0;
+      var durStr = durSec > 0 ? Math.floor(durSec/60)+'m '+(durSec%60)+'s' : '—';
+      // Direction
+      var dir = (row.direction || '').toLowerCase();
+      var isInbound = dir === 'inbound' || type === 'sms_received';
+      if (type === 'call') {
+        label = isInbound ? '📞 Inbound Call' : '📞 Outbound Call';
+      }
+      return {
+        type:         type,
+        label:        label,
+        time:         row.created_at,
+        body:         body,
+        rec:          !!row.recording_url,
+        recording_url: row.recording_url || null,
+        dur:          durStr,
+        duration_seconds: durSec,
+        call_sid:     row.call_sid || null,
+        direction:    dir,
+        callType:     isInbound ? 'inbound' : 'outbound',
+        isInbound:    isInbound,
+        summary:      row.ai_summary || row.summary || null
+      };
     });
 
     // Normalize activity_log (panel writes: type, label, body)
@@ -4013,7 +4036,12 @@ function renderLeadScreen(id) {
     h += '<span style="font-size:12px;color:var(--sub);font-family:monospace;font-weight:600">⏱ '+dur0+'</span>';
     h += '<span style="font-size:11px;color:var(--sub)">'+recentCall.time+'</span>';
     h += '</div></div>';
-    if (recentCall.rec) {
+    if (recentCall.rec && recentCall.recording_url) {
+      h += '<div style="display:flex;flex-direction:column;gap:8px;background:var(--bg);border-radius:12px;padding:12px 14px">';
+      h += '<audio id="recAudio0" src="'+recentCall.recording_url+'" preload="metadata" style="width:100%;border-radius:8px;outline:none" controls></audio>';
+      h += '<a href="'+recentCall.recording_url+'" download target="_blank" style="font-size:11px;color:var(--blue);font-weight:700;text-decoration:none;text-align:right">⬇ Download</a>';
+      h += '</div>';
+    } else if (recentCall.rec) {
       h += '<div style="display:flex;align-items:center;gap:12px;background:var(--bg);border-radius:12px;padding:12px 14px">';
       h += '<button id="recPlayBtn0" onclick="toggleDummyRec(0)" style="width:36px;height:36px;border-radius:50%;background:var(--red);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 8px rgba(220,38,38,.3)">';
       h += '<svg id="recPlayIco0" fill="white" viewBox="0 0 24 24" style="width:11px;height:11px;margin-left:2px"><polygon points="5,3 19,12 5,21"/></svg></button>';
@@ -5379,8 +5407,31 @@ function _makeCall(l) {
     call.on('accept',     function(){ if(s) s.textContent='Connected ✅'; startCallTimer(); });
     call.on('disconnect', function(){ 
       var dur = callSec;
+      var durStr = Math.floor(dur/60)+'m '+(dur%60)+'s';
       endCallSheet(); 
-      showToast('Call ended');
+      showToast('Call ended · '+durStr);
+      // ── Save call entry to activity_log ──
+      var callEntry = {
+        lead_id:    l.id,
+        db_lead_id: l.dbId,
+        client_id:  window._clientId,
+        type:       'call',
+        label:      '📞 Outbound Call',
+        body:       'Outbound call · Duration: '+durStr
+      };
+      logActivity(callEntry);
+      // Add to local activity immediately
+      if (!leadAct[l.id]) leadAct[l.id] = [];
+      leadAct[l.id].unshift({
+        type: 'call', label: '📞 Outbound Call',
+        time: 'Just now', body: 'Outbound call · Duration: '+durStr,
+        dur: durStr, rec: false, callType: 'outbound'
+      });
+      if (curLid === l.id) renderLeadScreen(l.id);
+      // Reload from DB after 3s (recording webhook may have saved data)
+      setTimeout(function(){
+        if (l.dbId) loadLeadActivity(l.id, l.dbId);
+      }, 3000);
       generateCallSummary(l, dur);
     });
     call.on('error',      function(e){ showToast('❌ '+e.message); endCallSheet(); });
@@ -5409,6 +5460,8 @@ function openCallSheet(name, ph) {
 
 function endCallSheet() {
   clearInterval(callIv); callIv=null; callSec=0; muted=false; activeCall=null;
+  var el = document.getElementById('callSh');
+  if (el) el.style.display = 'none';
   closeSheet('callSh');
 }
 
