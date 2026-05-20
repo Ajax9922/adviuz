@@ -2312,6 +2312,48 @@ Dr. Sarah
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
+
+// ── Security: Audit Logging ──────────────────────────────────
+var _auditQueue = [];
+var _auditFlushing = false;
+
+async function auditLog(action, resource, resourceId, details, status) {
+  status = status || 'success';
+  var entry = {
+    user_id:     currentUser ? currentUser.id : null,
+    user_email:  currentUser ? currentUser.email : null,
+    user_role:   window._staffRole || 'unknown',
+    action:      action,
+    resource:    resource    || null,
+    resource_id: resourceId  ? String(resourceId) : null,
+    details:     details     || null,
+    user_agent:  navigator.userAgent.slice(0, 200),
+    status:      status
+  };
+  _auditQueue.push(entry);
+  if (!_auditFlushing) flushAuditQueue();
+}
+
+async function flushAuditQueue() {
+  if (!_auditQueue.length || !authToken) return;
+  _auditFlushing = true;
+  var batch = _auditQueue.splice(0, 10);
+  try {
+    await fetch(SB_URL + '/rest/v1/audit_log', {
+      method: 'POST',
+      headers: {
+        'apikey': SB_ANON,
+        'Authorization': 'Bearer ' + authToken,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal'
+      },
+      body: JSON.stringify(batch.length === 1 ? batch[0] : batch)
+    });
+  } catch(e) { console.warn('[Audit] Failed:', e.message); }
+  _auditFlushing = false;
+  if (_auditQueue.length) setTimeout(flushAuditQueue, 1000);
+}
+
 // ── Security: XSS Sanitizer ──────────────────────────────────
 // Strips HTML tags and dangerous characters from user-supplied data
 function sanitize(str) {
@@ -2475,11 +2517,14 @@ async function doLogin() {
       console.log('[Login] Session saved. Role:', window._staffRole);
       resetLoginAttempts();
       startSessionTimeoutWatch();
+      auditLog('login', 'auth', currentUser&&currentUser.id, {email: currentUser&&currentUser.email, role: window._staffRole}, 'success');
       onLoginSuccess();
     } else {
       throw new Error('Login failed — no token received');
     }
   } catch(e) {
+    recordLoginFailure();
+    auditLog('login_failed', 'auth', null, {reason: e.message}, 'failed');
     err.textContent = e.message;
     err.classList.add('show');
     btn.disabled = false;
@@ -2698,6 +2743,7 @@ function onLoginSuccess() {
 }
 
 function doLogout() {
+  auditLog('logout', 'auth', currentUser&&currentUser.id, {email: currentUser&&currentUser.email});
   authToken = null;
   currentUser = null;
   if (_refreshTimer) clearTimeout(_refreshTimer);
@@ -4675,6 +4721,7 @@ async function saveEditedLead() {
 }
 
 async function deleteLead(id) {
+  auditLog('lead_delete', 'leads', id, {lead_id: id});
   if(!confirm('Delete this lead? This cannot be undone.')) return;
   var l = leads.find(function(x){return x.id===id});
   if(l && l.dbId) {
