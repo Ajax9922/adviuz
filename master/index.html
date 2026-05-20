@@ -7419,23 +7419,34 @@ async function startInstantMeeting(lid) {
   var partnerEmail = currentUser ? currentUser.email : '';
 
   try {
-    // Save meeting record
+    // Save meeting record — fields matched to exact DB schema
     var meetSaveRes = await sbFetch('/rest/v1/meetings', {
       method: 'POST',
       body: JSON.stringify({
-        lead_id: l.dbId || null,
-        client_id: window._clientId || null,
-        guest_name: l.name, guest_email: l.em || null,
-        guest_province: null, starts_at: now.toISOString(), ends_at: end.toISOString(),
-        duration_mins: 60, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        meeting_type: 'Digital Flyers', meet_link: null, status: 'scheduled',
-        reschedule_token: token, reschedule_count: 0,
-        partner_name: partnerName, partner_email: partnerEmail
+        lead_id:          l.dbId || null,
+        client_id:        window._clientId || null,
+        meeting_type:     'Digital Flyers',
+        scheduled_at:     now.toISOString(),
+        starts_at:        now.toISOString(),
+        ends_at:          end.toISOString(),
+        duration_mins:    60,
+        timezone:         Intl.DateTimeFormat().resolvedOptions().timeZone,
+        status:           'scheduled',
+        guest_name:       l.name,
+        guest_email:      l.em   || null,
+        guest_phone:      l.ph   || null,
+        guest_company:    l.company || null,
+        guest_province:   null,
+        partner_name:     partnerName,
+        partner_email:    partnerEmail,
+        reschedule_token: token,
+        reschedule_count: 0,
+        notes:            'Instant meeting'
       })
     });
     if (!meetSaveRes.ok) {
       var meetErr = await meetSaveRes.json().catch(function(){return{};});
-      console.error('[Meeting POST 400]', JSON.stringify(meetErr));
+      console.error('[Meeting POST error]', JSON.stringify(meetErr));
       showToast('DB error: ' + (meetErr.message || meetErr.hint || meetErr.code || meetSaveRes.status));
     }
 
@@ -7831,27 +7842,29 @@ async function saveMeetingCore(sendNow) {
   if (btn) { btn.textContent='Scheduling...'; btn.disabled=true; }
 
   try {
-    // Save to Supabase meetings table
+    // Save to Supabase meetings table — fields matched to exact DB schema
     var meetRes = await sbFetch('/rest/v1/meetings', {
       method:'POST',
       body: JSON.stringify({
-        lead_id:        leadDbId,
-        client_id:      window._clientId || null,
-        guest_name:     name,
-        guest_email:    email,
-        guest_province: prov,
-        starts_at:      startsAt.toISOString(),
-        ends_at:        endsAt.toISOString(),
-        duration_mins:  dur,
-        timezone:       'America/Regina',
-        meeting_type:   _meetingType,
-        meet_link:      null, // generated later by create-meeting
-        notes:          notes || null,
-        status:         sendNow ? 'scheduled' : 'draft',
+        lead_id:          leadDbId,
+        client_id:        window._clientId || null,
+        meeting_type:     _meetingType,
+        scheduled_at:     startsAt.toISOString(),
+        starts_at:        startsAt.toISOString(),
+        ends_at:          endsAt.toISOString(),
+        duration_mins:    dur,
+        timezone:         'America/Regina',
+        status:           sendNow ? 'scheduled' : 'draft',
+        guest_name:       name,
+        guest_email:      email   || null,
+        guest_phone:      null,
+        guest_company:    null,
+        guest_province:   prov    || null,
+        partner_name:     partnerName,
+        partner_email:    partnerEmail,
         reschedule_token: token,
         reschedule_count: 0,
-        partner_name:   partnerName,
-        partner_email:  partnerEmail
+        notes:            notes   || null
       })
     });
     var meetData = meetRes.ok ? await meetRes.json() : null;
