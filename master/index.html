@@ -5404,22 +5404,53 @@ function _makeCall(l) {
     }
   }).then(function(call) {
     activeCall = call;
-    call.on('accept',     function(){ if(s) s.textContent='Connected ✅'; startCallTimer(); });
+    var _actRowId = null; // tracks the lead_activity row for this call
+    call.on('accept', function(){
+      if(s) s.textContent = 'Connected ✅';
+      startCallTimer();
+      // ── Save lead_activity row with call_sid immediately ──
+      var callSid = (call.parameters && call.parameters.CallSid) || '';
+      if (l.dbId) {
+        sbFetch('/rest/v1/lead_activity', {
+          method: 'POST',
+          headers: { 'Prefer': 'return=representation' },
+          body: JSON.stringify({
+            lead_id:       l.dbId,
+            activity_type: 'call',
+            description:   'Outbound call',
+            call_sid:      callSid,
+            direction:     'outbound',
+            created_at:    new Date().toISOString()
+          })
+        }).then(function(r){
+          return r.json();
+        }).then(function(row){
+          if (row && row[0] && row[0].id) _actRowId = row[0].id;
+          console.log('[Call] lead_activity saved, id:', _actRowId, 'call_sid:', callSid);
+        }).catch(function(e){ console.warn('[Call] lead_activity save failed:', e); });
+      }
+    });
     call.on('disconnect', function(){ 
       var dur = callSec;
       var durStr = Math.floor(dur/60)+'m '+(dur%60)+'s';
       endCallSheet(); 
       showToast('Call ended · '+durStr);
-      // ── Save call entry to activity_log ──
-      var callEntry = {
+      // ── Update lead_activity row with duration ──
+      if (_actRowId) {
+        sbFetch('/rest/v1/lead_activity?id=eq.'+_actRowId, {
+          method: 'PATCH',
+          body: JSON.stringify({ duration_seconds: dur })
+        }).catch(function(e){ console.warn('[Call] duration update failed:', e); });
+      }
+      // ── Save to activity_log for timeline ──
+      logActivity({
         lead_id:    l.id,
         db_lead_id: l.dbId,
         client_id:  window._clientId,
         type:       'call',
         label:      '📞 Outbound Call',
         body:       'Outbound call · Duration: '+durStr
-      };
-      logActivity(callEntry);
+      });
       // Add to local activity immediately
       if (!leadAct[l.id]) leadAct[l.id] = [];
       leadAct[l.id].unshift({
@@ -5428,10 +5459,14 @@ function _makeCall(l) {
         dur: durStr, rec: false, callType: 'outbound'
       });
       if (curLid === l.id) renderLeadScreen(l.id);
-      // Reload from DB after 3s (recording webhook may have saved data)
+      // Reload from DB after 5s — recording webhook needs time to fire
       setTimeout(function(){
         if (l.dbId) loadLeadActivity(l.id, l.dbId);
-      }, 3000);
+      }, 5000);
+      // Reload again after 30s in case recording takes longer
+      setTimeout(function(){
+        if (l.dbId) loadLeadActivity(l.id, l.dbId);
+      }, 30000);
       generateCallSummary(l, dur);
     });
     call.on('error',      function(e){ showToast('❌ '+e.message); endCallSheet(); });
