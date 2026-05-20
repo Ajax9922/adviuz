@@ -1582,7 +1582,7 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
       <!-- Hidden fields with defaults -->
       <input type="hidden" id="aFn" value="Lead">
       <input type="hidden" id="aLn" value="">
-      <select id="aSrc" style="display:none"><option selected>Manual</option></select>
+      <select id="aSrc" style="display:none"><option value="Manual Entry" selected>Manual Entry</option></select>
       <select id="aStg" style="display:none"><option selected>Fresh Lead</option></select>
       <select id="aSvc" style="display:none"><option selected value="">Digital Flyers</option></select>
       <textarea id="aNt" style="display:none"></textarea>
@@ -2153,6 +2153,7 @@ Dr. Sarah
       <div class="fg2">
         <div><label class="flbl">Source</label>
           <select class="fsel" id="ef-src">
+            <option value="Manual">Manual Entry</option>
             <option>Facebook Ad</option><option>Google Ad</option>
             <option>Organic</option><option>Referral</option>
             <option>Walk-in</option><option>Other</option>
@@ -4359,8 +4360,46 @@ function lsAddNote(lid){
   var noteText = el.value.trim();
   var l = leads.find(function(x){return x.id===lid});
 
+  // Prevent double-save (debounce)
+  var btn = el.nextElementSibling;
+  if (btn && btn.disabled) return;
+  if (btn) { btn.disabled = true; setTimeout(function(){ if(btn) btn.disabled=false; }, 2000); }
+
   // Add to local activity immediately
   if(!leadAct[lid]) leadAct[lid]=[];
+  leadAct[lid].unshift({type:'note',label:'📝 Note',time:'Just now',body:noteText,rec:false});
+
+  // Update local lead note
+  if(l) l.note = noteText;
+
+  el.value='';
+  showToast('✅ Note saved');
+
+  // Only re-render the activity section, not the whole screen
+  var actSection = document.querySelector('#lsBody [data-act-section]');
+  if (actSection) {
+    renderLeadScreen(lid);
+  } else {
+    renderLeadScreen(lid);
+  }
+
+  // Persist to DB (non-blocking)
+  if(l && l.dbId){
+    sbFetch('/rest/v1/leads?id=eq.'+l.dbId,{
+      method:'PATCH',
+      body:JSON.stringify({notes:noteText, updated_at:new Date().toISOString()})
+    }).catch(function(){});
+
+    logActivity({
+      lead_id:   lid,
+      db_lead_id: l.dbId,
+      client_id: window._clientId,
+      type:      'note',
+      label:     '📝 Note',
+      body:      noteText
+    });
+  }
+}
   leadAct[lid].unshift({type:'note',label:'📝 Note',time:'Just now',body:noteText,rec:false});
 
   // Update local lead note
@@ -4587,7 +4626,29 @@ function requireLeadInfo(l, fields, actionLabel, onComplete) {
 
   missing.forEach(function(f) {
     h += '<div class="fg"><label class="flbl">' + f.label + '</label>';
-    if (f.type === 'select') {
+    if (f.field === 'location') {
+      // Location always gets a province dropdown
+      h += '<select class="fsel" id="req_location">';
+      h += '<option value="">Select province / city...</option>';
+      [
+        'Alberta — Calgary','Alberta — Edmonton','Alberta — Red Deer',
+        'British Columbia — Vancouver','British Columbia — Victoria','British Columbia — Kelowna',
+        'Manitoba — Winnipeg','Manitoba — Brandon',
+        'New Brunswick — Fredericton','New Brunswick — Moncton','New Brunswick — Saint John',
+        'Newfoundland — St. John\'s',
+        'Nova Scotia — Halifax','Nova Scotia — Sydney',
+        'Ontario — Toronto','Ontario — Ottawa','Ontario — Mississauga','Ontario — Brampton','Ontario — Hamilton','Ontario — London','Ontario — Markham',
+        'PEI — Charlottetown',
+        'Quebec — Montreal','Quebec — Quebec City','Quebec — Laval',
+        'Saskatchewan — Saskatoon','Saskatchewan — Regina',
+        'Northwest Territories — Yellowknife',
+        'Nunavut — Iqaluit',
+        'Yukon — Whitehorse'
+      ].forEach(function(loc) {
+        h += '<option value="' + loc + '">' + loc + '</option>';
+      });
+      h += '</select>';
+    } else if (f.type === 'select') {
       h += '<select class="fsel" id="req_' + f.field + '">';
       f.options.forEach(function(o) { h += '<option>' + o + '</option>'; });
       h += '</select>';
