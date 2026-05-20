@@ -2945,7 +2945,7 @@ function mapLead(l, i) {
     ph2: l.phone2 || '', ph3: l.phone3 || '',
     em2: l.email2 || '', em3: l.email3 || '',
     em4: l.email4 || '', em5: l.email5 || '',
-    stage: stageName, stage_code: l.stage_code || '', src: l.source || 'Manual',
+    stage: matchStageName(stageName||l.stage||'1. Fresh Lead'), stage_code: l.stage_code || '', src: l.source || 'Manual Entry',
     svc: l.service || '', note: l.notes || '',
     location: l.location || '',
     ok: l.sms_consent || false,
@@ -3952,8 +3952,9 @@ function renderLeadScreen(id) {
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
   h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px">Sales Stage</div>';
   h += '<select class="ld-stage-sel" id="lsStageSelect" onchange="lsSetStage(this.value)" style="border-color:'+stgC+';color:'+stgC+'">';
+  var matchedStage = matchStageName(l.stage);
   STAGES.forEach(function(s){
-    h += '<option value="'+s.name+'"'+(s.name===l.stage?' selected':'')+'>'+s.name+'</option>';
+    h += '<option value="'+s.name+'"'+(s.name===matchedStage?' selected':'')+'>'+s.name+'</option>';
   });
   h += '</select>';
   h += '</div>';
@@ -4043,7 +4044,7 @@ function renderLeadScreen(id) {
   h += '</div>';
   // Textarea centered / full width
   h += '<textarea class="ld-note-ta" id="lsNoteInp" placeholder="Add a note about this lead..." style="width:100%;min-height:90px"></textarea>';
-  h += '<button onclick="lsAddNote('+l.id+')" style="margin-top:10px;width:100%;padding:12px;border-radius:10px;background:var(--text);color:#fff;border:none;font-family:var(--f);font-size:14px;font-weight:700;cursor:pointer;letter-spacing:.01em">Save Note</button>';
+  h += '<button id="lsSaveNoteBtn" onclick="lsAddNote('+l.id+')" style="margin-top:10px;width:100%;padding:12px;border-radius:10px;background:var(--text);color:#fff;border:none;font-family:var(--f);font-size:14px;font-weight:700;cursor:pointer;letter-spacing:.01em">Save Note</button>';
   h += '</div>';
 
   h += '<div style="height:4px;background:var(--bg)"></div>';
@@ -4102,7 +4103,7 @@ function renderLeadScreen(id) {
     h += '<div style="text-align:center;color:var(--sub);font-size:13px;padding:20px 0">No '+actFilter+' activity yet</div>';
   } else {
 
-  var icons={call:'📞',sms:'💬',sms_sent:'💬',sms_received:'📩',email_sent:'📧',email:'📧',note:'📝',fu:'📅',stage_change:'🔄',
+  var icons={call:'📞',sms:'💬',sms_sent:'💬',sms_received:'📩',email_sent:'📧',email:'📧',note:'📝',fu:'🗓️',stage_change:'⚡',
              quote_sent:'📄',quote_viewed:'👁',quote_accepted:'✅',quote_paid:'💳',
              invoice_created:'🧾',invoice_emailed:'📧',payment_received:'💳',reminder_sent:'⏰',meeting:'📅',assignment:'👤'};
   var showCount = actFilter==='all' ? Math.min(filteredActs.length, 10) : filteredActs.length;
@@ -4362,9 +4363,9 @@ function lsAddNote(lid){
   var l = leads.find(function(x){return x.id===lid});
 
   // Prevent double-save (debounce)
-  var btn = el.nextElementSibling;
+  var btn = document.getElementById('lsSaveNoteBtn');
   if (btn && btn.disabled) return;
-  if (btn) { btn.disabled = true; setTimeout(function(){ if(btn) btn.disabled=false; }, 2000); }
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; setTimeout(function(){ if(btn){btn.disabled=false;btn.textContent='Save Note';} }, 2000); }
 
   // Add to local activity immediately
   if(!leadAct[lid]) leadAct[lid]=[];
@@ -4709,6 +4710,7 @@ function lsDoAiCall(){
 }
 function lsDoEmail(){
   var l=lsGetLead();if(!l)return;
+  if(isPartnerMode()){showToast('📧 Email requires admin approval — contact your admin to send emails');return;}
   requireLeadInfo(l,[
     {field:'name', label:'Contact Name', placeholder:'e.g. John Smith'},
     {field:'em',   label:'Email Address', type:'email', placeholder:'client@email.com'}
@@ -5960,6 +5962,18 @@ function delStage(idx){
 function syncStageSelects(){
   var opts=STAGES.map(function(s){return'<option>'+s.name+'</option>'}).join('');
   var el=document.getElementById('aStg');if(el)el.innerHTML=opts;
+}
+
+// Match stage name with or without number prefix
+function matchStageName(stageName) {
+  if (!stageName) return STAGES[0].name;
+  // Exact match
+  var exact = STAGES.find(function(s){ return s.name === stageName; });
+  if (exact) return exact.name;
+  // Match without number prefix (e.g. "Fresh Lead" -> "1. Fresh Lead")
+  var bare = stageName.replace(/^\d+\.\s*/, '');
+  var fuzzy = STAGES.find(function(s){ return s.name.replace(/^\d+\.\s*/, '') === bare; });
+  return fuzzy ? fuzzy.name : stageName;
 }
 
 // ═══════════════════════════════════════
