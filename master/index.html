@@ -2311,6 +2311,76 @@ Dr. Sarah
 // ═══════════════════════════════════════
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
+
+// ── Security: XSS Sanitizer ──────────────────────────────────
+// Strips HTML tags and dangerous characters from user-supplied data
+function sanitize(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+    .replace(/\//g, '&#x2F;');
+}
+
+// ── Security: Login Rate Limiter ─────────────────────────────
+var _loginAttempts = 0;
+var _loginLockedUntil = 0;
+var MAX_LOGIN_ATTEMPTS = 5;
+var LOGIN_LOCKOUT_MS   = 15 * 60 * 1000; // 15 minutes
+
+function checkLoginRateLimit() {
+  var now = Date.now();
+  if (_loginLockedUntil > now) {
+    var mins = Math.ceil((_loginLockedUntil - now) / 60000);
+    return 'Too many failed attempts. Try again in ' + mins + ' minute' + (mins !== 1 ? 's' : '') + '.';
+  }
+  return null;
+}
+
+function recordLoginFailure() {
+  _loginAttempts++;
+  if (_loginAttempts >= MAX_LOGIN_ATTEMPTS) {
+    _loginLockedUntil = Date.now() + LOGIN_LOCKOUT_MS;
+    _loginAttempts = 0;
+  }
+}
+
+function resetLoginAttempts() {
+  _loginAttempts = 0;
+  _loginLockedUntil = 0;
+}
+
+// ── Security: Session Timeout (8 hours inactivity) ───────────
+var SESSION_TIMEOUT_MS = 8 * 60 * 60 * 1000; // 8 hours
+var _lastActivityAt    = Date.now();
+var _sessionTimeoutIv  = null;
+
+function touchActivity() {
+  _lastActivityAt = Date.now();
+}
+
+function startSessionTimeoutWatch() {
+  if (_sessionTimeoutIv) clearInterval(_sessionTimeoutIv);
+  // Check every 5 minutes
+  _sessionTimeoutIv = setInterval(function() {
+    if (Date.now() - _lastActivityAt > SESSION_TIMEOUT_MS) {
+      clearInterval(_sessionTimeoutIv);
+      showToast('Session expired — please sign in again');
+      setTimeout(function() {
+        clearSavedSession();
+        location.reload();
+      }, 2000);
+    }
+  }, 5 * 60 * 1000);
+}
+
+// Track user activity to reset timeout
+['click','keydown','touchstart','scroll'].forEach(function(ev) {
+  document.addEventListener(ev, touchActivity, { passive: true });
+});
 var authToken = null;
 var currentUser = null;
 
@@ -2337,6 +2407,13 @@ async function doLogin() {
     err.classList.add('show'); return;
   }
 
+  // ── Rate limit check ──
+  var lockMsg = checkLoginRateLimit();
+  if (lockMsg) {
+    err.textContent = lockMsg;
+    err.classList.add('show'); return;
+  }
+
   btn.disabled = true;
   btn.textContent = 'Signing in...';
   err.classList.remove('show');
@@ -2345,6 +2422,7 @@ async function doLogin() {
     var data = await sbAuth('/token?grant_type=password', { email, password: pass });
 
     if (data.error || data.error_description) {
+      recordLoginFailure();
       throw new Error(data.error_description || data.error || 'Invalid email or password');
     }
 
@@ -2395,6 +2473,8 @@ async function doLogin() {
         remember ? remember.checked : true
       );
       console.log('[Login] Session saved. Role:', window._staffRole);
+      resetLoginAttempts();
+      startSessionTimeoutWatch();
       onLoginSuccess();
     } else {
       throw new Error('Login failed — no token received');
@@ -2553,6 +2633,7 @@ function scheduleTokenRefresh(msFromNow) {
 }
 
 function onLoginSuccess() {
+  startSessionTimeoutWatch(); // start inactivity timeout
   document.getElementById('loginScreen').style.display = 'none';
   leads = []; nxtId = 1;
   syncStageSelects();
@@ -3637,8 +3718,8 @@ function renderLeadScreen(id) {
   h += '<div style="width:48px;height:48px;border-radius:14px;background:'+l.col+
        ';display:flex;align-items:center;justify-content:center;font-weight:800;font-size:19px;color:#fff;flex-shrink:0">'+init+'</div>';
   h += '<div style="flex:1;min-width:0">';
-  h += '<div style="font-size:16px;font-weight:800;color:var(--text);letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(l.company||l.name)+'</div>';
-  if(l.company) h += '<div style="font-size:13px;color:var(--sub);margin-top:1px">'+l.name+'</div>';
+  h += '<div style="font-size:16px;font-weight:800;color:var(--text);letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(sanitize(l.company)||sanitize(l.name))+'</div>';
+  if(l.company) h += '<div style="font-size:13px;color:var(--sub);margin-top:1px">'+sanitize(l.name)+'</div>';
   h += '</div>';
   // Stage badge + Edit button
   h += '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">';
@@ -3652,9 +3733,9 @@ function renderLeadScreen(id) {
   h += '<div style="display:flex;flex-direction:column;gap:8px">';
 
   // Email
-  if(l.em) h += ldInfoRow('✉️','Email','<a href="mailto:'+l.em+'" style="color:var(--blue);text-decoration:none">'+l.em+'</a>');
+  if(sanitize(sanitize(l.em))) h += ldInfoRow('✉️','Email','<a href="mailto:'+sanitize(sanitize(l.em))+'" style="color:var(--blue);text-decoration:none">'+sanitize(sanitize(l.em))+'</a>');
   // Phone
-  if(l.ph) h += ldInfoRow('📞','Phone','<a href="tel:'+l.ph+'" style="color:var(--blue);text-decoration:none">'+l.ph+'</a>'+(l.ph2?' · '+l.ph2:''));
+  if(l.ph) h += ldInfoRow('📞','Phone','<a href="tel:'+sanitize(l.ph)+'" style="color:var(--blue);text-decoration:none">'+sanitize(l.ph)+'</a>'+(l.ph2?' · '+sanitize(l.ph2):''));
   // Location — always shown
   h += ldInfoRow('📍','Location', l.location
     ? l.location
@@ -5440,7 +5521,7 @@ function parseCsv(txt){
   if(pv)pv.style.display='block';
   if(cb)cb.textContent=importData.length+' leads';
   if(btn){btn.textContent='Import '+importData.length+' Lead'+(importData.length!==1?'s':'');btn.disabled=importData.length===0}
-  if(rw)rw.innerHTML=importData.slice(0,3).map(function(l,i){return(i?'<div style="height:1px;background:var(--border);margin:8px 0"></div>':'')+'<div style="font-size:13px;font-weight:600;color:var(--text)">'+l.name+'</div><div style="font-size:12px;color:var(--sub)">'+l.ph+(l.em?' · '+l.em:'')+'</div>'}).join('')+'<div style="text-align:center;font-size:12px;color:var(--sub);margin-top:8px">'+importData.length+' leads ready</div>';
+  if(rw)rw.innerHTML=importData.slice(0,3).map(function(l,i){return(i?'<div style="height:1px;background:var(--border);margin:8px 0"></div>':'')+'<div style="font-size:13px;font-weight:600;color:var(--text)">'+sanitize(l.name)+'</div><div style="font-size:12px;color:var(--sub)">'+sanitize(l.ph)+(l.em?' · '+sanitize(l.em):'')+'</div>'}).join('')+'<div style="text-align:center;font-size:12px;color:var(--sub);margin-top:8px">'+importData.length+' leads ready</div>';
 }
 function confirmImport(){
   if(!importData.length)return;
@@ -7382,16 +7463,23 @@ function renderMeetingScreen(l, meetings, state) {
       var dt = new Date(m.starts_at);
       var dateLabel = dt.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
       var timeLabel = dt.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit',hour12:true});
-      var typeEmoji = m.meeting_type==='AI Sales Engine'?'🤖':m.meeting_type==='Both'?'⚡':'🖼️';
-      h += '<div style="padding:12px 16px;border-bottom:1px solid var(--border)">';
-      h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">';
-      h += '<div style="font-size:12px;font-weight:700;color:var(--text)">'+typeEmoji+' '+dateLabel+' at '+timeLabel+'</div>';
-      h += '<div style="margin-left:auto;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:#f3f4f6;color:var(--sub)">'+(m.status||'done').toUpperCase()+'</div></div>';
-      if (m.notes) h += '<div style="font-size:12px;color:var(--sub);margin-bottom:6px">📝 '+m.notes+'</div>';
-      h += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
-      if (m.meet_link) h += '<a href="'+m.meet_link+'" target="_blank" style="font-size:11px;font-weight:600;color:var(--purple);text-decoration:none">🔗 Meeting Link</a>';
-      if (m.recording_url) h += '<a href="'+m.recording_url+'" target="_blank" style="font-size:11px;font-weight:600;color:var(--blue);text-decoration:none">🎙️ Recording</a>';
+      var typeEmoji = m.title==='AI Sales Engine'?'🤖':m.title==='Both'?'⚡':'🖼️';
+      var statusCol = m.status==='completed'?'#065f46':m.status==='scheduled'?'#1d4ed8':'#92400e';
+      var statusBg  = m.status==='completed'?'#d1fae5':m.status==='scheduled'?'#dbeafe':'#fef3c7';
+      h += '<div class="task-row" style="cursor:default">';
+      h += '<div class="task-dot" style="background:var(--purple)"></div>';
+      h += '<div class="task-body">';
+      h += '<div class="task-name">'+typeEmoji+' '+(m.title||'Video Meeting')+'</div>';
+      h += '<div class="task-meta">📅 '+dateLabel+'</div>';
+      if (m.notes) h += '<div class="task-note">'+m.notes+'</div>';
+      h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">';
+      if (m.meet_link) h += '<a href="'+m.meet_link+'" target="_blank" style="font-size:11px;font-weight:600;color:var(--purple);text-decoration:none">🔗 Join</a>';
+      if (m.recording_url) h += '<a href="'+m.recording_url+'" target="_blank" style="font-size:11px;font-weight:600;color:var(--blue);text-decoration:none">🎥 Recording</a>';
+      if (m.transcript_url) h += '<a href="'+m.transcript_url+'" target="_blank" style="font-size:11px;font-weight:600;color:var(--green);text-decoration:none">📝 Transcript</a>';
       if (m.summary) h += '<div style="font-size:11px;color:var(--sub);width:100%;margin-top:4px;background:var(--bg);padding:8px;border-radius:8px">🤖 '+m.summary+'</div>';
+      h += '</div></div>';
+      h += '<div class="task-right"><div class="task-time">'+timeLabel+'</div>';
+      h += '<div style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;margin-top:4px;background:'+statusBg+';color:'+statusCol+'">'+(m.status||'done').toUpperCase()+'</div>';
       h += '</div></div>';
     });
   }
@@ -7540,79 +7628,76 @@ function renderScheduleInline(lid) {
   var lsBody = document.getElementById('lsBody');
   if (!lsBody) return;
   var lsN = document.getElementById('lsName'); if(lsN) lsN.textContent = '📅 Schedule Meeting';
-  var lsS = document.getElementById('lsSub');  if(lsS) lsS.textContent  = l.company || l.name;
+  var lsS = document.getElementById('lsSub');  if(lsS) lsS.textContent = l.company || l.name;
 
   var h = '';
   // Back button
-  h += '<div style="padding:10px 16px;border-bottom:1px solid var(--border);background:var(--bg)">';
-  h += '<button onclick="openMeetingScreen('+lid+')" style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;background:var(--white);border:1.5px solid var(--border);cursor:pointer;font-family:var(--f);font-size:12px;font-weight:600;color:var(--sub)">';
-  h += '<svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>Back to Meetings</button></div>';
-
-  h += '<div style="padding:16px">';
+  h += '<div style="padding:10px 16px;border-bottom:1px solid var(--border);background:var(--white)">';
+  h += '<button onclick="openMeetingScreen('+lid+')" style="display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;background:var(--bg);border:1px solid var(--border);cursor:pointer;font-family:var(--f);font-size:12px;font-weight:600;color:var(--sub)">';
+  h += '<svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>Back</button></div>';
 
   // Meeting type
-  h += '<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Meeting Type</div>';
+  h += '<div style="background:var(--white);border-bottom:1px solid var(--border);padding:14px 16px">';
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Meeting Type</div>';
   h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px" id="mtTypeGrid">';
-  h += '<button class="mt-type-btn active" data-type="Digital Flyers" onclick="selectMtType(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid var(--purple);background:#ede9fe;cursor:pointer;font-family:var(--f)"><div style="font-size:18px;margin-bottom:3px">🖼️</div><div style="font-size:11px;font-weight:700;color:var(--purple)">Digital Flyers</div></button>';
-  h += '<button class="mt-type-btn" data-type="AI Sales Engine" onclick="selectMtType(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);cursor:pointer;font-family:var(--f)"><div style="font-size:18px;margin-bottom:3px">🤖</div><div style="font-size:11px;font-weight:700;color:var(--sub)">AI Sales Engine</div></button>';
-  h += '<button class="mt-type-btn" data-type="Both" onclick="selectMtType(this)" style="padding:10px 6px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);cursor:pointer;font-family:var(--f)"><div style="font-size:18px;margin-bottom:3px">⚡</div><div style="font-size:11px;font-weight:700;color:var(--sub)">Both</div></button>';
+  var types=[['Digital Flyers','🖼️',true],['AI Sales Engine','🤖',false],['Both','⚡',false]];
+  types.forEach(function(t){
+    h += '<button class="mt-type-btn'+(t[2]?' active':'')+'" data-type="'+t[0]+'" onclick="selectMtType(this)" style="padding:12px 6px;border-radius:12px;border:1.5px solid '+(t[2]?'var(--purple)':'var(--border)')+';background:'+(t[2]?'#ede9fe':'var(--bg)')+';cursor:pointer;font-family:var(--f);text-align:center">';
+    h += '<div style="font-size:20px;margin-bottom:4px">'+t[1]+'</div>';
+    h += '<div style="font-size:11px;font-weight:700;color:'+(t[2]?'var(--purple)':'var(--sub)')+'">'+t[0]+'</div></button>';
+  });
   h += '</div></div>';
 
   // Province
-  h += '<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Client Province</div>';
+  h += '<div style="background:var(--white);border-bottom:1px solid var(--border);padding:14px 16px">';
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Client Province</div>';
   h += '<select class="fsel" id="mt-province" onchange="onMtProvinceChange()" style="width:100%">';
-  h += '<option value="SK">Saskatchewan (CST · UTC-6 · no DST)</option>';
-  h += '<option value="AB">Alberta (MST/MDT · UTC-7/-6)</option>';
-  h += '<option value="BC">British Columbia (PST/PDT · UTC-8/-7)</option>';
-  h += '<option value="MB">Manitoba (CST/CDT · UTC-6/-5)</option>';
-  h += '<option value="ON">Ontario (EST/EDT · UTC-5/-4)</option>';
-  h += '<option value="QC">Quebec (EST/EDT · UTC-5/-4)</option>';
-  h += '<option value="NB">New Brunswick (AST/ADT · UTC-4/-3)</option>';
-  h += '<option value="NS">Nova Scotia (AST/ADT · UTC-4/-3)</option>';
-  h += '<option value="NL">Newfoundland (NST/NDT · UTC-3:30/-2:30)</option>';
-  h += '<option value="PE">PEI (AST/ADT · UTC-4/-3)</option>';
+  [['SK','Saskatchewan (CST · UTC-6 · no DST)'],['AB','Alberta (MST/MDT · UTC-7/-6)'],['BC','British Columbia (PST/PDT · UTC-8/-7)'],
+   ['MB','Manitoba (CST/CDT · UTC-6/-5)'],['ON','Ontario (EST/EDT · UTC-5/-4)'],['QC','Quebec (EST/EDT · UTC-5/-4)'],
+   ['NB','New Brunswick (AST/ADT · UTC-4/-3)'],['NS','Nova Scotia (AST/ADT · UTC-4/-3)'],
+   ['NL','Newfoundland (NST/NDT · UTC-3:30/-2:30)'],['PE','PEI (AST/ADT · UTC-4/-3)']].forEach(function(p){
+    h += '<option value="'+p[0]+'">'+p[1]+'</option>';
+  });
   h += '</select></div>';
 
-  // Hint
-  h += '<div style="background:var(--bluel);border-radius:10px;padding:11px 14px;font-size:12px;color:var(--blue);margin-bottom:14px">';
-  h += 'Enter the time <strong>the client told you</strong> — system will convert to <strong>your local time</strong> automatically</div>';
-
-  // Date + time
+  // Hint + Date/Time
+  h += '<div style="background:var(--white);border-bottom:1px solid var(--border);padding:14px 16px">';
+  h += '<div style="background:var(--bluel);border-radius:10px;padding:10px 13px;font-size:12px;color:var(--blue);margin-bottom:12px">';
+  h += 'Enter the time <strong>the client told you</strong> — converts to <strong>your local time</strong> automatically</div>';
   h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">';
   h += '<div><div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Date</div>';
   h += '<input class="finp" id="mt-date" type="date" onchange="calcSaskatoonTime()" style="width:100%"></div>';
   h += '<div><div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Client Said Time</div>';
   h += '<input class="finp" id="mt-client-time-inp" type="time" onchange="calcSaskatoonTime()" style="width:100%"></div></div>';
-
-  // Converted time display
-  h += '<div id="mt-cst-display" style="display:none;background:var(--greenl);border:1px solid var(--green);border-radius:8px;padding:9px 13px;font-size:13px;color:#065f46;margin-bottom:14px;font-weight:600">';
+  h += '<div id="mt-cst-display" style="display:none;background:var(--greenl);border:1px solid var(--green);border-radius:8px;padding:9px 13px;font-size:13px;color:#065f46;font-weight:600">';
   h += '🕑 <span id="mt-cst-prefix">Your time:</span> <span id="mt-cst-label">—</span></div>';
+  h += '</div>';
 
   // Duration
-  h += '<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Duration</div>';
+  h += '<div style="background:var(--white);border-bottom:1px solid var(--border);padding:14px 16px">';
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Duration</div>';
   h += '<select class="fsel" id="mt-dur" style="width:100%"><option value="30">30 minutes</option><option value="60" selected>60 minutes</option><option value="90">90 minutes</option></select></div>';
 
-  // Emails
-  h += '<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Send Invite To</div>';
+  // Send invite to
+  h += '<div style="background:var(--white);border-bottom:1px solid var(--border);padding:14px 16px">';
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Send Invite To</div>';
   h += '<div id="mt-email-list" style="display:flex;flex-direction:column;gap:8px"></div>';
   h += '<input class="finp" id="mt-extra-email" placeholder="+ Add another email (optional)" type="email" style="margin-top:8px;width:100%"></div>';
 
-  // Meet link notice
-  h += '<div style="background:var(--greenl);border:1px solid var(--green);border-radius:10px;padding:11px 14px;font-size:12px;color:#065f46;margin-bottom:20px">';
-  h += '<strong>⚡ Google Meet link auto-generated</strong> — unique link created when you click Send</div>';
+  // Meet notice
+  h += '<div style="background:var(--white);padding:14px 16px;border-bottom:1px solid var(--border)">';
+  h += '<div style="background:var(--greenl);border:1px solid var(--green);border-radius:10px;padding:11px 14px;font-size:12px;color:#065f46">';
+  h += '<strong>⚡ Google Meet link auto-generated</strong> — unique link created when you click Send Now</div></div>';
 
-  // Buttons
-  h += '<div style="display:flex;gap:8px;margin-bottom:8px">';
-  h += '<button onclick="openMeetingScreen('+lid+')" style="flex:1;padding:13px;border-radius:10px;border:1.5px solid var(--border);background:var(--bg);font-family:var(--f);font-size:13px;font-weight:600;cursor:pointer">Cancel</button>';
-  h += '<button onclick="saveMeetingDraft()" style="flex:1;padding:13px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);font-family:var(--f);font-size:13px;font-weight:600;cursor:pointer;color:var(--text)">Schedule</button>';
-  h += '<button id="saveMeetingBtn" onclick="saveMeeting(true)" style="flex:2;padding:13px;border-radius:10px;border:none;background:var(--purple);color:#fff;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">Send Now →</button>';
+  // Buttons — sticky at bottom
+  h += '<div style="background:var(--white);padding:14px 16px;display:flex;gap:8px;position:sticky;bottom:0;border-top:1px solid var(--border)">';
+  h += '<button onclick="openMeetingScreen('+lid+')" style="flex:1;padding:13px;border-radius:10px;border:1px solid var(--border);background:var(--bg);font-family:var(--f);font-size:13px;font-weight:600;cursor:pointer;color:var(--sub)">Cancel</button>';
+  h += '<button onclick="saveMeetingDraft()" style="flex:1;padding:13px;border-radius:10px;border:1px solid var(--border);background:var(--white);font-family:var(--f);font-size:13px;font-weight:600;cursor:pointer;color:var(--text)">Schedule</button>';
+  h += '<button id="saveMeetingBtn" onclick="saveMeeting(true)" style="flex:2;padding:13px;border-radius:10px;border:none;background:var(--purple);color:#fff;font-family:var(--f);font-size:14px;font-weight:700;cursor:pointer">Send Now →</button>';
   h += '</div>';
-  h += '<div style="font-size:11px;color:var(--sub);text-align:center;margin-bottom:20px">Send Now: emails immediately · Schedule: saves for later</div>';
-  h += '</div><div style="height:60px"></div>';
+  h += '<div style="height:30px"></div>';
 
   lsBody.innerHTML = h;
-
-  // Set today's date and populate emails
   document.getElementById('mt-date').value = new Date().toISOString().slice(0,10);
   buildEmailCheckboxes();
   setupMeetingTypeForRole();
