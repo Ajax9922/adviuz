@@ -4119,48 +4119,77 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
     if(i<showCount-1) h += '<div class="ld-act-line"></div>';
 
     if (isCall) {
-      // ── CALL ACTIVITY — Rich UI ──
-      var ct = item.callType || (item.label||'').toLowerCase();
+      // ── CALL ACTIVITY — Premium Card UI ──
+      var ct   = item.callType || (item.label||'').toLowerCase();
       var isIn  = ct.indexOf('inbound')>-1;
       var isAI  = ct.indexOf('ai')>-1;
       var isIVR = ct.indexOf('ivr')>-1;
-      var callLabel = isAI&&isIn?'🤖 AI Inbound':isAI?'🤖 AI Outbound':isIVR&&isIn?'📣 IVR Inbound':isIVR?'📣 IVR Outbound':isIn?'📞 Inbound':'📞 Outbound';
-      var callBg  = isIn ? '#d1fae5' : '#fff1f2';
-      var callCol = isIn ? 'var(--green)' : 'var(--red)';
-      var callDot = isIn ? '📞' : '📞';
-      h += '<div class="ld-act-dot">'+callDot+'</div>';
+      var callLabel = isAI&&isIn?'AI Inbound':isAI?'AI Outbound':isIVR&&isIn?'IVR Inbound':isIVR?'IVR Outbound':isIn?'Inbound':'Outbound';
+      var callIcon  = isAI?'🤖':isIVR?'📣':'📞';
+      var callBg    = isIn ? '#dcfce7' : '#fee2e2';
+      var callCol   = isIn ? '#15803d'  : '#dc2626';
+      var callDotBg = isIn ? '#dcfce7'  : '#fee2e2';
+
+      // Dot with colored background
+      h += '<div style="width:36px;height:36px;border-radius:50%;background:'+callDotBg+';display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px">'+callIcon+'</div>';
       h += '<div class="ld-act-body" style="width:100%">';
-      // Header row
-      h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
-      h += '<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:'+callBg+';color:'+callCol+'">'+callLabel+'</span>';
-      h += '<span class="ld-act-time">'+item.time+'</span>';
+
+      // Card container
+      h += '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.06)">';
+
+      // Top row — badge + time
+      h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
+      h += '<span style="font-size:11px;font-weight:800;padding:4px 10px;border-radius:20px;background:'+callBg+';color:'+callCol+';letter-spacing:.02em">'+callLabel+'</span>';
+      h += '<span style="font-size:11px;color:#9ca3af">'+item.time+'</span>';
       h += '</div>';
-      // Duration + meta row
-      var callDetails = [];
-      if (item.dur) callDetails.push('⏱ '+item.dur);
-      if (item.outcome) callDetails.push(item.outcome);
-      if (callDetails.length) {
-        h += '<div style="display:flex;gap:12px;margin-bottom:8px">';
-        callDetails.forEach(function(d){ h += '<span style="font-size:12px;color:var(--sub);font-weight:600">'+d+'</span>'; });
+
+      // Stats row — duration + outcome
+      h += '<div style="display:flex;gap:16px;margin-bottom:10px">';
+      var dur = item.dur || (item.body&&item.body.match(/duration:\s*(\S+)/i) ? item.body.match(/duration:\s*(\S+)/i)[1] : null);
+      if (dur && dur !== '0s') {
+        h += '<div style="display:flex;align-items:center;gap:5px">';
+        h += '<svg fill="none" stroke="#9ca3af" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+        h += '<span style="font-size:12px;font-weight:700;color:#374151">'+dur+'</span>';
         h += '</div>';
       }
+      var outcome = item.outcome || (item.body&&item.body.match(/status:\s*(\S+)/i) ? item.body.match(/status:\s*(\S+)/i)[1].replace(/-/g,' ') : null);
+      if (outcome) {
+        var outcomeIcon = outcome.indexOf('answer')>-1&&outcome.indexOf('no')===-1?'✅':outcome.indexOf('no-answer')>-1||outcome.indexOf('no answer')>-1?'📵':outcome.indexOf('voicemail')>-1?'📩':'📞';
+        h += '<div style="display:flex;align-items:center;gap:5px">';
+        h += '<span style="font-size:12px">'+outcomeIcon+'</span>';
+        h += '<span style="font-size:12px;color:#6b7280;text-transform:capitalize">'+outcome+'</span>';
+        h += '</div>';
+      } else if (item.body && !item.rec) {
+        h += '<span style="font-size:12px;color:#6b7280">'+item.body+'</span>';
+      }
+      h += '</div>';
+
       // Recording player
-      if (item.rec) {
-        var recIdx = 'act'+i;
-        h += '<div style="display:flex;align-items:center;gap:10px;background:var(--bg);border-radius:10px;padding:10px 13px;margin-bottom:6px">';
-        h += '<button onclick="showToast(&quot;▶ Playing...&quot;)" style="width:30px;height:30px;border-radius:50%;background:var(--red);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">';
-        h += '<svg fill="white" viewBox="0 0 24 24" style="width:9px;height:9px;margin-left:1px"><polygon points="5,3 19,12 5,21"/></svg></button>';
-        h += '<div style="flex:1;min-width:0"><div style="height:4px;background:var(--border);border-radius:2px"><div style="height:100%;width:35%;background:linear-gradient(90deg,var(--red),#f87171);border-radius:2px"></div></div></div>';
-        h += '<span style="font-size:11px;color:var(--sub);font-weight:600;font-family:monospace">'+(item.dur||'—')+'</span>';
+      if (item.rec || item.recording_url) {
+        h += '<div style="display:flex;align-items:center;gap:10px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:9px 12px;margin-bottom:8px">';
+        h += '<button onclick="toggleDummyRec('+i+')" id="recPlayBtn'+i+'" style="width:32px;height:32px;border-radius:50%;background:#dc2626;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 6px rgba(220,38,38,.3)">';
+        h += '<svg id="recPlayIco'+i+'" fill="white" viewBox="0 0 24 24" style="width:10px;height:10px;margin-left:2px"><polygon points="5,3 19,12 5,21"/></svg></button>';
+        h += '<div style="flex:1;min-width:0">';
+        h += '<div style="font-size:10px;font-weight:700;color:#9ca3af;margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em">Recording</div>';
+        h += '<div style="height:4px;background:#e5e7eb;border-radius:2px"><div id="recProgBar'+i+'" style="height:100%;width:0%;background:linear-gradient(90deg,#dc2626,#f87171);border-radius:2px;transition:width .3s"></div></div>';
+        h += '</div>';
+        h += '<span id="recTimer'+i+'" style="font-size:11px;color:#6b7280;font-weight:600;font-family:monospace;flex-shrink:0">'+(dur||'—')+'</span>';
+        if (item.recording_url) h += '<a href="'+item.recording_url+'" target="_blank" style="font-size:11px;color:#2563eb;font-weight:700;text-decoration:none;flex-shrink:0">Download</a>';
         h += '</div>';
       }
+
       // AI Summary
       if (item.summary) {
-        h += '<div style="background:var(--bluel);border-radius:8px;padding:9px 12px;font-size:12px;color:var(--blue);line-height:1.55">';
-        h += '<strong>🤖 Summary</strong> · '+item.summary+'</div>';
-      } else if (item.body && !item.rec) {
-        h += '<div class="ld-act-text">'+item.body+'</div>';
+        h += '<div style="background:#eff6ff;border-radius:8px;padding:10px 12px;border-left:3px solid #2563eb">';
+        h += '<div style="font-size:10px;font-weight:800;color:#1d4ed8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">🤖 AI Summary</div>';
+        h += '<div style="font-size:12px;color:#374151;line-height:1.6">'+item.summary+'</div>';
+        h += '</div>';
+      } else {
+        // Show placeholder summary prompt
+        h += '<div style="font-size:11px;color:#9ca3af;font-style:italic">No summary available for this call</div>';
       }
+
+      h += '</div>'; // end card
 
     } else if (isInboundSms || isOutboundSms) {
       // ── SMS ACTIVITY ──
