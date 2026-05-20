@@ -4556,6 +4556,102 @@ function setActFilter(btn) {
   window._actFilter = btn.dataset.filter || 'all';
   renderLeadScreen(parseInt(btn.dataset.lid));
 }
+// ── Contextual lead info prompt ──────────────────────────────
+// fields: array of {field, label, type, placeholder}
+// onComplete: callback once info is saved
+function requireLeadInfo(l, fields, actionLabel, onComplete) {
+  if (!l) return;
+
+  // Check which fields are missing
+  var missing = fields.filter(function(f) {
+    if (f.field === 'name')     return !l.name || l.name === l.company || l.name === 'Lead';
+    if (f.field === 'em')       return !l.em;
+    if (f.field === 'location') return !l.location;
+    return false;
+  });
+
+  if (!missing.length) { onComplete(); return; }
+
+  // Build inline prompt sheet
+  var overlay = document.createElement('div');
+  overlay.className = 'sheet-ov';
+  overlay.style.cssText = 'display:flex;z-index:9999';
+  overlay.id = 'reqInfoSh';
+
+  var h = '<div class="sheet"><div class="sheet-handle"></div>';
+  h += '<div class="sheet-head"><div class="sheet-title">📋 Quick Info Needed</div>';
+  h += '<button class="sheet-x" onclick="document.getElementById(\'reqInfoSh\').remove()">&#x2715;</button></div>';
+  h += '<div class="sh-body">';
+  h += '<div style="background:var(--bluel);border-radius:10px;padding:11px 14px;font-size:13px;color:var(--blue);margin-bottom:16px">';
+  h += '⚡ <strong>' + actionLabel + '</strong> needs a bit more info to work properly.</div>';
+
+  missing.forEach(function(f) {
+    h += '<div class="fg"><label class="flbl">' + f.label + '</label>';
+    if (f.type === 'select') {
+      h += '<select class="fsel" id="req_' + f.field + '">';
+      f.options.forEach(function(o) { h += '<option>' + o + '</option>'; });
+      h += '</select>';
+    } else {
+      h += '<input class="finp" id="req_' + f.field + '" type="' + (f.type||'text') + '" placeholder="' + f.placeholder + '">';
+    }
+    h += '</div>';
+  });
+
+  h += '</div>';
+  h += '<div class="sh-foot">';
+  h += '<button class="btn btn-ghost" onclick="document.getElementById(\'reqInfoSh\').remove()" style="flex:1">Cancel</button>';
+  h += '<button class="btn btn-primary" onclick="saveReqInfo(' + l.id + ')" style="flex:2;justify-content:center">Save & Continue →</button>';
+  h += '</div></div>';
+
+  overlay.innerHTML = h;
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+  document.body.appendChild(overlay);
+
+  // Store callback for after save
+  window._reqInfoCallback = onComplete;
+  window._reqInfoFields   = missing;
+  window._reqInfoLeadId   = l.id;
+}
+
+async function saveReqInfo(lid) {
+  var l = leads.find(function(x){ return x.id===lid; });
+  if (!l) return;
+
+  var fields  = window._reqInfoFields || [];
+  var updates = {};
+  var valid   = true;
+
+  fields.forEach(function(f) {
+    var el  = document.getElementById('req_' + f.field);
+    var val = el ? el.value.trim() : '';
+    if (!val) { showToast(f.label + ' is required'); valid = false; return; }
+    // Update local lead object
+    if (f.field === 'name')     l.name     = val;
+    if (f.field === 'em')       l.em       = val;
+    if (f.field === 'location') l.location = val;
+    // Map to DB field names
+    if (f.field === 'name')     updates.name     = val;
+    if (f.field === 'em')       updates.email    = val;
+    if (f.field === 'location') updates.location = val;
+  });
+
+  if (!valid) return;
+
+  // Save to DB
+  if (l.dbId && Object.keys(updates).length) {
+    await sbFetch('/rest/v1/leads?id=eq.' + l.dbId, {
+      method: 'PATCH', body: JSON.stringify(updates)
+    });
+  }
+
+  document.getElementById('reqInfoSh').remove();
+  showToast('✅ Saved');
+
+  // Run the original action
+  if (window._reqInfoCallback) window._reqInfoCallback();
+  window._reqInfoCallback = null;
+}
+
 function lsDialer(){
   var l=lsGetLead();
   if(!l||!l.ph){ showToast('No phone number'); return; }
@@ -4567,11 +4663,23 @@ function lsDoIvrCall(){ var l=lsGetLead();if(l){ showToast('📣 Starting IVR ca
 function lsDoWa(){
   var l=lsGetLead();if(!l||!l.ph)return;
   var ph=l.ph.replace(/[^0-9]/g,'');
-  // Use location.href to open WhatsApp app natively on mobile
   window.location.href='https://wa.me/'+ph;
 }
-function lsDoAiCall(){ var l=lsGetLead();if(l)startAiCall(l.id,l.ph,'sarah',l.name.split(' ')[0]); }
-function lsDoEmail(){ var l=lsGetLead();if(l)openEmail(l.id); }
+function lsDoAiCall(){
+  var l=lsGetLead();if(!l)return;
+  if(isPartnerMode()){showToast('🔒 AI Calls are only available for Authorized Sellers — contact your admin to unlock');return;}
+  requireLeadInfo(l,[
+    {field:'name',     label:'Contact Name',    placeholder:'e.g. John Smith'},
+    {field:'location', label:'City / Province', placeholder:'e.g. Toronto, ON'}
+  ], 'AI Call', function(){ startAiCall(l.id,l.ph,'sarah',l.name.split(' ')[0]); });
+}
+function lsDoEmail(){
+  var l=lsGetLead();if(!l)return;
+  requireLeadInfo(l,[
+    {field:'name', label:'Contact Name', placeholder:'e.g. John Smith'},
+    {field:'em',   label:'Email Address', type:'email', placeholder:'client@email.com'}
+  ], 'Email', function(){ openEmail(l.id); });
+}
 function lsDoSms(){ var l=lsGetLead();if(l)openSms(l.id); }
 
 
@@ -4872,16 +4980,11 @@ async function saveNewLead(){
 
   await doSaveLead(lead);
 
-  // Reset button
-  if(btn){ btn.textContent='Save Lead'; btn.disabled=false; }
-
-  // Reset form
+  // Reset form and close
   ['aPh','aEm','aCompany'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
-
-  // Show detail popup
   closeSheet('addLeadSh');
-  window._lastSavedLeadId = lead.id;
-  openSheet('leadDetailSh');
+  showToast('✅ Lead saved!');
+  render();
 }
 // ── Lead detail popup (shown after quick save) ───────────────
 function selectLeadProd(btn) {
@@ -4988,7 +5091,6 @@ async function sendLeadApprovalRequest() {
     if (btn) { btn.textContent = '📋 Send for Approval'; btn.disabled = false; }
   }
   pendingNewLead = null;
-}
 }
 
 async function doSaveLead(lead) {
@@ -7311,6 +7413,15 @@ async function openLeadQuotes(lid) {
   var l = leads.find(function(x){ return x.id===lid; });
   if(!l) return;
 
+  // Require name + email for quotes
+  var missingFields = [];
+  if (!l.name || l.name === l.company || l.name === 'Lead') missingFields.push({field:'name', label:'Contact Name', placeholder:'e.g. John Smith'});
+  if (!l.em) missingFields.push({field:'em', label:'Email Address', type:'email', placeholder:'client@email.com'});
+  if (missingFields.length) {
+    requireLeadInfo(l, missingFields, 'Quote', function(){ openLeadQuotes(lid); });
+    return;
+  }
+
   var screen = document.getElementById('quotesListScreen');
   if(!screen) return;
   screen.classList.add('open');
@@ -7368,6 +7479,16 @@ function newQuoteFromList() {
 async function openLeadInvoices(lid) {
   var l = leads.find(function(x){ return x.id===lid; });
   if(!l) return;
+
+  // Require name + email + location for invoices
+  var missingFields = [];
+  if (!l.name || l.name === l.company || l.name === 'Lead') missingFields.push({field:'name', label:'Contact Name', placeholder:'e.g. John Smith'});
+  if (!l.em) missingFields.push({field:'em', label:'Email Address', type:'email', placeholder:'client@email.com'});
+  if (!l.location) missingFields.push({field:'location', label:'City / Province', placeholder:'e.g. Toronto, ON'});
+  if (missingFields.length) {
+    requireLeadInfo(l, missingFields, 'Invoice', function(){ openLeadInvoices(lid); });
+    return;
+  }
 
   var screen = document.getElementById('invoicesListScreen');
   if(!screen) return;
@@ -7801,9 +7922,18 @@ var _mtScreenLid = null;
 var _mtScreenMeetings = [];
 
 async function openMeetingScreen(lid) {
-  _mtScreenLid = lid;
   var l = leads.find(function(x){return x.id===lid;});
   if (!l) return;
+
+  // Require location for timezone
+  if (!l.location) {
+    requireLeadInfo(l,[
+      {field:'location', label:'Client City / Province', placeholder:'e.g. Saskatoon, SK'}
+    ], 'Meeting Booking', function(){ openMeetingScreen(lid); });
+    return;
+  }
+
+  _mtScreenLid = lid;
   // Update lead screen topbar to show Meetings context
   var lsName = document.getElementById('lsName');
   var lsSub  = document.getElementById('lsSub');
