@@ -1623,11 +1623,72 @@ async function sbAdmin(path, opts) {
   return r;
 }
 // ── ADMIN LOGIN ────────────────────────────────────────────
+
+// ── Security: XSS Sanitizer ──────────────────────────────────
+function sanitize(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+    .replace(/\//g, '&#x2F;');
+}
+
+// ── Security: Login Rate Limiter ─────────────────────────────
+var _loginAttempts = 0;
+var _loginLockedUntil = 0;
+var MAX_LOGIN_ATTEMPTS = 5;
+var LOGIN_LOCKOUT_MS   = 15 * 60 * 1000;
+
+function checkLoginRateLimit() {
+  var now = Date.now();
+  if (_loginLockedUntil > now) {
+    var mins = Math.ceil((_loginLockedUntil - now) / 60000);
+    return 'Too many failed attempts. Try again in ' + mins + ' minute' + (mins !== 1 ? 's' : '') + '.';
+  }
+  return null;
+}
+function recordLoginFailure() {
+  _loginAttempts++;
+  if (_loginAttempts >= MAX_LOGIN_ATTEMPTS) {
+    _loginLockedUntil = Date.now() + LOGIN_LOCKOUT_MS;
+    _loginAttempts = 0;
+  }
+}
+function resetLoginAttempts() { _loginAttempts = 0; _loginLockedUntil = 0; }
+
+// ── Security: Session Timeout (8 hours inactivity) ───────────
+var SESSION_TIMEOUT_MS = 8 * 60 * 60 * 1000;
+var _lastActivityAt    = Date.now();
+var _sessionTimeoutIv  = null;
+
+function touchActivity() { _lastActivityAt = Date.now(); }
+
+function startSessionTimeoutWatch() {
+  if (_sessionTimeoutIv) clearInterval(_sessionTimeoutIv);
+  _sessionTimeoutIv = setInterval(function() {
+    if (Date.now() - _lastActivityAt > SESSION_TIMEOUT_MS) {
+      clearInterval(_sessionTimeoutIv);
+      alert('Session expired — please sign in again');
+      sessionStorage.clear();
+      localStorage.removeItem('adviuz_master_session');
+      location.reload();
+    }
+  }, 5 * 60 * 1000);
+}
+
+['click','keydown','touchstart','scroll'].forEach(function(ev) {
+  document.addEventListener(ev, touchActivity, { passive: true });
+});
+
 async function doAdminLogin() {
   const email = document.getElementById('adminLoginEmail').value.trim();
   const pass  = document.getElementById('adminLoginPass').value.trim();
   const err   = document.getElementById('adminLoginError');
   const btn   = document.getElementById('adminLoginBtn');
+  var lockMsg=checkLoginRateLimit();if(lockMsg){err.textContent=lockMsg;err.style.display='block';return;}
   if (!email || !pass) { err.textContent = 'Enter email and password.'; err.style.display = 'block'; return; }
   btn.textContent = 'Signing in…'; btn.disabled = true;
   err.style.display = 'none';
