@@ -2623,10 +2623,17 @@ async function refreshSession() {
         // Update sessionStorage with full data
         sessionStorage.setItem('adviuz_master_session', JSON.stringify(session));
       } else {
-        console.warn('[Session] Refresh failed:', refreshed.error);
-        clearSavedSession(); return false;
+        // Don't clear — might be a network hiccup. Keep old session and retry later.
+        console.warn('[Session] Refresh failed (keeping session):', refreshed.error);
+        scheduleTokenRefresh(3 * 60 * 1000); // retry in 3 mins
+        return true;
       }
-    } catch(e) { console.warn('[Session] Refresh error:', e.message); clearSavedSession(); return false; }
+    } catch(e) { 
+      // Network error — keep session, retry in 3 mins
+      console.warn('[Session] Refresh network error (keeping session):', e.message);
+      scheduleTokenRefresh(3 * 60 * 1000);
+      return true;
+    }
   }
 
   if (!session || !session.token) { clearSavedSession(); return false; }
@@ -2705,6 +2712,7 @@ async function refreshSession() {
 }
 
 function saveSession(token, refresh, user, role, remember) {
+  // Always update savedAt so visibility-based age check is accurate
   // Security: Store full session in sessionStorage (memory-only, cleared on tab close)
   // In localStorage (persistent), store only a minimal fingerprint — NOT the full JWT
   var fullData = JSON.stringify({
@@ -2740,18 +2748,52 @@ function clearSavedSession() {
 }
 
 var _refreshTimer = null;
+var _nextRefreshAt = 0; // epoch ms when next refresh is due
+
 function scheduleTokenRefresh(msFromNow) {
   if (_refreshTimer) clearTimeout(_refreshTimer);
-  if (msFromNow < 60000) msFromNow = 60000; // minimum 1 minute
+  if (msFromNow < 60000) msFromNow = 60000;
+  _nextRefreshAt = Date.now() + msFromNow;
   console.log('[Session] Next refresh in', Math.round(msFromNow/60000), 'mins');
   _refreshTimer = setTimeout(async function() {
     var ok = await refreshSession();
     if (!ok) {
-      showToast('Session expired — please sign in again');
-      setTimeout(doLogout, 2000);
+      // Retry 3 times before giving up
+      console.warn('[Session] Refresh failed, retrying in 2 mins...');
+      _refreshTimer = setTimeout(async function() {
+        var ok2 = await refreshSession();
+        if (!ok2) {
+          _refreshTimer = setTimeout(async function() {
+            var ok3 = await refreshSession();
+            if (!ok3) {
+              showToast('Session expired — please sign in again');
+              setTimeout(doLogout, 3000);
+            }
+          }, 2 * 60 * 1000);
+        }
+      }, 2 * 60 * 1000);
     }
   }, msFromNow);
 }
+
+// ── Visibility-based refresh (fixes mobile background tab issue) ──
+document.addEventListener('visibilitychange', async function() {
+  if (document.visibilityState === 'visible' && authToken) {
+    // Check if refresh was due while page was hidden
+    var overdue = _nextRefreshAt > 0 && Date.now() > _nextRefreshAt;
+    // Also check if token is within 10 mins of expiry
+    var tokenAge = 0;
+    try {
+      var raw = localStorage.getItem('adviuz_master_session');
+      if (raw) { var s = JSON.parse(raw); tokenAge = Date.now() - (s.savedAt || 0); }
+    } catch(e) {}
+    var nearExpiry = tokenAge > (50 * 60 * 1000); // older than 50 mins
+    if (overdue || nearExpiry) {
+      console.log('[Session] Page visible — refreshing token (was hidden, token overdue)');
+      await refreshSession();
+    }
+  }
+});
 
 function onLoginSuccess() {
   startSessionTimeoutWatch(); // start inactivity timeout
