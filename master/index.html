@@ -1001,6 +1001,9 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
       <div class="fg"><label class="flbl">To</label>
         <input class="finp" id="emailTo" type="email" placeholder="client@email.com">
       </div>
+      <div class="fg"><label class="flbl">CC</label>
+        <input class="finp" id="emailCc" type="email" placeholder="cc@email.com" value="support@adviuz.com">
+      </div>
       <div class="fg"><label class="flbl">Subject</label>
         <input class="finp" id="emailSubj" placeholder="Subject line">
       </div>
@@ -1014,9 +1017,13 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
           <div class="note-tpl" onclick="applyMasterEmailTpl('quote')">Quote Ready</div>
           <div class="note-tpl" onclick="applyMasterEmailTpl('support')">Support Reply</div>
           <div class="note-tpl" onclick="applyMasterEmailTpl('topup')" style="background:#fff8f0;color:#ea580c;border-color:#fed7aa;font-weight:700">⚡ Top Up Views</div>
+          <div class="note-tpl" onclick="applyMasterEmailTpl('topup_success')" style="background:#f0fdf4;color:#16a34a;border-color:#bbf7d0;font-weight:700">✅ Top-Up Success</div>
         </div>
       </div>
 
+      <div class="fg"><label class="flbl">Attach Flyer URL <span style="font-weight:400;color:var(--sub)">(optional — adds flyer button in email)</span></label>
+        <input class="finp" id="emailFlyerUrl" type="url" placeholder="https://... (YouTube, image, or landing page link)">
+      </div>
       <div class="fg"><label class="flbl">Message</label>
         <textarea class="fta" id="emailBody" style="min-height:150px" placeholder="Type your message..."></textarea>
       </div>
@@ -5970,6 +5977,16 @@ function applyMasterEmailTpl(key){
     applyTopupEmailTemplate(firstName);
     return;
   }
+  if(key === 'topup_success') {
+    var subjEl = document.getElementById('emailSubj');
+    if(subjEl) subjEl.value = '✅ Your Adviuz top-up is confirmed!';
+    var bodyEl = document.getElementById('emailBody');
+    if(bodyEl) bodyEl.value = '[Top-Up Success Email — HTML will be sent]\n\nHi ' + firstName + ',\n\nYour account has been successfully topped up. Your campaign is live!';
+    window._useTopupSuccessTemplate = true;
+    window._topupSuccessFirstName = firstName;
+    showToast('✅ Top-Up Success template ready — click Send Email');
+    return;
+  }
   var tpl = MASTER_EMAIL_TPLS[key]; if(!tpl) return;
   var from = (document.getElementById('emailFrom')||{}).value||'relations@adviuz.com';
   var teamName = FROM_NAMES[from]||'Adviuz Team';
@@ -5999,9 +6016,76 @@ function buildBrandedHtml(body, fromEmail){
     +'</td></tr></table></td></tr></table></body></html>';
 }
 
+function buildTopupSuccessHtml(firstName, flyerUrl) {
+  firstName = firstName || 'there';
+
+  var flyerSection = '';
+  if(flyerUrl) {
+    flyerSection = '<tr><td style="padding:0 40px 28px;font-family:Helvetica,Arial,sans-serif;">'
+      +'<p style="margin:0 0 12px;font-size:11px;font-weight:700;color:#9ca3af;letter-spacing:.1em;text-transform:uppercase;">Your Active Flyer</p>'
+      +'<table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>'
+      +'<td style="border:1.5px solid #bbf7d0;border-radius:10px;padding:14px 18px;background:#f0fdf4;">'
+      +'<table width="100%" cellpadding="0" cellspacing="0"><tr>'
+      +'<td><p style="margin:0;font-size:14px;font-weight:600;color:#15803d;">📋 View Your Flyer</p>'
+      +'<p style="margin:2px 0 0;font-size:12px;color:#6b7280;">Your digital flyer is live and running across all platforms</p></td>'
+      +'<td style="text-align:right;padding-left:12px;">'
+      +'<a href="'+flyerUrl+'" style="display:inline-block;background:#15803d;color:#fff;font-size:13px;font-weight:700;padding:9px 18px;border-radius:7px;text-decoration:none;">View Flyer →</a>'
+      +'</td></tr></table>'
+      +'</td></tr></table></td></tr>';
+  }
+
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">'
+    +'<style>body{margin:0;padding:0;}img{display:block;border:0;}a{color:#001f3f;text-decoration:underline;word-break:break-word;}</style>'
+    +'</head><body style="margin:0;padding:0;background-color:#f3f4f6;">'
+    +'<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f3f4f6;padding:20px 0;"><tr><td align="center">'
+    +'<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;background-color:#ffffff;border-collapse:collapse;border-radius:8px;border:1px solid #e5e7eb;overflow:hidden;box-shadow:0 4px 12px rgba(15,23,42,0.06);">'
+    // Header
+    +'<tr><td align="center" style="background-color:#001f3f;padding:16px 20px;">'
+    +'<img src="https://i.imgur.com/rfPAzdI.png" alt="Adviuz" style="display:block;height:26px;max-width:150px;margin:0 auto;border:0;">'
+    +'</td></tr>'
+    // Green success banner
+    +'<tr><td align="center" style="background:#15803d;padding:20px 28px;">'
+    +'<p style="margin:0 0 6px;font-size:32px;line-height:1;">✅</p>'
+    +'<p style="margin:0;font-size:17px;font-weight:800;color:#ffffff;font-family:Helvetica,Arial,sans-serif;letter-spacing:.01em;">Top-Up Successful!</p>'
+    +'<p style="margin:4px 0 0;font-size:13px;color:rgba(255,255,255,.75);font-family:Helvetica,Arial,sans-serif;">Your campaign is fully loaded and live</p>'
+    +'</td></tr>'
+    // Body
+    +'<tr><td style="padding:32px 40px 20px;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#333;">'
+    +'<p style="margin:0 0 16px;font-size:17px;font-weight:700;color:#111827;">Hi '+firstName+',</p>'
+    +'<p style="margin:0 0 16px;color:#4b5563;line-height:1.7;">Great news — your account top-up has been <strong style="color:#15803d;">successfully processed</strong>. Your campaign is now fully loaded and your flyers are reaching thousands of targeted customers across every digital channel.</p>'
+    +'</td></tr>'
+    + flyerSection
+    +'<tr><td style="padding:0 40px 28px;font-family:Helvetica,Arial,sans-serif;">'
+    // What happens next
+    +'<p style="margin:0 0 12px;font-size:11px;font-weight:700;color:#9ca3af;letter-spacing:.1em;text-transform:uppercase;">What happens next</p>'
+    +'<table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="background:#f8f9fa;border-radius:8px;padding:16px 20px;font-family:Helvetica,Arial,sans-serif;font-size:13px;color:#4b5563;line-height:2.1;">'
+    +'🎯 <strong>Your ads are already running</strong> — views are being served now<br>'
+    +'📊 <strong>Track your campaign</strong> — log in to the partner portal anytime<br>'
+    +'📞 <strong>Leads will contact you</strong> — answer calls from interested customers<br>'
+    +'⚡ <strong>We handle everything</strong> — design, distribution, and remarketing'
+    +'</td></tr></table>'
+    +'</td></tr>'
+    +'<tr><td style="padding:0 40px 28px;font-family:Helvetica,Arial,sans-serif;">'
+    +'<p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6;">Questions? Just reply to this email or reach us at <a href="mailto:support@adviuz.com" style="color:#001f3f;font-weight:500;">support@adviuz.com</a></p>'
+    +'</td></tr>'
+    // Footer
+    +'<tr><td style="background-color:#f8f9fa;padding:24px 28px;border-top:1px solid #e5e7eb;">'
+    +'<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"><tr><td align="center">'
+    +'<p style="margin:0 0 4px;font-size:15px;font-weight:700;color:#111827;font-family:Helvetica,Arial,sans-serif;">Business Relations Team</p>'
+    +'<p style="margin:0 0 20px;font-size:12px;color:#6b7280;font-family:Helvetica,Arial,sans-serif;">Mon - Fri &bull; 10 AM - 6 PM CST</p>'
+    +'<p style="margin:0 0 4px;font-size:11px;color:#4b5563;font-family:Helvetica,Arial,sans-serif;">Adviuz, 125 Stonebridge Common, Saskatoon, SK</p>'
+    +'<p style="margin:0 0 4px;font-size:11px;color:#4b5563;font-family:Helvetica,Arial,sans-serif;"><a href="mailto:support@adviuz.com" style="color:#001f3f;text-decoration:none;font-weight:500;">support@adviuz.com</a></p>'
+    +'<p style="margin:0 0 16px;font-size:11px;"><a href="mailto:sales@adviuz.ca" style="color:#001f3f;text-decoration:none;">sales@adviuz.ca</a></p>'
+    +'<p style="margin:0;font-size:11px;color:#9ca3af;font-family:Helvetica,Arial,sans-serif;">&copy; 2026 Adviuz. All rights reserved.</p>'
+    +'</td></tr></table></td></tr>'
+    +'</table></td></tr></table></body></html>';
+}
+
 async function sendEmail(){
   var fromEmail = (document.getElementById('emailFrom')||{}).value||'relations@adviuz.com';
   var to   = (document.getElementById('emailTo')||{}).value.trim();
+  var cc   = (document.getElementById('emailCc')||{}).value.trim();
+  var flyerUrl = (document.getElementById('emailFlyerUrl')||{}).value.trim();
   var subj = (document.getElementById('emailSubj')||{}).value.trim();
   var body = (document.getElementById('emailBody')||{}).value.trim();
   if(!to)   { showToast('Email address required'); return; }
@@ -6010,15 +6094,21 @@ async function sendEmail(){
   var btn = document.getElementById('sendEmailBtn');
   if(btn){ btn.textContent='Sending...'; btn.disabled=true; }
   try {
-    var finalHtml = window._useTopupTemplate
-      ? buildTopupHtml(window._topupFirstName || 'there')
-      : buildBrandedHtml(body, fromEmail);
-    window._useTopupTemplate = false;
+    var finalHtml;
+    if(window._useTopupSuccessTemplate) {
+      finalHtml = buildTopupSuccessHtml(window._topupSuccessFirstName || 'there', flyerUrl);
+      window._useTopupSuccessTemplate = false;
+    } else if(window._useTopupTemplate) {
+      finalHtml = buildTopupHtml(window._topupFirstName || 'there');
+      window._useTopupTemplate = false;
+    } else {
+      finalHtml = buildBrandedHtml(body, fromEmail);
+    }
     var res = await fetch(SB_FUNC_URL+'/send-email', {
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken,'apikey':SB_ANON},
       body: JSON.stringify({
-        to:to, subject:subj, html:finalHtml, text:body,
+        to:to, cc:(cc||undefined), subject:subj, html:finalHtml, text:body,
         type:'transactional', from_email:fromEmail, from_name:FROM_NAMES[fromEmail]||'Adviuz',
         reply_to:fromEmail, lead_id:_emailLeadId||null, client_id:window._clientId||null
       })
