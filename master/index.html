@@ -497,6 +497,16 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
 .ls-fu-note-inp{width:100%;border:1.5px solid var(--border);border-radius:9px;padding:9px 12px;font-family:var(--f);font-size:13px;color:var(--text);outline:none;background:var(--white);margin-bottom:10px}
 .ls-fu-note-inp:focus{border-color:var(--green)}
 
+/* Email Preview Modal */
+.ep-ov{position:fixed;inset:0;z-index:900;background:rgba(0,0,0,.6);display:none;align-items:flex-end;justify-content:center;}
+.ep-ov.open{display:flex;}
+.ep-modal{background:#f3f4f6;border-radius:22px 22px 0 0;width:100%;max-width:480px;height:92vh;display:flex;flex-direction:column;overflow:hidden;}
+.ep-head{padding:14px 18px 10px;background:#fff;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:space-between;}
+.ep-title{font-size:14px;font-weight:700;color:var(--ink);}
+.ep-meta{font-size:11px;color:var(--sub);margin-top:2px;}
+.ep-frame-wrap{flex:1;overflow:hidden;padding:10px;}
+.ep-frame{width:100%;height:100%;border:none;border-radius:12px;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.1);}
+.ep-foot{padding:12px 18px calc(12px + var(--sb));border-top:1px solid var(--border);display:flex;gap:10px;background:#fff;flex-shrink:0;}
 /* Note templates */
 .note-templates{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
 .note-tpl{padding:6px 12px;border-radius:20px;border:1.5px solid var(--border);background:var(--white);font-family:var(--f);font-size:12px;font-weight:500;color:var(--sub);cursor:pointer;white-space:nowrap;transition:all .12s}
@@ -1037,6 +1047,7 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
     </div>
     <div class="sh-foot">
       <button class="btn btn-ghost" onclick="closeSheet('emailSh')" style="flex:1">Cancel</button>
+      <button class="btn btn-ghost" onclick="previewEmail()" style="flex:1;justify-content:center;border:1.5px solid #2563eb;color:#2563eb;">👁 Preview</button>
       <button class="btn" id="sendEmailBtn" onclick="sendEmail()" style="flex:2;justify-content:center;background:#2563eb;color:#fff">Send Email</button>
     </div>
   </div>
@@ -5815,6 +5826,26 @@ function buildLowBalanceEmail(clientName, balance, topupUrl) {
     </div>
   </div>
 </div>
+
+<!-- ═══ EMAIL PREVIEW MODAL ═══ -->
+<div class="ep-ov" id="emailPreviewOv" onclick="if(event.target===this)closeEmailPreview()">
+  <div class="ep-modal">
+    <div class="ep-head">
+      <div>
+        <div class="ep-title">📧 Email Preview</div>
+        <div class="ep-meta" id="epMeta">How your customer will see this email</div>
+      </div>
+      <button class="sh-x" onclick="closeEmailPreview()">&#x2715;</button>
+    </div>
+    <div class="ep-frame-wrap">
+      <iframe class="ep-frame" id="epFrame" sandbox="allow-same-origin"></iframe>
+    </div>
+    <div class="ep-foot">
+      <button class="btn btn-ghost" onclick="closeEmailPreview()" style="flex:1">Close</button>
+      <button class="btn" onclick="closeEmailPreview();sendEmail();" style="flex:2;justify-content:center;background:#2563eb;color:#fff">✉️ Send Now</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>`;
 }
@@ -6084,6 +6115,41 @@ function buildTopupSuccessHtml(firstName, viewsAdded, fromEmail) {
     +'<p style="margin:0;font-size:11px;color:#9ca3af;font-family:Helvetica,Arial,sans-serif;">&copy; 2026 Adviuz. All rights reserved.</p>'
     +'</td></tr></table></td></tr>'
     +'</table></td></tr></table></body></html>';
+}
+
+function closeEmailPreview(){
+  document.getElementById('emailPreviewOv').classList.remove('open');
+}
+
+function previewEmail(){
+  var fromEmail = (document.getElementById('emailFrom')||{}).value||'relations@adviuz.com';
+  var to   = (document.getElementById('emailTo')||{}).value.trim();
+  var subj = (document.getElementById('emailSubj')||{}).value.trim();
+  var body = (document.getElementById('emailBody')||{}).value.trim();
+  var viewsAdded = (document.getElementById('emailViewsAdded')||{}).value.trim();
+
+  // Build the same HTML as sendEmail would
+  var previewHtml;
+  if(window._useTopupSuccessTemplate) {
+    previewHtml = buildTopupSuccessHtml(window._topupSuccessFirstName||'there', viewsAdded, fromEmail);
+  } else if(window._useTopupTemplate) {
+    previewHtml = buildTopupHtml(window._topupFirstName||'there');
+  } else {
+    previewHtml = buildBrandedHtml(body||'(no message)', fromEmail);
+  }
+
+  // Show meta info
+  var senderName = FROM_NAMES[fromEmail]||'Adviuz';
+  var metaEl = document.getElementById('epMeta');
+  if(metaEl) metaEl.textContent = 'From: '+senderName+' <'+fromEmail+'>'+(to?' → '+to:'')+(subj?' | '+subj:'');
+
+  // Write into iframe
+  var frame = document.getElementById('epFrame');
+  if(frame) {
+    frame.srcdoc = previewHtml;
+  }
+
+  document.getElementById('emailPreviewOv').classList.add('open');
 }
 
 async function sendEmail(){
