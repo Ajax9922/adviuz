@@ -1108,7 +1108,7 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
           <div class="note-tpl" onclick="applyMasterEmailTpl('quote')">Quote Ready</div>
           <div class="note-tpl" onclick="applyMasterEmailTpl('support')">Support Reply</div>
           <div class="note-tpl" onclick="applyMasterEmailTpl('proposal')" style="background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe">📋 Proposal</div>
-          <div class="note-tpl" onclick="openDesignCompletePrompt()" style="background:#f0fdf4;color:#16a34a;border-color:#bbf7d0">🎨 Design Complete</div>
+          <div class="note-tpl" onclick="openDesignCompletePrompt()" style="background:#f0fdf4;color:#16a34a;border-color:#bbf7d0;cursor:pointer">🎨 Design Complete</div>
           <div class="note-tpl" onclick="applyMasterEmailTpl('topup')" style="background:#fff8f0;color:#ea580c;border-color:#fed7aa;font-weight:700">⚡ Top Up Views</div>
           <div class="note-tpl" onclick="applyMasterEmailTpl('topup_success')" style="background:#f0fdf4;color:#16a34a;border-color:#bbf7d0;font-weight:700">✅ Top-Up Success</div>
         </div>
@@ -3548,7 +3548,7 @@ var nxtId=leads.length+1, nxtTid=tasks.length+1;
 var leadView='detailed'; // 'compact' or 'detailed'
 var curTab='leads', fuSeg='today', fuTypeFilter='', curLid=null, fuLid=null;
 var callIv=null, callSec=0, muted=false;
-var schQ='', schStg='';
+var schQ='', schStg='', schPartner='';
 var selIds=new Set();
 var importData=[];
 var pickedAg='Sarah';
@@ -3616,12 +3616,31 @@ function leadsHTML(){
       if(l.partner_id !== pid) return false;
     }
     if(schStg&&l.stage!==schStg)return false;
+    if(schPartner&&l.partner_id!==schPartner)return false;
     if(schQ){var q=schQ.toLowerCase();return l.name.toLowerCase().includes(q)||(l.company&&l.company.toLowerCase().includes(q))||l.ph.includes(q)||(l.em&&l.em.toLowerCase().includes(q))}
     return true;
   });
 
-  var chips='<div class="fchip '+(schStg===''?'on':'')+'" onclick="schStg=\'\';render()">All '+leads.length+'</div>'
-    +STAGES.map(function(s){var n=leads.filter(function(l){return l.stage===s.name}).length;return n?'<div class="fchip '+(schStg===s.name?'on':'')+'" onclick="schStg=\''+s.name+'\';render()">'+s.name+' '+n+'</div>':''}).join('');
+  // Build partner options for filter
+  var partnerOpts = '<option value="">All partners</option>';
+  if(window._allPartners && window._allPartners.length) {
+    window._allPartners.forEach(function(p){
+      partnerOpts += '<option value="'+p.id+'"'+(schPartner===p.id?' selected':'')+'>'+( p.full_name||p.name||p.email)+'</option>';
+    });
+  }
+  var chips='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">'
+    +'<div style="display:flex;gap:5px;overflow-x:auto;flex:1;padding-right:6px">'
+    +'<div class="fchip '+(schStg===''?'on':'')+'" onclick="schStg=\'\';render()">All '+leads.length+'</div>'
+    +STAGES.map(function(s){var n=leads.filter(function(l){return l.stage===s.name}).length;return n?'<div class="fchip '+(schStg===s.name?'on':'')+'" onclick="schStg=\''+s.name+'\';render()">'+s.name+' '+n+'</div>':''}).join('')
+    +'</div>'
+    +'<button onclick="toggleLeadFilter()" style="flex-shrink:0;padding:5px 10px;border-radius:8px;border:1px solid var(--border);background:'+(schPartner?'var(--navy,#001f3f)':'var(--surface,#fff)')+'  ;color:'+(schPartner?'#fff':'var(--text)')+ ';font-family:var(--f);font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;margin-left:4px">'
+    +(schPartner?'🔵':'⚙') + ' Filter</button>'
+    +'</div>'
+    +'<div id="leadFilterPanel" style="display:none;padding:8px 0;margin-bottom:4px">'
+    +'<select onchange="schPartner=this.value;render()" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-family:var(--f);font-size:13px;background:var(--surface,#fff)">'
+    +partnerOpts
+    +'</select>'
+    +'</div>';
 
   // Show onboarding when no leads at all
   if(leads.length===0 && !schQ && !schStg){ return onboardingHTML(); }
@@ -6506,7 +6525,7 @@ function buildProposalHtml(clientName, companyName, quoteId) {
 // ─── DESIGN COMPLETE EMAIL ────────────────────────────────
 function openDesignCompletePrompt() {
   var modal = document.getElementById('designCompleteModal');
-  if (modal) { modal.style.display = 'flex'; }
+  if (modal) { modal.style.cssText += ';display:flex!important'; }
   var l = _emailLeadId ? leads.find(function(x){return x.id===_emailLeadId;}) : null;
   var company = l ? (l.company || l.name || '') : '';
   var input = document.getElementById('designUrlInput');
@@ -6736,11 +6755,24 @@ async function sendEmail(){
   if(btn){ btn.textContent='Sending...'; btn.disabled=true; }
   try {
     var finalHtml;
-    if(window._useTopupSuccessTemplate) {
+    if(window._useProposalTemplate) {
+      var l2 = _emailLeadId ? leads.find(function(x){return x.id===_emailLeadId;}) : null;
+      finalHtml = buildProposalHtml(
+        window._proposalClientName  || (l2 ? l2.name.split(' ')[0] : 'Valued Client'),
+        window._proposalCompanyName || (l2 ? l2.company||l2.name||'' : ''),
+        ''
+      );
+      window._useProposalTemplate = false;
+    } else if(window._useDesignCompleteTemplate) {
+      finalHtml = buildDesignCompleteHtml(
+        window._designClientName   || 'Valued Client',
+        window._designCampaignName || '',
+        window._designCompleteUrl  || ''
+      );
+      window._useDesignCompleteTemplate = false;
+    } else if(window._useTopupSuccessTemplate) {
       finalHtml = buildTopupSuccessHtml(window._topupSuccessFirstName || 'there', viewsAdded, fromEmail);
-      window._useTopupSuccessTemplate    = false;
-    window._useProposalTemplate        = false;
-    window._useDesignCompleteTemplate  = false;
+      window._useTopupSuccessTemplate = false;
     } else if(window._useTopupTemplate) {
       finalHtml = buildTopupHtml(window._topupFirstName || 'there');
       window._useTopupTemplate = false;
@@ -7254,6 +7286,11 @@ function partnerStageLabel(s) {
     looking_for_job:                'Looking for Job'
   };
   return m[s] || s.replace(/_/g,' ').replace(/\w/g,function(c){return c.toUpperCase();});
+}
+
+function toggleLeadFilter() {
+  var panel = document.getElementById('leadFilterPanel');
+  if (panel) panel.style.display = panel.style.display === 'none' ? '' : 'none';
 }
 
 function isPartnerMode() { return window._staffRole === 'sales_partner'; }
