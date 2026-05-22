@@ -887,10 +887,10 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
       <button class="tb-btn" id="tbRefresh" style="display:none" onclick="refreshLeads()" title="Refresh">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
       </button>
-      <button class="tb-btn" onclick="openAddLeadSheet()">
+      <button class="tb-btn" id="tbPlusBtn" onclick="openAddLeadSheet()">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" id="tbPlusBtn" style="display:none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </button>
-      <button class="tb-btn" onclick="showToast('No new notifications')">
+      <button class="tb-btn" id="tbNotifBtn" onclick="showToast('No new notifications')">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/></svg>
       </button>
     </div>
@@ -3333,6 +3333,20 @@ function doLogout() {
   window._isPartnerMode = false;
   window._partnerData   = null;
   window._partnerComms  = [];
+  // Restore admin topbar buttons
+  ['tbPlusBtn','tbSearch','tbRefresh','tbNotifBtn'].forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) { var btn = el.tagName==='BUTTON'?el:el.closest('button'); if(btn) btn.style.display=''; }
+  });
+  var menuBtn = document.querySelector('.tb-menu');
+  if (menuBtn) menuBtn.style.display = '';
+  var signOutBtn = document.getElementById('partnerSignOutBtn');
+  if (signOutBtn) signOutBtn.style.display = 'none';
+  // Restore all tabs
+  ['tab-followups','tab-reports','tab-calls'].forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) el.style.display = 'flex';
+  });
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('loginEmail').value = '';
   document.getElementById('loginPass').value = '';
@@ -7131,41 +7145,52 @@ async function showPartnerUI() {
   var p = window._partnerData;
   if (!p) { showToast('Partner data not found'); return; }
 
-  // ── Use normal app shell — just customise what's visible ──
-
-  // Topbar: show partner name + sign out
+  // Topbar: name + commission rate
   document.getElementById('tbTitle').textContent = p.full_name || p.name || 'Partner';
   document.getElementById('tbSub').textContent   = partnerGetRate(p.active_client_count||0) + ' commission · ' + (p.ref_code||'');
 
-  // Hide admin-only topbar buttons
-  var plusBtn = document.getElementById('tbPlusBtn');
-  if (plusBtn) plusBtn.closest('button').style.display = 'none';
-  var srch = document.getElementById('tbSearch');
-  if (srch) srch.style.display = 'none';
-  var refBtn = document.getElementById('tbRefresh');
-  if (refBtn) refBtn.style.display = 'none';
+  // Hide all admin-only topbar buttons
+  var ids = ['tbPlusBtn','tbSearch','tbRefresh','tbNotifBtn'];
+  ids.forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) {
+      // tbPlusBtn id is on the SVG, not the button — hide parent button
+      var btn = el.tagName === 'BUTTON' ? el : el.closest('button');
+      if (btn) btn.style.display = 'none';
+    }
+  });
   var menuBtn = document.querySelector('.tb-menu');
   if (menuBtn) menuBtn.style.display = 'none';
-  var notifBtn = document.querySelector('.tb-notif');
-  if (notifBtn) notifBtn.style.display = 'none';
 
-  // ── Tab bar — show partner tabs only ──
-  // Hide: followups, reports, calls
-  // Show: leads (their leads), dashboard (their stats)
-  document.getElementById('tab-followups').style.display = 'none';
-  document.getElementById('tab-reports').style.display   = 'none';
-  document.getElementById('tab-calls').style.display     = 'none';
-  document.getElementById('tab-dashboard').style.display = 'flex';
+  // Add Sign Out button in topbar if not already there
+  if (!document.getElementById('partnerSignOutBtn')) {
+    var tbRight = document.querySelector('.tb-right');
+    if (tbRight) {
+      var logoutBtn = document.createElement('button');
+      logoutBtn.id = 'partnerSignOutBtn';
+      logoutBtn.onclick = doLogout;
+      logoutBtn.style.cssText = 'padding:6px 14px;border-radius:20px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);color:#fff;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap';
+      logoutBtn.textContent = 'Sign Out';
+      tbRight.appendChild(logoutBtn);
+    }
+  } else {
+    document.getElementById('partnerSignOutBtn').style.display = '';
+  }
 
-  // Rename Leads tab label
+  // Tab bar: hide admin tabs, show leads + dashboard only
+  ['tab-followups','tab-reports','tab-calls'].forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  var dashTab = document.getElementById('tab-dashboard');
+  if (dashTab) dashTab.style.display = 'flex';
+
+  // Rename Leads tab
   var leadsLbl = document.querySelector('#tab-leads .tab-lbl');
   if (leadsLbl) leadsLbl.textContent = 'My Leads';
 
-  // ── Dashboard tab = partner dashboard ──
-  // Override adminDashHTML to render partner content
   window._isPartnerMode = true;
 
-  // Start on dashboard tab
   var dashBtn = document.getElementById('tab-dashboard');
   goTab('dashboard', dashBtn);
 
