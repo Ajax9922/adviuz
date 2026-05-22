@@ -1107,6 +1107,8 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
           <div class="note-tpl" onclick="applyMasterEmailTpl('meeting')">Book Meeting</div>
           <div class="note-tpl" onclick="applyMasterEmailTpl('quote')">Quote Ready</div>
           <div class="note-tpl" onclick="applyMasterEmailTpl('support')">Support Reply</div>
+          <div class="note-tpl" onclick="applyMasterEmailTpl('proposal')" style="background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe">📋 Proposal</div>
+          <div class="note-tpl" onclick="openDesignCompletePrompt()" style="background:#f0fdf4;color:#16a34a;border-color:#bbf7d0">🎨 Design Complete</div>
           <div class="note-tpl" onclick="applyMasterEmailTpl('topup')" style="background:#fff8f0;color:#ea580c;border-color:#fed7aa;font-weight:700">⚡ Top Up Views</div>
           <div class="note-tpl" onclick="applyMasterEmailTpl('topup_success')" style="background:#f0fdf4;color:#16a34a;border-color:#bbf7d0;font-weight:700">✅ Top-Up Success</div>
         </div>
@@ -2474,7 +2476,22 @@ Dr. Sarah
   </div>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" <!-- DESIGN COMPLETE PROMPT -->
+<div id="designCompleteModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.5);align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:16px;padding:24px;max-width:340px;width:90%;margin:20px">
+    <div style="font-size:16px;font-weight:700;color:#111;margin-bottom:6px">🎨 Send Design Complete Email</div>
+    <div style="font-size:12px;color:#6b7280;margin-bottom:16px">Enter the design URL to include in the email</div>
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;display:block;margin-bottom:5px">Design URL</label>
+    <input id="designUrlInput" type="url" placeholder="https://nailfungustreatment.adviuz.ca" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:1.5px solid #e5e7eb;font-size:13px;margin-bottom:6px;font-family:inherit;outline:none">
+    <div style="font-size:11px;color:#9ca3af;margin-bottom:14px">Client will see a button to view and approve the design</div>
+    <div style="display:flex;gap:8px">
+      <button onclick="document.getElementById('designCompleteModal').style.display='none'" style="flex:1;padding:10px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:#6b7280">Cancel</button>
+      <button onclick="applyDesignCompleteTemplate()" style="flex:2;padding:10px;border-radius:8px;border:none;background:#001f3f;color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">Apply Template</button>
+    </div>
+  </div>
+</div>
+
+id="toast"></div>
 <script>
 // ═══════════════════════════════════════
 // DATA
@@ -2843,6 +2860,40 @@ async function verifyPartnerOTP() {
 // ═══════════════════════════════════════════════════════
 // PARTNER DASHBOARD
 // ═══════════════════════════════════════════════════════
+
+// ── ADMIN: Access partner leads in "Viewing As" mode ──
+function adminViewPartnerLeads(partnerId, partnerName) {
+  window._viewingAsPartner = { id: partnerId, name: partnerName };
+  window._isPartnerMode = true;
+  var banner = document.getElementById('viewingAsBanner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'viewingAsBanner';
+    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999;background:#d97706;color:#fff;padding:8px 16px;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:space-between;gap:10px';
+    banner.innerHTML = '<span>Viewing ' + partnerName + ' leads &mdash; full admin access</span>'
+      + '<button onclick="exitPartnerView()" style="padding:4px 12px;border-radius:6px;background:rgba(0,0,0,.2);border:none;color:#fff;font-family:var(--f);font-size:11px;font-weight:700;cursor:pointer">Exit</button>';
+    document.body.appendChild(banner);
+  } else {
+    banner.querySelector('span').textContent = 'Viewing ' + partnerName + ' leads';
+    banner.style.display = 'flex';
+  }
+  var tb = document.querySelector('.topbar');
+  if (tb) tb.style.paddingTop = 'calc(env(safe-area-inset-top,0px) + 44px)';
+  render();
+  var leadsBtn = document.getElementById('tab-leads');
+  if (leadsBtn) goTab('leads', leadsBtn);
+  showToast('Viewing ' + partnerName + ' leads');
+}
+function exitPartnerView() {
+  window._viewingAsPartner = null;
+  window._isPartnerMode = false;
+  var banner = document.getElementById('viewingAsBanner');
+  if (banner) banner.style.display = 'none';
+  var tb = document.querySelector('.topbar');
+  if (tb) tb.style.paddingTop = '';
+  render();
+  showToast('Back to admin view');
+}
 
 async function showPartnerDashboard() {
   var p = window._partnerData;
@@ -6428,12 +6479,64 @@ var FROM_NAMES = {
   'support@adviuz.com':'Adviuz Support'
 };
 
+
+// ─── PROPOSAL EMAIL ───────────────────────────────────────
+function buildProposalHtml(clientName, companyName, quoteId) {
+  var html = '<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="utf-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <style>\n    body{margin:0;padding:0;}\n    img{display:block;border:0;outline:none;}\n    a{color:#001f3f;text-decoration:underline;}\n    @media only screen and (max-width:600px){\n      .main-container{border-radius:0!important;}\n      .content-padding{padding:24px 20px 0 20px!important;}\n      .footer-padding{padding:30px 20px!important;}\n    }\n  </style>\n</head>\n<body style="margin:0;padding:0;background-color:#f3f4f6;">\n<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f3f4f6;padding:20px 0;">\n<tr><td align="center">\n<table class="main-container" width="100%" cellpadding="0" cellspacing="0" border="0"\n  style="max-width:520px;background-color:#ffffff;border-collapse:collapse;border-radius:8px;border:1px solid #e5e7eb;overflow:hidden;box-shadow:0 4px 12px rgba(15,23,42,0.06);">\n\n  <tr>\n    <td align="center" style="background-color:#001f3f;padding:16px 20px;">\n      <img src="https://i.imgur.com/rfPAzdI.png" alt="Adviuz" style="display:block;height:26px;max-width:150px;margin:0 auto;border:0;">\n    </td>\n  </tr>\n\n  <tr>\n    <td class="content-padding" style="padding:40px 40px 0 40px;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#333333;">\n\n      <p style="margin-top:0;margin-bottom:20px;">\n        <strong>To:</strong><br>\n        {{CLIENT_NAME}}<br>\n        {{COMPANY_NAME}}<br>\n        <strong>Sub:</strong> New Flyers Distribution System\n      </p>\n\n      <p>The Adviuz Flyers Distribution System is a unique, state-of-the-art distribution system that circulates flyers across all major digital advertising platforms in a single click, and charges you only for the flyers that get opened and viewed for at least 25 seconds.</p>\n\n      <p>Apart from this, the system also has the option to manage all inbound inquiries in one place, so you can easily work on them to close deals.</p>\n\n      <h3 style="color:#001f3f;font-size:18px;border-bottom:1px solid #e5e7eb;padding-bottom:8px;margin-top:30px;margin-bottom:15px;">First Time Ever</h3>\n      <ul style="margin:0 0 15px 0;padding:0 0 0 25px;margin-left:15px;list-style-type:disc;">\n        <li style="margin-bottom:6px;">$0.00 Printing Cost</li>\n        <li style="margin-bottom:6px;">100% Distribution Guarantee</li>\n        <li style="margin-bottom:6px;">Get Instant Replies &amp; Feedback</li>\n        <li style="margin-bottom:6px;">Audience Targeting Options Available</li>\n        <li style="margin-bottom:6px;">Get charged only if the flyer gets viewed for 25 seconds</li>\n      </ul>\n\n      <h3 style="color:#001f3f;font-size:18px;border-bottom:1px solid #e5e7eb;padding-bottom:8px;margin-top:30px;margin-bottom:15px;">Circulation Platforms</h3>\n      <ul style="margin:0 0 15px 0;padding:0 0 0 25px;margin-left:15px;list-style-type:disc;">\n        <li style="margin-bottom:6px;">YouTube Ads</li>\n        <li style="margin-bottom:6px;">Digital news platforms like CNN, Fox News, The New York Times, CNBC, and Global News</li>\n        <li style="margin-bottom:6px;">Mobile App Pop-up Ads</li>\n        <li style="margin-bottom:6px;">Facebook Messenger Ads</li>\n        <li style="margin-bottom:6px;">Facebook Feed Ads</li>\n        <li style="margin-bottom:6px;">Facebook Desktop Ads</li>\n        <li style="margin-bottom:6px;">Facebook Article Ads</li>\n        <li style="margin-bottom:6px;">Facebook Status Ads</li>\n        <li style="margin-bottom:6px;">Instagram Feed Sponsored Ads</li>\n        <li style="margin-bottom:6px;">Instagram Status Ads</li>\n        <li style="margin-bottom:6px;">Display Network Ads on sites relevant to your business</li>\n        <li style="margin-bottom:6px;">Remarketing Ads</li>\n      </ul>\n\n      <h3 style="color:#001f3f;font-size:18px;border-bottom:1px solid #e5e7eb;padding-bottom:8px;margin-top:30px;margin-bottom:15px;">Process Orientation (6 Steps)</h3>\n      <ol style="margin:0 0 15px 0;padding:0 0 0 25px;margin-left:15px;list-style-type:decimal;">\n        <li style="margin-bottom:10px;">Select a package and recharge. After payment is done, your case will be logged into our system.</li>\n        <li style="margin-bottom:10px;">After successful login, we start onboarding — discuss your business and how to position your product in the market.</li>\n        <li style="margin-bottom:10px;">After the discussion, you will receive a checklist of required content for the design.</li>\n        <li style="margin-bottom:10px;">We prepare the design and send it for your approval.</li>\n        <li style="margin-bottom:10px;">Once you approve the design, we set up your account.</li>\n        <li style="margin-bottom:10px;">Once setup is done, you receive access to your panel and are ready to roll out the campaign.</li>\n      </ol>\n\n      <h3 style="color:#001f3f;font-size:18px;border-bottom:1px solid #e5e7eb;padding-bottom:8px;margin-top:30px;margin-bottom:15px;">Final Note</h3>\n      <p style="margin-bottom:20px;">We hope our offer is in line with your requirements and look forward to your valuable order and a long-term mutually beneficial association with your esteemed organization. If you have any questions or queries, please reach back out to us.</p>\n\n      <div style="margin-bottom:10px;">\n        <span style="display:inline-block;vertical-align:middle;margin-right:15px;margin-bottom:10px;"><strong>Have Questions?</strong></span>\n        <a href="tel:+16472501152" style="display:inline-block;background-color:#ffffff;color:#001f3f;padding:9px 17px;text-decoration:none;border-radius:4px;border:1px solid #001f3f;font-size:14px;font-weight:bold;margin-right:8px;margin-bottom:10px;">&#128222; Call Us</a>\n        <a href="https://wa.me/16722038220" style="display:inline-block;background-color:#ffffff;color:#001f3f;padding:9px 17px;text-decoration:none;border-radius:4px;border:1px solid #001f3f;font-size:14px;font-weight:bold;margin-bottom:10px;">&#128172; WhatsApp</a>\n      </div>\n\n      <h3 style="color:#001f3f;font-size:16px;border-bottom:1px solid #e5e7eb;padding-bottom:8px;margin-top:30px;margin-bottom:15px;">Terms &amp; Conditions</h3>\n      <ul style="margin:0;padding:0 0 0 25px;margin-left:15px;font-size:13px;color:#6b7280;list-style-type:disc;">\n        <li style="margin-bottom:6px;">By taking our services, you agree to all the Terms &amp; Conditions mentioned at <a href="https://www.adviuz.ca/terms-condtions" target="_blank" style="color:#001f3f;">adviuz.ca/terms-conditions</a></li>\n        <li style="margin-bottom:6px;">All payments made are full and final and will not be refundable in any case.</li>\n        <li style="margin-bottom:6px;">Adviuz.ca is an advertising platform and does not guarantee any business profit or loss through advertisements.</li>\n        <li style="margin-bottom:0;">Taxes are extra.</li>\n      </ul>\n\n    </td>\n  </tr>\n\n  <tr><td height="60" style="font-size:0;line-height:0;">&nbsp;</td></tr>\n\n  <tr>\n    <td class="footer-padding" style="background-color:#f8f9fa;padding:40px 30px;color:#4b5563;border-top:1px solid #e5e7eb;border-radius:0 0 8px 8px;">\n      <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">\n        <tr><td align="center">\n          <p style="margin:0 0 4px;font-size:15px;font-weight:700;color:#111827;font-family:Helvetica,Arial,sans-serif;">Business Relations Team</p>\n          <p style="margin:0 0 32px;font-size:13px;color:#6b7280;font-family:Helvetica,Arial,sans-serif;">Mon - Fri &nbsp;&bull;&nbsp; 10 AM - 6 PM CST</p>\n          <p style="margin:0 0 4px;font-size:12px;color:#4b5563;">Adviuz, 125 Stonebridge Common, Saskatoon, SK, Canada</p>\n          <p style="margin:0 0 4px;font-size:12px;">\n            <a href="tel:+16472501152" style="color:#001f3f;text-decoration:none;">+1 647 250 1152</a> &bull;\n            <a href="mailto:sales@adviuz.com" style="color:#001f3f;text-decoration:none;">sales@adviuz.com</a>\n          </p>\n          <table border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:20px 0 0;padding-top:20px;border-top:1px solid #e5e7eb;">\n            <tr><td align="center">\n              <a href="https://www.facebook.com/adviuz" style="text-decoration:none;margin:0 10px;display:inline-block;"><img src="https://img.icons8.com/ios-filled/50/4b5563/facebook--v1.png" alt="Facebook" width="20" height="20" style="display:block;border:0;"></a>\n              <a href="https://www.instagram.com/adviuz_in/" style="text-decoration:none;margin:0 10px;display:inline-block;"><img src="https://img.icons8.com/ios-filled/50/4b5563/instagram-new.png" alt="Instagram" width="20" height="20" style="display:block;border:0;"></a>\n              <a href="https://x.com/adviuz" style="text-decoration:none;margin:0 10px;display:inline-block;"><img src="https://img.icons8.com/ios-filled/50/4b5563/twitterx.png" alt="X" width="20" height="20" style="display:block;border:0;"></a>\n              <a href="https://www.linkedin.com/company/adviuz" style="text-decoration:none;margin:0 10px;display:inline-block;"><img src="https://img.icons8.com/ios-filled/50/4b5563/linkedin.png" alt="LinkedIn" width="20" height="20" style="display:block;border:0;"></a>\n              <a href="https://www.youtube.com/c/Adviuz-in" style="text-decoration:none;margin:0 10px;display:inline-block;"><img src="https://img.icons8.com/ios-filled/50/4b5563/youtube-play.png" alt="YouTube" width="20" height="20" style="display:block;border:0;"></a>\n            </td></tr>\n          </table>\n          <p style="margin:16px 0 0;font-size:11px;color:#9ca3af;">&copy; 2026 Adviuz. All rights reserved.</p>\n        </td></tr>\n      </table>\n    </td>\n  </tr>\n\n</table>\n</td></tr></table>\n</body></html>';
+  html = html.replace(/\{\{CLIENT_NAME\}\}/g, clientName || 'Valued Client');
+  html = html.replace(/\{\{COMPANY_NAME\}\}/g, companyName || '');
+  html = html.replace(/\{\{QUOTE_ID\}\}/g, quoteId || '');
+  return html;
+}
+
+// ─── DESIGN COMPLETE EMAIL ────────────────────────────────
+function openDesignCompletePrompt() {
+  var modal = document.getElementById('designCompleteModal');
+  if (modal) { modal.style.display = 'flex'; }
+  var l = _emailLeadId ? leads.find(function(x){return x.id===_emailLeadId;}) : null;
+  var company = l ? (l.company || l.name || '') : '';
+  var input = document.getElementById('designUrlInput');
+  if (input && company) {
+    input.placeholder = 'https://' + company.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') + '.adviuz.ca';
+  }
+}
+
+function applyDesignCompleteTemplate() {
+  var designUrl = (document.getElementById('designUrlInput').value || '').trim();
+  if (!designUrl) { showToast('Enter the design URL first'); return; }
+  var modal = document.getElementById('designCompleteModal');
+  if (modal) modal.style.display = 'none';
+
+  var l = _emailLeadId ? leads.find(function(x){return x.id===_emailLeadId;}) : null;
+  var firstName = l ? (l.name||'there').split(' ')[0] : 'there';
+  var campaign  = l ? (l.company || l.name || 'your campaign') : 'your campaign';
+
+  var subjEl = document.getElementById('emailSubj');
+  if (subjEl) subjEl.value = 'Your Design is Ready — ' + campaign + ' | Adviuz';
+  var bodyEl = document.getElementById('emailBody');
+  if (bodyEl) bodyEl.value = '[DESIGN COMPLETE EMAIL — Full HTML will be sent]\\n\\nDear ' + firstName + ',\\n\\nYour design for ' + campaign + ' is ready. View at: ' + designUrl;
+
+  window._useDesignCompleteTemplate = true;
+  window._designCompleteUrl         = designUrl;
+  window._designClientName          = firstName;
+  window._designCampaignName        = campaign;
+  showToast('✅ Design Complete template ready — click Send Email');
+}
+
+function buildDesignCompleteHtml(clientName, campaignName, designUrl) {
+  var html = '<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="utf-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <style>\n    body{margin:0;padding:0;}\n    @media only screen and (max-width:600px){\n      .main-container{border-radius:0!important;}\n      .content-padding{padding:24px 20px 0 20px!important;}\n    }\n  </style>\n</head>\n<body style="margin:0;padding:0;background-color:#f3f4f6;">\n<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f3f4f6;padding:20px 0;">\n<tr><td align="center">\n<table class="main-container" width="100%" cellpadding="0" cellspacing="0" border="0"\n  style="max-width:520px;background-color:#ffffff;border-collapse:collapse;border-radius:8px;border:1px solid #e5e7eb;overflow:hidden;box-shadow:0 4px 12px rgba(15,23,42,0.06);">\n\n  <tr>\n    <td align="center" style="background-color:#001f3f;padding:16px 20px;">\n      <img src="https://i.imgur.com/rfPAzdI.png" alt="Adviuz" style="display:block;height:26px;max-width:150px;margin:0 auto;border:0;">\n    </td>\n  </tr>\n\n  <tr>\n    <td class="content-padding" style="padding:40px 40px 0 40px;font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#333333;">\n\n      <p style="margin-top:0;margin-bottom:8px;">Dear <strong>{{CLIENT_NAME}}</strong>,</p>\n\n      <h2 style="color:#001f3f;font-size:22px;margin:0 0 20px 0;font-weight:700;">Great news! Your digital flyer is ready.</h2>\n\n      <p style="margin-bottom:24px;">Please click the button below to review your design. Once you approve it, we will deploy it across all advertising platforms.</p>\n\n      <div style="text-align:center;margin:32px 0;">\n        <a href="{{DESIGN_URL}}"\n           style="display:inline-block;background-color:#001f3f;color:#ffffff;padding:16px 40px;text-decoration:none;border-radius:6px;font-size:16px;font-weight:bold;font-family:Helvetica,Arial,sans-serif;">\n          View Your Design &rarr;\n        </a>\n      </div>\n\n      <p style="font-size:14px;color:#4b5563;text-align:center;margin:0 0 0;">Simply reply to this email to approve or request any changes.</p>\n\n    </td>\n  </tr>\n\n  <tr><td height="50" style="font-size:0;line-height:0;">&nbsp;</td></tr>\n\n  <tr>\n    <td style="background-color:#f8f9fa;padding:32px 28px;color:#4b5563;border-top:1px solid #e5e7eb;border-radius:0 0 8px 8px;">\n      <table border="0" cellpadding="0" cellspacing="0" width="100%">\n        <tr><td align="center">\n          <p style="margin:0 0 4px;font-size:14px;font-weight:700;color:#111827;font-family:Helvetica,Arial,sans-serif;">Business Relations Team</p>\n          <p style="margin:0 0 16px;font-size:12px;color:#6b7280;font-family:Helvetica,Arial,sans-serif;">Mon - Fri &bull; 10 AM - 6 PM CST</p>\n          <p style="margin:0 0 4px;font-size:12px;color:#4b5563;">Adviuz, 125 Stonebridge Common, Saskatoon, SK</p>\n          <p style="margin:0 0 16px;font-size:12px;">\n            <a href="tel:+16472501152" style="color:#001f3f;text-decoration:none;">+1 647 250 1152</a> &bull;\n            <a href="mailto:sales@adviuz.com" style="color:#001f3f;text-decoration:none;">sales@adviuz.com</a>\n          </p>\n          <table border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:16px 0 0;padding-top:16px;border-top:1px solid #e5e7eb;">\n            <tr><td align="center">\n              <a href="https://www.facebook.com/adviuz" style="text-decoration:none;margin:0 10px;display:inline-block;"><img src="https://img.icons8.com/ios-filled/50/4b5563/facebook--v1.png" alt="Facebook" width="20" height="20" style="display:block;border:0;"></a>\n              <a href="https://www.instagram.com/adviuz_in/" style="text-decoration:none;margin:0 10px;display:inline-block;"><img src="https://img.icons8.com/ios-filled/50/4b5563/instagram-new.png" alt="Instagram" width="20" height="20" style="display:block;border:0;"></a>\n              <a href="https://x.com/adviuz" style="text-decoration:none;margin:0 10px;display:inline-block;"><img src="https://img.icons8.com/ios-filled/50/4b5563/twitterx.png" alt="X" width="20" height="20" style="display:block;border:0;"></a>\n              <a href="https://www.linkedin.com/company/adviuz" style="text-decoration:none;margin:0 10px;display:inline-block;"><img src="https://img.icons8.com/ios-filled/50/4b5563/linkedin.png" alt="LinkedIn" width="20" height="20" style="display:block;border:0;"></a>\n              <a href="https://www.youtube.com/c/Adviuz-in" style="text-decoration:none;margin:0 10px;display:inline-block;"><img src="https://img.icons8.com/ios-filled/50/4b5563/youtube-play.png" alt="YouTube" width="20" height="20" style="display:block;border:0;"></a>\n            </td></tr>\n          </table>\n          <p style="margin:16px 0 0;font-size:11px;color:#9ca3af;">&copy; 2026 Adviuz. All rights reserved.</p>\n        </td></tr>\n      </table>\n    </td>\n  </tr>\n\n</table>\n</td></tr></table>\n</body></html>';
+  html = html.replace(/\{\{CLIENT_NAME\}\}/g, clientName || 'Valued Client');
+  html = html.replace(/\{\{DESIGN_URL\}\}/g,  designUrl  || '#');
+  return html;
+}
+
 var MASTER_EMAIL_TPLS = {
   followup:{ subj:'Quick follow-up', body:'Hi {name},\n\nI wanted to follow up on our previous conversation. Do you have any questions I can help with?\n\nLooking forward to hearing from you.\n\nBest regards' },
   intro:   { subj:'Connecting from Adviuz', body:'Hi {name},\n\nThank you for your interest in Adviuz! We help businesses generate and convert more leads using AI-powered tools.\n\nWould you be open to a quick 15-minute call this week?\n\nBest regards' },
   meeting: { subj:"Let's schedule a call", body:'Hi {name},\n\nI would love to show you what Adviuz can do for your business.\n\nAre any of these times available?\n- Tomorrow 10am CST\n- Tomorrow 2pm CST\n- Thursday 11am CST\n\nBest regards' },
   quote:   { subj:'Your quote is ready', body:'Hi {name},\n\nYour quote is ready for review. Please check the link we sent separately to view and accept online.\n\nFeel free to reply with any questions.\n\nBest regards' },
-  support: { subj:'Re: Your inquiry', body:'Hi {name},\n\nThank you for reaching out to Adviuz Support. We have reviewed your message and are happy to help.\n\nBest regards' }
+  support:  { subj:'Re: Your inquiry', body:'Hi {name},\n\nThank you for reaching out to Adviuz Support. We have reviewed your message and are happy to help.\n\nBest regards' },
+  proposal: { subj:'New Flyers Distribution System — Proposal from Adviuz', body:'__PROPOSAL_HTML__' }
 };
 
 function applyMasterEmailTpl(key){
@@ -6456,6 +6559,28 @@ function applyMasterEmailTpl(key){
   }
   // Hide views row for non-topup-success templates
   document.getElementById('topupViewsRow') && (document.getElementById('topupViewsRow').style.display='none');
+  // ── Proposal: send full HTML proposal ──
+  if (key === 'proposal') {
+    var l2 = _emailLeadId ? leads.find(function(x){return x.id===_emailLeadId;}) : null;
+    var firstName2 = l2 ? (l2.name||'there').split(' ')[0] : 'there';
+    var company2   = l2 ? (l2.company || l2.name || '') : '';
+    var subjEl2 = document.getElementById('emailSubj');
+    if (subjEl2) subjEl2.value = 'New Flyers Distribution System — Proposal from Adviuz';
+    var bodyEl2 = document.getElementById('emailBody');
+    if (bodyEl2) bodyEl2.value = '[PROPOSAL EMAIL — Full HTML will be sent]\n\nDear ' + firstName2 + ',\n\nPlease find our proposal attached...';
+    window._useProposalTemplate = true;
+    window._proposalClientName  = firstName2;
+    window._proposalCompanyName = company2;
+    showToast('✅ Proposal template ready — click Send Email');
+    return;
+  }
+
+  // ── Design Complete: prompt for design URL ──
+  if (key === 'design_complete') {
+    openDesignCompletePrompt();
+    return;
+  }
+
   var tpl = MASTER_EMAIL_TPLS[key]; if(!tpl) return;
   var from = (document.getElementById('emailFrom')||{}).value||'relations@adviuz.com';
   var teamName = FROM_NAMES[from]||'Adviuz Team';
@@ -6599,7 +6724,9 @@ async function sendEmail(){
     var finalHtml;
     if(window._useTopupSuccessTemplate) {
       finalHtml = buildTopupSuccessHtml(window._topupSuccessFirstName || 'there', viewsAdded, fromEmail);
-      window._useTopupSuccessTemplate = false;
+      window._useTopupSuccessTemplate    = false;
+    window._useProposalTemplate        = false;
+    window._useDesignCompleteTemplate  = false;
     } else if(window._useTopupTemplate) {
       finalHtml = buildTopupHtml(window._topupFirstName || 'there');
       window._useTopupTemplate = false;
