@@ -2605,7 +2605,9 @@ async function sbAuth(path, body) {
     },
     body: JSON.stringify(body)
   });
-  return res.json();
+  var data = await res.json();
+  console.log('[sbAuth] status:', res.status, 'body:', JSON.stringify(data).slice(0, 300));
+  return data;
 }
 
 async function doLogin() {
@@ -2638,15 +2640,23 @@ async function doLogin() {
     var refresh = (data.session && data.session.refresh_token) || data.refresh_token;
     var user    = data.user || (data.session && data.session.user);
 
-    if (data.error || data.error_description) {
+    // Catch ALL Supabase v2 error formats
+    // v1: { error, error_description }
+    // v2: { code, message } or { msg } or { error_code, error_description }
+    var errMsg = data.error_description || data.error || data.message || data.msg || null;
+    var hasErr = !!(data.error || data.error_description || data.message || data.msg || data.code || (!token && !user));
+    if (hasErr && !token) {
       recordLoginFailure();
-      throw new Error(data.error_description || data.error || 'Invalid email or password');
+      console.warn('[Login] Auth error response:', JSON.stringify(data).slice(0, 300));
+      // Clean up common Supabase messages for the user
+      if (errMsg && errMsg.toLowerCase().includes('invalid')) errMsg = 'Invalid email or password. Please try again.';
+      if (errMsg && errMsg.toLowerCase().includes('email not confirmed')) errMsg = 'Please confirm your email first — check your inbox.';
+      throw new Error(errMsg || 'Login failed. Please check your credentials.');
     }
 
     if (!token || !user) {
-      // Log what we got to help debug
-      console.warn('[Login] Response:', JSON.stringify(data).slice(0, 200));
-      throw new Error('Login failed — no session received. Check credentials and try again.');
+      console.warn('[Login] Unexpected response (no token, no error):', JSON.stringify(data).slice(0, 300));
+      throw new Error('Login failed — unexpected response. Please try again or contact support.');
     }
 
     authToken   = token;
