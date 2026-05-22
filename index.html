@@ -361,13 +361,13 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
 .login-tabs{display:flex;gap:0;margin-bottom:24px;background:rgba(255,255,255,.06);border-radius:11px;padding:4px}
 .login-tab{flex:1;padding:9px;border-radius:8px;border:none;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer;background:none;color:rgba(255,255,255,.4);transition:all .15s}
 .login-tab.active{background:var(--green);color:#fff}
-.otp-digits{display:flex;gap:8px;margin-bottom:14px}
-.otp-digit{flex:1;background:rgba(255,255,255,.07);border:1.5px solid rgba(255,255,255,.1);border-radius:11px;padding:14px 6px;font-family:var(--f);font-size:22px;font-weight:700;color:#fff;text-align:center;outline:none;transition:border-color .15s}
+.otp-digits{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:14px;width:100%}
+.otp-digit{width:100%;min-width:0;background:rgba(255,255,255,.07);border:1.5px solid rgba(255,255,255,.1);border-radius:10px;padding:12px 2px;font-family:var(--f);font-size:20px;font-weight:700;color:#fff;text-align:center;outline:none;transition:border-color .15s;-webkit-appearance:none;box-sizing:border-box}
 .otp-digit:focus{border-color:var(--green)}
 .login-success{background:rgba(0,168,132,.15);border:1px solid rgba(0,168,132,.3);border-radius:10px;padding:11px 14px;font-size:13px;color:#34d399;margin-bottom:14px;display:none}
 .login-success.show{display:block}
-.partner-dash{display:none;flex-direction:column;height:100%}
-.partner-dash.active{display:flex}
+.partner-dash{display:none;flex-direction:column;height:100%;position:fixed;inset:0;z-index:800;background:var(--bg);overflow:hidden}
+.partner-dash.active{display:flex;flex-direction:column}
 .pd-header{background:var(--top);padding:20px;padding-top:calc(env(safe-area-inset-top)+20px)}
 .pd-body{flex:1;overflow-y:auto;padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--bg);overscroll-behavior:contain}
 .pd-stat{background:var(--white);border-radius:14px;padding:14px;border:1px solid var(--border);text-align:center}
@@ -2633,14 +2633,19 @@ async function doLogin() {
   try {
     var data = await sbAuth('/token?grant_type=password', { email, password: pass });
 
+    // Handle both Supabase v1 (flat) and v2 (nested session) response shapes
+    var token   = (data.session && data.session.access_token) || data.access_token;
+    var refresh = (data.session && data.session.refresh_token) || data.refresh_token;
+    var user    = data.user || (data.session && data.session.user);
     if (data.error || data.error_description) {
       recordLoginFailure();
       throw new Error(data.error_description || data.error || 'Invalid email or password');
     }
-
-    if (data.access_token) {
-      authToken = data.access_token;
-      currentUser = data.user;
+    if (token) {
+      authToken = token;
+      currentUser = user;
+      data.access_token  = token;
+      data.refresh_token = refresh;
 
       // ── STAFF GATE: verify super_admin or manager ──
       btn.textContent = 'Verifying access...';
@@ -2860,7 +2865,7 @@ async function showPartnerDashboard() {
   var totalEarned  = commsData.reduce(function(s,c){return s+(parseFloat(c.amount)||0);},0);
   var dealsWon     = leadsData.filter(function(l){return l.stage_code==='deal_closed';}).length;
   var rate         = partnerGetRate(p.active_client_count||0);
-  var refUrl       = p.ref_url || ('https://adviuz.ca/?ref='+(p.ref_code||''));
+  var refUrl = (p.ref_url || '').replace('https://latest-promo.com', 'https://hub.adviuz.ca').replace('http://latest-promo.com', 'https://hub.adviuz.ca') || ('https://hub.adviuz.ca/ref/?ref='+(p.ref_code||''));
   window._partnerRefUrl = refUrl;
   var fmtCAD       = function(n){return '$'+parseFloat(n||0).toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2});};
 
