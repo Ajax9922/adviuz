@@ -3614,7 +3614,8 @@ var nxtId=leads.length+1, nxtTid=tasks.length+1;
 var leadView='detailed'; // 'compact' or 'detailed'
 var curTab='leads', fuSeg='today', fuTypeFilter='', curLid=null, fuLid=null;
 var callIv=null, callSec=0, muted=false;
-var schQ='', schStg='', schPartner='', _showLeadFilter=false;
+var schQ='', schStg='', _showLeadFilter=false;
+var schPartners=new Set(); // multi-select partner filter (super admin only)
 var selIds=new Set();
 var importData=[];
 var pickedAg='Sarah';
@@ -3647,6 +3648,8 @@ function goTab(tab,btn){
   // hide search bar when switching
   document.getElementById('searchWrap').style.display='none';
   schQ='';
+  schPartners.clear();
+  _showLeadFilter=false;
   // deselect when switching
   if(selIds.size>0)deselectAll();
   else render();
@@ -3682,33 +3685,79 @@ function leadsHTML(){
       if(l.partner_id !== pid) return false;
     }
     if(schStg&&l.stage!==schStg)return false;
-    if(schPartner&&String(l.partner_id)!==schPartner)return false;
+    // Super admin multi-partner filter
+    if(schPartners.size>0){
+      // Map lead to its "effective" partner key: actual UUID or '__none__' if unassigned
+      var lpid = l.partner_id ? String(l.partner_id) : '__none__';
+      if(!schPartners.has(lpid)) return false;
+    }
     if(schQ){var q=schQ.toLowerCase();return l.name.toLowerCase().includes(q)||(l.company&&l.company.toLowerCase().includes(q))||l.ph.includes(q)||(l.em&&l.em.toLowerCase().includes(q))}
     return true;
   });
 
-  // Build partner options for filter
-  var partnerOpts = '<option value="">All partners</option>';
-  if(window._allPartners && window._allPartners.length) {
-    window._allPartners.forEach(function(p){
-      var pid = String(p.id);
-      partnerOpts += '<option value="'+pid+'"'+(schPartner===pid?' selected':'')+'>'+( p.full_name||p.name||p.email)+'</option>';
-    });
+  // ── Partner filter panel (super admin only) ─────────────────────
+  var isAdminUser = !window._isPartnerMode;
+  var hasPartnerFilter = isAdminUser && schPartners.size > 0;
+  var filterBtnHTML = '';
+  var filterPanelHTML = '';
+  if (isAdminUser) {
+    var allPids = [];
+    var partnerCheckboxes = '';
+    if(window._allPartners && window._allPartners.length){
+      window._allPartners.forEach(function(p){
+        var pid = String(p.id);
+        allPids.push(pid);
+        var sel = schPartners.has(pid);
+        var label = p.full_name||p.name||p.email;
+        partnerCheckboxes +=
+          '<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer;background:'+(sel?'#e8f0fe':'transparent')+';margin-bottom:2px" onclick="togglePartnerFilter(\''+pid+'\');event.preventDefault()">'+
+          '<span style="width:18px;height:18px;border-radius:4px;border:2px solid '+(sel?'var(--blue,#2563eb)':'var(--border,#d1d5db)')+';display:flex;align-items:center;justify-content:center;flex-shrink:0;background:'+(sel?'var(--blue,#2563eb)':'#fff')+'">'+
+          (sel?'<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 5L4 7.5L8.5 2.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>':'')+
+          '</span>'+
+          '<span style="font-size:13px;font-family:var(--f);color:var(--text)">'+label+'</span>'+
+          '</label>';
+      });
+    }
+    var allSelected = allPids.length>0 && allPids.every(function(pid){return schPartners.has(pid);});
+    var noneSelected = schPartners.has('__none__');
+    var selectAllBlock = allPids.length ?
+      '<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer;background:'+(allSelected?'#fef9c3':'transparent')+';margin-bottom:4px;border-bottom:1px solid var(--border,#e5e7eb);padding-bottom:10px" onclick="selectAllPartnerIds('+JSON.stringify(allPids)+');event.preventDefault()">'+
+      '<span style="width:18px;height:18px;border-radius:4px;border:2px solid '+(allSelected?'#d97706':'var(--border,#d1d5db)')+';display:flex;align-items:center;justify-content:center;flex-shrink:0;background:'+(allSelected?'#d97706':'#fff')+'">'+
+      (allSelected?'<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 5L4 7.5L8.5 2.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>':'')+
+      '</span>'+
+      '<span style="font-size:13px;font-weight:700;font-family:var(--f);color:var(--text)">Select All Partners</span>'+
+      '</label>'
+      : '<div style="padding:10px;font-size:12px;color:var(--sub,#9ca3af);text-align:center">No partners added yet</div>';
+    var unassignedBlock =
+      '<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer;background:'+(noneSelected?'#f0fdf4':'transparent')+';margin-top:4px;border-top:1px solid var(--border,#e5e7eb);padding-top:10px" onclick="togglePartnerFilter(\'__none__\');event.preventDefault()">'+
+      '<span style="width:18px;height:18px;border-radius:4px;border:2px solid '+(noneSelected?'#16a34a':'var(--border,#d1d5db)')+';display:flex;align-items:center;justify-content:center;flex-shrink:0;background:'+(noneSelected?'#16a34a':'#fff')+'">'+
+      (noneSelected?'<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 5L4 7.5L8.5 2.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>':'')+
+      '</span>'+
+      '<span style="font-size:13px;font-family:var(--f);color:var(--sub,#667781)">⬜ No Partner Assigned</span>'+
+      '</label>';
+    var clearBtn = hasPartnerFilter ?
+      '<button onclick="schPartners.clear();_showLeadFilter=false;render()" style="margin-top:8px;width:100%;padding:8px;border-radius:8px;border:1px solid #fecaca;background:#fff;font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer;color:#ef4444">&#x2715; Clear Partner Filter</button>' : '';
+    filterBtnHTML =
+      '<button onclick="toggleLeadFilter()" style="flex-shrink:0;padding:5px 10px;border-radius:8px;border:1px solid var(--border);background:'+(hasPartnerFilter?'var(--navy,#001f3f)':'var(--surface,#fff)')+';color:'+(hasPartnerFilter?'#fff':'var(--text)')+';font-family:var(--f);font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;margin-left:4px">'+
+      (hasPartnerFilter?'🔵 Partners ('+schPartners.size+')':'⚙ Filter')+
+      '</button>';
+    filterPanelHTML =
+      '<div id="leadFilterPanel" style="display:'+(_showLeadFilter?'block':'none')+';background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;padding:10px 6px;margin-bottom:8px;box-shadow:0 2px 8px rgba(0,0,0,.08)">'+
+      '<div style="font-size:11px;font-weight:700;color:var(--sub,#667781);letter-spacing:.06em;padding:0 10px 8px;text-transform:uppercase">Filter by Partner</div>'+
+      selectAllBlock+
+      partnerCheckboxes+
+      unassignedBlock+
+      clearBtn+
+      '</div>';
   }
-  var chips='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">'
-    +'<div style="display:flex;gap:5px;overflow-x:auto;flex:1;padding-right:6px">'
-    +'<div class="fchip '+(schStg===''?'on':'')+'" onclick="schStg=\'\';render()">All '+leads.length+'</div>'
-    +STAGES.map(function(s){var n=leads.filter(function(l){return l.stage===s.name}).length;return n?'<div class="fchip '+(schStg===s.name?'on':'')+'" onclick="schStg=\''+s.name+'\';render()">'+s.name+' '+n+'</div>':''}).join('')
-    +'</div>'
-    +'<button onclick="toggleLeadFilter()" style="flex-shrink:0;padding:5px 10px;border-radius:8px;border:1px solid var(--border);background:'+(schPartner?'var(--navy,#001f3f)':'var(--surface,#fff)')+'  ;color:'+(schPartner?'#fff':'var(--text)')+ ';font-family:var(--f);font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;margin-left:4px">'
-    +(schPartner?'🔵':'⚙') + ' Filter</button>'
-    +'</div>'
-    +'<div id="leadFilterPanel" style="display:'+(_showLeadFilter?'block':'none')+';padding:8px 0;margin-bottom:4px">'
-    +'<select onchange="schPartner=this.value;render()" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-family:var(--f);font-size:13px;background:var(--surface,#fff)">'
-    +partnerOpts
-    +'</select>'
-    +(schPartner ? '<button onclick="schPartner=\'\';_showLeadFilter=false;render()" style="margin-top:8px;width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:#fff;font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer;color:#ef4444">&#x2715; Clear Filter</button>' : '')
-    +'</div>';
+
+  var chips='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">'+
+    '<div style="display:flex;gap:5px;overflow-x:auto;flex:1;padding-right:6px">'+
+    '<div class="fchip '+(schStg===''?'on':'')+'" onclick="schStg=\'\';render()">All '+leads.length+'</div>'+
+    STAGES.map(function(s){var n=leads.filter(function(l){return l.stage===s.name}).length;return n?'<div class="fchip '+(schStg===s.name?'on':'')+'" onclick="schStg=\''+s.name+'\';render()">'+s.name+' '+n+'</div>':''}).join('')+
+    '</div>'+
+    filterBtnHTML+
+    '</div>';
 
   // Show onboarding when no leads at all
   if(leads.length===0 && !schQ && !schStg){ return onboardingHTML(); }
@@ -3733,15 +3782,7 @@ function leadsHTML(){
     +'<button class="vt-btn'+(leadView==='compact'?' on':'')+'" onclick="leadView=\'compact\';render()" title="Compact view"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>'
     +'</div>';
 
-  // Split filter panel out of chips so it renders BELOW the chip row
-  var filterPanelHtml = '';
-  var chipsPart = chips;
-  var fpStart = chips.indexOf('<div id="leadFilterPanel"');
-  if (fpStart > -1) {
-    filterPanelHtml = chips.slice(fpStart);
-    chipsPart = chips.slice(0, fpStart);
-  }
-  return '<div class="filter-bar" style="display:flex;align-items:center">'+chipsPart+viewToggle+'</div>'+filterPanelHtml
+  return '<div class="filter-bar" style="display:flex;align-items:center">'+chips+viewToggle+'</div>'+filterPanelHTML
     +(anySel?'<div style="background:#e7f8ee;padding:8px 16px;font-size:12px;font-weight:600;color:var(--green);display:flex;align-items:center;justify-content:space-between"><span>'+selIds.size+' selected</span><span onclick="selectAllVisible()" style="cursor:pointer;text-decoration:underline">Select all '+vis.length+'</span></div>':'')
     +'<div style="background:var(--white)">'+rows+'</div>'
     +'<div style="height:80px"></div>';
@@ -7441,7 +7482,22 @@ function partnerStageLabel(s) {
 }
 
 function toggleLeadFilter() {
+  // Only super admin can open the partner filter
+  if(isPartnerMode()) return;
   _showLeadFilter = !_showLeadFilter;
+  render();
+}
+
+function togglePartnerFilter(pid) {
+  if(schPartners.has(pid)) schPartners.delete(pid);
+  else schPartners.add(pid);
+  render();
+}
+
+function selectAllPartnerIds(pids) {
+  var allSelected = pids.every(function(pid){ return schPartners.has(pid); });
+  if(allSelected){ pids.forEach(function(pid){ schPartners.delete(pid); }); }
+  else { pids.forEach(function(pid){ schPartners.add(pid); }); }
   render();
 }
 
