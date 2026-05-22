@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-22 18:05</title>
+<title>Adviuz Hub · v2026-05-22 18:38</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1068,6 +1068,29 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
     </div>
   </div>
 </div>
+
+<!-- ═══ DESIGN COMPLETE SHEET ═══ -->
+<div class="sheet-ov" id="designCompleteSh" onclick="if(event.target===this)closeSheet('designCompleteSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sh-head">
+      <div class="sh-title">🎨 Design Complete Email</div>
+      <button class="sh-x" onclick="closeSheet('designCompleteSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body">
+      <div class="fg">
+        <label class="flbl">Design URL</label>
+        <input class="finp" id="designUrlInput" type="url" placeholder="https://nailfungustreatment.adviuz.ca">
+        <div style="font-size:11px;color:var(--sub);margin-top:4px">Client will see a button to view and approve the design</div>
+      </div>
+    </div>
+    <div class="sh-foot">
+      <button class="btn btn-ghost" onclick="closeSheet('designCompleteSh')" style="flex:1">Cancel</button>
+      <button class="btn" onclick="applyDesignCompleteTemplate()" style="flex:2;justify-content:center;background:#001f3f;color:#fff">Apply Template</button>
+    </div>
+  </div>
+</div>
+
+
 
 <!-- ═══ EMAIL SHEET ═══ -->
 <div class="sheet-ov" id="emailSh" onclick="if(event.target===this)closeSheet('emailSh')">
@@ -2516,27 +2539,6 @@ Dr. Sarah
 </div>
 
 <div class="toast" <!-- DESIGN COMPLETE PROMPT -->
-<!-- ═══ DESIGN COMPLETE SHEET ═══ -->
-<div class="sheet-ov" id="designCompleteSh" onclick="if(event.target===this)closeSheet('designCompleteSh')">
-  <div class="sheet"><div class="sheet-handle"></div>
-    <div class="sh-head">
-      <div class="sh-title">🎨 Design Complete Email</div>
-      <button class="sh-x" onclick="closeSheet('designCompleteSh')">&#x2715;</button>
-    </div>
-    <div class="sh-body">
-      <div class="fg">
-        <label class="flbl">Design URL</label>
-        <input class="finp" id="designUrlInput" type="url" placeholder="https://nailfungustreatment.adviuz.ca">
-        <div style="font-size:11px;color:var(--sub);margin-top:4px">Client will see a button to view and approve the design</div>
-      </div>
-    </div>
-    <div class="sh-foot">
-      <button class="btn btn-ghost" onclick="closeSheet('designCompleteSh')" style="flex:1">Cancel</button>
-      <button class="btn" onclick="applyDesignCompleteTemplate()" style="flex:2;justify-content:center;background:#001f3f;color:#fff">Apply Template</button>
-    </div>
-  </div>
-</div>
-
 <div class="toast" id="toast"></div>
 
 <!-- ═══ EMAIL PREVIEW MODAL ═══ -->
@@ -3380,6 +3382,7 @@ function onLoginSuccess() {
     +'<div style="font-size:14px;color:var(--sub);font-weight:500">Loading your leads...</div>'
     +'</div>';
 
+  loadAllPartners();
   loadLeadsFromDB().then(function(dbLeads) {
     if (dbLeads && dbLeads.length > 0) {
       leads = dbLeads.map(mapLead);
@@ -3492,6 +3495,7 @@ async function refreshLeads() {
   if(refBtn) { refBtn.style.opacity='0.4'; refBtn.style.pointerEvents='none'; }
   document.getElementById('content').innerHTML =
     '<div style="text-align:center;padding:40px 20px"><div style="font-size:24px;margin-bottom:8px">&#x1F504;</div><div style="font-size:13px;color:var(--sub)">Refreshing...</div></div>';
+  loadAllPartners();
   var dbLeads = await loadLeadsFromDB();
   if(dbLeads) {
     leads = dbLeads.map(mapLead);
@@ -3500,6 +3504,14 @@ async function refreshLeads() {
   if(refBtn) { refBtn.style.opacity='1'; refBtn.style.pointerEvents='auto'; }
   render();
   showToast('&#x2705; Leads refreshed');
+}
+
+// ── Load all partners for filter dropdown + card display ──
+async function loadAllPartners() {
+  try {
+    var res = await sbFetch('/rest/v1/partners?select=id,full_name,email&order=full_name.asc&limit=200');
+    if (res.ok) window._allPartners = await res.json();
+  } catch(e) { console.warn('[Partners]', e); }
 }
 
 async function loadLeadsFromDB() {
@@ -3683,7 +3695,7 @@ function leadsHTML(){
       if(l.partner_id !== pid) return false;
     }
     if(schStg&&l.stage!==schStg)return false;
-    if(schPartner&&l.partner_id!==schPartner)return false;
+    if(schPartner&&String(l.partner_id)!==String(schPartner))return false;
     if(schQ){var q=schQ.toLowerCase();return l.name.toLowerCase().includes(q)||(l.company&&l.company.toLowerCase().includes(q))||l.ph.includes(q)||(l.em&&l.em.toLowerCase().includes(q))}
     return true;
   });
@@ -3707,6 +3719,7 @@ function leadsHTML(){
     +'<select onchange="schPartner=this.value;render()" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-family:var(--f);font-size:13px;background:var(--surface,#fff)">'
     +partnerOpts
     +'</select>'
+    +(schPartner ? '<button onclick="schPartner=\'\';_showLeadFilter=false;render()" style="margin-top:8px;width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:#fff;font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer;color:#ef4444">&#x2715; Clear Filter</button>' : '')
     +'</div>';
 
   // Show onboarding when no leads at all
@@ -3969,6 +3982,7 @@ function lRow(l,anySel){
     +'<div class="l-body">'
     +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><div class="l-name">'+(l.company||l.name)+'</div><div class="l-time">'+l.t+'</div></div>'
     +(l.company ? '<div style="font-size:11px;color:var(--muted);margin-top:0px;line-height:1.2">'+l.name+'</div>' : '')
+    +(l.partner_id && window._allPartners ? (function(){ var p=window._allPartners.find(function(x){return x.id===l.partner_id;}); return p ? '<div style="font-size:10px;color:var(--blue);margin-top:1px;line-height:1.2">&#128101; '+(p.full_name||p.email)+'</div>' : ''; })() : '')
     +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:3px"><div class="l-detail">'+l.ph+'</div>'+stgBadge(l.stage)+'</div>'
     +(leadView!=='compact'?'<div class="l-note">'+(lastAct ? lastAct.time+' — '+lastAct.body.slice(0,40)+'...' : l.note)+'</div>':'')
     +'</div>'
