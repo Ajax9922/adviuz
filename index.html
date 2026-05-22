@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-22 17:45</title>
+<title>Adviuz Hub · v2026-05-22 18:05</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2516,16 +2516,23 @@ Dr. Sarah
 </div>
 
 <div class="toast" <!-- DESIGN COMPLETE PROMPT -->
-<div id="designCompleteModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.5);align-items:center;justify-content:center">
-  <div style="background:#fff;border-radius:16px;padding:24px;max-width:340px;width:90%;margin:20px">
-    <div style="font-size:16px;font-weight:700;color:#111;margin-bottom:6px">🎨 Send Design Complete Email</div>
-    <div style="font-size:12px;color:#6b7280;margin-bottom:16px">Enter the design URL to include in the email</div>
-    <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;display:block;margin-bottom:5px">Design URL</label>
-    <input id="designUrlInput" type="url" placeholder="https://nailfungustreatment.adviuz.ca" style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:1.5px solid #e5e7eb;font-size:13px;margin-bottom:6px;font-family:inherit;outline:none">
-    <div style="font-size:11px;color:#9ca3af;margin-bottom:14px">Client will see a button to view and approve the design</div>
-    <div style="display:flex;gap:8px">
-      <button onclick="document.getElementById('designCompleteModal').style.display='none'" style="flex:1;padding:10px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:#6b7280">Cancel</button>
-      <button onclick="applyDesignCompleteTemplate()" style="flex:2;padding:10px;border-radius:8px;border:none;background:#001f3f;color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">Apply Template</button>
+<!-- ═══ DESIGN COMPLETE SHEET ═══ -->
+<div class="sheet-ov" id="designCompleteSh" onclick="if(event.target===this)closeSheet('designCompleteSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sh-head">
+      <div class="sh-title">🎨 Design Complete Email</div>
+      <button class="sh-x" onclick="closeSheet('designCompleteSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body">
+      <div class="fg">
+        <label class="flbl">Design URL</label>
+        <input class="finp" id="designUrlInput" type="url" placeholder="https://nailfungustreatment.adviuz.ca">
+        <div style="font-size:11px;color:var(--sub);margin-top:4px">Client will see a button to view and approve the design</div>
+      </div>
+    </div>
+    <div class="sh-foot">
+      <button class="btn btn-ghost" onclick="closeSheet('designCompleteSh')" style="flex:1">Cancel</button>
+      <button class="btn" onclick="applyDesignCompleteTemplate()" style="flex:2;justify-content:center;background:#001f3f;color:#fff">Apply Template</button>
     </div>
   </div>
 </div>
@@ -3725,7 +3732,15 @@ function leadsHTML(){
     +'<button class="vt-btn'+(leadView==='compact'?' on':'')+'" onclick="leadView=\'compact\';render()" title="Compact view"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>'
     +'</div>';
 
-  return '<div class="filter-bar" style="display:flex;align-items:center">'+chips+viewToggle+'</div>'
+  // Split filter panel out of chips so it renders BELOW the chip row
+  var filterPanelHtml = '';
+  var chipsPart = chips;
+  var fpStart = chips.indexOf('<div id="leadFilterPanel"');
+  if (fpStart > -1) {
+    filterPanelHtml = chips.slice(fpStart);
+    chipsPart = chips.slice(0, fpStart);
+  }
+  return '<div class="filter-bar" style="display:flex;align-items:center">'+chipsPart+viewToggle+'</div>'+filterPanelHtml
     +(anySel?'<div style="background:#e7f8ee;padding:8px 16px;font-size:12px;font-weight:600;color:var(--green);display:flex;align-items:center;justify-content:space-between"><span>'+selIds.size+' selected</span><span onclick="selectAllVisible()" style="cursor:pointer;text-decoration:underline">Select all '+vis.length+'</span></div>':'')
     +'<div style="background:var(--white)">'+rows+'</div>'
     +'<div style="height:80px"></div>';
@@ -6619,21 +6634,20 @@ function buildProposalHtml(clientName, companyName, quoteId) {
 
 // ─── DESIGN COMPLETE EMAIL ────────────────────────────────
 function openDesignCompletePrompt() {
-  var modal = document.getElementById('designCompleteModal');
-  if (modal) { modal.style.display = 'flex'; }
   var l = _emailLeadId ? leads.find(function(x){return x.id===_emailLeadId;}) : null;
   var company = l ? (l.company || l.name || '') : '';
   var input = document.getElementById('designUrlInput');
-  if (input && company) {
-    input.placeholder = 'https://' + company.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') + '.adviuz.ca';
+  if (input) {
+    input.value = '';
+    if (company) input.placeholder = 'https://' + company.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') + '.adviuz.ca';
   }
+  openSheet('designCompleteSh');
 }
 
 function applyDesignCompleteTemplate() {
   var designUrl = (document.getElementById('designUrlInput').value || '').trim();
   if (!designUrl) { showToast('Enter the design URL first'); return; }
-  var modal = document.getElementById('designCompleteModal');
-  if (modal) modal.style.display = 'none';
+  closeSheet('designCompleteSh');
 
   var l = _emailLeadId ? leads.find(function(x){return x.id===_emailLeadId;}) : null;
   var firstName = l ? (l.name||'there').split(' ')[0] : 'there';
