@@ -6,8 +6,8 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#1f2c34">
-<title>Adviuz Master</title>
+<meta name="theme-color" content="#001f3f">
+<title>Adviuz Hub</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2952,8 +2952,56 @@ async function showPartnerDashboard() {
     +'</div>';
 }
 
+async function loadPartnerLeads(){
+  if(!window._partnerData) return;
+  try {
+    var res = await sbFetch('/rest/v1/leads?partner_id=eq.'+window._partnerData.id+'&order=created_at.desc&limit=200');
+    var data = res.ok ? await res.json() : [];
+    // Merge into global leads array (partner's leads)
+    data.forEach(function(l){
+      var existing = leads.findIndex(function(x){ return x.id === l.id; });
+      var mapped = mapLead(l);
+      if(existing > -1) leads[existing] = mapped;
+      else leads.push(mapped);
+    });
+  } catch(e){ console.warn('[PartnerLeads]', e.message); }
+}
+
+async function loadPartnerComms(){
+  if(!window._partnerData) return;
+  try {
+    var res = await sbFetch('/rest/v1/partner_commissions?partner_id=eq.'+window._partnerData.id+'&order=earned_at.desc&limit=50');
+    window._partnerComms = res.ok ? await res.json() : [];
+  } catch(e){ window._partnerComms = []; }
+}
+
 function copyPartnerLink() {
   copyRefLink(window._partnerRefUrl || '');
+}
+
+async function sharePartnerLink() {
+  var p    = window._partnerData || {};
+  var url  = window._partnerRefUrl || ('https://hub.adviuz.ca/ref/?ref=' + (p.ref_code||''));
+  var name = p.full_name || p.name || 'my';
+  var msg  = 'Hey! I thought you might be interested in Adviuz — they help local businesses get in front of real customers through digital flyers. Check it out here:';
+
+  // Try native share sheet first (iOS/Android)
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: 'Adviuz — Grow Your Business',
+        text:  msg,
+        url:   url,
+      });
+      return;
+    } catch(e) {
+      if (e.name === 'AbortError') return; // user cancelled — that's fine
+    }
+  }
+
+  // Fallback: WhatsApp deep link
+  var waMsg = encodeURIComponent(msg + '\n\n' + url);
+  window.open('https://wa.me/?text=' + waMsg, '_blank');
 }
 
 function copyRefLink(url) {
@@ -3231,8 +3279,9 @@ function doLogout() {
   currentUser = null;
   if (_refreshTimer) clearTimeout(_refreshTimer);
   clearSavedSession();
-  var pd = document.getElementById('partnerDash');
-  if (pd) pd.style.display = 'none';
+  window._isPartnerMode = false;
+  window._partnerData   = null;
+  window._partnerComms  = [];
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('loginEmail').value = '';
   document.getElementById('loginPass').value = '';
@@ -3487,7 +3536,7 @@ function doSearch(q){schQ=q;render()}
 // RENDER DISPATCH
 // ═══════════════════════════════════════
 function render(){
-  var pages={leads:leadsHTML,followups:followupsHTML,reports:reportsHTML,calls:callsHTML,dashboard:adminDashHTML};
+  var pages={leads:leadsHTML,followups:followupsHTML,reports:reportsHTML,calls:callsHTML,dashboard:window._isPartnerMode?partnerDashHTML:adminDashHTML};
   document.getElementById('content').innerHTML=(pages[curTab]||leadsHTML)();
 }
 
@@ -3496,6 +3545,11 @@ function render(){
 // ═══════════════════════════════════════
 function leadsHTML(){
   var vis=leads.filter(function(l){
+    // In partner mode: only show partner's own leads
+    if(window._isPartnerMode && window._partnerData){
+      var pid = window._partnerData.id;
+      if(l.partner_id !== pid) return false;
+    }
     if(schStg&&l.stage!==schStg)return false;
     if(schQ){var q=schQ.toLowerCase();return l.name.toLowerCase().includes(q)||(l.company&&l.company.toLowerCase().includes(q))||l.ph.includes(q)||(l.em&&l.em.toLowerCase().includes(q))}
     return true;
@@ -6947,8 +7001,50 @@ window._partnerData = window._partnerData || null;
 window._partnerComms = [];
 
 async function showPartnerUI() {
-  // Route to full partner dashboard
-  await showPartnerDashboard();
+  var p = window._partnerData;
+  if (!p) { showToast('Partner data not found'); return; }
+
+  // ── Use normal app shell — just customise what's visible ──
+
+  // Topbar: show partner name + sign out
+  document.getElementById('tbTitle').textContent = p.full_name || p.name || 'Partner';
+  document.getElementById('tbSub').textContent   = partnerGetRate(p.active_client_count||0) + ' commission · ' + (p.ref_code||'');
+
+  // Hide admin-only topbar buttons
+  var plusBtn = document.getElementById('tbPlusBtn');
+  if (plusBtn) plusBtn.closest('button').style.display = 'none';
+  var srch = document.getElementById('tbSearch');
+  if (srch) srch.style.display = 'none';
+  var refBtn = document.getElementById('tbRefresh');
+  if (refBtn) refBtn.style.display = 'none';
+  var menuBtn = document.querySelector('.tb-menu');
+  if (menuBtn) menuBtn.style.display = 'none';
+  var notifBtn = document.querySelector('.tb-notif');
+  if (notifBtn) notifBtn.style.display = 'none';
+
+  // ── Tab bar — show partner tabs only ──
+  // Hide: followups, reports, calls
+  // Show: leads (their leads), dashboard (their stats)
+  document.getElementById('tab-followups').style.display = 'none';
+  document.getElementById('tab-reports').style.display   = 'none';
+  document.getElementById('tab-calls').style.display     = 'none';
+  document.getElementById('tab-dashboard').style.display = 'flex';
+
+  // Rename Leads tab label
+  var leadsLbl = document.querySelector('#tab-leads .tab-lbl');
+  if (leadsLbl) leadsLbl.textContent = 'My Leads';
+
+  // ── Dashboard tab = partner dashboard ──
+  // Override adminDashHTML to render partner content
+  window._isPartnerMode = true;
+
+  // Start on dashboard tab
+  var dashBtn = document.getElementById('tab-dashboard');
+  goTab('dashboard', dashBtn);
+
+  await loadPartnerLeads();
+  await loadPartnerComms();
+  render();
 }
 
 function partnerGetRate(n) {
