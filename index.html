@@ -3697,6 +3697,22 @@ function render(){
 // LEADS TAB
 // ═══════════════════════════════════════
 function leadsHTML(){
+  // Helper: apply partner filter only (no stage/search) for accurate chip counts
+  function partnerMatch(l){
+    if(window._isPartnerMode && window._partnerData){
+      return l.partner_id === window._partnerData.id;
+    }
+    if(!window._isPartnerMode){
+      if(schPartners.size>0){
+        var lpid = l.partner_id ? String(l.partner_id) : '__none__';
+        return schPartners.has(lpid);
+      } else {
+        return !l.partner_id; // default: admin's own
+      }
+    }
+    return true;
+  }
+  var visAll = leads.filter(partnerMatch); // for chip counts (no stage/search)
   var vis=leads.filter(function(l){
     // In partner mode: only show partner's own leads
     if(window._isPartnerMode && window._partnerData){
@@ -3704,11 +3720,17 @@ function leadsHTML(){
       if(l.partner_id !== pid) return false;
     }
     if(schStg&&l.stage!==schStg)return false;
-    // Super admin multi-partner filter
-    if(schPartners.size>0){
-      // Map lead to its "effective" partner key: actual UUID or '__none__' if unassigned
-      var lpid = l.partner_id ? String(l.partner_id) : '__none__';
-      if(!schPartners.has(lpid)) return false;
+    // Super admin partner filter:
+    // - Default (no filter active): show only unassigned leads (admin's own)
+    // - Filter active: show only the selected partners' leads
+    if(!window._isPartnerMode){
+      if(schPartners.size>0){
+        var lpid = l.partner_id ? String(l.partner_id) : '__none__';
+        if(!schPartners.has(lpid)) return false;
+      } else {
+        // Default: hide partner-assigned leads
+        if(l.partner_id) return false;
+      }
     }
     if(schQ){var q=schQ.toLowerCase();return l.name.toLowerCase().includes(q)||(l.company&&l.company.toLowerCase().includes(q))||l.ph.includes(q)||(l.em&&l.em.toLowerCase().includes(q))}
     return true;
@@ -3752,13 +3774,13 @@ function leadsHTML(){
       '<span style="width:18px;height:18px;border-radius:4px;border:2px solid '+(noneSelected?'#16a34a':'var(--border,#d1d5db)')+';display:flex;align-items:center;justify-content:center;flex-shrink:0;background:'+(noneSelected?'#16a34a':'#fff')+'">'+
       (noneSelected?'<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 5L4 7.5L8.5 2.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>':'')+
       '</span>'+
-      '<span style="font-size:13px;font-family:var(--f);color:var(--sub,#667781)">⬜ No Partner Assigned</span>'+
+      '<span style="font-size:13px;font-family:var(--f);color:var(--sub,#667781)">👤 My Leads (No Partner)</span>'+
       '</label>';
     var clearBtn = hasPartnerFilter ?
-      '<button onclick="schPartners.clear();_showLeadFilter=false;render()" style="margin-top:8px;width:100%;padding:8px;border-radius:8px;border:1px solid #fecaca;background:#fff;font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer;color:#ef4444">&#x2715; Clear Partner Filter</button>' : '';
+      '<button onclick="schPartners.clear();_showLeadFilter=false;render()" style="margin-top:8px;width:100%;padding:8px;border-radius:8px;border:1px solid #fecaca;background:#fff;font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer;color:#ef4444">&#x2715; Back to My Leads</button>' : '';
     filterBtnHTML =
       '<button onclick="toggleLeadFilter()" style="flex-shrink:0;padding:5px 10px;border-radius:8px;border:1px solid var(--border);background:'+(hasPartnerFilter?'var(--navy,#001f3f)':'var(--surface,#fff)')+';color:'+(hasPartnerFilter?'#fff':'var(--text)')+';font-family:var(--f);font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;margin-left:4px">'+
-      (hasPartnerFilter?'🔵 Partners ('+schPartners.size+')':'⚙ Filter')+
+      (hasPartnerFilter?'🔵 Partners ('+schPartners.size+')':'👥 Partners')+
       '</button>';
     filterPanelHTML =
       '<div id="leadFilterPanel" style="display:'+(_showLeadFilter?'block':'none')+';background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;padding:10px 6px;margin-bottom:8px;box-shadow:0 2px 8px rgba(0,0,0,.08)">'+
@@ -3772,8 +3794,8 @@ function leadsHTML(){
 
   var chips='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">'+
     '<div style="display:flex;gap:5px;overflow-x:auto;flex:1;padding-right:6px">'+
-    '<div class="fchip '+(schStg===''?'on':'')+'" onclick="schStg=\'\';render()">All '+leads.length+'</div>'+
-    STAGES.map(function(s){var n=leads.filter(function(l){return l.stage===s.name}).length;return n?'<div class="fchip '+(schStg===s.name?'on':'')+'" onclick="schStg=\''+s.name+'\';render()">'+s.name+' '+n+'</div>':''}).join('')+
+    '<div class="fchip '+(schStg===''?'on':'')+'" onclick="schStg=\'\';render()">All '+visAll.length+'</div>'+
+    STAGES.map(function(s){var n=visAll.filter(function(l){return l.stage===s.name}).length;return n?'<div class="fchip '+(schStg===s.name?'on':'')+'" onclick="schStg=\''+s.name+'\';render()">'+s.name+' '+n+'</div>':''}).join('')+
     '</div>'+
     filterBtnHTML+
     '</div>';
