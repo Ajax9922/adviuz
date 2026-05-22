@@ -2637,66 +2637,61 @@ async function doLogin() {
     var token   = (data.session && data.session.access_token) || data.access_token;
     var refresh = (data.session && data.session.refresh_token) || data.refresh_token;
     var user    = data.user || (data.session && data.session.user);
+
     if (data.error || data.error_description) {
       recordLoginFailure();
       throw new Error(data.error_description || data.error || 'Invalid email or password');
     }
-    if (token) {
-      authToken = token;
-      currentUser = user;
-      data.access_token  = token;
-      data.refresh_token = refresh;
 
-      // ── STAFF GATE: verify super_admin or manager ──
-      btn.textContent = 'Verifying access...';
-      try {
-        var mRes = await sbFetch('/rest/v1/client_members?select=role,user_type&user_id=eq.'+data.user.id+'&limit=1');
-        var members = mRes.ok ? await mRes.json() : [];
-        var m = members[0] || {};
-        var isStaff = (m.user_type === 'staff') || (m.role === 'super_admin') || (m.role === 'manager');
+    if (!token || !user) {
+      // Log what we got to help debug
+      console.warn('[Login] Response:', JSON.stringify(data).slice(0, 200));
+      throw new Error('Login failed — no session received. Check credentials and try again.');
+    }
 
-        // Check if sales_partner
-        var isPartner = false;
-        if (!isStaff) {
-          var pRes = await sbFetch('/rest/v1/sales_partners?user_id=eq.'+data.user.id+'&limit=1');
-          var pArr = pRes.ok ? await pRes.json() : [];
-          if (pArr.length) { isPartner = true; window._partnerData = pArr[0]; }
-        }
+    authToken   = token;
+    currentUser = user;
 
-        if (!isStaff && !isPartner) {
-          authToken = null; currentUser = null;
-          throw new Error('Access denied. Contact relations@adviuz.com for access.');
-        }
-        window._staffRole = isPartner ? 'sales_partner' : (m.role || 'super_admin');
-      } catch(gateErr) {
-        if (gateErr.message.indexOf('Access denied') > -1 || gateErr.message.indexOf('staff') > -1) {
-          authToken = null; currentUser = null;
-          err.textContent = gateErr.message;
-          err.classList.add('show');
-          btn.disabled = false; btn.textContent = 'Sign In';
-          return;
-        }
-        // If check fails (table not set up), allow super_admin by default
-        window._staffRole = 'super_admin';
+    // ── STAFF GATE: verify role ──
+    btn.textContent = 'Verifying access...';
+    try {
+      var mRes = await sbFetch('/rest/v1/client_members?select=role,user_type&user_id=eq.'+user.id+'&limit=1');
+      var members = mRes.ok ? await mRes.json() : [];
+      var m = members[0] || {};
+      var isStaff = (m.user_type === 'staff') || (m.role === 'super_admin') || (m.role === 'manager');
+
+      // Check if sales_partner
+      var isPartner = false;
+      if (!isStaff) {
+        var pRes = await sbFetch('/rest/v1/sales_partners?user_id=eq.'+user.id+'&limit=1');
+        var pArr = pRes.ok ? await pRes.json() : [];
+        if (pArr.length) { isPartner = true; window._partnerData = pArr[0]; }
       }
 
-      // Save session using unified saveSession function
-      var remember = document.getElementById('rememberMe');
-      saveSession(
-        data.access_token,
-        data.refresh_token,
-        data.user,
-        window._staffRole,
-        remember ? remember.checked : true
-      );
-      console.log('[Login] Session saved. Role:', window._staffRole);
-      resetLoginAttempts();
-      startSessionTimeoutWatch();
-      auditLog('login', 'auth', currentUser&&currentUser.id, {email: currentUser&&currentUser.email, role: window._staffRole}, 'success');
-      onLoginSuccess();
-    } else {
-      throw new Error('Login failed — no token received');
+      if (!isStaff && !isPartner) {
+        authToken = null; currentUser = null;
+        throw new Error('Access denied — not an authorised user. Contact relations@adviuz.com');
+      }
+      window._staffRole = isPartner ? 'sales_partner' : (m.role || 'super_admin');
+    } catch(gateErr) {
+      if (gateErr.message.indexOf('Access denied') > -1) {
+        authToken = null; currentUser = null;
+        err.textContent = gateErr.message;
+        err.classList.add('show');
+        btn.disabled = false; btn.textContent = 'Sign In';
+        return;
+      }
+      // Gate check failed (table not set up) — allow through as super_admin
+      window._staffRole = 'super_admin';
     }
+
+    var remember = document.getElementById('rememberMe');
+    saveSession(token, refresh, user, window._staffRole, remember ? remember.checked : true);
+    console.log('[Login] Success. Role:', window._staffRole);
+    resetLoginAttempts();
+    startSessionTimeoutWatch();
+    auditLog('login', 'auth', user.id, {email: user.email, role: window._staffRole}, 'success');
+    onLoginSuccess();
   } catch(e) {
     recordLoginFailure();
     auditLog('login_failed', 'auth', null, {reason: e.message}, 'failed');
