@@ -6940,6 +6940,22 @@ function openDesignCompletePrompt() {
   setEmailFrom('support@adviuz.com'); // auto-switch sender
   var l = _emailLeadId ? leads.find(function(x){return x.id===_emailLeadId;}) : null;
   var company = l ? (l.company || l.name || '') : '';
+  var fullName = l ? (l.name || 'Valued Client') : 'Valued Client';
+  var firstName = l ? (l.name||'there').split(' ')[0] : 'there';
+  var campaign  = l ? (l.company || l.name || 'your campaign') : 'your campaign';
+
+  // Set subject immediately on template selection
+  var subjEl = document.getElementById('emailSubj');
+  if (subjEl) subjEl.value = 'Ref: ' + fullName + ' | Your Design is Ready';
+
+  // Pre-fill body preview
+  var bodyEl = document.getElementById('emailBody');
+  if (bodyEl) bodyEl.value = '[DESIGN COMPLETE EMAIL — Full HTML will be sent]\n\nDear ' + firstName + ',\n\nYour design is ready. Please view and approve at: [paste design URL below]';
+
+  // Store for use when sending
+  window._designClientName  = firstName;
+  window._designCampaignName = campaign;
+
   // Show the inline design URL row in the email sheet
   var row = document.getElementById('designUrlRow');
   if (row) row.style.display = '';
@@ -6951,35 +6967,32 @@ function openDesignCompletePrompt() {
   }
   // Mark template as selected
   window._useDesignCompleteTemplate = true;
-  // Show confirmation toast
-  showToast('Enter the design URL below');
+  showToast('✅ Design template ready — paste the design URL below');
 }
 
 function applyDesignCompleteTemplate() {
   var designUrl = (document.getElementById('designUrlInput').value || '').trim();
-  if (!designUrl) { showToast('Enter the design URL above'); return; }
 
   var l = _emailLeadId ? leads.find(function(x){return x.id===_emailLeadId;}) : null;
   var firstName = l ? (l.name||'there').split(' ')[0] : 'there';
   var fullName  = l ? (l.name||'Valued Client') : 'Valued Client';
   var campaign  = l ? (l.company || l.name || 'your campaign') : 'your campaign';
 
-  // Set subject: Ref: Client Name | Your Design is Ready
+  // Always keep subject and from up to date
   var subjEl = document.getElementById('emailSubj');
   if (subjEl) subjEl.value = 'Ref: ' + fullName + ' | Your Design is Ready';
 
-  // Set From to support@adviuz.com
   var fromEl = document.getElementById('emailFrom');
   if (fromEl) fromEl.value = 'support@adviuz.com';
 
+  // Update body preview with URL if available
   var bodyEl = document.getElementById('emailBody');
-  if (bodyEl) bodyEl.value = '[DESIGN COMPLETE EMAIL — Full HTML will be sent]\n\nDear ' + firstName + ',\n\nYour design is ready. Please view and approve at: ' + designUrl;
+  if (bodyEl) bodyEl.value = '[DESIGN COMPLETE EMAIL — Full HTML will be sent]\n\nDear ' + firstName + ',\n\nYour design is ready. Please view and approve at: ' + (designUrl || '[design URL]');
 
   window._useDesignCompleteTemplate = true;
   window._designCompleteUrl         = designUrl;
   window._designClientName          = firstName;
   window._designCampaignName        = campaign;
-  showToast('✅ Design template ready — click Send Email');
 }
 
 function buildDesignCompleteHtml(clientName, campaignName, designUrl) {
@@ -7266,6 +7279,7 @@ async function sendEmail(){
       );
       window._useProposalTemplate = false;
     } else if(window._useDesignCompleteTemplate) {
+      if(!window._designCompleteUrl) { showToast('⚠️ Please enter the design URL first'); if(btn){btn.textContent='Send Email';btn.disabled=false;} return; }
       finalHtml = buildDesignCompleteHtml(
         window._designClientName   || 'Valued Client',
         window._designCampaignName || '',
