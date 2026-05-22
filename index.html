@@ -6555,25 +6555,58 @@ var FROM_NAMES = {
 
 
 // ─── PROPOSAL EMAIL ───────────────────────────────────────
-// ── PDF DOWNLOAD / PRINT ──
-function downloadProposalPdf() {
+// ── PDF DOWNLOAD via PDFMonkey (reuses existing generate-invoice function) ──
+var PDFMONKEY_PROPOSAL_TEMPLATE = 'FE6DF8DF-D92A-4706-B10E-B620250E4194';
+
+async function downloadProposalPdf() {
   var l = _emailLeadId ? leads.find(function(x){ return x.id === _emailLeadId; }) : null;
   var clientName  = window._proposalClientName  || (l ? l.name.split(' ')[0] : 'Client');
-  var companyName = window._proposalCompanyName || (l ? l.company||l.name||'' : '');
-  var html = buildProposalHtml(clientName, companyName, '');
+  var companyName = window._proposalCompanyName || (l ? l.company || l.name || '' : '');
 
-  // Add print-specific CSS
-  var printHtml = html.replace('</head>',
-    '<style>@media print{body{margin:0;padding:0}@page{margin:12mm}}</style></head>'
-  );
+  var today = new Date().toLocaleDateString('en-CA', { year:'numeric', month:'long', day:'numeric' });
+  var validUntil = new Date(Date.now() + 7*24*60*60*1000).toLocaleDateString('en-CA', { year:'numeric', month:'long', day:'numeric' });
 
-  // Open in new tab and trigger print dialog (Save as PDF)
-  var w = window.open('', '_blank');
-  if (!w) { showToast('Allow pop-ups to download PDF'); return; }
-  w.document.write(printHtml);
-  w.document.close();
-  w.focus();
-  setTimeout(function(){ w.print(); }, 800);
+  var btn = document.getElementById('proposalPdfBtn');
+  if (btn) { btn.textContent = '⏳ Generating PDF...'; btn.disabled = true; }
+
+  try {
+    // Reuse the existing generate-invoice edge function
+    var res = await fetch(SB_URL + '/functions/v1/generate-invoice', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + authToken,
+        'apikey': SB_ANON
+      },
+      body: JSON.stringify({
+        pdf_type:    'proposal',
+        template_id: PDFMONKEY_PROPOSAL_TEMPLATE,
+        payload: {
+          company_name: companyName || clientName,
+          client_name:  clientName,
+          date:         today,
+          valid_until:  validUntil
+        }
+      })
+    });
+
+    var data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    var pdfUrl = data.pdf_url || data.download_url || data.url;
+    if (pdfUrl) {
+      window.open(pdfUrl, '_blank');
+      showToast('✅ PDF ready — share on WhatsApp!');
+    } else {
+      throw new Error('No PDF URL returned');
+    }
+
+  } catch(e) {
+    console.error('[ProposalPDF]', e);
+    showToast('PDF failed: ' + e.message);
+  } finally {
+    if (btn) { btn.textContent = '📥 Download PDF — Share on WhatsApp'; btn.disabled = false; }
+  }
 }
 
 function buildProposalHtml(clientName, companyName, quoteId) {
@@ -6587,7 +6620,7 @@ function buildProposalHtml(clientName, companyName, quoteId) {
 // ─── DESIGN COMPLETE EMAIL ────────────────────────────────
 function openDesignCompletePrompt() {
   var modal = document.getElementById('designCompleteModal');
-  if (modal) { modal.style.cssText += ';display:flex!important'; }
+  if (modal) { modal.style.display = 'flex'; }
   var l = _emailLeadId ? leads.find(function(x){return x.id===_emailLeadId;}) : null;
   var company = l ? (l.company || l.name || '') : '';
   var input = document.getElementById('designUrlInput');
@@ -7379,8 +7412,8 @@ function partnerStageLabel(s) {
 }
 
 function toggleLeadFilter() {
-  var panel = document.getElementById('leadFilterPanel');
-  if (panel) panel.style.display = panel.style.display === 'none' ? '' : 'none';
+  _showLeadFilter = !_showLeadFilter;
+  render();
 }
 
 function isPartnerMode() { return window._staffRole === 'sales_partner'; }
