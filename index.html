@@ -888,7 +888,7 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
       </button>
       <button class="tb-btn" id="tbPlusBtn" onclick="openAddLeadSheet()">
-        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" id="tbPlusBtn" style="display:none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </button>
       <button class="tb-btn" id="tbNotifBtn" onclick="showToast('No new notifications')">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/></svg>
@@ -1766,6 +1766,13 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
       <select id="aStg" style="display:none"><option selected>Fresh Lead</option></select>
       <select id="aSvc" style="display:none"><option selected value="">Digital Flyers</option></select>
       <textarea id="aNt" style="display:none"></textarea>
+      <!-- Partner assignment (admin only) -->
+      <div class="fg" id="aPartnerRow" style="display:none">
+        <label class="flbl">Assign to Partner <span style="color:var(--sub);font-weight:400">(optional)</span></label>
+        <select class="fsel" id="aPartner">
+          <option value="">— My Lead (no partner) —</option>
+        </select>
+      </div>
     </div>
     <div class="sh-foot">
       <button class="btn btn-ghost" onclick="closeSheet('addLeadSh')" style="flex:1">Cancel</button>
@@ -4653,6 +4660,16 @@ function renderLeadScreen(id) {
     : '<span onclick="openAssignSheet('+l.id+')" style="color:var(--blue);font-weight:600;cursor:pointer">+ Assign to someone</span>';
   h += ldInfoRow('👤','Assigned To', assignedHtml);
 
+  // Partner assignment row (admin only)
+  if (!isPartnerMode()) {
+    var partnerOfLead = window._allPartners && l.partner_id ? window._allPartners.find(function(p){ return p.id === l.partner_id; }) : null;
+    var partnerHtml = partnerOfLead
+      ? '<span style="font-weight:600;color:var(--blue)">' + (partnerOfLead.full_name||partnerOfLead.email) + '</span>'
+        + ' <span onclick="openAssignPartnerSheet('+l.id+')" style="color:var(--blue);font-size:12px;cursor:pointer;font-weight:600;margin-left:6px">Change</span>'
+      : '<span onclick="openAssignPartnerSheet('+l.id+')" style="color:var(--blue);font-weight:600;cursor:pointer">+ Assign to partner</span>';
+    h += ldInfoRow('👥','Partner', partnerHtml);
+  }
+
   h += '</div>';
 
   // AI Summary only in top card (recording moved below)
@@ -5779,10 +5796,12 @@ async function saveNewLead(){
   if(em && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)){if(emErr)emErr.style.display='block';showToast('Invalid email address');return}
 
   var ph = cc + rawPh;
+  var selectedPartnerId = (!isPartnerMode() && document.getElementById('aPartner')) ? (document.getElementById('aPartner').value || null) : null;
   var lead = {
     id: nxtId, name: company, company: company, ph: ph, em: em,
     stage: 'Fresh Lead', src: 'Manual', svc: 'Digital Flyers',
-    note: '', ok: true, t: 'just now', col: COLORS[nxtId%COLORS.length]
+    note: '', ok: true, t: 'just now', col: COLORS[nxtId%COLORS.length],
+    partner_id: selectedPartnerId
   };
 
   // Duplicate check — local first, then DB
@@ -5949,7 +5968,7 @@ async function doSaveLead(lead) {
         sms_consent: true, call_consent: true, email_consent: true,
         color: lead.col,
         client_id: window._clientId || null,
-        partner_id: (window._partnerData && window._partnerData.id) || null,
+        partner_id: lead.partner_id !== undefined ? lead.partner_id : ((window._partnerData && window._partnerData.id) || null),
         stage_code: 'fresh_lead'
       })
     });
@@ -6268,6 +6287,65 @@ async function loadOrgMembers() {
     _orgMembers = await res.json();
     return _orgMembers || [];
   } catch(e) { console.warn('[assign]', e.message); return []; }
+}
+
+async function openAssignPartnerSheet(leadId) {
+  var l = leads.find(function(x){ return x.id === leadId; });
+  if (!l) return;
+  window._assignPartnerLeadId = leadId;
+
+  // Build picker HTML inline as a toast-style modal
+  var partners = window._allPartners || [];
+  var opts = '<option value="">— No Partner (My Lead) —</option>';
+  partners.forEach(function(p){
+    var sel = l.partner_id === p.id ? ' selected' : '';
+    opts += '<option value="'+p.id+'"'+sel+'>'+(p.full_name||p.name||p.email)+'</option>';
+  });
+
+  var modal = document.createElement('div');
+  modal.id = 'assignPartnerModal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center';
+  modal.innerHTML =
+    '<div style="background:#fff;border-radius:16px 16px 0 0;width:100%;max-width:500px;padding:20px 16px 32px;font-family:var(--f)">'
+    +'<div style="width:40px;height:4px;border-radius:2px;background:#e5e7eb;margin:0 auto 16px"></div>'
+    +'<div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:14px">👥 Assign to Partner</div>'
+    +'<select id="assignPartnerSel" style="width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid var(--border);font-family:var(--f);font-size:14px;background:#fff;margin-bottom:16px">'+opts+'</select>'
+    +'<div style="display:flex;gap:10px">'
+    +'<button onclick="document.getElementById(\'assignPartnerModal\').remove()" style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--border);background:#fff;font-family:var(--f);font-size:14px;font-weight:600;cursor:pointer">Cancel</button>'
+    +'<button onclick="saveAssignPartner()" style="flex:2;padding:10px;border-radius:10px;border:none;background:var(--navy,#001f3f);color:#fff;font-family:var(--f);font-size:14px;font-weight:700;cursor:pointer">Save</button>'
+    +'</div>'
+    +'</div>';
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
+}
+
+async function saveAssignPartner() {
+  var leadId = window._assignPartnerLeadId;
+  var l = leads.find(function(x){ return x.id === leadId; });
+  var sel = document.getElementById('assignPartnerSel');
+  if (!l || !sel) return;
+
+  var newPartnerId = sel.value || null;
+  var modal = document.getElementById('assignPartnerModal');
+
+  // Update in DB
+  if (l.dbId) {
+    var res = await sbFetch('/rest/v1/leads?id=eq.'+l.dbId, {
+      method: 'PATCH',
+      body: JSON.stringify({ partner_id: newPartnerId })
+    });
+    if (!res.ok) { showToast('❌ Failed to save partner'); return; }
+  }
+
+  // Update local lead object
+  l.partner_id = newPartnerId;
+  if (modal) modal.remove();
+
+  var partnerName = newPartnerId && window._allPartners
+    ? (window._allPartners.find(function(p){ return p.id===newPartnerId; })||{}).full_name || 'Partner'
+    : 'None';
+  showToast('✅ Partner updated: ' + partnerName);
+  renderLeadScreen(leadId);
 }
 
 async function openAssignSheet(leadId) {
@@ -7757,6 +7835,23 @@ function openAddLeadSheet() {
     var el = document.getElementById(id);
     if (el) el.value = '';
   });
+  // Populate partner dropdown (admin only)
+  var partnerRow = document.getElementById('aPartnerRow');
+  var partnerSel = document.getElementById('aPartner');
+  if (partnerRow && partnerSel && !isPartnerMode()) {
+    partnerRow.style.display = 'block';
+    partnerSel.innerHTML = '<option value="">— My Lead (no partner) —</option>';
+    if (window._allPartners && window._allPartners.length) {
+      window._allPartners.forEach(function(p) {
+        var opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.full_name || p.name || p.email;
+        partnerSel.appendChild(opt);
+      });
+    }
+  } else if (partnerRow) {
+    partnerRow.style.display = 'none';
+  }
   openSheet('addLeadSh');
 }
 
