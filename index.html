@@ -3368,8 +3368,9 @@ function onLoginSuccess() {
     +'<div style="font-size:14px;color:var(--sub);font-weight:500">Loading your leads...</div>'
     +'</div>';
 
-  loadAllPartners();
-  loadLeadsFromDB().then(function(dbLeads) {
+  loadAllPartners().then(function() {
+    return loadLeadsFromDB();
+  }).then(function(dbLeads) {
     if (dbLeads && dbLeads.length > 0) {
       leads = dbLeads.map(mapLead);
       nxtId = leads.length + 1;
@@ -3481,7 +3482,7 @@ async function refreshLeads() {
   if(refBtn) { refBtn.style.opacity='0.4'; refBtn.style.pointerEvents='none'; }
   document.getElementById('content').innerHTML =
     '<div style="text-align:center;padding:40px 20px"><div style="font-size:24px;margin-bottom:8px">&#x1F504;</div><div style="font-size:13px;color:var(--sub)">Refreshing...</div></div>';
-  loadAllPartners();
+  await loadAllPartners(); // load partners first so secondary lead query has partner IDs
   var dbLeads = await loadLeadsFromDB();
   if(dbLeads) {
     leads = dbLeads.map(mapLead);
@@ -3529,7 +3530,25 @@ async function loadLeadsFromDB() {
       return null;
     }
     var data = await res.json();
-    console.log('[Adviuz] Loaded', data.length, 'leads');
+    console.log('[Adviuz] Loaded', data.length, 'leads by client_id');
+
+    // Secondary query: fetch partner-assigned leads that may have a
+    // different (or null) client_id — e.g. leads entered via partner portal
+    try {
+      if (window._allPartners && window._allPartners.length) {
+        var pids = window._allPartners.map(function(p){ return p.id; });
+        var partnerRes = await sbFetch('/rest/v1/leads?select=*&partner_id=in.('+pids.join(',')+')'+'&order=created_at.desc&limit=500');
+        if (partnerRes.ok) {
+          var partnerLeads = await partnerRes.json();
+          var seenIds = new Set(data.map(function(l){ return l.id; }));
+          var newOnes = partnerLeads.filter(function(l){ return !seenIds.has(l.id); });
+          if (newOnes.length) {
+            console.log('[Adviuz] +'+newOnes.length+' partner leads merged (different client_id)');
+            data = data.concat(newOnes);
+          }
+        }
+      }
+    } catch(e) { console.warn('[Adviuz] Partner leads merge:', e.message); }
 
     // Fetch assigned names from user_profiles separately
     var assignedIds = [...new Set(data.filter(function(l){ return l.assigned_to; }).map(function(l){ return l.assigned_to; }))];
