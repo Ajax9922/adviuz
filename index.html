@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-22 18:38</title>
+<title>Adviuz Hub · v2026-05-22 18:55</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1069,32 +1069,11 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
   </div>
 </div>
 
-<!-- ═══ DESIGN COMPLETE SHEET ═══ -->
-<div class="sheet-ov" id="designCompleteSh" onclick="if(event.target===this)closeSheet('designCompleteSh')">
-  <div class="sheet"><div class="sheet-handle"></div>
-    <div class="sh-head">
-      <div class="sh-title">🎨 Design Complete Email</div>
-      <button class="sh-x" onclick="closeSheet('designCompleteSh')">&#x2715;</button>
-    </div>
-    <div class="sh-body">
-      <div class="fg">
-        <label class="flbl">Design URL</label>
-        <input class="finp" id="designUrlInput" type="url" placeholder="https://nailfungustreatment.adviuz.ca">
-        <div style="font-size:11px;color:var(--sub);margin-top:4px">Client will see a button to view and approve the design</div>
-      </div>
-    </div>
-    <div class="sh-foot">
-      <button class="btn btn-ghost" onclick="closeSheet('designCompleteSh')" style="flex:1">Cancel</button>
-      <button class="btn" onclick="applyDesignCompleteTemplate()" style="flex:2;justify-content:center;background:#001f3f;color:#fff">Apply Template</button>
-    </div>
-  </div>
-</div>
-
 
 
 <!-- ═══ EMAIL SHEET ═══ -->
-<div class="sheet-ov" id="emailSh" onclick="if(event.target===this)closeSheet('emailSh')">
-  <div class="sheet" style="max-height:94dvh"><div class="sheet-handle"></div>
+<div class="sheet-ov" id="emailSh" style="align-items:stretch">
+  <div class="sheet" style="max-height:100dvh;height:100dvh;border-radius:0"><div class="sheet-handle"></div>
     <div class="sh-head">
       <div class="sh-title">Send Email</div>
       <button class="sh-x" onclick="closeSheet('emailSh')">&#x2715;</button>
@@ -1177,6 +1156,13 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
         <button onclick="downloadProposalPdf()" style="margin-top:8px;width:100%;padding:9px;border-radius:8px;background:#25D366;border:none;color:#fff;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">
           📥 Download PDF — Share on WhatsApp
         </button>
+      </div>
+
+      <!-- Design Complete URL input (shown when design template selected) -->
+      <div class="fg" id="designUrlRow" style="display:none">
+        <label class="flbl">Design URL</label>
+        <input class="finp" id="designUrlInput" type="url" placeholder="https://clinic.adviuz.ca">
+        <div style="font-size:11px;color:var(--sub);margin-top:4px">Client will see a &quot;View Your Design&quot; button linking to this URL</div>
       </div>
 
       <!-- Message body -->
@@ -3509,7 +3495,7 @@ async function refreshLeads() {
 // ── Load all partners for filter dropdown + card display ──
 async function loadAllPartners() {
   try {
-    var res = await sbFetch('/rest/v1/partners?select=id,full_name,email&order=full_name.asc&limit=200');
+    var res = await sbFetch('/rest/v1/sales_partners?select=id,full_name,email&order=full_name.asc&limit=200');
     if (res.ok) window._allPartners = await res.json();
   } catch(e) { console.warn('[Partners]', e); }
 }
@@ -6650,18 +6636,24 @@ function buildProposalHtml(clientName, companyName, quoteId) {
 function openDesignCompletePrompt() {
   var l = _emailLeadId ? leads.find(function(x){return x.id===_emailLeadId;}) : null;
   var company = l ? (l.company || l.name || '') : '';
+  // Show the inline design URL row in the email sheet
+  var row = document.getElementById('designUrlRow');
+  if (row) row.style.display = '';
   var input = document.getElementById('designUrlInput');
   if (input) {
     input.value = '';
     if (company) input.placeholder = 'https://' + company.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') + '.adviuz.ca';
+    setTimeout(function(){ input.focus(); }, 100);
   }
-  openSheet('designCompleteSh');
+  // Mark template as selected
+  window._useDesignCompleteTemplate = true;
+  // Show confirmation toast
+  showToast('Enter the design URL below');
 }
 
 function applyDesignCompleteTemplate() {
   var designUrl = (document.getElementById('designUrlInput').value || '').trim();
-  if (!designUrl) { showToast('Enter the design URL first'); return; }
-  closeSheet('designCompleteSh');
+  if (!designUrl) { showToast('Enter the design URL above'); return; }
 
   var l = _emailLeadId ? leads.find(function(x){return x.id===_emailLeadId;}) : null;
   var firstName = l ? (l.name||'there').split(' ')[0] : 'there';
@@ -6703,6 +6695,7 @@ function applyMasterEmailTpl(key){
   if (card) card.style.border = '1.5px solid #bfdbfe';
   window._useProposalTemplate       = false;
   window._useDesignCompleteTemplate = false;
+  var drow = document.getElementById('designUrlRow'); if(drow) drow.style.display='none';
   document.getElementById('topupViewsRow') && (document.getElementById('topupViewsRow').style.display='none');
   var l = _emailLeadId ? leads.find(function(x){return x.id===_emailLeadId}) : null;
   var firstName = l ? l.name.split(' ')[0] : 'there';
