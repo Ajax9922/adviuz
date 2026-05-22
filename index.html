@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub</title>
+<title>Adviuz Hub · v2026-05-22 09:41</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -878,7 +878,7 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
     <div class="tb-logo">A</div>
     <div class="tb-titles">
       <div class="tb-title" id="tbTitle">Leads</div>
-      <div class="tb-sub" id="tbSub">Laser Clinic Ontario</div>
+      <div class="tb-sub" id="tbSub">Adviuz Hub · build 2026-05-22 09:41</div>
     </div>
     <div class="tb-right">
       <button class="tb-btn" id="tbSearch" style="display:none" onclick="toggleSearchBar()">
@@ -6785,32 +6785,43 @@ function closeEmailPreview(){
 }
 
 function previewEmail(){
-  var fromEmail = (document.getElementById('emailFrom')||{}).value||'relations@adviuz.com';
-  var to   = (document.getElementById('emailTo')||{}).value.trim();
-  var subj = (document.getElementById('emailSubj')||{}).value.trim();
-  var body = (document.getElementById('emailBody')||{}).value.trim();
+  var fromEmail  = (document.getElementById('emailFrom')||{}).value||'relations@adviuz.com';
+  var to         = (document.getElementById('emailTo')||{}).value.trim();
+  var subj       = (document.getElementById('emailSubj')||{}).value.trim();
+  var body       = (document.getElementById('emailBody')||{}).value.trim();
   var viewsAdded = (document.getElementById('emailViewsAdded')||{}).value.trim();
 
-  // Build the same HTML as sendEmail would
+  var l = _emailLeadId ? leads.find(function(x){return x.id===_emailLeadId;}) : null;
+  var firstName = l ? l.name.split(' ')[0] : 'Valued Client';
+  var company   = l ? (l.company||l.name||'') : '';
+
   var previewHtml;
-  if(window._useTopupSuccessTemplate) {
-    previewHtml = buildTopupSuccessHtml(window._topupSuccessFirstName||'there', viewsAdded, fromEmail);
-  } else if(window._useTopupTemplate) {
-    previewHtml = buildTopupHtml(window._topupFirstName||'there');
+  if (window._useProposalTemplate) {
+    previewHtml = buildProposalHtml(
+      window._proposalClientName  || firstName,
+      window._proposalCompanyName || company,
+      ''
+    );
+  } else if (window._useDesignCompleteTemplate) {
+    previewHtml = buildDesignCompleteHtml(
+      window._designClientName   || firstName,
+      window._designCampaignName || company,
+      window._designCompleteUrl  || ''
+    );
+  } else if (window._useTopupSuccessTemplate) {
+    previewHtml = buildTopupSuccessHtml(window._topupSuccessFirstName||firstName, viewsAdded, fromEmail);
+  } else if (window._useTopupTemplate) {
+    previewHtml = buildTopupHtml(window._topupFirstName||firstName);
   } else {
     previewHtml = buildBrandedHtml(body||'(no message)', fromEmail);
   }
 
-  // Show meta info
   var senderName = FROM_NAMES[fromEmail]||'Adviuz';
   var metaEl = document.getElementById('epMeta');
-  if(metaEl) metaEl.textContent = 'From: '+senderName+' <'+fromEmail+'>'+(to?' → '+to:'')+(subj?' | '+subj:'');
+  if (metaEl) metaEl.textContent = 'From: '+senderName+' <'+fromEmail+'>'+(to?' → '+to:'')+(subj?' | '+subj:'');
 
-  // Write into iframe
   var frame = document.getElementById('epFrame');
-  if(frame) {
-    frame.srcdoc = previewHtml;
-  }
+  if (frame) frame.srcdoc = previewHtml;
 
   document.getElementById('emailPreviewOv').classList.add('open');
 }
@@ -6824,7 +6835,10 @@ async function sendEmail(){
   var body = (document.getElementById('emailBody')||{}).value.trim();
   if(!to)   { showToast('Email address required'); return; }
   if(!subj) { showToast('Subject required'); return; }
-  if(!body) { showToast('Message required'); return; }
+  // Don't require body for HTML templates — they build their own HTML
+  var isHtmlTemplate = window._useProposalTemplate || window._useDesignCompleteTemplate
+    || window._useTopupSuccessTemplate || window._useTopupTemplate;
+  if(!body && !isHtmlTemplate) { showToast('Message required'); return; }
   var btn = document.getElementById('sendEmailBtn');
   if(btn){ btn.textContent='Sending...'; btn.disabled=true; }
   try {
