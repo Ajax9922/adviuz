@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-23 05:56</title>
+<title>Adviuz Hub · v2026-05-23 06:01</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -9535,7 +9535,9 @@ async function openLeadInvoices(lid) {
         var total   = 'CAD $'+parseFloat(inv.total||0).toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2});
         var client  = inv.client_business || inv.client_name || '';
 
-        html += '<div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px">'
+        window._invMap = window._invMap || {};
+        window._invMap[inv.id] = inv;
+        html += '<div onclick="openInvFromList(\''+inv.id+'\')" style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;cursor:pointer;transition:background .1s" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">'
           // Left: icon
           +'<div style="width:40px;height:40px;border-radius:10px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🧾</div>'
           // Middle: details
@@ -11232,6 +11234,7 @@ async function submitCreateInvoice() {
     return { name: i.name||'Service', qty: i.qty||1, unit_price: i.unit_price||0, total: (i.qty||1)*(i.unit_price||0) };
   });
 
+  console.log('[Invoice] Submitting - lead dbId:', l ? l.dbId : 'none', 'clientId:', window._clientId);
   try {
     var res = await fetch(SB_FUNC_URL+'/generate-invoice', {
       method: 'POST',
@@ -11491,6 +11494,7 @@ async function submitCInvoice() {
   var lid = _cinvLeadId;
   var l = lid ? leads.find(function(x){return x.id===lid;}) : null;
 
+  console.log('[Invoice] Submitting - lead dbId:', l ? l.dbId : 'none', 'clientId:', window._clientId);
   try {
     var res = await fetch(SB_FUNC_URL+'/generate-invoice', {
       method:'POST',
@@ -11534,6 +11538,23 @@ async function submitCInvoice() {
       payment_method:  method,
       payment_status:  'paid'
     };
+    // Reload invoice list in background so it's fresh when user goes back
+    if(_cinvLeadId) {
+      var lid2 = _cinvLeadId;
+      setTimeout(function(){
+        // Pre-warm the list without opening it
+        var l2 = leads.find(function(x){return x.id===lid2;});
+        if(l2 && l2.dbId) {
+          sbFetch('/rest/v1/invoices?lead_id=eq.'+l2.dbId+'&select=*&order=invoice_date.desc&limit=50').then(function(r){
+            return r.ok ? r.json() : [];
+          }).then(function(invs){
+            window._invMap = window._invMap||{};
+            invs.forEach(function(i){ window._invMap[i.id]=i; });
+            console.log('[Invoice] Preloaded',invs.length,'invoices for lead');
+          });
+        }
+      }, 500);
+    }
     setTimeout(function(){ openInvoiceDetail(_invResult); }, 150);
 
   } catch(e) {
@@ -11550,10 +11571,11 @@ function closeInvDetail() {
 function downloadInvPdf(btn) { window.open(btn.dataset.url, '_blank'); }
 
 function buildInvDetailFoot(inv) {
+  var cleanNum = inv.invoice_number ? inv.invoice_number.split('_')[0] : '';
   var html = '<div style="display:flex;flex-direction:column;gap:8px;width:100%">';
   if (inv.client_email) {
     html += '<button class="btn btn-primary" style="width:100%;justify-content:center;padding:16px;font-size:15px"'
-      +' data-inv="'+inv.invoice_number+'"'
+      +' data-inv="'+cleanNum+'"'
       +' data-id="'+(inv.invoice_id||'')+'"'
       +' data-email="'+inv.client_email+'"'
       +' data-pdf="'+(inv.pdf_url||'')+'"'
@@ -11563,16 +11585,72 @@ function buildInvDetailFoot(inv) {
   if (inv.pdf_url) {
     html += '<button class="btn btn-ghost" style="width:100%;justify-content:center;padding:14px" data-url="'+inv.pdf_url+'" onclick="downloadInvPdf(this)">⬇️ Download PDF</button>';
   }
-  html += '<button onclick="closeInvDetail()" class="btn btn-ghost" style="width:100%;justify-content:center">Done</button>';
+  html += '<div style="display:flex;gap:8px">';
+  html += '<button onclick="editInvoiceDetail()" class="btn btn-ghost" style="flex:1;justify-content:center">✏️ Edit</button>';
+  html += '<button onclick="closeInvDetail()" class="btn btn-ghost" style="flex:1;justify-content:center">Done</button>';
+  html += '</div>';
   html += '</div>';
   return html;
+}
+
+function editInvoiceDetail() {
+  var inv = window._currentInvDetail;
+  if (!inv) return;
+  closeInvDetail();
+  // Pre-populate create invoice form with existing data
+  setTimeout(function(){
+    var raw = inv._raw || inv;
+    var g = function(id){ return document.getElementById(id); };
+    if(g('cinv-biz'))   g('cinv-biz').value   = raw.client_business || '';
+    if(g('cinv-name'))  g('cinv-name').value   = raw.client_name    || '';
+    if(g('cinv-email')) g('cinv-email').value  = raw.client_email   || '';
+    if(g('cinv-method'))g('cinv-method').value = raw.payment_method || 'cash';
+    if(g('cinv-province')) {
+      // map province
+      g('cinv-province').value = raw.client_province || 'SK';
+      setCInvProvinceTax();
+    }
+    // Load items
+    _cinvItems = (raw.items || []).map(function(item, i){
+      return {id: Date.now()+i, name:item.name||'', qty:item.qty||1, unit_price:item.unit_price||0};
+    });
+    if(!_cinvItems.length) _cinvItems = [{id:Date.now(), name:'', qty:1, unit_price:0}];
+    renderCInvItems();
+    recalcCInv();
+    // Mark as editing existing invoice
+    window._editingInvoiceId = raw.id || inv.invoice_id;
+    var btn = g('cinvSubmitBtn');
+    if(btn){ btn.textContent='Update Invoice'; btn.disabled=false; }
+    document.getElementById('createInvoiceScreen').classList.add('open');
+  }, 200);
+}
+
+
+function openInvFromList(invId) {
+  var inv = window._invMap && window._invMap[invId];
+  if (!inv) return;
+  var cleanNum = inv.invoice_number ? inv.invoice_number.split('_')[0] : '—';
+  openInvoiceDetail({
+    invoice_number:  cleanNum,
+    invoice_id:      inv.id,
+    pdf_url:         inv.pdf_url,
+    client_business: inv.client_business || inv.client_name,
+    client_email:    inv.client_email,
+    total:           inv.total,
+    payment_method:  inv.payment_method,
+    payment_status:  inv.payment_status,
+    // Pass full inv for edit
+    _raw:            inv
+  });
 }
 
 function openInvoiceDetail(inv) {
   var body = document.getElementById('invDetailBody');
   var foot = document.getElementById('invDetailFoot');
   if (!body) return;
-
+  // Store for edit
+  window._currentInvDetail = inv;
+  var cleanNum = inv.invoice_number ? inv.invoice_number.split('_')[0] : '—';
   var totalFmt = '$'+fmtCAD(inv.total)+' CAD';
   var pmIcons = {stripe:'💳',etransfer:'🏦',cash:'💵',cheque:'📝',other:'💰'};
 
@@ -11584,7 +11662,7 @@ function openInvoiceDetail(inv) {
     +'</div>'
     +'<div style="background:var(--bg);border-radius:10px;padding:14px;font-size:13px">'
     +'<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)">'
-    +'<span style="color:var(--sub)">Invoice #</span><strong>'+inv.invoice_number+'</strong></div>'
+    +'<span style="color:var(--sub)">Invoice #</span><strong>'+cleanNum+'</strong></div>'
     +'<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)">'
     +'<span style="color:var(--sub)">Client</span><span>'+(inv.client_business||inv.client_name||'—')+'</span></div>'
     +(inv.client_email?'<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)">'
