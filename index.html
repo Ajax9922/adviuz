@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-23 05:51</title>
+<title>Adviuz Hub · v2026-05-23 05:56</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1300,15 +1300,20 @@ input[type=number]{-moz-appearance:textfield}
 
 <!-- ═══ INVOICES LIST SHEET ═══ -->
 <div class="cq-ov" id="invoicesListScreen" onclick="if(event.target===this)closeInvoicesList()">
-  <div class="cq-sheet">
+  <div class="cq-sheet" style="max-height:96dvh">
     <div class="cq-handle"></div>
     <div class="cq-hd">
-      <div class="cq-title">Invoices</div>
-      <button onclick="openCreateInvoiceFromLead()" style="padding:6px 12px;border-radius:8px;background:var(--navy,#001f3f);border:none;color:#fff;font-family:var(--f);font-size:11px;font-weight:700;cursor:pointer;margin-right:8px">+ New</button>
-      <button class="cq-x" onclick="closeInvoicesList()">&#x2715;</button>
+      <div>
+        <div class="cq-title">Invoices</div>
+        <div style="font-size:11px;color:var(--sub);margin-top:1px">Tap an invoice to download or email</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button onclick="openCreateInvoiceFromLead()" style="padding:8px 16px;border-radius:8px;background:var(--navy,#001f3f);border:none;color:#fff;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">+ New Invoice</button>
+        <button class="cq-x" onclick="closeInvoicesList()">&#x2715;</button>
+      </div>
     </div>
-    <div class="cq-body">
-      <div id="invoicesListBody" class="cq-list"></div>
+    <div class="cq-body" style="padding:0">
+      <div id="invoicesListBody"></div>
     </div>
   </div>
 </div>
@@ -9468,21 +9473,11 @@ function newQuoteFromList() {
 }
 
 // ═══════════════════════════════════════════════════════
-// INVOICES LIST SHEET — shows lead's invoice history
+// INVOICES LIST — shows lead's invoice history
 // ═══════════════════════════════════════════════════════
 async function openLeadInvoices(lid) {
   var l = leads.find(function(x){ return x.id===lid; });
   if(!l) return;
-
-  // Require name + email + location for invoices
-  var missingFields = [];
-  if (!l.name || l.name === l.company || l.name === 'Lead') missingFields.push({field:'name', label:'Contact Name', placeholder:'e.g. John Smith'});
-  if (!l.em) missingFields.push({field:'em', label:'Email Address', type:'email', placeholder:'client@email.com'});
-  if (!l.location) missingFields.push({field:'location', label:'City / Province', placeholder:'e.g. Toronto, ON'});
-  if (missingFields.length) {
-    requireLeadInfo(l, missingFields, 'Invoice', function(){ openLeadInvoices(lid); });
-    return;
-  }
 
   var screen = document.getElementById('invoicesListScreen');
   if(!screen) return;
@@ -9490,44 +9485,82 @@ async function openLeadInvoices(lid) {
   window._invoicesListLid = lid;
 
   var body = document.getElementById('invoicesListBody');
+  if(body) body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--sub)">Loading...</div>';
 
   try {
-    // Look up invoices by quote lead_id or client_id
-    var res = await sbFetch('/rest/v1/invoices?select=*&order=invoice_date.desc&limit=20');
-    // Filter to this lead's quotes
-    var qRes = await sbFetch('/rest/v1/quotes?lead_id=eq.'+(l.dbId||lid)+'&select=id');
-    var quoteIds = qRes.ok ? (await qRes.json()).map(function(q){return q.id;}) : [];
+    // Query invoices linked to this lead via lead_id or via quotes
+    var invoices = [];
 
-    var invoices = res.ok ? (await res.json()).filter(function(inv){
-      return quoteIds.includes(inv.quote_id);
-    }) : [];
+    // Method 1: direct lead_id on invoice
+    if(l.dbId) {
+      var r1 = await sbFetch('/rest/v1/invoices?lead_id=eq.'+l.dbId+'&select=*&order=invoice_date.desc&limit=50');
+      if(r1.ok) invoices = await r1.json();
+    }
+
+    // Method 2: via quotes if none found
+    if(!invoices.length) {
+      var qRes = await sbFetch('/rest/v1/quotes?lead_id=eq.'+(l.dbId||lid)+'&select=id');
+      var quoteIds = qRes.ok ? (await qRes.json()).map(function(q){return q.id;}) : [];
+      if(quoteIds.length) {
+        var r2 = await sbFetch('/rest/v1/invoices?quote_id=in.('+quoteIds.join(',')+')'+'&select=*&order=invoice_date.desc&limit=50');
+        if(r2.ok) invoices = await r2.json();
+      }
+    }
+
+    // Helper: extract clean invoice number (strip _ClientName_Amount suffix)
+    var cleanInvNum = function(num) {
+      if(!num) return '—';
+      var idx = num.indexOf('_');
+      return idx > -1 ? num.slice(0, idx) : num;
+    };
 
     var fmtDate = function(s){ return s ? new Date(s).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : ''; };
-    var fmtAmt  = function(n){ return 'CAD $'+parseFloat(n||0).toLocaleString('en-CA',{minimumFractionDigits:2}); };
+    var pmLabels = {stripe:'💳 Stripe',etransfer:'🏦 E-Transfer',cash:'💵 Cash',cheque:'📝 Cheque',pending:'⏳ Pending'};
 
     var html = '';
     if(!invoices.length) {
-      html = '<div style="text-align:center;padding:40px;color:var(--sub);font-size:14px">No invoices yet for this lead</div>';
+      html = '<div style="text-align:center;padding:60px 20px">'
+        +'<div style="font-size:40px;margin-bottom:12px">🧾</div>'
+        +'<div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px">No invoices yet</div>'
+        +'<div style="font-size:13px;color:var(--sub)">Tap + New Invoice to create one</div>'
+        +'</div>';
     } else {
-      invoices.forEach(function(inv) {
-        var isPaid = inv.payment_status==='paid';
+      html = '<div style="background:var(--white);border-radius:0">';
+      invoices.forEach(function(inv, i) {
+        var isPaid = inv.payment_status === 'paid';
         var stColor = isPaid ? '#059669' : '#d97706';
-        html += '<div style="display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border)">'
+        var stBg    = isPaid ? '#f0fdf4' : '#fef9c3';
+        var invNum  = cleanInvNum(inv.invoice_number);
+        var pm      = pmLabels[inv.payment_method] || (inv.payment_method||'');
+        var total   = 'CAD $'+parseFloat(inv.total||0).toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2});
+        var client  = inv.client_business || inv.client_name || '';
+
+        html += '<div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px">'
+          // Left: icon
+          +'<div style="width:40px;height:40px;border-radius:10px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🧾</div>'
+          // Middle: details
           +'<div style="flex:1;min-width:0">'
-            +'<div style="font-size:14px;font-weight:700;color:var(--text)">'+inv.invoice_number+'</div>'
-            +'<div style="font-size:12px;color:var(--sub);margin-top:2px">'+fmtDate(inv.invoice_date)+' · '+(inv.payment_method||'pending')+'</div>'
+            +'<div style="font-size:14px;font-weight:700;color:var(--text)">'+invNum+'</div>'
+            +(client?'<div style="font-size:12px;color:var(--sub);margin-top:1px">'+client+'</div>':'')
+            +'<div style="font-size:11px;color:var(--muted);margin-top:2px">'+fmtDate(inv.invoice_date)+(pm?' · '+pm:'')+'</div>'
           +'</div>'
+          // Right: amount + status + PDF
           +'<div style="text-align:right;flex-shrink:0">'
-            +'<div style="font-size:14px;font-weight:800;color:var(--text)">'+fmtAmt(inv.total)+'</div>'
-            +'<div style="font-size:10px;font-weight:700;color:'+stColor+';text-transform:uppercase">'+inv.payment_status+'</div>'
+            +'<div style="font-size:15px;font-weight:800;color:var(--text)">'+total+'</div>'
+            +'<div style="display:inline-block;margin-top:4px;padding:2px 8px;border-radius:20px;background:'+stBg+';font-size:10px;font-weight:700;color:'+stColor+';text-transform:uppercase;letter-spacing:.04em">'+inv.payment_status+'</div>'
           +'</div>'
-          +(inv.pdf_url ? '<a href="'+inv.pdf_url+'" target="_blank" style="flex-shrink:0;font-size:20px;text-decoration:none">📄</a>' : '')
+          // PDF button
+          +(inv.pdf_url
+            ? '<a href="'+inv.pdf_url+'" target="_blank" style="flex-shrink:0;width:36px;height:36px;border-radius:8px;background:var(--bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:16px;text-decoration:none;color:var(--text)" title="Download PDF">⬇️</a>'
+            : '<div style="flex-shrink:0;width:36px;height:36px;border-radius:8px;background:var(--bg);border:1px dashed var(--border);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted)" title="PDF generating...">⏳</div>')
           +'</div>';
       });
+      html += '</div>';
     }
+
     if(body) body.innerHTML = html;
   } catch(e) {
-    if(body) body.innerHTML = '<div style="padding:20px;color:var(--red)">Error loading invoices: '+e.message+'</div>';
+    if(body) body.innerHTML = '<div style="padding:20px;color:var(--red);font-size:13px">Error: '+e.message+'</div>';
   }
 }
 
