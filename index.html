@@ -1336,7 +1336,7 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
           <input class="finp" id="cinv-email" type="email" placeholder="client@email.com"></div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div class="fg" style="margin:0"><label class="flbl">Province</label>
-            <select class="fsel" id="cinv-province" onchange="recalcCInv()">
+            <select class="fsel" id="cinv-province" onchange="setCInvProvinceTax()">
               <option value="AB">Alberta — 5% GST</option>
               <option value="BC">BC — 12% GST+PST</option>
               <option value="MB">Manitoba — 12% GST+PST</option>
@@ -1395,12 +1395,12 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
           <div>
             <label class="flbl">Client agreed amount</label>
-            <input class="finp" id="cinv-final-amount" type="number" min="0" step="0.01" placeholder="e.g. 980.00" oninput="setCInvFinalAmount(this.value)">
+            <input class="finp" id="cinv-final-amount" type="number" min="0" step="0.01" placeholder="e.g. 980.00" oninput="this.dataset.userEdited='1';setCInvFinalAmount(this.value)">
             <div style="font-size:10px;color:var(--muted);margin-top:2px">Total incl. tax</div>
           </div>
           <div>
             <label class="flbl" style="color:var(--red)">Discount (CAD $)</label>
-            <input class="finp" id="cinv-discount" type="number" min="0" step="0.01" placeholder="0.00" oninput="recalcCInv()" style="color:var(--red)">
+            <input class="finp" id="cinv-discount" type="number" min="0" step="0.01" placeholder="0.00" oninput="setCInvDiscount(this.value)" style="color:var(--red)">
             <div style="font-size:10px;color:var(--muted);margin-top:2px">Fixed discount on subtotal</div>
           </div>
         </div>
@@ -11286,7 +11286,7 @@ function openCreateInvoiceFromLead() {
   if(g('cinv-email')) g('cinv-email').value  = l ? (l.em||'') : '';
   if(g('cinv-tax-sel'))      g('cinv-tax-sel').value      = '11';
   if(g('cinv-discount'))     g('cinv-discount').value     = '';
-  if(g('cinv-final-amount')) g('cinv-final-amount').value = '';
+  if(g('cinv-final-amount')){ g('cinv-final-amount').value=''; delete g('cinv-final-amount').dataset.userEdited; }
   if(g('cinv-province'))     g('cinv-province').value     = 'SK';
   if(g('cinv-method'))       g('cinv-method').value       = 'cash';
   if(g('cinv-ref'))          g('cinv-ref').value          = '';
@@ -11313,6 +11313,9 @@ function addPlanToCInv() {
   renderCInvItems();
   recalcCInv();
   sel.value = '';
+  // Reset userEdited so agreed amount updates to new total
+  var fa = document.getElementById('cinv-final-amount');
+  if(fa) { delete fa.dataset.userEdited; }
 }
 
 function addCInvItem() {
@@ -11350,43 +11353,81 @@ function renderCInvItems() {
   }).join('');
 }
 
-function setCInvFinalAmount(val) {
-  // Back-calculate discount from agreed total
-  var rate = parseFloat((document.getElementById('cinv-tax-sel')||{}).value || 11) / 100;
-  var sub  = _cinvItems.reduce(function(s,i){return s+(i.qty||1)*(i.unit_price||0);}, 0);
-  var agreedTotal = parseFloat(val) || 0;
-  if (agreedTotal > 0 && sub > 0) {
-    // agreedTotal = (sub - discount) * (1 + rate)  → discount = sub - agreedTotal/(1+rate)
-    var impliedDiscount = Math.max(0, sub - agreedTotal / (1 + rate));
-    var discEl = document.getElementById('cinv-discount');
-    if (discEl) discEl.value = impliedDiscount > 0 ? impliedDiscount.toFixed(2) : '';
+function setCInvProvinceTax() {
+  var prov = (document.getElementById('cinv-province')||{}).value || 'SK';
+  var rate = (CINV_TAX[prov] || 0.11) * 100;
+  var sel  = document.getElementById('cinv-tax-sel');
+  if (sel) {
+    // Find matching option or set directly
+    var matched = Array.from(sel.options).some(function(o){ return parseFloat(o.value) === rate; });
+    if (!matched) {
+      var opt = document.createElement('option');
+      opt.value = rate; opt.textContent = rate + '% (' + prov + ')'; opt.selected = true;
+      sel.appendChild(opt);
+    } else { sel.value = rate; }
   }
   recalcCInv();
 }
 
-function recalcCInv() {
-  var rate    = parseFloat((document.getElementById('cinv-tax-sel')||{}).value || 11) / 100;
-  var taxPct  = Math.round(rate * 1000) / 10;
-  var prov    = (document.getElementById('cinv-province')||{}).value || 'SK';
-  var label   = CINV_TAX_LBL[prov] || ('Tax ('+taxPct+'%)');
+// User enters final agreed amount → back-calculates discount (same as quote)
+function setCInvFinalAmount(val) {
+  var finalTotal = parseFloat(val || 0);
+  if (!finalTotal) { recalcCInv(); return; }
   var sub     = _cinvItems.reduce(function(s,i){return s+(i.qty||1)*(i.unit_price||0);}, 0);
-  var disc    = parseFloat((document.getElementById('cinv-discount')||{}).value) || 0;
-  var net     = Math.max(0, sub - disc);
-  var tax     = net * rate;
-  var total   = net + tax;
+  var taxRate = parseFloat((document.getElementById('cinv-tax-sel')||{}).value || 11);
+  var subAfter = finalTotal / (1 + taxRate/100);
+  var taxAmt   = finalTotal - subAfter;
+  var discount = Math.max(0, sub - subAfter);
+  var discEl = document.getElementById('cinv-discount');
+  if (discEl && document.activeElement !== discEl) {
+    discEl.value = discount > 0.005 ? discount.toFixed(2) : '';
+  }
+  updateCInvUI(sub, discount, taxAmt, finalTotal);
+}
 
+// User enters discount → recalcs total (same as quote)
+function setCInvDiscount(val) {
+  var discount = parseFloat(val || 0);
+  var sub      = _cinvItems.reduce(function(s,i){return s+(i.qty||1)*(i.unit_price||0);}, 0);
+  var taxRate  = parseFloat((document.getElementById('cinv-tax-sel')||{}).value || 11);
+  var subAfter = Math.max(0, sub - discount);
+  var taxAmt   = subAfter * taxRate / 100;
+  var total    = subAfter + taxAmt;
+  var fa = document.getElementById('cinv-final-amount');
+  if (fa && document.activeElement !== fa) {
+    fa.value = total > 0.005 ? total.toFixed(2) : '';
+  }
+  updateCInvUI(sub, discount, taxAmt, total);
+}
+
+function updateCInvUI(sub, discount, taxAmt, total) {
+  var taxRate = parseFloat((document.getElementById('cinv-tax-sel')||{}).value || 11);
+  var prov    = (document.getElementById('cinv-province')||{}).value || 'SK';
+  var label   = CINV_TAX_LBL[prov] || ('Tax ('+taxRate+'%)');
+  var net     = Math.max(0, sub - discount);
   var g = function(id){ return document.getElementById(id); };
   var show = function(id, vis){ if(g(id)) g(id).style.display = vis ? 'flex' : 'none'; };
+  if(g('cinv-subtotal'))    g('cinv-subtotal').textContent    = 'CAD $'+fmtCAD(sub);
+  if(g('cinv-tax-lbl'))     g('cinv-tax-lbl').textContent     = label;
+  if(g('cinv-tax-amt'))     g('cinv-tax-amt').textContent     = 'CAD $'+fmtCAD(taxAmt);
+  if(g('cinv-total'))       g('cinv-total').textContent       = 'CAD $'+fmtCAD(total);
+  if(g('cinv-discount-amt'))g('cinv-discount-amt').textContent= '- CAD $'+fmtCAD(discount);
+  if(g('cinv-net-amt'))     g('cinv-net-amt').textContent     = 'CAD $'+fmtCAD(net);
+  show('cinv-discount-row', discount > 0.005);
+  show('cinv-net-row',      discount > 0.005);
+}
 
-  if(g('cinv-subtotal')) g('cinv-subtotal').textContent = 'CAD $'+fmtCAD(sub);
-  if(g('cinv-tax-lbl'))  g('cinv-tax-lbl').textContent  = label;
-  if(g('cinv-tax-amt'))  g('cinv-tax-amt').textContent  = 'CAD $'+fmtCAD(tax);
-  if(g('cinv-total'))    g('cinv-total').textContent    = 'CAD $'+fmtCAD(total);
-
-  show('cinv-discount-row', disc > 0);
-  show('cinv-net-row',      disc > 0);
-  if(g('cinv-discount-amt')) g('cinv-discount-amt').textContent = '- CAD $'+fmtCAD(disc);
-  if(g('cinv-net-amt'))      g('cinv-net-amt').textContent      = 'CAD $'+fmtCAD(net);
+function recalcCInv() {
+  var sub     = _cinvItems.reduce(function(s,i){return s+(i.qty||1)*(i.unit_price||0);}, 0);
+  var taxRate = parseFloat((document.getElementById('cinv-tax-sel')||{}).value || 11);
+  var disc    = parseFloat((document.getElementById('cinv-discount')||{}).value) || 0;
+  var subAfter= Math.max(0, sub - disc);
+  var taxAmt  = subAfter * taxRate / 100;
+  var total   = subAfter + taxAmt;
+  // Default agreed amount to calculated total (if not user-edited)
+  var fa = document.getElementById('cinv-final-amount');
+  if (fa && !fa.dataset.userEdited) fa.value = total > 0 ? total.toFixed(2) : '';
+  updateCInvUI(sub, disc, taxAmt, total);
 }
 
 async function submitCInvoice() {
@@ -11448,12 +11489,9 @@ async function submitCInvoice() {
     if(!res.ok || data.error) throw new Error(data.error||'Failed');
 
     closeCreateInvoice();
-    // Reload the invoice list to show new invoice
-    if(_cinvLeadId) openLeadInvoices(_cinvLeadId);
-
     showToast('\u2705 Invoice '+data.invoice_number+' created!');
 
-    // Show detail/download/email sheet
+    // Open detail sheet (download + email)
     openInvoiceDetail({
       invoice_number:  data.invoice_number,
       invoice_id:      data.invoice_id,
