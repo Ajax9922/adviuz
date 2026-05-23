@@ -6675,6 +6675,114 @@ function buildLowBalanceEmail(clientName, balance, topupUrl) {
   </div>
 </div>
 
+
+<!-- ── Manual Invoice Sheet ── -->
+<div class="sheet-ov" id="createInvoiceSh" onclick="if(event.target===this)closeSheet('createInvoiceSh')">
+  <div class="sheet" style="max-height:95vh">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">🧾 Create Invoice</div>
+      <button class="sheet-x" onclick="closeSheet('createInvoiceSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" style="padding:0">
+
+      <!-- Section 1: Client -->
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border)">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--sub);margin-bottom:10px">1 · Client</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="fg" style="margin:0">
+            <label class="flbl">Business Name</label>
+            <input class="finp" id="inv-biz" placeholder="Markham Dental Studio">
+          </div>
+          <div class="fg" style="margin:0">
+            <label class="flbl">Contact Name</label>
+            <input class="finp" id="inv-name" placeholder="John Smith">
+          </div>
+        </div>
+        <div class="fg" style="margin-top:8px">
+          <label class="flbl">Email</label>
+          <input class="finp" id="inv-email" type="email" placeholder="client@email.com">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
+          <div class="fg" style="margin:0">
+            <label class="flbl">Province</label>
+            <select class="fsel" id="inv-province" onchange="recalcInvoice()">
+              <option value="AB">Alberta — 5% GST</option>
+              <option value="BC">BC — 12% GST+PST</option>
+              <option value="MB">Manitoba — 12% GST+PST</option>
+              <option value="NB">New Brunswick — 15% HST</option>
+              <option value="NL">Newfoundland — 15% HST</option>
+              <option value="NS">Nova Scotia — 15% HST</option>
+              <option value="ON">Ontario — 13% HST</option>
+              <option value="QC">Quebec — 14.975%</option>
+              <option value="SK" selected>Saskatchewan — 11%</option>
+            </select>
+          </div>
+          <div class="fg" style="margin:0">
+            <label class="flbl">Payment Method</label>
+            <select class="fsel" id="inv-method">
+              <option value="cash">💵 Cash</option>
+              <option value="etransfer">🏦 E-Transfer</option>
+              <option value="cheque">📝 Cheque</option>
+              <option value="stripe">💳 Stripe</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="fg" style="margin-top:8px">
+          <label class="flbl">Reference / Notes <span style="color:var(--sub);font-weight:400">(optional)</span></label>
+          <input class="finp" id="inv-ref" placeholder="e.g. E-transfer ref #12345">
+        </div>
+      </div>
+
+      <!-- Section 2: Line Items -->
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border)">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--sub);margin-bottom:10px">2 · Line Items</div>
+        <div id="invItemsList"></div>
+        <button onclick="addInvItem()" style="width:100%;padding:9px;border-radius:9px;border:1.5px dashed var(--border);background:none;font-family:var(--f);font-size:12px;font-weight:600;color:var(--sub);cursor:pointer;margin-top:6px">+ Add Line Item</button>
+      </div>
+
+      <!-- Section 3: Totals -->
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border)">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--sub);margin-bottom:10px">3 · Summary</div>
+        <div style="background:var(--bg);border-radius:10px;padding:12px 14px;font-size:13px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span style="color:var(--sub)">Subtotal</span>
+            <span id="inv-subtotal">$0.00</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span style="color:var(--sub)" id="inv-tax-label">Tax (11%)</span>
+            <span id="inv-tax-amt">$0.00</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-weight:800;font-size:16px;border-top:1px solid var(--border);padding-top:8px;margin-top:4px">
+            <span>Total</span>
+            <span id="inv-total" style="color:var(--navy,#001f3f)">$0.00</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <div class="sh-foot">
+      <button class="btn btn-ghost" onclick="closeSheet('createInvoiceSh')" style="flex:1">Cancel</button>
+      <button class="btn btn-primary" id="createInvBtn" onclick="submitCreateInvoice()" style="flex:2;justify-content:center">Generate Invoice</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Invoice Detail Sheet (view/email/download) ── -->
+<div class="sheet-ov" id="invDetailSh" onclick="if(event.target===this)closeSheet('invDetailSh')">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">🧾 Invoice</div>
+      <button class="sheet-x" onclick="closeSheet('invDetailSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" id="invDetailBody">
+    </div>
+    <div class="sh-foot" id="invDetailFoot">
+    </div>
+  </div>
+</div>
 </body>
 </html>`;
 }
@@ -10861,6 +10969,241 @@ function fmtCAD(n) {
 }
 
 // ── Invoices Dashboard Tab ──
+
+// ═══════════════════════════════════════
+// MANUAL INVOICE GENERATOR
+// ═══════════════════════════════════════
+var _invItems = [];
+
+var INV_TAX_RATES = {
+  AB:0.05, BC:0.12, MB:0.12, NB:0.15, NL:0.15,
+  NS:0.15, NT:0.05, NU:0.05, ON:0.13, PE:0.15,
+  QC:0.14975, SK:0.11, YT:0.05
+};
+var INV_TAX_LABELS = {
+  AB:'GST (5%)', BC:'GST+PST (12%)', MB:'GST+PST (12%)',
+  NB:'HST (15%)', NL:'HST (15%)', NS:'HST (15%)',
+  NT:'GST (5%)', NU:'GST (5%)', ON:'HST (13%)',
+  PE:'HST (15%)', QC:'GST+QST (14.975%)', SK:'GST+PST (11%)', YT:'GST (5%)'
+};
+
+function openCreateInvoiceSheet() {
+  _invItems = [{id:Date.now(), name:'Digital Flyers Distribution', qty:1, unit_price:0, total:0}];
+  renderInvItems();
+  recalcInvoice();
+  // Reset fields
+  ['inv-biz','inv-name','inv-email','inv-ref'].forEach(function(id){
+    var el = document.getElementById(id); if(el) el.value = '';
+  });
+  var prov = document.getElementById('inv-province'); if(prov) prov.value = 'SK';
+  var meth = document.getElementById('inv-method'); if(meth) meth.value = 'cash';
+  var btn = document.getElementById('createInvBtn');
+  if(btn){ btn.textContent = 'Generate Invoice'; btn.disabled = false; }
+  openSheet('createInvoiceSh');
+}
+
+function renderInvItems() {
+  var el = document.getElementById('invItemsList'); if(!el) return;
+  el.innerHTML = _invItems.map(function(item, idx) {
+    return '<div style="background:var(--bg);border-radius:9px;padding:10px 12px;margin-bottom:8px;border:1px solid var(--border)">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+      +'<span style="font-size:11px;font-weight:700;color:var(--sub)">Item '+(idx+1)+'</span>'
+      +(_invItems.length>1?'<button onclick="removeInvItem('+item.id+')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;padding:0">&#x2715;</button>':'')
+      +'</div>'
+      +'<input class="finp" style="margin-bottom:6px" placeholder="Description" value="'+item.name+'" '
+      +'oninput="_invItems.find(function(i){return i.id==='+item.id+'}).name=this.value">'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+      +'<div><label class="flbl">Qty</label>'
+      +'<input class="finp" type="number" min="1" value="'+item.qty+'" '
+      +'oninput="_invItems.find(function(i){return i.id==='+item.id+'}).qty=parseFloat(this.value)||1;recalcInvoice()"></div>'
+      +'<div><label class="flbl">Unit Price ($)</label>'
+      +'<input class="finp" type="number" min="0" step="0.01" value="'+item.unit_price+'" '
+      +'oninput="_invItems.find(function(i){return i.id==='+item.id+'}).unit_price=parseFloat(this.value)||0;recalcInvoice()"></div>'
+      +'</div>'
+      +'<div style="text-align:right;font-size:12px;color:var(--sub);margin-top:4px">Line total: <strong>$'+fmtCAD(item.qty*item.unit_price)+'</strong></div>'
+      +'</div>';
+  }).join('');
+}
+
+function addInvItem() {
+  _invItems.push({id:Date.now(), name:'', qty:1, unit_price:0, total:0});
+  renderInvItems();
+}
+
+function removeInvItem(id) {
+  _invItems = _invItems.filter(function(i){return i.id!==id;});
+  renderInvItems();
+  recalcInvoice();
+}
+
+function recalcInvoice() {
+  var prov = (document.getElementById('inv-province')||{}).value || 'SK';
+  var rate = INV_TAX_RATES[prov] || 0.11;
+  var label = INV_TAX_LABELS[prov] || 'Tax';
+  var sub = _invItems.reduce(function(s,i){return s+(i.qty||1)*(i.unit_price||0);}, 0);
+  var tax = sub * rate;
+  var total = sub + tax;
+  var el = function(id){ return document.getElementById(id); };
+  if(el('inv-subtotal')) el('inv-subtotal').textContent = '$'+fmtCAD(sub);
+  if(el('inv-tax-label')) el('inv-tax-label').textContent = label;
+  if(el('inv-tax-amt'))   el('inv-tax-amt').textContent  = '$'+fmtCAD(tax);
+  if(el('inv-total'))     el('inv-total').textContent    = '$'+fmtCAD(total);
+}
+
+async function submitCreateInvoice() {
+  var biz    = (document.getElementById('inv-biz')||{}).value.trim();
+  var name   = (document.getElementById('inv-name')||{}).value.trim();
+  var email  = (document.getElementById('inv-email')||{}).value.trim();
+  var prov   = (document.getElementById('inv-province')||{}).value || 'SK';
+  var method = (document.getElementById('inv-method')||{}).value || 'cash';
+  var ref    = (document.getElementById('inv-ref')||{}).value.trim();
+
+  if (!biz && !name) { showToast('⚠️ Enter a client name or business'); return; }
+  if (_invItems.every(function(i){return !i.unit_price;})) {
+    showToast('⚠️ Add at least one item with a price'); return;
+  }
+
+  var btn = document.getElementById('createInvBtn');
+  if(btn){ btn.textContent = 'Generating...'; btn.disabled = true; }
+
+  var rate = INV_TAX_RATES[prov] || 0.11;
+  var sub  = _invItems.reduce(function(s,i){return s+(i.qty||1)*(i.unit_price||0);}, 0);
+  var total = sub * (1 + rate);
+
+  var items = _invItems.map(function(i){
+    return { name: i.name||'Service', qty: i.qty||1, unit_price: i.unit_price||0, total: (i.qty||1)*(i.unit_price||0) };
+  });
+
+  try {
+    var res = await fetch(SB_FUNC_URL+'/generate-invoice', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', 'Authorization':'Bearer '+authToken, 'apikey':SB_ANON },
+      body: JSON.stringify({
+        invoice_data: {
+          client_name:     name || biz,
+          client_business: biz  || name,
+          client_email:    email || null,
+          client_address:  '',
+          client_province: prov,
+          items:           items,
+          total:           parseFloat(total.toFixed(2)),
+          discount_amount: 0,
+          payment_status:  'paid',
+          payment_method:  method,
+          notes:           ref,
+          invoice_date:    new Date().toISOString().split('T')[0],
+          paid_at:         new Date().toISOString(),
+          client_id:       window._clientId || null
+        },
+        send_email: false
+      })
+    });
+    var data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'Failed');
+
+    closeSheet('createInvoiceSh');
+    showToast('✅ Invoice '+data.invoice_number+' created!');
+
+    // Show invoice detail sheet
+    openInvoiceDetail({
+      invoice_number: data.invoice_number,
+      invoice_id:     data.invoice_id,
+      pdf_url:        data.invoice_url,
+      client_business: biz||name,
+      client_email:   email,
+      total:          total,
+      payment_method: method,
+      payment_status: 'paid'
+    });
+
+    // Refresh invoices list
+    if (typeof loadAdminData === 'function') loadAdminData();
+
+  } catch(e) {
+    showToast('❌ '+e.message);
+    if(btn){ btn.textContent='Generate Invoice'; btn.disabled=false; }
+  }
+}
+
+
+function downloadInvPdf(btn) { window.open(btn.dataset.url, '_blank'); }
+
+function buildInvDetailFoot(inv) {
+  var html = '';
+  if (inv.pdf_url) {
+    html += '<button class="btn btn-ghost" style="flex:1" data-url="'+inv.pdf_url+'" onclick="downloadInvPdf(this)">&#x2B07; Download PDF</button>';
+  }
+  if (inv.client_email) {
+    html += '<button class="btn btn-primary" style="flex:2;justify-content:center"'
+      +' data-inv="'+inv.invoice_number+'"'
+      +' data-id="'+(inv.invoice_id||'')+'"'
+      +' data-email="'+inv.client_email+'"'
+      +' data-pdf="'+(inv.pdf_url||'')+'"'
+      +' onclick="emailInvoiceManually(this.dataset.inv,this.dataset.id,this.dataset.email,this.dataset.pdf)">'
+      +'&#x2709; Email to Client</button>';
+  } else {
+    html += '<button onclick="closeSheet(&quot;invDetailSh&quot;)" class="btn btn-primary" style="flex:1;justify-content:center">Done</button>';
+  }
+  return html;
+}
+
+function openInvoiceDetail(inv) {
+  var body = document.getElementById('invDetailBody');
+  var foot = document.getElementById('invDetailFoot');
+  if (!body) return;
+
+  var totalFmt = '$'+fmtCAD(inv.total)+' CAD';
+  var pmIcons = {stripe:'💳',etransfer:'🏦',cash:'💵',cheque:'📝',other:'💰'};
+
+  body.innerHTML =
+    '<div style="padding:20px 18px">'
+    +'<div style="text-align:center;margin-bottom:20px">'
+    +'<div style="font-size:28px;font-weight:800;color:var(--navy,#001f3f);margin-bottom:4px">'+totalFmt+'</div>'
+    +'<div style="font-size:13px;font-weight:700;color:var(--green)">✅ PAID</div>'
+    +'</div>'
+    +'<div style="background:var(--bg);border-radius:10px;padding:14px;font-size:13px">'
+    +'<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)">'
+    +'<span style="color:var(--sub)">Invoice #</span><strong>'+inv.invoice_number+'</strong></div>'
+    +'<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)">'
+    +'<span style="color:var(--sub)">Client</span><span>'+(inv.client_business||inv.client_name||'—')+'</span></div>'
+    +(inv.client_email?'<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)">'
+    +'<span style="color:var(--sub)">Email</span><span style="font-size:12px">'+inv.client_email+'</span></div>':'')
+    +'<div style="display:flex;justify-content:space-between;padding:7px 0">'
+    +'<span style="color:var(--sub)">Payment</span><span>'+(pmIcons[inv.payment_method]||'💰')+' '+inv.payment_method+'</span></div>'
+    +'</div>'
+    +(inv.pdf_url?'<div style="margin-top:16px;padding:12px;background:#f0f9ff;border-radius:10px;text-align:center;font-size:12px;color:var(--sub)">PDF generated and saved ✓</div>':'<div style="margin-top:16px;padding:12px;background:#fef9c3;border-radius:10px;text-align:center;font-size:12px;color:#92400e">PDF generation in progress...</div>')
+    +'</div>';
+
+    foot.innerHTML = buildInvDetailFoot(inv);
+
+  openSheet('invDetailSh');
+}
+
+async function emailInvoiceManually(invNumber, invId, toEmail, pdfUrl) {
+  showToast('Sending...');
+  try {
+    var res = await fetch(SB_FUNC_URL+'/send-email', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken,'apikey':SB_ANON},
+      body: JSON.stringify({
+        to: toEmail,
+        subject: buildSubj ? buildSubj('Tax Invoice '+invNumber) : 'Tax Invoice '+invNumber+' — Adviuz',
+        type: 'transactional',
+        from_email: 'accounts@adviuz.com',
+        from_name: 'Adviuz Accounts',
+        html: '<p>Please find your tax invoice attached.</p>'
+          +(pdfUrl?'<p><a href="'+pdfUrl+'" style="background:#001f3f;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:700">Download Invoice PDF</a></p>':''),
+        bcc: 'sales@adviuz.ca'
+      })
+    });
+    var d = await res.json();
+    if(d.error) throw new Error(d.error);
+    showToast('✅ Invoice emailed to '+toEmail);
+  } catch(e) {
+    showToast('❌ '+e.message);
+  }
+}
+
 function adInvoicesHTML() {
   var invs = _adminData.invoices || [];
   var total = invs.reduce(function(s,i){return s+(i.payment_status==='paid'?parseFloat(i.total||0):0);}, 0);
@@ -10869,6 +11212,7 @@ function adInvoicesHTML() {
   h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0">';
   h += '<div><div style="font-size:12px;color:var(--sub);font-weight:600">'+invs.length+' invoices</div>';
   h += '<div style="font-size:11px;color:var(--green);font-weight:700">$'+fmtCAD(total)+' collected</div></div>';
+  h += '<button onclick="openCreateInvoiceSheet()" style="padding:8px 14px;border-radius:9px;background:var(--navy,#001f3f);border:none;color:#fff;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">+ Create Invoice</button>';
   h += '</div>';
   if (!invs.length) return h+'<div style="text-align:center;padding:40px;color:var(--sub)">No invoices yet.<br>Generate one by marking a quote as paid.</div></div>';
   var stColors = {paid:'var(--green)',pending:'var(--amber)',overdue:'var(--red)',cancelled:'var(--muted)'};
