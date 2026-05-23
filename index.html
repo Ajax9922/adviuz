@@ -826,6 +826,17 @@ input[type=number]{-moz-appearance:textfield}
 .rp-price{font-size:13px;font-weight:800;color:var(--text);margin-right:8px;flex-shrink:0}
 .rp-btn{padding:8px 14px;border-radius:8px;background:var(--text);color:#fff;font-family:var(--f);font-size:12px;font-weight:700;border:none;cursor:pointer;text-decoration:none;display:inline-block;white-space:nowrap;flex-shrink:0}
 .rp-btn.pop{background:var(--green)}
+/* ── Admin campaign card (original layout) ── */
+.camp-card-top{padding:14px 14px 10px;display:flex;align-items:flex-start;gap:10px}
+.camp-thumb-lg{width:56px;height:56px;border-radius:10px;object-fit:cover;flex-shrink:0;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:26px}
+.camp-metrics-4{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border-top:1px solid var(--border)}
+.camp-summary-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px}
+.camp-stat-box{background:var(--white);border-radius:12px;padding:13px 12px;text-align:center}
+.camp-stat-box-val{font-size:22px;font-weight:800;color:var(--text);letter-spacing:-.03em}
+.camp-stat-box-lbl{font-size:11px;color:var(--sub);font-weight:600;margin-top:3px}
+.camp-budget{padding:8px 14px 12px;background:var(--white)}
+.cab-boost{background:#fef3c7;color:#d97706}
+.cab-stats{background:var(--bluel);color:var(--blue)}
 
 </style>
 </head>
@@ -4167,6 +4178,94 @@ function csCell(val, lbl, highlight) {
 }
 
 function renderCampaigns(camps) {
+  if(window._isClientMode) { renderClientCampaigns(camps); return; }
+  renderAdminCampaigns(camps);
+}
+
+// ── ADMIN campaign view (technical metrics) ──
+function renderAdminCampaigns(camps) {
+  _campData = camps;
+  var body = document.getElementById('campBody');
+  if(!body) return;
+
+  var totViews = camps.reduce(function(a,c){return a+(c.views_used||0)},0);
+  var totImpr  = camps.reduce(function(a,c){return a+(c.fb_impressions||0)+(c.google_impressions||0)},0);
+  var active   = camps.filter(function(c){return c.status==='active'}).length;
+
+  var html = '<div class="camp-summary-3" style="padding:0;margin:0 0 12px">';
+  html += '<div class="camp-stat-box"><div class="camp-stat-box-val">'+fmtNum(totViews)+'</div><div class="camp-stat-box-lbl">Views Delivered</div></div>';
+  html += '<div class="camp-stat-box"><div class="camp-stat-box-val">'+fmtNum(totImpr)+'</div><div class="camp-stat-box-lbl">Impressions</div></div>';
+  html += '<div class="camp-stat-box"><div class="camp-stat-box-val" style="color:var(--green)">'+active+'</div><div class="camp-stat-box-lbl">Active Now</div></div>';
+  html += '</div>';
+
+  if(!camps.length) {
+    html += '<div style="text-align:center;padding:48px 24px;background:var(--white);border-radius:14px">';
+    html += '<div style="font-size:44px;margin-bottom:14px">📰</div>';
+    html += '<div style="font-size:17px;font-weight:700;color:var(--text);margin-bottom:6px">No campaigns yet</div>';
+    html += '<div style="font-size:13px;color:var(--sub);line-height:1.7;margin-bottom:20px">Create campaigns from the admin dashboard.</div>';
+    html += '</div><div style="height:80px"></div>';
+    body.innerHTML = html;
+    return;
+  }
+
+  camps.forEach(function(camp) {
+    var statusLabel = {active:'Active',paused:'Paused',ended:'Ended',scheduled:'Scheduled'}[camp.status]||camp.status;
+    var viewBudget = camp.view_budget || 0;
+    var viewsUsed  = camp.views_used  || 0;
+    var viewPct    = viewBudget > 0 ? Math.min(100,Math.round(viewsUsed/viewBudget*100)) : 0;
+    var viewBalance= Math.max(0, viewBudget - viewsUsed);
+    var fbImp      = camp.fb_impressions || 0;
+    var gImp       = camp.google_impressions || 0;
+    var totImp     = fbImp + gImp;
+    var budgetSpent= camp.budget_spent || 0;
+    var budgetTotal= camp.budget_total || 0;
+    var budgetPct  = budgetTotal > 0 ? Math.min(100,Math.round(budgetSpent/budgetTotal*100)) : 0;
+    var icon = camp.platform==='google'?'🔍':'📘';
+
+    html += '<div class="camp-card">';
+    html += '<div class="camp-card-top">';
+    html += '<div class="camp-thumb-lg">'+icon+'</div>';
+    html += '<div class="camp-card-info"><div class="camp-card-name">'+camp.name+'</div>';
+    html += '<div class="camp-card-date">'+fmtDate(camp.start_date)+' → '+fmtDate(camp.end_date)+'</div></div>';
+    html += '<span class="camp-status-pill csp-'+(camp.status||'active')+'">'+statusLabel+'</span>';
+    html += '</div>';
+
+    html += '<div class="camp-metrics-4">';
+    html += '<div class="camp-metric"><div class="camp-metric-val">'+fmtNum(viewBudget)+'</div><div class="camp-metric-lbl">Budget</div></div>';
+    html += '<div class="camp-metric"><div class="camp-metric-val">'+fmtNum(viewsUsed)+'</div><div class="camp-metric-lbl">Views Used</div></div>';
+    html += '<div class="camp-metric"><div class="camp-metric-val">'+fmtNum(totImp)+'</div><div class="camp-metric-lbl">Impressions</div></div>';
+    html += '<div class="camp-metric"><div class="camp-metric-val" style="color:var(--green)">'+fmtNum(viewBalance)+'</div><div class="camp-metric-lbl">Remaining</div></div>';
+    html += '</div>';
+
+    html += '<div class="camp-progress-wrap">';
+    html += '<div class="camp-progress-hd"><span class="camp-progress-lbl">Views Used</span><span class="camp-progress-val">'+fmtNum(viewsUsed)+' / '+fmtNum(viewBudget)+'</span></div>';
+    html += '<div class="camp-progress-bar"><div class="camp-progress-fill" style="width:'+viewPct+'%"></div></div>';
+    html += '</div>';
+
+    html += '<div class="camp-budget">';
+    html += '<div class="camp-progress-hd"><span class="camp-progress-lbl">Budget Used</span><span class="camp-progress-val">$'+Math.round(budgetSpent)+' / $'+Math.round(budgetTotal)+'</span></div>';
+    html += '<div class="camp-progress-bar"><div class="camp-progress-fill" style="width:'+budgetPct+'%;background:'+(budgetPct>85?'var(--red)':budgetPct>60?'var(--amber)':'var(--green)')+'"></div></div>';
+    html += '</div>';
+
+    html += '<div class="camp-actions">';
+    if(camp.status==='active') {
+      html += '<button class="camp-act-btn cab-pause" onclick="toggleCampaign(\''+camp.id+'\',\'paused\')"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:14px;height:14px"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>Pause</button>';
+    } else if(camp.status==='paused'||camp.status==='scheduled') {
+      html += '<button class="camp-act-btn cab-play" onclick="toggleCampaign(\''+camp.id+'\',\'active\')"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:14px;height:14px"><polygon points="5 3 19 12 5 21 5 3" fill="currentColor"/></svg>'+(camp.status==='scheduled'?'Start Now':'Resume')+'</button>';
+    }
+    html += '<button class="camp-act-btn cab-stats" onclick="showCampStats(\''+camp.id+'\')"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:14px;height:14px"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Details</button>';
+    html += '<button class="camp-act-btn cab-boost" onclick="showToast(\'🚀 Boost coming soon\')"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Boost</button>';
+    html += '</div>';
+    html += '</div>';
+  });
+
+  html += '<div style="height:80px"></div>';
+  body.innerHTML = html;
+}
+
+// ── CLIENT campaign view (consumer-friendly) ──
+function renderClientCampaigns(camps) {
+function renderClientCampaigns(camps) {
   _campData = camps;
   var body = document.getElementById('campBody');
   if(!body) return;
