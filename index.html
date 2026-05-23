@@ -1347,16 +1347,7 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
               <option value="QC">Quebec — 14.975%</option>
               <option value="SK" selected>Saskatchewan — 11%</option>
             </select></div>
-          <div class="fg" style="margin:0"><label class="flbl">Payment Method</label>
-            <select class="fsel" id="cinv-method">
-              <option value="cash">💵 Cash</option>
-              <option value="etransfer">🏦 E-Transfer</option>
-              <option value="cheque">📝 Cheque</option>
-              <option value="stripe">💳 Stripe</option>
-            </select></div>
         </div>
-        <div class="fg"><label class="flbl">Reference <span style="font-weight:400;color:var(--sub)">(optional)</span></label>
-          <input class="finp" id="cinv-ref" placeholder="e.g. E-transfer ref #123"></div>
       </div>
 
       <!-- Section 2: Package quick-select -->
@@ -1375,16 +1366,67 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
         <button onclick="addCInvItem()" style="width:100%;padding:9px;border-radius:9px;border:1.5px dashed var(--border);background:none;font-family:var(--f);font-size:12px;font-weight:600;color:var(--sub);cursor:pointer;margin-top:6px">+ Custom line item</button>
       </div>
 
-      <!-- Section 3: Totals -->
-      <div style="padding:16px 18px">
-        <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--sub);margin-bottom:10px">3 · Summary</div>
-        <div style="background:var(--bg);border-radius:10px;padding:14px;font-size:13px">
-          <div style="display:flex;justify-content:space-between;margin-bottom:8px">
-            <span style="color:var(--sub)">Subtotal</span><span id="cinv-subtotal">$0.00</span></div>
-          <div style="display:flex;justify-content:space-between;margin-bottom:8px">
-            <span style="color:var(--sub)" id="cinv-tax-lbl">Tax (11%)</span><span id="cinv-tax-amt">$0.00</span></div>
-          <div style="display:flex;justify-content:space-between;font-weight:800;font-size:17px;border-top:1px solid var(--border);padding-top:10px;margin-top:4px">
-            <span>Total (inc. tax)</span><span id="cinv-total" style="color:var(--navy,#001f3f)">$0.00</span></div>
+      <!-- Section 3: Pricing (same as quotes) -->
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border)">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--sub);margin-bottom:10px">3 · Pricing</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div>
+            <label class="flbl">Tax rate</label>
+            <select class="fsel" id="cinv-tax-sel" onchange="recalcCInv()">
+              <option value="0">0% — No tax</option>
+              <option value="5">5% — GST</option>
+              <option value="11" selected>11% — GST+PST (SK)</option>
+              <option value="12">12% — GST+PST (BC/MB)</option>
+              <option value="13">13% — HST (ON)</option>
+              <option value="14.975">14.975% — GST+QST (QC)</option>
+              <option value="15">15% — HST (NB/NS/NL/PE)</option>
+            </select>
+          </div>
+          <div>
+            <label class="flbl">Payment Method</label>
+            <select class="fsel" id="cinv-method">
+              <option value="cash">💵 Cash</option>
+              <option value="etransfer">🏦 E-Transfer</option>
+              <option value="cheque">📝 Cheque</option>
+              <option value="stripe">💳 Stripe</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div>
+            <label class="flbl">Client agreed amount</label>
+            <input class="finp" id="cinv-final-amount" type="number" min="0" step="0.01" placeholder="e.g. 980.00" oninput="setCInvFinalAmount(this.value)">
+            <div style="font-size:10px;color:var(--muted);margin-top:2px">Total incl. tax</div>
+          </div>
+          <div>
+            <label class="flbl" style="color:var(--red)">Discount (CAD $)</label>
+            <input class="finp" id="cinv-discount" type="number" min="0" step="0.01" placeholder="0.00" oninput="recalcCInv()" style="color:var(--red)">
+            <div style="font-size:10px;color:var(--muted);margin-top:2px">Fixed discount on subtotal</div>
+          </div>
+        </div>
+        <div class="fg">
+          <label class="flbl">Reference / Notes <span style="font-weight:400;color:var(--sub)">(optional)</span></label>
+          <input class="finp" id="cinv-ref" placeholder="e.g. E-transfer ref #123">
+        </div>
+      </div>
+
+      <!-- Section 4: Total summary -->
+      <div style="padding:14px 18px;background:var(--bg);border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:5px">
+          <span style="color:var(--sub)">Subtotal</span><span id="cinv-subtotal" style="font-weight:600">CAD $0.00</span>
+        </div>
+        <div style="display:none;justify-content:space-between;font-size:13px;margin-bottom:5px;color:var(--red)" id="cinv-discount-row">
+          <span>Discount</span><span id="cinv-discount-amt" style="font-weight:600">- CAD $0.00</span>
+        </div>
+        <div style="display:none;justify-content:space-between;font-size:13px;margin-bottom:5px" id="cinv-net-row">
+          <span style="color:var(--sub)">Net</span><span id="cinv-net-amt" style="font-weight:600">CAD $0.00</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:10px">
+          <span style="color:var(--sub)" id="cinv-tax-lbl">Tax (11%)</span><span id="cinv-tax-amt" style="font-weight:600">CAD $0.00</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;background:var(--navy,#001f3f);border-radius:10px;padding:12px 14px">
+          <span style="font-size:13px;font-weight:700;color:rgba(255,255,255,.7)">Total</span>
+          <span id="cinv-total" style="font-size:20px;font-weight:800;color:#fff">CAD $0.00</span>
         </div>
       </div>
     </div>
@@ -11242,9 +11284,12 @@ function openCreateInvoiceFromLead() {
   if(g('cinv-biz'))   g('cinv-biz').value   = l ? (l.company||l.name||'') : '';
   if(g('cinv-name'))  g('cinv-name').value   = l ? (l.name||'') : '';
   if(g('cinv-email')) g('cinv-email').value  = l ? (l.em||'') : '';
-  if(g('cinv-province')) g('cinv-province').value = 'SK';
-  if(g('cinv-method'))   g('cinv-method').value   = 'cash';
-  if(g('cinv-ref'))      g('cinv-ref').value       = '';
+  if(g('cinv-tax-sel'))      g('cinv-tax-sel').value      = '11';
+  if(g('cinv-discount'))     g('cinv-discount').value     = '';
+  if(g('cinv-final-amount')) g('cinv-final-amount').value = '';
+  if(g('cinv-province'))     g('cinv-province').value     = 'SK';
+  if(g('cinv-method'))       g('cinv-method').value       = 'cash';
+  if(g('cinv-ref'))          g('cinv-ref').value          = '';
   if(g('cinv-plan-sel')) g('cinv-plan-sel').value  = '';
 
   var btn = g('cinvSubmitBtn');
@@ -11305,18 +11350,43 @@ function renderCInvItems() {
   }).join('');
 }
 
+function setCInvFinalAmount(val) {
+  // Back-calculate discount from agreed total
+  var rate = parseFloat((document.getElementById('cinv-tax-sel')||{}).value || 11) / 100;
+  var sub  = _cinvItems.reduce(function(s,i){return s+(i.qty||1)*(i.unit_price||0);}, 0);
+  var agreedTotal = parseFloat(val) || 0;
+  if (agreedTotal > 0 && sub > 0) {
+    // agreedTotal = (sub - discount) * (1 + rate)  → discount = sub - agreedTotal/(1+rate)
+    var impliedDiscount = Math.max(0, sub - agreedTotal / (1 + rate));
+    var discEl = document.getElementById('cinv-discount');
+    if (discEl) discEl.value = impliedDiscount > 0 ? impliedDiscount.toFixed(2) : '';
+  }
+  recalcCInv();
+}
+
 function recalcCInv() {
-  var prov = (document.getElementById('cinv-province')||{}).value || 'SK';
-  var rate = CINV_TAX[prov] || 0.11;
-  var label = CINV_TAX_LBL[prov] || 'Tax';
-  var sub = _cinvItems.reduce(function(s,i){return s+(i.qty||1)*(i.unit_price||0);}, 0);
-  var tax = sub * rate;
-  var total = sub + tax;
+  var rate    = parseFloat((document.getElementById('cinv-tax-sel')||{}).value || 11) / 100;
+  var taxPct  = Math.round(rate * 1000) / 10;
+  var prov    = (document.getElementById('cinv-province')||{}).value || 'SK';
+  var label   = CINV_TAX_LBL[prov] || ('Tax ('+taxPct+'%)');
+  var sub     = _cinvItems.reduce(function(s,i){return s+(i.qty||1)*(i.unit_price||0);}, 0);
+  var disc    = parseFloat((document.getElementById('cinv-discount')||{}).value) || 0;
+  var net     = Math.max(0, sub - disc);
+  var tax     = net * rate;
+  var total   = net + tax;
+
   var g = function(id){ return document.getElementById(id); };
-  if(g('cinv-subtotal')) g('cinv-subtotal').textContent = '$'+fmtCAD(sub);
+  var show = function(id, vis){ if(g(id)) g(id).style.display = vis ? 'flex' : 'none'; };
+
+  if(g('cinv-subtotal')) g('cinv-subtotal').textContent = 'CAD $'+fmtCAD(sub);
   if(g('cinv-tax-lbl'))  g('cinv-tax-lbl').textContent  = label;
-  if(g('cinv-tax-amt'))  g('cinv-tax-amt').textContent  = '$'+fmtCAD(tax);
-  if(g('cinv-total'))    g('cinv-total').textContent    = '$'+fmtCAD(total);
+  if(g('cinv-tax-amt'))  g('cinv-tax-amt').textContent  = 'CAD $'+fmtCAD(tax);
+  if(g('cinv-total'))    g('cinv-total').textContent    = 'CAD $'+fmtCAD(total);
+
+  show('cinv-discount-row', disc > 0);
+  show('cinv-net-row',      disc > 0);
+  if(g('cinv-discount-amt')) g('cinv-discount-amt').textContent = '- CAD $'+fmtCAD(disc);
+  if(g('cinv-net-amt'))      g('cinv-net-amt').textContent      = 'CAD $'+fmtCAD(net);
 }
 
 async function submitCInvoice() {
@@ -11336,9 +11406,11 @@ async function submitCInvoice() {
   var btn = document.getElementById('cinvSubmitBtn');
   if(btn){ btn.textContent='Generating...'; btn.disabled=true; }
 
-  var rate  = CINV_TAX[prov] || 0.11;
+  var rate  = parseFloat((document.getElementById('cinv-tax-sel')||{}).value || 11) / 100;
   var sub   = _cinvItems.reduce(function(s,i){return s+(i.qty||1)*(i.unit_price||0);}, 0);
-  var total = parseFloat((sub*(1+rate)).toFixed(2));
+  var disc  = parseFloat((document.getElementById('cinv-discount')||{}).value) || 0;
+  var net   = Math.max(0, sub - disc);
+  var total = parseFloat((net * (1 + rate)).toFixed(2));
   var items = _cinvItems.map(function(i){
     return {name:i.name||'Service', qty:i.qty||1, unit_price:i.unit_price||0, total:(i.qty||1)*(i.unit_price||0)};
   });
@@ -11360,7 +11432,7 @@ async function submitCInvoice() {
           client_province: prov,
           items:           items,
           total:           total,
-          discount_amount: 0,
+          discount_amount: disc,
           payment_status:  'paid',
           payment_method:  method,
           notes:           ref,
