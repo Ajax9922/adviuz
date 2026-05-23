@@ -1302,10 +1302,95 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
     <div class="cq-handle"></div>
     <div class="cq-hd">
       <div class="cq-title">Invoices</div>
+      <button onclick="openCreateInvoiceFromLead()" style="padding:6px 12px;border-radius:8px;background:var(--navy,#001f3f);border:none;color:#fff;font-family:var(--f);font-size:11px;font-weight:700;cursor:pointer;margin-right:8px">+ New</button>
       <button class="cq-x" onclick="closeInvoicesList()">&#x2715;</button>
     </div>
     <div class="cq-body">
       <div id="invoicesListBody" class="cq-list"></div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══ CREATE INVOICE SHEET ═══ -->
+<div class="cq-ov" id="createInvoiceScreen">
+  <div class="cq-sheet" style="max-height:96dvh">
+    <div class="cq-handle"></div>
+    <div class="cq-hd">
+      <button class="cq-back" onclick="closeCreateInvoice()">&#x2190;</button>
+      <div class="cq-title">New Invoice</div>
+      <button class="cq-x" onclick="closeCreateInvoice()">&#x2715;</button>
+    </div>
+    <div class="cq-body" style="padding:0;overflow-y:auto">
+
+      <!-- Section 1: Client (pre-filled from lead) -->
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border)">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--sub);margin-bottom:10px">1 · Client</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
+          <div class="fg" style="margin:0"><label class="flbl">Business Name</label>
+            <input class="finp" id="cinv-biz" placeholder="Business name"></div>
+          <div class="fg" style="margin:0"><label class="flbl">Contact Name</label>
+            <input class="finp" id="cinv-name" placeholder="Full name"></div>
+        </div>
+        <div class="fg"><label class="flbl">Email</label>
+          <input class="finp" id="cinv-email" type="email" placeholder="client@email.com"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="fg" style="margin:0"><label class="flbl">Province</label>
+            <select class="fsel" id="cinv-province" onchange="recalcCInv()">
+              <option value="AB">Alberta — 5% GST</option>
+              <option value="BC">BC — 12% GST+PST</option>
+              <option value="MB">Manitoba — 12% GST+PST</option>
+              <option value="NB">New Brunswick — 15% HST</option>
+              <option value="NL">Newfoundland — 15% HST</option>
+              <option value="NS">Nova Scotia — 15% HST</option>
+              <option value="ON">Ontario — 13% HST</option>
+              <option value="QC">Quebec — 14.975%</option>
+              <option value="SK" selected>Saskatchewan — 11%</option>
+            </select></div>
+          <div class="fg" style="margin:0"><label class="flbl">Payment Method</label>
+            <select class="fsel" id="cinv-method">
+              <option value="cash">💵 Cash</option>
+              <option value="etransfer">🏦 E-Transfer</option>
+              <option value="cheque">📝 Cheque</option>
+              <option value="stripe">💳 Stripe</option>
+            </select></div>
+        </div>
+        <div class="fg"><label class="flbl">Reference <span style="font-weight:400;color:var(--sub)">(optional)</span></label>
+          <input class="finp" id="cinv-ref" placeholder="e.g. E-transfer ref #123"></div>
+      </div>
+
+      <!-- Section 2: Package quick-select -->
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border)">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--sub);margin-bottom:10px">2 · Package</div>
+        <select class="fsel" id="cinv-plan-sel" onchange="addPlanToCInv()" style="margin-bottom:10px">
+          <option value="">— Select a package —</option>
+          <option value="1000" data-name="200 Guaranteed Views">200 Views — $1,000</option>
+          <option value="2500" data-name="500 Guaranteed Views">500 Views — $2,500</option>
+          <option value="5000" data-name="1,000 Guaranteed Views">1,000 Views — $5,000</option>
+          <option value="12500" data-name="2,500 Guaranteed Views">2,500 Views — $12,500</option>
+          <option value="25000" data-name="5,000 Guaranteed Views">5,000 Views — $25,000</option>
+          <option value="50000" data-name="10,000 Guaranteed Views">10,000 Views — $50,000</option>
+        </select>
+        <div id="cinvItemsList"></div>
+        <button onclick="addCInvItem()" style="width:100%;padding:9px;border-radius:9px;border:1.5px dashed var(--border);background:none;font-family:var(--f);font-size:12px;font-weight:600;color:var(--sub);cursor:pointer;margin-top:6px">+ Custom line item</button>
+      </div>
+
+      <!-- Section 3: Totals -->
+      <div style="padding:16px 18px">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--sub);margin-bottom:10px">3 · Summary</div>
+        <div style="background:var(--bg);border-radius:10px;padding:14px;font-size:13px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+            <span style="color:var(--sub)">Subtotal</span><span id="cinv-subtotal">$0.00</span></div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+            <span style="color:var(--sub)" id="cinv-tax-lbl">Tax (11%)</span><span id="cinv-tax-amt">$0.00</span></div>
+          <div style="display:flex;justify-content:space-between;font-weight:800;font-size:17px;border-top:1px solid var(--border);padding-top:10px;margin-top:4px">
+            <span>Total (inc. tax)</span><span id="cinv-total" style="color:var(--navy,#001f3f)">$0.00</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="cq-foot">
+      <button class="btn btn-ghost" onclick="closeCreateInvoice()" style="flex:1">Cancel</button>
+      <button class="btn btn-primary" id="cinvSubmitBtn" onclick="submitCInvoice()" style="flex:2;justify-content:center">Generate Invoice</button>
     </div>
   </div>
 </div>
@@ -11125,6 +11210,194 @@ async function submitCreateInvoice() {
   }
 }
 
+
+
+// ═══════════════════════════════════════
+// CREATE INVOICE FROM LEAD (Quote-style)
+// ═══════════════════════════════════════
+var _cinvItems = [];
+var _cinvLeadId = null;
+
+var CINV_TAX = {
+  AB:0.05,BC:0.12,MB:0.12,NB:0.15,NL:0.15,NS:0.15,
+  NT:0.05,NU:0.05,ON:0.13,PE:0.15,QC:0.14975,SK:0.11,YT:0.05
+};
+var CINV_TAX_LBL = {
+  AB:'GST (5%)',BC:'GST+PST (12%)',MB:'GST+PST (12%)',NB:'HST (15%)',
+  NL:'HST (15%)',NS:'HST (15%)',NT:'GST (5%)',NU:'GST (5%)',ON:'HST (13%)',
+  PE:'HST (15%)',QC:'GST+QST (14.975%)',SK:'GST+PST (11%)',YT:'GST (5%)'
+};
+
+function openCreateInvoiceFromLead() {
+  var lid = window._invoicesListLid;
+  var l = lid ? leads.find(function(x){ return x.id===lid; }) : null;
+
+  _cinvLeadId = lid;
+  _cinvItems = [];
+  renderCInvItems();
+  recalcCInv();
+
+  // Pre-fill from lead
+  var g = function(id){ return document.getElementById(id); };
+  if(g('cinv-biz'))   g('cinv-biz').value   = l ? (l.company||l.name||'') : '';
+  if(g('cinv-name'))  g('cinv-name').value   = l ? (l.name||'') : '';
+  if(g('cinv-email')) g('cinv-email').value  = l ? (l.em||'') : '';
+  if(g('cinv-province')) g('cinv-province').value = 'SK';
+  if(g('cinv-method'))   g('cinv-method').value   = 'cash';
+  if(g('cinv-ref'))      g('cinv-ref').value       = '';
+  if(g('cinv-plan-sel')) g('cinv-plan-sel').value  = '';
+
+  var btn = g('cinvSubmitBtn');
+  if(btn){ btn.textContent='Generate Invoice'; btn.disabled=false; }
+
+  document.getElementById('createInvoiceScreen').classList.add('open');
+}
+
+function closeCreateInvoice() {
+  document.getElementById('createInvoiceScreen').classList.remove('open');
+  _cinvItems = [];
+}
+
+function addPlanToCInv() {
+  var sel = document.getElementById('cinv-plan-sel');
+  if(!sel || !sel.value) return;
+  var opt = sel.options[sel.selectedIndex];
+  var name = opt.dataset.name || opt.text.split(' — ')[0];
+  var price = parseFloat(sel.value) || 0;
+  _cinvItems.push({id:Date.now(), name:name, qty:1, unit_price:price});
+  renderCInvItems();
+  recalcCInv();
+  sel.value = '';
+}
+
+function addCInvItem() {
+  _cinvItems.push({id:Date.now(), name:'', qty:1, unit_price:0});
+  renderCInvItems();
+}
+
+function removeCInvItem(id) {
+  _cinvItems = _cinvItems.filter(function(i){ return i.id!==id; });
+  renderCInvItems();
+  recalcCInv();
+}
+
+function renderCInvItems() {
+  var el = document.getElementById('cinvItemsList'); if(!el) return;
+  if(!_cinvItems.length) { el.innerHTML=''; return; }
+  el.innerHTML = _cinvItems.map(function(item, idx) {
+    return '<div style="background:var(--bg);border-radius:9px;padding:10px 12px;margin-bottom:8px;border:1px solid var(--border)">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+      +'<span style="font-size:11px;font-weight:700;color:var(--sub)">Item '+(idx+1)+'</span>'
+      +'<button onclick="removeCInvItem('+item.id+')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;padding:0">&#x2715;</button>'
+      +'</div>'
+      +'<input class="finp" style="margin-bottom:6px" placeholder="Description e.g. 200 Guaranteed Views" value="'+item.name+'" '
+      +'oninput="_cinvItems.find(function(i){return i.id==='+item.id+'}).name=this.value">'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+      +'<div><label class="flbl">Qty</label>'
+      +'<input class="finp" type="number" min="1" value="'+item.qty+'" '
+      +'oninput="_cinvItems.find(function(i){return i.id==='+item.id+'}).qty=parseFloat(this.value)||1;recalcCInv()"></div>'
+      +'<div><label class="flbl">Unit Price ($)</label>'
+      +'<input class="finp" type="number" min="0" step="0.01" value="'+item.unit_price+'" '
+      +'oninput="_cinvItems.find(function(i){return i.id==='+item.id+'}).unit_price=parseFloat(this.value)||0;recalcCInv()"></div>'
+      +'</div>'
+      +'<div style="text-align:right;font-size:12px;color:var(--sub);margin-top:4px">Line total: <strong>$'+fmtCAD(item.qty*item.unit_price)+'</strong></div>'
+      +'</div>';
+  }).join('');
+}
+
+function recalcCInv() {
+  var prov = (document.getElementById('cinv-province')||{}).value || 'SK';
+  var rate = CINV_TAX[prov] || 0.11;
+  var label = CINV_TAX_LBL[prov] || 'Tax';
+  var sub = _cinvItems.reduce(function(s,i){return s+(i.qty||1)*(i.unit_price||0);}, 0);
+  var tax = sub * rate;
+  var total = sub + tax;
+  var g = function(id){ return document.getElementById(id); };
+  if(g('cinv-subtotal')) g('cinv-subtotal').textContent = '$'+fmtCAD(sub);
+  if(g('cinv-tax-lbl'))  g('cinv-tax-lbl').textContent  = label;
+  if(g('cinv-tax-amt'))  g('cinv-tax-amt').textContent  = '$'+fmtCAD(tax);
+  if(g('cinv-total'))    g('cinv-total').textContent    = '$'+fmtCAD(total);
+}
+
+async function submitCInvoice() {
+  var g = function(id){ return (document.getElementById(id)||{}).value||''; };
+  var biz    = g('cinv-biz').trim();
+  var name   = g('cinv-name').trim();
+  var email  = g('cinv-email').trim();
+  var prov   = g('cinv-province') || 'SK';
+  var method = g('cinv-method') || 'cash';
+  var ref    = g('cinv-ref').trim();
+
+  if (!biz && !name) { showToast('\u26a0\ufe0f Enter a client name'); return; }
+  if (!_cinvItems.length || _cinvItems.every(function(i){return !i.unit_price;})) {
+    showToast('\u26a0\ufe0f Add at least one item with a price'); return;
+  }
+
+  var btn = document.getElementById('cinvSubmitBtn');
+  if(btn){ btn.textContent='Generating...'; btn.disabled=true; }
+
+  var rate  = CINV_TAX[prov] || 0.11;
+  var sub   = _cinvItems.reduce(function(s,i){return s+(i.qty||1)*(i.unit_price||0);}, 0);
+  var total = parseFloat((sub*(1+rate)).toFixed(2));
+  var items = _cinvItems.map(function(i){
+    return {name:i.name||'Service', qty:i.qty||1, unit_price:i.unit_price||0, total:(i.qty||1)*(i.unit_price||0)};
+  });
+
+  // Get lead dbId for linking
+  var lid = _cinvLeadId;
+  var l = lid ? leads.find(function(x){return x.id===lid;}) : null;
+
+  try {
+    var res = await fetch(SB_FUNC_URL+'/generate-invoice', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken,'apikey':SB_ANON},
+      body: JSON.stringify({
+        invoice_data: {
+          client_name:     name||biz,
+          client_business: biz||name,
+          client_email:    email||null,
+          client_address:  l ? (l.location||'') : '',
+          client_province: prov,
+          items:           items,
+          total:           total,
+          discount_amount: 0,
+          payment_status:  'paid',
+          payment_method:  method,
+          notes:           ref,
+          invoice_date:    new Date().toISOString().split('T')[0],
+          paid_at:         new Date().toISOString(),
+          client_id:       window._clientId||null,
+          lead_id:         l ? (l.dbId||null) : null
+        },
+        send_email: false
+      })
+    });
+    var data = await res.json();
+    if(!res.ok || data.error) throw new Error(data.error||'Failed');
+
+    closeCreateInvoice();
+    // Reload the invoice list to show new invoice
+    if(_cinvLeadId) openLeadInvoices(_cinvLeadId);
+
+    showToast('\u2705 Invoice '+data.invoice_number+' created!');
+
+    // Show detail/download/email sheet
+    openInvoiceDetail({
+      invoice_number:  data.invoice_number,
+      invoice_id:      data.invoice_id,
+      pdf_url:         data.invoice_url,
+      client_business: biz||name,
+      client_email:    email,
+      total:           total,
+      payment_method:  method,
+      payment_status:  'paid'
+    });
+
+  } catch(e) {
+    showToast('\u274c '+e.message);
+    if(btn){ btn.textContent='Generate Invoice'; btn.disabled=false; }
+  }
+}
 
 function downloadInvPdf(btn) { window.open(btn.dataset.url, '_blank'); }
 
