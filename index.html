@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-23 06:24</title>
+<title>Adviuz Hub · v2026-05-23 06:33</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -11534,29 +11534,65 @@ async function emailInvoiceManually(invNumber, invId, toEmail, pdfUrl) {
   if(!toEmail) { showToast('\u26a0\ufe0f No email address for this client'); return; }
   showToast('Sending\u2026');
   try {
-    var subj = typeof buildSubj === 'function'
-      ? buildSubj('Tax Invoice ' + invNumber)
-      : 'Tax Invoice ' + invNumber + ' \u2014 Adviuz';
+    // Get client/company name from the cached invoice
+    var inv = _invMap && (_invMap[invId]||window._currentInvDetail) || {};
+    var clientName = inv.client_business || inv.client_name || 'Advertiser';
+    var firstName  = (inv.client_name||(inv.client_business||'Advertiser')).split(' ')[0];
+    var totalFmt   = inv.total ? 'CAD $'+parseFloat(inv.total).toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}) : '';
+
+    // Subject: Ref: Company Name | Tax Invoice IWS0526TUF11
+    var subj = 'Ref: ' + clientName + ' | Tax Invoice ' + invNumber;
+
     var s = _emailSig || {};
-    var htmlBody = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head>'
+    var htmlBody =
+      '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>'
       +'<body style="margin:0;padding:0;background:#f3f4f6;font-family:Helvetica,Arial,sans-serif">'
-      +'<table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:20px 0"><tr><td align="center">'
-      +'<table width="100%" style="max-width:520px;background:#fff;border-radius:8px;border:1px solid #e5e7eb;overflow:hidden">'
-      +'<tr><td style="background:#001f3f;padding:14px 20px"><img src="https://i.imgur.com/rfPAzdI.png" alt="Adviuz" style="height:24px;display:block"></td></tr>'
-      +'<tr><td style="padding:28px 24px">'
-      +'<p style="margin:0 0 16px;font-size:15px;color:#111827">Dear Advertiser,</p>'
-      +'<p style="margin:0 0 20px;font-size:14px;color:#4b5563;line-height:1.6">Please find your tax invoice <strong>'+invNumber+'</strong> below.</p>'
-      +(pdfUrl ? '<a href="'+pdfUrl+'" target="_blank" style="display:block;background:#001f3f;color:#fff;text-align:center;padding:14px;border-radius:6px;text-decoration:none;font-size:15px;font-weight:700;margin-bottom:16px">&#x1F4C4; Download Tax Invoice PDF</a>' : '')
-      +'<p style="margin:0;font-size:13px;color:#6b7280">If you have any questions, simply reply to this email.</p>'
+      +'<table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 0"><tr><td align="center">'
+      +'<table width="100%" style="max-width:540px;background:#fff;border-radius:8px;border:1px solid #e5e7eb;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06)">'
+
+      // Header
+      +'<tr><td style="background:#001f3f;padding:16px 24px">'
+      +'<table width="100%"><tr>'
+      +'<td><img src="https://i.imgur.com/rfPAzdI.png" alt="Adviuz" style="height:26px;display:block;border:0"></td>'
+      +'<td align="right" style="color:rgba(255,255,255,.7);font-size:12px;font-weight:600;letter-spacing:1px;text-transform:uppercase;vertical-align:middle">TAX INVOICE</td>'
+      +'</tr></table></td></tr>'
+
+      // Invoice summary box
+      +'<tr><td style="padding:28px 28px 0">'
+      +'<p style="margin:0 0 6px;font-size:15px;color:#111827">Dear <strong>'+firstName+'</strong>,</p>'
+      +'<p style="margin:0 0 24px;font-size:14px;color:#4b5563;line-height:1.6">Thank you for your payment. Please find your tax invoice below.</p>'
+
+      // Invoice details card
+      +'<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:18px 20px;margin-bottom:24px">'
+      +'<div style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Invoice Summary</div>'
+      +'<table width="100%" cellpadding="0" cellspacing="0" style="font-size:13px">'
+      +'<tr><td style="padding:5px 0;color:#6b7280;width:40%">Invoice #</td><td style="padding:5px 0;font-weight:700;color:#111827;text-align:right">'+invNumber+'</td></tr>'
+      +'<tr><td style="padding:5px 0;color:#6b7280">Client</td><td style="padding:5px 0;color:#111827;text-align:right">'+clientName+'</td></tr>'
+      +(totalFmt?'<tr><td style="padding:5px 0;color:#6b7280">Amount</td><td style="padding:5px 0;font-weight:800;color:#111827;font-size:15px;text-align:right">'+totalFmt+'</td></tr>':'')
+      +'<tr><td style="padding:5px 0;color:#6b7280">Status</td><td style="padding:5px 0;text-align:right"><span style="background:#d1fae5;color:#059669;font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px;text-transform:uppercase">&#x2705; PAID</span></td></tr>'
+      +'</table></div>'
+
+      // PDF button
+      +(pdfUrl
+        ? '<table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom:20px"><tr><td style="background:#001f3f;border-radius:8px;padding:16px;text-align:center"><a href="'+pdfUrl+'" target="_blank" style="color:#fff;text-decoration:none;font-size:15px;font-weight:700;font-family:Helvetica,Arial,sans-serif;display:block">&#x1F4C4;&nbsp; Download Tax Invoice PDF</a></td></tr></table>'
+        : '<p style="font-size:13px;color:#9ca3af;text-align:center;margin:0 0 20px">Your invoice PDF will be available shortly.</p>')
+
+      +'<p style="font-size:13px;color:#6b7280;margin:0 0 28px;line-height:1.6">If you have any questions about this invoice, simply reply to this email and we will assist you right away.</p>'
       +'</td></tr>'
-      +'<tr><td style="background:#f8f9fa;padding:18px 24px;border-top:1px solid #e5e7eb;text-align:center">'
-      +'<p style="margin:0 0 3px;font-size:13px;font-weight:700;color:#111827">'+(s.teamName||'Adviuz Accounts')+'</p>'
-      +'<p style="margin:0 0 4px;font-size:11px;color:#6b7280">'+(s.hours||'')+'</p>'
-      +'<p style="margin:0 0 4px;font-size:11px;color:#6b7280">'+(s.address||'')+'</p>'
-      +'<p style="margin:0;font-size:12px"><a href="tel:'+(s.phoneRaw||'')+'" style="color:#001f3f;text-decoration:none">'+(s.phone||'')+'</a>'
+
+      // Footer
+      +'<tr><td style="background:#f8f9fa;padding:20px 28px;border-top:1px solid #e5e7eb;text-align:center">'
+      +'<p style="margin:0 0 3px;font-size:13px;font-weight:700;color:#111827">Adviuz Accounts</p>'
+      +'<p style="margin:0 0 6px;font-size:11px;color:#6b7280">'+(s.hours||'Mon - Fri &bull; 10 AM - 6 PM CST')+'</p>'
+      +'<p style="margin:0 0 4px;font-size:11px;color:#6b7280">'+(s.address||'Adviuz, Scotiabank Building, 111 2nd Avenue South, Unit 400, Saskatoon, SK S7K 1K6')+'</p>'
+      +'<p style="margin:0 0 10px;font-size:12px">'
+      +'<a href="tel:'+(s.phoneRaw||'+16472501152')+'" style="color:#001f3f;text-decoration:none">'+(s.phone||'+1 647 250 1152')+'</a>'
       +' &bull; <a href="mailto:accounts@adviuz.com" style="color:#001f3f;text-decoration:none">accounts@adviuz.com</a></p>'
-      +'<p style="margin:10px 0 0;font-size:11px;color:#9ca3af">&copy; 2026 Adviuz. All rights reserved.</p>'
-      +'</td></tr></table></td></tr></table></body></html>';
+      +'<p style="margin:0;font-size:11px;color:#9ca3af">GST: 746780360RT0001 &nbsp;&bull;&nbsp; PST: 8234833</p>'
+      +'<p style="margin:8px 0 0;font-size:11px;color:#9ca3af">&copy; 2026 Adviuz. All rights reserved.</p>'
+      +'</td></tr>'
+      +'</table></td></tr></table></body></html>';
+
     var res = await fetch(SB_FUNC_URL+'/send-email', {
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken,'apikey':SB_ANON},
