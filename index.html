@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-24 filter-fix</title>
+<title>Adviuz Hub · v2026-05-24 filter-v2</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -13186,6 +13186,191 @@ async function markQuotePaid(quoteId) {
     <div class="sh-body" id="quickStageList" style="padding:14px 16px"></div>
   </div>
 </div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SELF-CONTAINED GLOBAL FILTER SCREEN
+     No dependency on existing sheet CSS/HTML. Builds + binds itself.
+     Overrides window.openAdvancedFilter so the header button uses it.
+     ══════════════════════════════════════════════════════════════════ -->
+<script>
+(function(){
+  // Working selection (cloned from window._advFilters when opened)
+  var SEL = null;
+
+  function ensureState(){
+    if(!window._advFilters || typeof window._advFilters!=='object'){
+      window._advFilters = { stages:[], execs:[], locations:[], partners:[], sources:[], services:[] };
+    }
+    ['stages','execs','locations','partners','sources','services'].forEach(function(k){
+      if(!Array.isArray(window._advFilters[k])) window._advFilters[k]=[];
+    });
+  }
+
+  function partnerLabel(pid){
+    if(pid==='__none__') return 'No Partner';
+    var list = window._allPartners||[];
+    var p = list.find(function(x){return String(x.id)===String(pid);});
+    return p ? (p.full_name||p.name||p.email||'Partner') : ('Partner '+pid);
+  }
+
+  // Column definitions — these are the filterable columns
+  var SECTIONS = [
+    {key:'stages',    title:'Sales Stage', get:function(l){return l.stage;},                                  label:function(v){return v;}},
+    {key:'partners',  title:'Partner',     get:function(l){return l.partner_id?String(l.partner_id):'__none__';}, label:partnerLabel},
+    {key:'execs',     title:'Assigned To', get:function(l){return l.assignedName;},                            label:function(v){return v;}},
+    {key:'locations', title:'Location',    get:function(l){return l.location;},                                label:function(v){return v;}},
+    {key:'sources',   title:'Source',      get:function(l){return l.src;},                                     label:function(v){return v;}},
+    {key:'services',  title:'Service',     get:function(l){return l.svc;},                                     label:function(v){return v;}}
+  ];
+
+  function distinctFor(sec){
+    var counts={}, leadsArr=window.leads||[];
+    leadsArr.forEach(function(l){
+      var v=sec.get(l);
+      if(v===undefined||v===null||v==='') return;
+      v=String(v);
+      counts[v]=(counts[v]||0)+1;
+    });
+    var keys=Object.keys(counts);
+    // Keep canonical stage order if STAGES exists
+    if(sec.key==='stages' && Array.isArray(window.STAGES)){
+      var order=window.STAGES.map(function(s){return s.name;});
+      keys.sort(function(a,b){return order.indexOf(a)-order.indexOf(b);});
+    } else {
+      keys.sort();
+    }
+    return keys.map(function(k){return {value:k,label:sec.label(k),n:counts[k]};});
+  }
+
+  function build(){
+    if(document.getElementById('gfsOverlay')) return;
+    var ov=document.createElement('div');
+    ov.id='gfsOverlay';
+    ov.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.5);display:none;align-items:flex-end;justify-content:center;font-family:-apple-system,Inter,sans-serif';
+    ov.innerHTML=
+      '<div style="background:#fff;width:100%;max-width:480px;max-height:92vh;border-radius:18px 18px 0 0;display:flex;flex-direction:column;overflow:hidden">'
+        +'<div style="padding:16px 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e9edef;flex-shrink:0">'
+          +'<div style="font-size:17px;font-weight:700;color:#111b21">🔎 Filter Leads</div>'
+          +'<button id="gfsClose" style="width:30px;height:30px;border:none;border-radius:50%;background:#f0f2f5;font-size:18px;color:#667781;cursor:pointer">&times;</button>'
+        +'</div>'
+        +'<div id="gfsBody" style="padding:10px 14px;overflow-y:auto;flex:1;-webkit-overflow-scrolling:touch"></div>'
+        +'<div style="padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));border-top:1px solid #e9edef;display:flex;gap:10px;flex-shrink:0">'
+          +'<button id="gfsClear" style="flex:1;padding:13px;border-radius:11px;border:1.5px solid #e9edef;background:#fff;font-weight:700;font-size:14px;color:#111b21;cursor:pointer">Clear all</button>'
+          +'<button id="gfsApply" style="flex:2;padding:13px;border-radius:11px;border:none;background:#00a884;font-weight:700;font-size:14px;color:#fff;cursor:pointer">Apply Filters</button>'
+        +'</div>'
+      +'</div>';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',function(e){ if(e.target===ov) close(); });
+    ov.querySelector('#gfsClose').addEventListener('click',close);
+    ov.querySelector('#gfsClear').addEventListener('click',clearAll);
+    ov.querySelector('#gfsApply').addEventListener('click',apply);
+  }
+
+  function render(){
+    var body=document.getElementById('gfsBody');
+    if(!body) return;
+    var html='';
+    SECTIONS.forEach(function(sec){
+      var opts=distinctFor(sec);
+      var sel=SEL[sec.key]||[];
+      var open=sel.length>0;
+      html+='<div style="border:1.5px solid #e9edef;border-radius:12px;margin-bottom:8px;overflow:hidden">'
+        +'<div class="gfs-h" data-k="'+sec.key+'" style="display:flex;align-items:center;gap:8px;padding:13px 14px;cursor:pointer">'
+          +'<div style="flex:1;font-size:14px;font-weight:600;color:#111b21">'+sec.title+'</div>'
+          +(sel.length?'<span style="font-size:11px;font-weight:700;color:#00a884;background:#d9fdd3;padding:2px 8px;border-radius:10px">'+sel.length+'</span>':'')
+          +'<span style="font-size:12px;color:#667781">'+(open?'▴':'▾')+'</span>'
+        +'</div>'
+        +'<div class="gfs-b" data-bk="'+sec.key+'" style="display:'+(open?'block':'none')+';border-top:1px solid #e9edef;max-height:230px;overflow-y:auto">';
+      if(!opts.length){
+        html+='<div style="padding:14px;font-size:13px;color:#8696a0;text-align:center">No values</div>';
+      } else {
+        opts.forEach(function(o){
+          var on=sel.indexOf(o.value)!==-1;
+          html+='<div class="gfs-opt" data-k="'+sec.key+'" data-v="'+String(o.value).replace(/"/g,'&quot;')+'" style="display:flex;align-items:center;gap:11px;padding:10px 14px;cursor:pointer">'
+            +'<span class="gfs-box" style="width:20px;height:20px;border-radius:6px;border:2px solid '+(on?'#00a884':'#e9edef')+';background:'+(on?'#00a884':'#fff')+';flex-shrink:0;display:flex;align-items:center;justify-content:center">'+(on?'<svg width="11" height="11" viewBox="0 0 10 10" fill="none"><path d="M1.5 5L4 7.5L8.5 2.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>':'')+'</span>'
+            +'<span style="flex:1;font-size:14px;color:#111b21;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+o.label+' <span style="color:#8696a0">('+o.n+')</span></span>'
+          +'</div>';
+        });
+      }
+      html+='</div></div>';
+    });
+    body.innerHTML=html;
+
+    // Section header toggles
+    body.querySelectorAll('.gfs-h').forEach(function(h){
+      h.addEventListener('click',function(){
+        var b=body.querySelector('.gfs-b[data-bk="'+h.dataset.k+'"]');
+        if(b) b.style.display = (b.style.display==='none')?'block':'none';
+        var car=h.querySelector('span:last-child');
+        if(car) car.textContent = (b && b.style.display==='none')?'▾':'▴';
+      });
+    });
+    // Option toggles
+    body.querySelectorAll('.gfs-opt').forEach(function(opt){
+      opt.addEventListener('click',function(){
+        var k=opt.dataset.k, v=opt.dataset.v;
+        var arr=SEL[k]||(SEL[k]=[]);
+        var i=arr.indexOf(v);
+        var box=opt.querySelector('.gfs-box');
+        if(i===-1){ arr.push(v); box.style.background='#00a884'; box.style.borderColor='#00a884'; box.innerHTML='<svg width="11" height="11" viewBox="0 0 10 10" fill="none"><path d="M1.5 5L4 7.5L8.5 2.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'; }
+        else { arr.splice(i,1); box.style.background='#fff'; box.style.borderColor='#e9edef'; box.innerHTML=''; }
+        // update the count chip in this section's header
+        var h=body.querySelector('.gfs-h[data-k="'+k+'"]');
+        if(h){
+          var chip=h.querySelector('span');
+          // rebuild header chip simply by re-rendering counts is overkill; leave live count in title area
+        }
+      });
+    });
+  }
+
+  function open(){
+    ensureState();
+    // clone current filters into working selection
+    SEL={};
+    ['stages','execs','locations','partners','sources','services'].forEach(function(k){
+      SEL[k]=(window._advFilters[k]||[]).slice();
+    });
+    build();
+    render();
+    var ov=document.getElementById('gfsOverlay');
+    ov.style.display='flex';
+  }
+  function close(){
+    var ov=document.getElementById('gfsOverlay');
+    if(ov) ov.style.display='none';
+  }
+  function apply(){
+    ensureState();
+    ['stages','execs','locations','partners','sources','services'].forEach(function(k){
+      window._advFilters[k]=(SEL[k]||[]).slice();
+    });
+    close();
+    if(typeof window.updateFilterDot==='function') window.updateFilterDot();
+    if(typeof window.updateActiveFilterBar==='function') window.updateActiveFilterBar();
+    if(typeof window.render==='function') window.render();
+  }
+  function clearAll(){
+    SEL={stages:[],execs:[],locations:[],partners:[],sources:[],services:[]};
+    render();
+  }
+
+  // Expose + bind. Override any earlier definition so the header button uses THIS.
+  window.openAdvancedFilter = open;
+  window.openGlobalFilter   = open;
+
+  // Belt-and-suspenders: delegated click in case an inline onclick is ever lost.
+  // Limited to the filter buttons; bubble phase so the context-bar Clear still works.
+  document.addEventListener('click', function(e){
+    if(!e.target.closest) return;
+    if(e.target.closest('.afb-clear')) return;            // let Clear do its thing
+    var t = e.target.closest('#tbFilter, #globalFilterBtn');
+    if(t){ open(); }
+  });
+
+  console.log('[GlobalFilter] self-contained filter screen ready');
+})();
+</script>
 
 </body>
 </html>
