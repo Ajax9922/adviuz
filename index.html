@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-24 filter-v2</title>
+<title>Adviuz Hub · v2026-05-24 filter-v3</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3757,7 +3757,7 @@ var leadAct={};
 var nxtId=leads.length+1, nxtTid=tasks.length+1;
 var leadView='detailed'; // 'compact' or 'detailed'
 window._leadSort = 'newest'; // 'newest' | 'oldest' | 'name'
-window._advFilters = { stages:[], execs:[], locations:[], partners:[] };
+window._advFilters = { stages:[], execs:[], locations:[], partners:[], sources:[], services:[], clients:[] };
 var curTab='leads', fuSeg='today', fuTypeFilter='', curLid=null, fuLid=null;
 var callIv=null, callSec=0, muted=false;
 var schQ='', schStg='', _showLeadFilter=false;
@@ -4028,7 +4028,8 @@ function afToggle(key, value, el){
 function advFilterCount(){
   var af=window._advFilters||{};
   return (af.stages||[]).length+(af.partners||[]).length+(af.execs||[]).length+
-         (af.locations||[]).length+(af.sources||[]).length+(af.services||[]).length;
+         (af.locations||[]).length+(af.sources||[]).length+(af.services||[]).length+
+         (af.clients||[]).length;
 }
 // Show/hide the little dot on the header filter button
 function updateFilterDot(){
@@ -4049,6 +4050,12 @@ function updateActiveFilterBar(){
   var af=window._advFilters||{};
   var parts=[];
   function add(label, arr){ if(arr&&arr.length) parts.push(label+': '+arr.join(', ')); }
+  if(af.clients && af.clients.length){
+    parts.push('Client: '+af.clients.map(function(cid){
+      var c=((window._adminData&&window._adminData.clients)||[]).find(function(x){return String(x.id)===String(cid);});
+      return c ? (c.business_name||'Client') : 'Client';
+    }).join(', '));
+  }
   add('Stage', af.stages);
   if(af.partners && af.partners.length){
     parts.push('Partner: '+af.partners.map(function(pid){
@@ -4083,7 +4090,7 @@ function applyAdvancedFilter(){
 }
 
 function clearAdvancedFilter(){
-  window._advFilters = { stages:[], execs:[], locations:[], partners:[], sources:[], services:[] };
+  window._advFilters = { stages:[], execs:[], locations:[], partners:[], sources:[], services:[], clients:[] };
   updateFilterDot();
   if(typeof updateActiveFilterBar==='function') updateActiveFilterBar();
   renderAdvancedFilter();
@@ -4180,7 +4187,7 @@ function render(){
 // LEADS TAB
 // ═══════════════════════════════════════
 function leadsHTML(){
-  var af = window._advFilters || (window._advFilters={stages:[],execs:[],locations:[],partners:[]});
+  var af = window._advFilters || (window._advFilters={stages:[],execs:[],locations:[],partners:[],sources:[],services:[],clients:[]});
   var vis=leads.filter(function(l){
     // In partner mode: only show this partner's own leads
     if(window._isPartnerMode && window._partnerData){
@@ -9534,9 +9541,34 @@ function adCampaignsHTML() {
 }
 
 function adAllLeadsHTML() {
-  var allL = _adminData.allLeads;
-  var h = '<div style="padding:0 12px 12px"><div style="font-size:12px;color:var(--sub);font-weight:600;padding:10px 0">'+allL.length+' leads across all clients</div>';
-  if (!allL.length) return h+'</div>';
+  var src = _adminData.allLeads || [];
+  // Apply the global filter (set from the Filter screen)
+  var af = window._advFilters || {};
+  function pass(arr, val){ return !arr || !arr.length || arr.indexOf(String(val==null?'':val))!==-1; }
+  var allL = src.filter(function(l){
+    if(af.clients   && af.clients.length   && af.clients.indexOf(String(l.client_id||''))===-1) return false;
+    if(af.stages    && af.stages.length    && af.stages.indexOf(l.stage||'')===-1) return false;
+    if(af.partners  && af.partners.length){
+      var pid = l.partner_id ? String(l.partner_id) : '__none__';
+      if(af.partners.indexOf(pid)===-1) return false;
+    }
+    if(af.execs     && af.execs.length     && af.execs.indexOf(String(l.assigned_to||''))===-1) return false;
+    if(af.locations && af.locations.length && af.locations.indexOf(l.location||'')===-1) return false;
+    if(af.sources   && af.sources.length   && af.sources.indexOf(l.source||'')===-1) return false;
+    if(af.services  && af.services.length  && af.services.indexOf(l.service||'')===-1) return false;
+    return true;
+  });
+
+  var activeCount = (typeof advFilterCount==='function') ? advFilterCount() : 0;
+  var header = activeCount
+    ? (allL.length+' of '+src.length+' leads · '+activeCount+' filter'+(activeCount>1?'s':'')+' active · <span onclick="clearAdvancedFilter()" style="color:var(--green);font-weight:700;cursor:pointer">Clear</span>')
+    : (allL.length+' leads across all clients');
+
+  var h = '<div style="padding:0 12px 12px"><div style="font-size:12px;color:var(--sub);font-weight:600;padding:10px 0">'+header+'</div>';
+  if (!allL.length){
+    h += '<div style="text-align:center;padding:30px 16px;color:var(--sub);font-size:13px">No leads match the current filter.</div>';
+    return h+'</div>';
+  }
   var COLS = ['#00a884','#2563eb','#7c3aed','#d97706','#0891b2'];
   h += '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
   allL.slice(0,50).forEach(function(l, i) {
@@ -13197,11 +13229,13 @@ async function markQuotePaid(quoteId) {
   // Working selection (cloned from window._advFilters when opened)
   var SEL = null;
 
+  var FKEYS = ['stages','execs','locations','partners','sources','services','clients'];
+
   function ensureState(){
     if(!window._advFilters || typeof window._advFilters!=='object'){
-      window._advFilters = { stages:[], execs:[], locations:[], partners:[], sources:[], services:[] };
+      window._advFilters = { stages:[], execs:[], locations:[], partners:[], sources:[], services:[], clients:[] };
     }
-    ['stages','execs','locations','partners','sources','services'].forEach(function(k){
+    FKEYS.forEach(function(k){
       if(!Array.isArray(window._advFilters[k])) window._advFilters[k]=[];
     });
   }
@@ -13212,30 +13246,56 @@ async function markQuotePaid(quoteId) {
     var p = list.find(function(x){return String(x.id)===String(pid);});
     return p ? (p.full_name||p.name||p.email||'Partner') : ('Partner '+pid);
   }
+  function clientLabel(cid){
+    var list = (window._adminData&&window._adminData.clients)||[];
+    var c = list.find(function(x){return String(x.id)===String(cid);});
+    return c ? (c.business_name||'Client') : 'Client';
+  }
 
-  // Column definitions — these are the filterable columns
+  // Pull the right dataset: on the admin Dashboard use ALL clients' leads,
+  // otherwise the current Leads-tab dataset. Normalize to common field names.
+  function leadRows(){
+    if(window.curTab==='dashboard' && window._adminData && (window._adminData.allLeads||[]).length){
+      return window._adminData.allLeads.map(function(l){
+        return { stage:l.stage||'', partner:(l.partner_id?String(l.partner_id):'__none__'),
+                 exec:(l.assigned_to||''), location:(l.location||''),
+                 source:(l.source||''), service:(l.service||''),
+                 client:(l.client_id?String(l.client_id):'') };
+      });
+    }
+    return (window.leads||[]).map(function(l){
+      return { stage:l.stage||'', partner:(l.partner_id?String(l.partner_id):'__none__'),
+               exec:(l.assignedName||''), location:(l.location||''),
+               source:(l.src||''), service:(l.svc||''),
+               client:(l.client_id?String(l.client_id):(window._clientId?String(window._clientId):'')) };
+    });
+  }
+
+  // Column definitions (filterable columns) — `f` is the normalized field name
   var SECTIONS = [
-    {key:'stages',    title:'Sales Stage', get:function(l){return l.stage;},                                  label:function(v){return v;}},
-    {key:'partners',  title:'Partner',     get:function(l){return l.partner_id?String(l.partner_id):'__none__';}, label:partnerLabel},
-    {key:'execs',     title:'Assigned To', get:function(l){return l.assignedName;},                            label:function(v){return v;}},
-    {key:'locations', title:'Location',    get:function(l){return l.location;},                                label:function(v){return v;}},
-    {key:'sources',   title:'Source',      get:function(l){return l.src;},                                     label:function(v){return v;}},
-    {key:'services',  title:'Service',     get:function(l){return l.svc;},                                     label:function(v){return v;}}
+    {key:'stages',    title:'Sales Stage', f:'stage',    label:function(v){return v;}},
+    {key:'clients',   title:'Client',      f:'client',   label:clientLabel},
+    {key:'partners',  title:'Partner',     f:'partner',  label:partnerLabel},
+    {key:'execs',     title:'Assigned To', f:'exec',     label:function(v){return v;}},
+    {key:'locations', title:'Location',    f:'location', label:function(v){return v;}},
+    {key:'sources',   title:'Source',      f:'source',   label:function(v){return v;}},
+    {key:'services',  title:'Service',     f:'service',  label:function(v){return v;}}
   ];
 
   function distinctFor(sec){
-    var counts={}, leadsArr=window.leads||[];
-    leadsArr.forEach(function(l){
-      var v=sec.get(l);
+    var counts={}, rows=leadRows();
+    rows.forEach(function(r){
+      var v=r[sec.f];
       if(v===undefined||v===null||v==='') return;
       v=String(v);
       counts[v]=(counts[v]||0)+1;
     });
     var keys=Object.keys(counts);
-    // Keep canonical stage order if STAGES exists
     if(sec.key==='stages' && Array.isArray(window.STAGES)){
       var order=window.STAGES.map(function(s){return s.name;});
       keys.sort(function(a,b){return order.indexOf(a)-order.indexOf(b);});
+    } else if(sec.key==='clients'){
+      keys.sort(function(a,b){return clientLabel(a).localeCompare(clientLabel(b));});
     } else {
       keys.sort();
     }
@@ -13328,9 +13388,7 @@ async function markQuotePaid(quoteId) {
     ensureState();
     // clone current filters into working selection
     SEL={};
-    ['stages','execs','locations','partners','sources','services'].forEach(function(k){
-      SEL[k]=(window._advFilters[k]||[]).slice();
-    });
+    FKEYS.forEach(function(k){ SEL[k]=(window._advFilters[k]||[]).slice(); });
     build();
     render();
     var ov=document.getElementById('gfsOverlay');
@@ -13342,16 +13400,18 @@ async function markQuotePaid(quoteId) {
   }
   function apply(){
     ensureState();
-    ['stages','execs','locations','partners','sources','services'].forEach(function(k){
-      window._advFilters[k]=(SEL[k]||[]).slice();
-    });
+    FKEYS.forEach(function(k){ window._advFilters[k]=(SEL[k]||[]).slice(); });
     close();
+    // If filtering from the admin Dashboard, jump to the "All Leads" list so results are visible
+    if(window.curTab==='dashboard'){
+      window._adminDashTab='allleads';
+    }
     if(typeof window.updateFilterDot==='function') window.updateFilterDot();
     if(typeof window.updateActiveFilterBar==='function') window.updateActiveFilterBar();
     if(typeof window.render==='function') window.render();
   }
   function clearAll(){
-    SEL={stages:[],execs:[],locations:[],partners:[],sources:[],services:[]};
+    SEL={stages:[],execs:[],locations:[],partners:[],sources:[],services:[],clients:[]};
     render();
   }
 
