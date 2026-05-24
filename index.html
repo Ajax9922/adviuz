@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-24 filter-v3</title>
+<title>Adviuz Hub · v2026-05-24 filter-v5</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -4051,10 +4051,7 @@ function updateActiveFilterBar(){
   var parts=[];
   function add(label, arr){ if(arr&&arr.length) parts.push(label+': '+arr.join(', ')); }
   if(af.clients && af.clients.length){
-    parts.push('Client: '+af.clients.map(function(cid){
-      var c=((window._adminData&&window._adminData.clients)||[]).find(function(x){return String(x.id)===String(cid);});
-      return c ? (c.business_name||'Client') : 'Client';
-    }).join(', '));
+    parts.push('Client: '+af.clients.join(', '));
   }
   add('Stage', af.stages);
   if(af.partners && af.partners.length){
@@ -4212,6 +4209,7 @@ function leadsHTML(){
     if(af.locations && af.locations.length && af.locations.indexOf(l.location||'')===-1) return false;
     if(af.sources   && af.sources.length   && af.sources.indexOf(l.src||'')===-1) return false;
     if(af.services  && af.services.length  && af.services.indexOf(l.svc||'')===-1) return false;
+    if(af.clients   && af.clients.length   && af.clients.indexOf(l.company||'')===-1) return false;
     // Legacy single-stage selector (kept for back-compat)
     if(schStg && l.stage!==schStg) return false;
     // Search
@@ -4648,7 +4646,7 @@ function taskListHTML(){
     return true;
   }).filter(function(t){
     return fuTypeFilter==='' || t.type===fuTypeFilter;
-  }).sort(function(a,b){return a.time.localeCompare(b.time)});
+  }).filter(gfTaskInScope).sort(function(a,b){return a.time.localeCompare(b.time)});
 
   if(!f.length){
     var icons={past:'🎉',today:'✅',future:'📅'};
@@ -4707,9 +4705,28 @@ function rptDateTo() {
   if(rptPeriod==='custom' && rptCustomTo) return rptCustomTo;
   return TOD;
 }
+// ── Global client scope (set via the Filter screen → "Client (closed deals)") ──
+// When one or more clients are selected, EVERY tab is scoped to those clients'
+// leads. A lead belongs to a client when its company name matches.
+function gfLeadInScope(lead){
+  var af = window._advFilters || {};
+  if(!af.clients || !af.clients.length) return true; // no client filter = show all
+  if(!lead) return false;
+  return af.clients.indexOf(lead.company||'') !== -1;
+}
+function gfTaskInScope(t){
+  var lead=(window.leads||[]).find(function(l){return l.id===t.lid;});
+  return gfLeadInScope(lead);
+}
+function gfCallInScope(c){
+  var lead=(window.leads||[]).find(function(l){return l.id===c.lid;});
+  return gfLeadInScope(lead);
+}
+
 function rptFilterLeads(arr) {
   var from = rptDateFrom(), to = rptDateTo();
   return arr.filter(function(l) {
+    if(!gfLeadInScope(l)) return false;           // honor global client scope
     // leads use l.t (display date) or l.created_at — use raw date string
     var d = l.rawDate || l.created_at || '';
     if (!d) return true; // include if no date
@@ -4742,7 +4759,7 @@ function reportsHTML(){
   var bkd    = closed;
   var intr   = meeting;
   var rev    = closed * 5000;
-  var filtCalls = callLog || [];
+  var filtCalls = (callLog || []).filter(gfCallInScope);
   var ans = filtCalls.filter(function(c){return c.out==='answered';}).length;
   var vm  = filtCalls.filter(function(c){return c.out==='voicemail';}).length;
   var ms  = filtCalls.filter(function(c){return c.out==='missed'||!c.out;}).length;
@@ -4834,7 +4851,7 @@ function reportsHTML(){
 function callsHTML(){
   var wvBars=Array.from({length:28},function(){var h=3+Math.random()*16,d=(.4+Math.random()*.8).toFixed(2);return'<div class="lw-bar" style="--h:'+h+'px;--d:'+d+'s"></div>'}).join('');
 
-  var callRows=callLog.map(function(c){
+  var callRows=callLog.filter(gfCallInScope).map(function(c){
     var lead=leads.find(function(l){return l.id===c.lid})||{name:'Unknown',col:'#667781'};
     var init=lead.name.split(' ').map(function(w){return w[0]}).join('').slice(0,2);
     var outCls=c.out==='answered'?'co-ans':c.out==='voicemail'?'co-vm':'co-ms';
@@ -9546,7 +9563,10 @@ function adAllLeadsHTML() {
   var af = window._advFilters || {};
   function pass(arr, val){ return !arr || !arr.length || arr.indexOf(String(val==null?'':val))!==-1; }
   var allL = src.filter(function(l){
-    if(af.clients   && af.clients.length   && af.clients.indexOf(String(l.client_id||''))===-1) return false;
+    if(af.clients   && af.clients.length){
+      var cmp = l.company || ((l.clients&&l.clients.business_name)||'') || '';
+      if(af.clients.indexOf(cmp)===-1) return false;
+    }
     if(af.stages    && af.stages.length    && af.stages.indexOf(l.stage||'')===-1) return false;
     if(af.partners  && af.partners.length){
       var pid = l.partner_id ? String(l.partner_id) : '__none__';
@@ -13246,45 +13266,45 @@ async function markQuotePaid(quoteId) {
     var p = list.find(function(x){return String(x.id)===String(pid);});
     return p ? (p.full_name||p.name||p.email||'Partner') : ('Partner '+pid);
   }
-  function clientLabel(cid){
-    var list = (window._adminData&&window._adminData.clients)||[];
-    var c = list.find(function(x){return String(x.id)===String(cid);});
-    return c ? (c.business_name||'Client') : 'Client';
-  }
+  // ADMIN RULE: a "client" is a lead whose deal is closed.
+  function isClosed(stage){ return /deal closed/i.test(stage||'') || String(stage||'')==='9. Deal Closed'; }
 
   // Pull the right dataset: on the admin Dashboard use ALL clients' leads,
   // otherwise the current Leads-tab dataset. Normalize to common field names.
+  // `client` = the company name; `closed` = true when the deal is closed.
   function leadRows(){
     if(window.curTab==='dashboard' && window._adminData && (window._adminData.allLeads||[]).length){
       return window._adminData.allLeads.map(function(l){
         return { stage:l.stage||'', partner:(l.partner_id?String(l.partner_id):'__none__'),
                  exec:(l.assigned_to||''), location:(l.location||''),
                  source:(l.source||''), service:(l.service||''),
-                 client:(l.client_id?String(l.client_id):'') };
+                 client:(l.company||((l.clients&&l.clients.business_name)||'')||''), closed:isClosed(l.stage) };
       });
     }
     return (window.leads||[]).map(function(l){
       return { stage:l.stage||'', partner:(l.partner_id?String(l.partner_id):'__none__'),
                exec:(l.assignedName||''), location:(l.location||''),
                source:(l.src||''), service:(l.svc||''),
-               client:(l.client_id?String(l.client_id):(window._clientId?String(window._clientId):'')) };
+               client:(l.company||''), closed:isClosed(l.stage) };
     });
   }
 
   // Column definitions (filterable columns) — `f` is the normalized field name
   var SECTIONS = [
-    {key:'stages',    title:'Sales Stage', f:'stage',    label:function(v){return v;}},
-    {key:'clients',   title:'Client',      f:'client',   label:clientLabel},
-    {key:'partners',  title:'Partner',     f:'partner',  label:partnerLabel},
-    {key:'execs',     title:'Assigned To', f:'exec',     label:function(v){return v;}},
-    {key:'locations', title:'Location',    f:'location', label:function(v){return v;}},
-    {key:'sources',   title:'Source',      f:'source',   label:function(v){return v;}},
-    {key:'services',  title:'Service',     f:'service',  label:function(v){return v;}}
+    {key:'stages',    title:'Sales Stage',          f:'stage',    label:function(v){return v;}},
+    {key:'clients',   title:'Client (closed deals)',f:'client',   label:function(v){return v;}},
+    {key:'partners',  title:'Partner',              f:'partner',  label:partnerLabel},
+    {key:'execs',     title:'Assigned To',          f:'exec',     label:function(v){return v;}},
+    {key:'locations', title:'Location',             f:'location', label:function(v){return v;}},
+    {key:'sources',   title:'Source',               f:'source',   label:function(v){return v;}},
+    {key:'services',  title:'Service',              f:'service',  label:function(v){return v;}}
   ];
 
   function distinctFor(sec){
     var counts={}, rows=leadRows();
     rows.forEach(function(r){
+      // Clients = companies that have a CLOSED deal only
+      if(sec.key==='clients' && !r.closed) return;
       var v=r[sec.f];
       if(v===undefined||v===null||v==='') return;
       v=String(v);
@@ -13294,8 +13314,6 @@ async function markQuotePaid(quoteId) {
     if(sec.key==='stages' && Array.isArray(window.STAGES)){
       var order=window.STAGES.map(function(s){return s.name;});
       keys.sort(function(a,b){return order.indexOf(a)-order.indexOf(b);});
-    } else if(sec.key==='clients'){
-      keys.sort(function(a,b){return clientLabel(a).localeCompare(clientLabel(b));});
     } else {
       keys.sort();
     }
