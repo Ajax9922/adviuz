@@ -793,11 +793,7 @@ input[type=number]{-moz-appearance:textfield}
 .camp-budget{padding:8px 14px 12px;background:var(--white)}
 
 /* ── Global Context Selector ─────────────────── */
-.ctx-wrap{position:relative;flex-shrink:0;margin:0 6px 0 2px}
-.ctx-select{appearance:none;-webkit-appearance:none;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.18);border-radius:20px;color:#fff;font-family:var(--f);font-size:12px;font-weight:600;padding:5px 26px 5px 10px;cursor:pointer;outline:none;max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .15s}
-.ctx-select:focus{background:rgba(255,255,255,.18)}
-.ctx-select option{background:var(--top);color:#fff}
-.ctx-arrow{position:absolute;right:9px;top:50%;transform:translateY(-50%);pointer-events:none;color:rgba(255,255,255,.6);font-size:9px}
+/* ctx button is inline-styled on #ctxBtn */
 
 /* ── Permission Toggle ────────────────────────── */
 .perm-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border)}
@@ -915,16 +911,15 @@ input[type=number]{-moz-appearance:textfield}
     </button>
     <div class="tb-logo">A</div>
 
-    <!-- Global client context — visible to super_admin / sales_partner only -->
-    <div class="ctx-wrap" id="ctxWrap" style="display:none">
-      <select class="ctx-select" id="ctxSelect" onchange="onContextChange(this.value)">
-        <option value="">All Clients</option>
-      </select>
-      <span class="ctx-arrow">▼</span>
-    </div>
+    <!-- Global client context button — visible to super_admin / sales_partner only -->
+    <button id="ctxBtn" onclick="openClientFilterSheet()" style="display:none;align-items:center;gap:5px;padding:5px 10px;border-radius:20px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);color:#fff;font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px;flex-shrink:0"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      <span id="ctxBtnLabel">All Clients</span>
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:10px;height:10px;opacity:.6;flex-shrink:0"><polyline points="6 9 12 15 18 9"/></svg>
+    </button>
 
     <div class="tb-titles">
-      <div class="tb-title" id="tbTitle">Leads</div>
+      <div class="tb-title" id="tbTitle">Adviuz</div>
       <div class="tb-sub" id="tbSub">Adviuz Hub · build 2026-05-22 09:41</div>
     </div>
     <div class="tb-right">
@@ -2647,32 +2642,73 @@ var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJl
 
 
 // ════════════════════════════════════════════════════════════
-// GLOBAL CONTEXT FILTER
+// GLOBAL CONTEXT FILTER (multi-select)
 // ════════════════════════════════════════════════════════════
-var _ctxClients = [];
+var _ctxClients   = [];          // [{id, business_name}] full list
+var _ctxSelected  = new Set();   // Set of selected client id strings
 
+// ── Persistence ───────────────────────────────────────────
+function getActiveClientIds() {
+  try {
+    var raw = localStorage.getItem('adviuz_active_client_ids');
+    if (raw) return JSON.parse(raw);
+  } catch(e){}
+  return [];
+}
+function saveActiveClientIds(ids) {
+  if (ids && ids.length) localStorage.setItem('adviuz_active_client_ids', JSON.stringify(ids));
+  else localStorage.removeItem('adviuz_active_client_ids');
+}
+// Legacy compat
 function getActiveClientId() {
-  return localStorage.getItem('adviuz_active_client_id') || window._clientId || null;
-}
-function setActiveClientId(id) {
-  id ? localStorage.setItem('adviuz_active_client_id', id)
-     : localStorage.removeItem('adviuz_active_client_id');
-  window._activeClientId = id || null;
+  var ids = getActiveClientIds();
+  return ids.length === 1 ? ids[0] : (window._clientId || null);
 }
 
-// Append ?client_id=eq.X to any sbFetch path that isn't already scoped
+// ── Query filter builder ─────────────────────────────────
+// Returns a filter string like &client_id=in.(a,b,c) or &client_id=eq.x
+// Pass to any sbFetch path
+function buildClientFilter() {
+  var ids = Array.from(_ctxSelected);
+  if (!ids.length) ids = getActiveClientIds();
+  if (!ids.length && window._clientId) ids = [window._clientId];
+  if (!ids.length) return '';
+  if (ids.length === 1) return '&client_id=eq.' + encodeURIComponent(ids[0]);
+  return '&client_id=in.(' + ids.map(encodeURIComponent).join(',') + ')';
+}
+
+// Legacy applyGlobalFilter kept for compatibility — uses buildClientFilter internally
 function applyGlobalFilter(path) {
-  var id = getActiveClientId();
-  if (!id || path.indexOf('client_id=eq.') !== -1) return path;
-  var sep = path.indexOf('?') === -1 ? '?' : '&';
-  return path + sep + 'client_id=eq.' + encodeURIComponent(id);
+  var filter = buildClientFilter();
+  if (!filter) return path;
+  if (path.indexOf('client_id=') !== -1) return path;
+  return path + filter;
 }
 
+// ── Update the topbar button label ───────────────────────
+function updateCtxBtnLabel() {
+  var btn = document.getElementById('ctxBtn');
+  var lbl = document.getElementById('ctxBtnLabel');
+  if (!btn || !lbl) return;
+  var n = _ctxSelected.size;
+  if (n === 0 || n === _ctxClients.length) {
+    lbl.textContent = 'All Clients';
+  } else if (n === 1) {
+    var id = Array.from(_ctxSelected)[0];
+    var found = _ctxClients.find(function(c){ return c.id === id; });
+    lbl.textContent = found ? found.business_name : '1 Client';
+  } else {
+    lbl.textContent = n + ' Clients';
+  }
+}
+
+// ── Load clients and initialise selection ────────────────
 async function initContextSelector() {
   var role = window._staffRole || '';
   if (role !== 'super_admin' && role !== 'sales_partner') return;
-  var wrap = document.getElementById('ctxWrap');
-  if (wrap) wrap.style.display = 'block';
+  var btn = document.getElementById('ctxBtn');
+  if (btn) btn.style.display = 'flex';
+
   try {
     var path = (role === 'sales_partner' && window._partnerData)
       ? '/rest/v1/clients?select=id,business_name&partner_id=eq.' + window._partnerData.id + '&order=business_name.asc'
@@ -2681,30 +2717,82 @@ async function initContextSelector() {
     if (!res.ok) return;
     _ctxClients = await res.json();
   } catch(e) { console.warn('[Context]', e.message); return; }
-  var sel = document.getElementById('ctxSelect');
-  if (!sel) return;
-  sel.innerHTML = '<option value="">All Clients</option>';
-  _ctxClients.forEach(function(c) {
-    var o = document.createElement('option');
-    o.value = c.id; o.textContent = c.business_name || c.id;
-    sel.appendChild(o);
-  });
-  var saved = getActiveClientId();
-  if (saved) sel.value = saved;
+
+  // Restore saved selection
+  var saved = getActiveClientIds();
+  _ctxSelected.clear();
+  if (saved.length) {
+    saved.forEach(function(id){ _ctxSelected.add(id); });
+  } else {
+    // Default: find "Adviuz" client (case-insensitive)
+    var adviuzClient = _ctxClients.find(function(c){
+      return (c.business_name||'').toLowerCase().indexOf('adviuz') !== -1;
+    });
+    if (adviuzClient) {
+      _ctxSelected.add(adviuzClient.id);
+      saveActiveClientIds([adviuzClient.id]);
+    }
+    // If no "Adviuz" client, select all (empty = all)
+  }
+
+  updateCtxBtnLabel();
 }
 
-function onContextChange(clientId) {
-  setActiveClientId(clientId || null);
-  var sub = document.getElementById('tbSub');
-  if (sub) {
-    if (clientId) {
-      var found = _ctxClients.find(function(c){ return c.id === clientId; });
-      sub.textContent = found ? '📍 ' + found.business_name : 'Adviuz Hub';
-    } else {
-      sub.textContent = 'Adviuz Hub · All Clients';
-    }
+// ── Client filter sheet ──────────────────────────────────
+function openClientFilterSheet() {
+  renderClientFilterSheet();
+  openSheet('clientFilterSh');
+}
+
+function renderClientFilterSheet() {
+  var body = document.getElementById('clfBody');
+  if (!body) return;
+  var allSel = _ctxSelected.size === 0 || _ctxSelected.size === _ctxClients.length;
+  var h = '';
+  _ctxClients.forEach(function(c) {
+    var sel = _ctxSelected.has(c.id);
+    var inits = (c.business_name||'?').slice(0,2).toUpperCase();
+    h += '<label style="display:flex;align-items:center;gap:12px;padding:12px 18px;cursor:pointer;border-bottom:1px solid var(--border);background:'+(sel?'#f0fdf4':'var(--white)')+'">'
+      +'<div style="width:36px;height:36px;border-radius:10px;background:var(--green);color:#fff;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0">'+inits+'</div>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600;color:var(--text)">'+sanitize(c.business_name||c.id)+'</div></div>'
+      +'<div style="width:22px;height:22px;border-radius:6px;border:2px solid '+(sel?'var(--green)':'var(--border)')+';background:'+(sel?'var(--green)':'var(--white)')+';display:flex;align-items:center;justify-content:center;flex-shrink:0">'
+      +(sel?'<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>':'')
+      +'</div>'
+      +'<input type="checkbox" style="display:none" '+(sel?'checked':'')+' onchange="toggleCtxClient(\''+c.id+'\')">'
+      +'</label>';
+  });
+  if (!_ctxClients.length) {
+    h = '<div style="padding:40px 20px;text-align:center;color:var(--sub)"><div style="font-size:32px;margin-bottom:10px">🏢</div><div style="font-size:14px;font-weight:500">No clients found</div></div>';
   }
-  showToast('🔄 Switching context...');
+  body.innerHTML = h;
+}
+
+function toggleCtxClient(id) {
+  if (_ctxSelected.has(id)) _ctxSelected.delete(id);
+  else _ctxSelected.add(id);
+  saveActiveClientIds(Array.from(_ctxSelected));
+  renderClientFilterSheet();
+  updateCtxBtnLabel();
+}
+
+function ctxSelectAll() {
+  _ctxClients.forEach(function(c){ _ctxSelected.add(c.id); });
+  saveActiveClientIds(Array.from(_ctxSelected));
+  renderClientFilterSheet();
+  updateCtxBtnLabel();
+}
+
+function ctxDeselectAll() {
+  _ctxSelected.clear();
+  saveActiveClientIds([]);
+  renderClientFilterSheet();
+  updateCtxBtnLabel();
+}
+
+function applyClientFilter() {
+  closeSheet('clientFilterSh');
+  updateCtxBtnLabel();
+  showToast('🔄 Updating...');
   leads = [];
   loadLeadsFromDB().then(function(dbLeads) {
     if (dbLeads && dbLeads.length) {
@@ -2729,7 +2817,9 @@ async function loadMyProfile() {
     var rows = await res.json();
     window._userProfile = rows[0] || null;
     var tmItem = document.getElementById('teamMenuItem');
-    if (tmItem && window._userProfile && window._userProfile.role === 'client_owner') {
+    var canManageTeam = window._staffRole === 'super_admin'
+      || (window._userProfile && ['client_owner','super_admin'].indexOf(window._userProfile.role) !== -1);
+    if (tmItem && canManageTeam) {
       tmItem.style.display = 'flex';
     }
     applyPermissionGating();
@@ -3927,9 +4017,8 @@ async function loadLeadsFromDB() {
       DB_READY = true;
       return [];
     }
-    // Load leads — respect global context filter (super_admin can switch clients)
-    var activeId = getActiveClientId() || window._clientId;
-    var cFilter  = activeId ? '&client_id=eq.' + activeId : '';
+    // Load leads — respect multi-select context filter
+    var cFilter = buildClientFilter() || (window._clientId ? '&client_id=eq.' + window._clientId : '');
     var res = await sbFetch('/rest/v1/leads?select=*'+cFilter+'&order=created_at.desc&limit=500');
     if (!res.ok) {
       var err = await res.json().catch(function(){return{}});
@@ -4190,139 +4279,162 @@ function render(){
 // LEADS TAB
 // ═══════════════════════════════════════
 function leadsHTML(){
-  // Helper: apply partner filter only (no stage/search) for accurate chip counts
-  function partnerMatch(l){
-    if(window._isPartnerMode && window._partnerData){
-      return l.partner_id === window._partnerData.id;
-    }
-    if(!window._isPartnerMode){
-      if(schPartners.size>0){
-        var lpid = l.partner_id ? String(l.partner_id) : '__none__';
-        return schPartners.has(lpid);
-      } else {
-        return !l.partner_id; // default: admin's own
-      }
-    }
-    return true;
-  }
-  var visAll = leads.filter(partnerMatch); // for chip counts (no stage/search)
   var vis=leads.filter(function(l){
-    // In partner mode: only show partner's own leads
+    // campaign filter
+    if(window._campLeadFilter && l.campaign_id && l.campaign_id!==window._campLeadFilter) return false;
+    // partner mode: own leads only
     if(window._isPartnerMode && window._partnerData){
-      var pid = window._partnerData.id;
-      if(l.partner_id !== pid) return false;
+      if(l.partner_id !== window._partnerData.id) return false;
     }
-    if(schStg&&l.stage!==schStg)return false;
-    // Super admin partner filter:
-    // - Default (no filter active): show only unassigned leads (admin's own)
-    // - Filter active: show only the selected partners' leads
+    // admin partner filter
     if(!window._isPartnerMode){
       if(schPartners.size>0){
-        var lpid = l.partner_id ? String(l.partner_id) : '__none__';
+        var lpid=l.partner_id?String(l.partner_id):'__none__';
         if(!schPartners.has(lpid)) return false;
       } else {
-        // Default: hide partner-assigned leads
         if(l.partner_id) return false;
       }
     }
-    if(schQ){var q=schQ.toLowerCase();return l.name.toLowerCase().includes(q)||(l.company&&l.company.toLowerCase().includes(q))||l.ph.includes(q)||(l.em&&l.em.toLowerCase().includes(q))}
+    if(schStg&&l.stage!==schStg) return false;
+    if(schQ){var q=schQ.toLowerCase();return l.name.toLowerCase().includes(q)||(l.company&&l.company.toLowerCase().includes(q))||l.ph.includes(q)||(l.em&&l.em.toLowerCase().includes(q));}
     return true;
   });
 
-  // ── Partner filter panel (super admin only) ─────────────────────
-  var isAdminUser = !window._isPartnerMode;
-  var hasPartnerFilter = isAdminUser && schPartners.size > 0;
-  var filterBtnHTML = '';
-  var filterPanelHTML = '';
-  if (isAdminUser) {
-    var allPids = [];
-    var partnerCheckboxes = '';
-    if(window._allPartners && window._allPartners.length){
-      window._allPartners.forEach(function(p){
-        var pid = String(p.id);
-        allPids.push(pid);
-        var sel = schPartners.has(pid);
-        var label = p.full_name||p.name||p.email;
-        partnerCheckboxes +=
-          '<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer;background:'+(sel?'#e8f0fe':'transparent')+';margin-bottom:2px" onclick="togglePartnerFilter(\''+pid+'\');event.preventDefault()">'+
-          '<span style="width:18px;height:18px;border-radius:4px;border:2px solid '+(sel?'var(--blue,#2563eb)':'var(--border,#d1d5db)')+';display:flex;align-items:center;justify-content:center;flex-shrink:0;background:'+(sel?'var(--blue,#2563eb)':'#fff')+'">'+
-          (sel?'<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 5L4 7.5L8.5 2.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>':'')+
-          '</span>'+
-          '<span style="font-size:13px;font-family:var(--f);color:var(--text)">'+label+'</span>'+
-          '</label>';
-      });
-    }
-    var allSelected = allPids.length>0 && allPids.every(function(pid){return schPartners.has(pid);});
-    var noneSelected = schPartners.has('__none__');
-    window._allPidsForFilter = allPids; // store globally to avoid JSON in onclick attr
-    var selectAllBlock = allPids.length ?
-      '<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer;background:'+(allSelected?'#fef9c3':'transparent')+';margin-bottom:4px;border-bottom:1px solid var(--border,#e5e7eb);padding-bottom:10px" onclick="toggleAllPartners();event.preventDefault()">'+
-      '<span style="width:18px;height:18px;border-radius:4px;border:2px solid '+(allSelected?'#d97706':'var(--border,#d1d5db)')+';display:flex;align-items:center;justify-content:center;flex-shrink:0;background:'+(allSelected?'#d97706':'#fff')+'">'+
-      (allSelected?'<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 5L4 7.5L8.5 2.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>':'')+
-      '</span>'+
-      '<span style="font-size:13px;font-weight:700;font-family:var(--f);color:var(--text)">Select All Partners</span>'+
-      '</label>'
-      : '<div style="padding:10px;font-size:12px;color:var(--sub,#9ca3af);text-align:center">No partners added yet</div>';
-    var unassignedBlock =
-      '<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer;background:'+(noneSelected?'#f0fdf4':'transparent')+';margin-top:4px;border-top:1px solid var(--border,#e5e7eb);padding-top:10px" onclick="togglePartnerFilter(\'__none__\');event.preventDefault()">'+
-      '<span style="width:18px;height:18px;border-radius:4px;border:2px solid '+(noneSelected?'#16a34a':'var(--border,#d1d5db)')+';display:flex;align-items:center;justify-content:center;flex-shrink:0;background:'+(noneSelected?'#16a34a':'#fff')+'">'+
-      (noneSelected?'<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 5L4 7.5L8.5 2.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>':'')+
-      '</span>'+
-      '<span style="font-size:13px;font-family:var(--f);color:var(--sub,#667781)">👤 My Leads (No Partner)</span>'+
-      '</label>';
-    var clearBtn = hasPartnerFilter ?
-      '<button onclick="schPartners.clear();render()" style="flex:1;padding:9px;border-radius:8px;border:1px solid #fecaca;background:#fff;font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer;color:#ef4444">&#x2715; Clear</button>' : '';
-    var doneBtn = '<button onclick="_showLeadFilter=false;render()" style="flex:1;padding:9px;border-radius:8px;border:none;background:var(--navy,#001f3f);font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer;color:#fff">Done ✓</button>';
-    filterBtnHTML =
-      '<button onclick="toggleLeadFilter()" style="flex-shrink:0;padding:5px 10px;border-radius:8px;border:1px solid var(--border);background:'+(hasPartnerFilter?'var(--navy,#001f3f)':'var(--surface,#fff)')+';color:'+(hasPartnerFilter?'#fff':'var(--text)')+';font-family:var(--f);font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;margin-left:4px">'+
-      (hasPartnerFilter?'🔵 Partners ('+schPartners.size+')':'👥 Partners')+
-      '</button>';
-    filterPanelHTML =
-      '<div id="leadFilterPanel" style="display:'+(_showLeadFilter?'block':'none')+';background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;padding:10px 6px;margin-bottom:8px;box-shadow:0 2px 8px rgba(0,0,0,.08)">'+
-      '<div style="font-size:11px;font-weight:700;color:var(--sub,#667781);letter-spacing:.06em;padding:0 10px 8px;text-transform:uppercase">Filter by Partner</div>'+
-      selectAllBlock+
-      partnerCheckboxes+
-      unassignedBlock+
-      '<div style="display:flex;gap:8px;margin-top:10px;padding:0 4px">'+clearBtn+doneBtn+'</div>'+
-      '</div>';
+  // Campaign filter banner
+  var campBanner='';
+  if(window._campLeadFilter){
+    campBanner='<div style="background:#f5f3ff;border-bottom:1px solid #ede9fe;padding:9px 14px;display:flex;align-items:center;gap:8px">'
+      +'<div style="width:6px;height:6px;border-radius:50%;background:#7c3aed;flex-shrink:0"></div>'
+      +'<div style="flex:1;font-size:12px;font-weight:600;color:#7c3aed">Campaign: '+(window._campLeadName||'').slice(0,35)+'</div>'
+      +'<button onclick="window._campLeadFilter=null;window._campLeadName=null;render()" style="border:none;background:none;font-size:20px;cursor:pointer;color:#7c3aed;padding:0;line-height:1">&times;</button>'
+      +'</div>';
   }
 
-  var chips='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">'+
-    '<div style="display:flex;gap:5px;overflow-x:auto;flex:1;padding-right:6px">'+
-    '<div class="fchip '+(schStg===''?'on':'')+'" onclick="schStg=\'\';render()">All '+visAll.length+'</div>'+
-    STAGES.map(function(s){var n=visAll.filter(function(l){return l.stage===s.name}).length;return n?'<div class="fchip '+(schStg===s.name?'on':'')+'" onclick="schStg=\''+s.name+'\';render()">'+s.name+' '+n+'</div>':''}).join('')+
-    '</div>'+
-    filterBtnHTML+
-    '</div>';
+  // Count active filters for badge
+  var activeFilters = (schStg?1:0) + (schPartners.size>0?1:0) + (window._campLeadFilter?1:0);
 
-  // Show onboarding when no leads at all
-  if(leads.length===0 && !schQ && !schStg){ return onboardingHTML(); }
+  // Unified filter button
+  var filterBtn = '<button onclick="openLeadFiltersSheet()" style="'
+    +'display:flex;align-items:center;gap:5px;padding:6px 11px;border-radius:8px;'
+    +'border:1.5px solid '+(activeFilters?'var(--green)':'var(--border)')+';'
+    +'background:'+(activeFilters?'#f0fdf4':'var(--white)')+';'
+    +'cursor:pointer;font-family:var(--f);font-size:12px;font-weight:700;'
+    +'color:'+(activeFilters?'var(--green)':'var(--sub)')+';flex-shrink:0">'
+    +'<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:14px;height:14px"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>'
+    +(activeFilters?' <span style="background:var(--green);color:#fff;border-radius:9px;font-size:10px;font-weight:800;padding:1px 6px;min-width:16px;text-align:center">'+activeFilters+'</span>':'')
+    +'</button>';
+
+  // Count label
+  var countLabel='<span style="font-size:12px;font-weight:600;color:var(--sub);flex-shrink:0">'+vis.length+' leads</span>';
+
+  // View toggle — use setAttribute pattern to avoid quote nesting
+  var vt0 = document.createElement('div'); vt0.className='view-toggle';
+  var vtd = document.createElement('button'); vtd.className='vt-btn'+(leadView==='detailed'?' on':'');
+  vtd.title='Detailed view'; vtd.setAttribute('onclick',"leadView='detailed';render()");
+  vtd.innerHTML='<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg>';
+  var vtc = document.createElement('button'); vtc.className='vt-btn'+(leadView==='compact'?' on':'');
+  vtc.title='Compact view'; vtc.setAttribute('onclick',"leadView='compact';render()");
+  vtc.innerHTML='<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>';
+  vt0.appendChild(vtd); vt0.appendChild(vtc);
+  var viewToggle = vt0.outerHTML;
+
+
+  var topBar = '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--white);border-bottom:1px solid var(--border);flex-shrink:0">'
+    + filterBtn + countLabel
+    +'<div style="flex:1"></div>'
+    + viewToggle
+    +'</div>';
+
+  if(leads.length===0 && !schQ && !schStg && !window._campLeadFilter){ return campBanner+onboardingHTML(); }
 
   var anySel=selIds.size>0;
-  var rows=vis.length?vis.map(function(l){return lRow(l,anySel)}).join('')
-    :'<div class="empty"><div class="empty-icon">&#x1F50D;</div><div class="empty-t">No leads found</div><div class="empty-s">Try a different filter</div></div>';
 
-  // Sort: leads who have inbound activity come first
-  if(!schQ && !schStg) {
-    vis = vis.slice().sort(function(a,b){
-      var aInbound = (leadAct[a.id]||[]).some(function(x){return x.type==='inbound'});
-      var bInbound = (leadAct[b.id]||[]).some(function(x){return x.type==='inbound'});
-      if(aInbound && !bInbound) return -1;
-      if(!aInbound && bInbound) return 1;
-      return 0;
+  // Sort: inbound first
+  var sorted = vis.slice();
+  if(!schQ && !schStg){
+    sorted.sort(function(a,b){
+      var aI=(leadAct[a.id]||[]).some(function(x){return x.type==='inbound'});
+      var bI=(leadAct[b.id]||[]).some(function(x){return x.type==='inbound'});
+      return aI===bI?0:aI?-1:1;
     });
   }
 
-  var viewToggle = '<div class="view-toggle">'
-    +'<button class="vt-btn'+(leadView==='detailed'?' on':'')+'" onclick="leadView=\'detailed\';render()" title="Detailed view"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg></button>'
-    +'<button class="vt-btn'+(leadView==='compact'?' on':'')+'" onclick="leadView=\'compact\';render()" title="Compact view"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>'
-    +'</div>';
+  var rows=sorted.length?sorted.map(function(l){return lRow(l,anySel)}).join('')
+    :'<div class="empty"><div class="empty-icon">&#x1F50D;</div><div class="empty-t">No leads found</div><div class="empty-s">Try adjusting your filters</div></div>';
 
-  return '<div class="filter-bar" style="display:flex;align-items:center">'+chips+viewToggle+'</div>'+filterPanelHTML
+  return campBanner+topBar
     +(anySel?'<div style="background:#e7f8ee;padding:8px 16px;font-size:12px;font-weight:600;color:var(--green);display:flex;align-items:center;justify-content:space-between"><span>'+selIds.size+' selected</span><span onclick="selectAllVisible()" style="cursor:pointer;text-decoration:underline">Select all '+vis.length+'</span></div>':'')
     +'<div style="background:var(--white)">'+rows+'</div>'
     +'<div style="height:80px"></div>';
 }
+
+function openLeadFiltersSheet(){
+  renderLeadFiltersSheet();
+  openSheet('leadFiltersSh');
+}
+
+function renderLeadFiltersSheet(){
+  var body=document.getElementById('lfBody'); if(!body) return;
+  var h='';
+
+  // Stage filter — data-stg avoids quote nesting
+  h+='<div style="margin-bottom:20px">';
+  h+='<div class="flbl" style="margin-bottom:8px">Stage</div>';
+  h+='<div style="display:flex;flex-wrap:wrap;gap:6px">';
+  function stgStyle(on){ return 'padding:6px 14px;border-radius:20px;border:1.5px solid '+(on?'var(--text)':'var(--border)')+';background:'+(on?'var(--text)':'var(--white)')+';color:'+(on?'#fff':'var(--sub)')+';font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer'; }
+  h+='<button data-stg="" onclick="setLeadStageFilter(this)" style="'+stgStyle(schStg==='')+'" >All</button>';
+  STAGES.forEach(function(s){
+    h+='<button data-stg="'+s.name+'" onclick="setLeadStageFilter(this)" style="'+stgStyle(schStg===s.name)+'">'+s.name+'</button>';
+  });
+  h+='</div></div>';
+
+  // Partner filter (admin only)
+  if(!window._isPartnerMode && window._allPartners && window._allPartners.length){
+    h+='<div>';
+    h+='<div class="flbl" style="margin-bottom:8px">Partner</div>';
+    h+='<div style="display:flex;flex-direction:column;gap:2px;background:var(--bg);border-radius:12px;padding:4px 0;overflow:hidden">';
+    var noneOn=schPartners.has('__none__');
+    h+='<label style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;background:'+(noneOn?'#f0fdf4':'transparent')+'">'
+      +'<div style="width:20px;height:20px;border-radius:5px;border:2px solid '+(noneOn?'var(--green)':'var(--border)')+';background:'+(noneOn?'var(--green)':'#fff')+';display:flex;align-items:center;justify-content:center;flex-shrink:0">'
+      +(noneOn?'<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1.5 5.5l3 3 5-5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>':'')
+      +'</div>'
+      +'<span style="font-size:13px;font-family:var(--f);color:var(--sub)">👤 My Leads (No Partner)</span>'
+      +'<input type="checkbox" style="display:none" data-pid="__none__" '+(noneOn?'checked':'')+' onchange="lfTogglePartner(this)">'
+      +'</label>';
+    window._allPartners.forEach(function(p){
+      var pid=String(p.id), on=schPartners.has(pid);
+      var label=p.full_name||p.name||p.email;
+      h+='<label style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;background:'+(on?'#e8f0fe':'transparent')+'">'
+        +'<div style="width:20px;height:20px;border-radius:5px;border:2px solid '+(on?'#2563eb':'var(--border)')+';background:'+(on?'#2563eb':'#fff')+';display:flex;align-items:center;justify-content:center;flex-shrink:0">'
+        +(on?'<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M1.5 5.5l3 3 5-5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>':'')
+        +'</div>'
+        +'<span style="font-size:13px;font-family:var(--f);color:var(--text)">'+sanitize(label)+'</span>'
+        +'<input type="checkbox" style="display:none" data-pid="'+pid+'" '+(on?'checked':'')+' onchange="lfTogglePartner(this)">'
+        +'</label>';
+    });
+    h+='</div></div>';
+  }
+
+  body.innerHTML=h;
+}
+
+function lfTogglePartner(inp){
+  var pid = inp.getAttribute('data-pid');
+  togglePartnerFilter(pid);
+  renderLeadFiltersSheet();
+}
+
+function setLeadStageFilter(btn){
+  schStg = btn.getAttribute('data-stg') || '';
+  renderLeadFiltersSheet();
+}
+
+function clearLeadFilters(){
+  schStg=''; schPartners.clear();
+  window._campLeadFilter=null; window._campLeadName=null;
+  closeSheet('leadFiltersSh'); render();
+}
+
 
 function onboardingHTML(){
   var h='<div style="background:var(--white);padding:20px 16px 16px;border-bottom:1px solid var(--border)">';
@@ -4363,9 +4475,8 @@ function closeCampScreen() {
 
 async function loadCampaigns() {
   try {
-    // Filter by client_id — respect global context selector
-    var activeId = getActiveClientId() || window._clientId;
-    var cFilter  = activeId ? '&client_id=eq.' + activeId : '';
+    // Filter by client_id — respect multi-select context
+    var cFilter = buildClientFilter() || (window._clientId ? '&client_id=eq.' + window._clientId : '');
     var res = await sbFetch('/rest/v1/campaigns?select=*'+cFilter+'&order=created_at.desc');
     var camps = [];
     if(res.ok) {
@@ -12197,6 +12308,43 @@ async function markQuotePaid(quoteId) {
     <div class="sh-foot">
       <button class="btn btn-ghost" onclick="closeSheet('emailSigSh')" style="flex:1">Cancel</button>
       <button class="btn btn-primary" onclick="saveEmailSig()" style="flex:2;justify-content:center">Save Signature</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ CLIENT FILTER SHEET ════ -->
+<div class="sheet-ov" id="clientFilterSh"
+     onclick="if(event.target===this)closeSheet('clientFilterSh')">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">🏢 Select Clients</div>
+      <button class="sheet-x" onclick="closeSheet('clientFilterSh')">✕</button>
+    </div>
+    <div style="display:flex;gap:8px;padding:10px 18px;border-bottom:1px solid var(--border);flex-shrink:0">
+      <button onclick="ctxSelectAll()" class="btn btn-ghost btn-sm" style="flex:1">Select All</button>
+      <button onclick="ctxDeselectAll()" class="btn btn-ghost btn-sm" style="flex:1">Deselect All</button>
+    </div>
+    <div class="sh-body" id="clfBody" style="padding:0"></div>
+    <div class="sh-foot">
+      <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="applyClientFilter()">Apply Filter</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ LEAD FILTERS SHEET ════ -->
+<div class="sheet-ov" id="leadFiltersSh"
+     onclick="if(event.target===this)closeSheet('leadFiltersSh')">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">🔽 Filter Leads</div>
+      <button class="sheet-x" onclick="closeSheet('leadFiltersSh')">✕</button>
+    </div>
+    <div class="sh-body" id="lfBody" style="padding:16px 18px"></div>
+    <div class="sh-foot">
+      <button class="btn btn-ghost" style="flex:1" onclick="clearLeadFilters()">Clear</button>
+      <button class="btn btn-primary" style="flex:2;justify-content:center" onclick="closeSheet('leadFiltersSh');render()">Apply</button>
     </div>
   </div>
 </div>
