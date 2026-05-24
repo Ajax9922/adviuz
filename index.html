@@ -114,6 +114,14 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
 #tbFilter{position:relative}
 .tb-filter-dot{position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--green);border:2px solid var(--top)}
 
+/* ── Persistent global filter / company context bar ── */
+.active-filter-bar{display:none;align-items:center;gap:8px;padding:8px 14px;background:var(--top2);color:#fff;flex-shrink:0;font-size:12px;cursor:pointer;overflow:hidden}
+.afb-company{font-weight:700;white-space:nowrap;flex-shrink:0}
+.afb-filters{color:rgba(255,255,255,.72);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.afb-hint{color:rgba(255,255,255,.5);white-space:nowrap;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.afb-clear{margin-left:auto;flex-shrink:0;background:rgba(255,255,255,.16);border:none;color:#fff;font-family:var(--f);font-size:11px;font-weight:700;padding:4px 10px;border-radius:8px;cursor:pointer}
+.afb-clear:active{background:rgba(255,255,255,.28)}
+
 /* ── Date group headers ── */
 .date-group-header{padding:10px 16px 6px;font-size:12px;font-weight:700;color:var(--sub);background:var(--bg);text-transform:uppercase;letter-spacing:.04em}
 
@@ -983,6 +991,9 @@ input[type=number]{-moz-appearance:textfield}
       <input type="text" placeholder="Search leads..." id="searchInp" oninput="doSearch(this.value)">
     </div>
   </div>
+
+  <!-- Persistent global filter / company context bar (all tabs) -->
+  <div class="active-filter-bar" id="activeFilterBar" style="display:none" onclick="openAdvancedFilter()"></div>
 
   <div class="scroll" id="content"></div>
 
@@ -3862,8 +3873,9 @@ function goTab(tab,btn){
   document.getElementById('tbSub').textContent=c.s;
   document.getElementById('tbSearch').style.display=c.search?'flex':'none';
   var filtBtn=document.getElementById('tbFilter');
-  if(filtBtn) filtBtn.style.display=(tab==='leads')?'flex':'none';
+  if(filtBtn) filtBtn.style.display='flex'; // visible on ALL tabs
   if(typeof updateFilterDot==='function') updateFilterDot();
+  if(typeof updateActiveFilterBar==='function') updateActiveFilterBar();
   var refBtn=document.getElementById('tbRefresh');
   if(refBtn)refBtn.style.display=c.search?'flex':'none';
   document.getElementById('tbPlusBtn').style.display=c.plus?'block':'none';
@@ -4024,15 +4036,56 @@ function updateFilterDot(){
   if(dot) dot.style.display = advFilterCount()>0 ? 'block' : 'none';
 }
 
+// The company/client context for the current view
+function clientContextName(){
+  if(window._isPartnerMode && window._partnerData) return window._partnerData.full_name || window._partnerData.name || 'Partner';
+  return window._clientName || 'All Leads';
+}
+
+// Persistent bar that shows WHICH company + WHICH filters are applied (all tabs)
+function updateActiveFilterBar(){
+  var bar=document.getElementById('activeFilterBar');
+  if(!bar) return;
+  var af=window._advFilters||{};
+  var parts=[];
+  function add(label, arr){ if(arr&&arr.length) parts.push(label+': '+arr.join(', ')); }
+  add('Stage', af.stages);
+  if(af.partners && af.partners.length){
+    parts.push('Partner: '+af.partners.map(function(pid){
+      if(pid==='__none__') return 'No Partner';
+      var p=(window._allPartners||[]).find(function(x){return String(x.id)===pid;});
+      return p ? (p.full_name||p.name||p.email||'Partner') : 'Partner';
+    }).join(', '));
+  }
+  add('Assigned', af.execs);
+  add('Location', af.locations);
+  add('Source', af.sources);
+  add('Service', af.services);
+
+  var company = clientContextName();
+  var count = (typeof advFilterCount==='function') ? advFilterCount() : 0;
+  var html = '<span class="afb-company">🏢 '+company+'</span>';
+  if(count){
+    html += '<span class="afb-filters">'+parts.join(' · ')+'</span>'
+         +  '<button class="afb-clear" onclick="event.stopPropagation();clearAdvancedFilter()">Clear</button>';
+  } else {
+    html += '<span class="afb-hint">Tap to filter</span>';
+  }
+  bar.innerHTML = html;
+  bar.style.display = 'flex';
+}
+
 function applyAdvancedFilter(){
   closeSheet('advancedFilterSh');
   updateFilterDot();
+  if(typeof updateActiveFilterBar==='function') updateActiveFilterBar();
   render();
 }
 
 function clearAdvancedFilter(){
   window._advFilters = { stages:[], execs:[], locations:[], partners:[], sources:[], services:[] };
   updateFilterDot();
+  if(typeof updateActiveFilterBar==='function') updateActiveFilterBar();
   renderAdvancedFilter();
   render();
   showToast('Filters cleared');
@@ -4119,6 +4172,8 @@ function setQuickStage(stage){
 function render(){
   var pages={leads:leadsHTML,followups:followupsHTML,reports:reportsHTML,calls:callsHTML,dashboard:window._isPartnerMode?partnerDashHTML:adminDashHTML};
   document.getElementById('content').innerHTML=(pages[curTab]||leadsHTML)();
+  if(typeof updateActiveFilterBar==='function') updateActiveFilterBar();
+  if(typeof updateFilterDot==='function') updateFilterDot();
 }
 
 // ═══════════════════════════════════════
