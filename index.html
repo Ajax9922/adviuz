@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-24 filter-v5</title>
+<title>Adviuz Hub · v2026-05-24 team-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1082,6 +1082,9 @@ input[type=number]{-moz-appearance:textfield}
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>Bulk Email
     </div>
     <div class="menu-sect">Settings</div>
+    <div class="menu-item" onclick="closeMenu();openTeamSheet()">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>Team &amp; Access
+    </div>
     <div id="adminMenuSection" style="display:none">
       <div class="menu-sect" style="color:var(--green)">Admin</div>
       <div class="menu-item" onclick="closeMenu();goTab('dashboard',document.getElementById('tab-dashboard'))">
@@ -4027,7 +4030,8 @@ function afToggle(key, value, el){
 // Total number of active filter selections across all columns
 function advFilterCount(){
   var af=window._advFilters||{};
-  return (af.stages||[]).length+(af.partners||[]).length+(af.execs||[]).length+
+  return (af.stages||[]).length+(af.partners||[]).length+(af.telecallers||[]).length+
+         (af.managers||[]).length+(af.campaigns||[]).length+
          (af.locations||[]).length+(af.sources||[]).length+(af.services||[]).length+
          (af.clients||[]).length;
 }
@@ -4053,6 +4057,12 @@ function updateActiveFilterBar(){
   if(af.clients && af.clients.length){
     parts.push('Client: '+af.clients.join(', '));
   }
+  if(af.campaigns && af.campaigns.length){
+    parts.push('Campaign: '+af.campaigns.map(function(cid){
+      var c=((window._adminData&&window._adminData.campaigns)||[]).find(function(x){return String(x.id)===String(cid);});
+      return c ? (c.name||'Campaign') : ('Campaign '+cid);
+    }).join(', '));
+  }
   add('Stage', af.stages);
   if(af.partners && af.partners.length){
     parts.push('Partner: '+af.partners.map(function(pid){
@@ -4061,7 +4071,9 @@ function updateActiveFilterBar(){
       return p ? (p.full_name||p.name||p.email||'Partner') : 'Partner';
     }).join(', '));
   }
-  add('Assigned', af.execs);
+  function uName(uid){ var u=(window._userMap||{})[String(uid)]; return (u&&u.name)?u.name:String(uid); }
+  if(af.managers && af.managers.length) parts.push('Manager: '+af.managers.map(uName).join(', '));
+  if(af.telecallers && af.telecallers.length) parts.push('Telecaller: '+af.telecallers.map(uName).join(', '));
   add('Location', af.locations);
   add('Source', af.sources);
   add('Service', af.services);
@@ -4205,7 +4217,9 @@ function leadsHTML(){
     }
     // Advanced filters
     if(af.stages    && af.stages.length    && af.stages.indexOf(l.stage)===-1) return false;
-    if(af.execs     && af.execs.length     && af.execs.indexOf(l.assignedName||'')===-1) return false;
+    if(af.telecallers && af.telecallers.length && af.telecallers.indexOf(gfTelecallerId(l))===-1) return false;
+    if(af.managers  && af.managers.length  && af.managers.indexOf(gfManagerId(l))===-1) return false;
+    if(af.campaigns && af.campaigns.length && af.campaigns.indexOf(gfCampaignId(l))===-1) return false;
     if(af.locations && af.locations.length && af.locations.indexOf(l.location||'')===-1) return false;
     if(af.sources   && af.sources.length   && af.sources.indexOf(l.src||'')===-1) return false;
     if(af.services  && af.services.length  && af.services.indexOf(l.svc||'')===-1) return false;
@@ -4722,6 +4736,10 @@ function gfCallInScope(c){
   var lead=(window.leads||[]).find(function(l){return l.id===c.lid;});
   return gfLeadInScope(lead);
 }
+// Resolvers used by the lead lists (read window._userMap loaded by the filter)
+function gfTelecallerId(l){ return String((l&&(l.assignedTo||l.assigned_to))||''); }
+function gfManagerId(l){ var u=(window._userMap||{})[gfTelecallerId(l)]; return (u&&u.manager)?String(u.manager):''; }
+function gfCampaignId(l){ return String((l&&(l.campaign_id||l.campaign||l.campaign_name))||''); }
 
 function rptFilterLeads(arr) {
   var from = rptDateFrom(), to = rptDateTo();
@@ -9572,7 +9590,9 @@ function adAllLeadsHTML() {
       var pid = l.partner_id ? String(l.partner_id) : '__none__';
       if(af.partners.indexOf(pid)===-1) return false;
     }
-    if(af.execs     && af.execs.length     && af.execs.indexOf(String(l.assigned_to||''))===-1) return false;
+    if(af.telecallers && af.telecallers.length && af.telecallers.indexOf(gfTelecallerId(l))===-1) return false;
+    if(af.managers  && af.managers.length  && af.managers.indexOf(gfManagerId(l))===-1) return false;
+    if(af.campaigns && af.campaigns.length && af.campaigns.indexOf(gfCampaignId(l))===-1) return false;
     if(af.locations && af.locations.length && af.locations.indexOf(l.location||'')===-1) return false;
     if(af.sources   && af.sources.length   && af.sources.indexOf(l.source||'')===-1) return false;
     if(af.services  && af.services.length  && af.services.indexOf(l.service||'')===-1) return false;
@@ -13249,17 +13269,16 @@ async function markQuotePaid(quoteId) {
   // Working selection (cloned from window._advFilters when opened)
   var SEL = null;
 
-  var FKEYS = ['stages','execs','locations','partners','sources','services','clients'];
+  var FKEYS = ['clients','campaigns','locations','managers','telecallers','stages','partners','sources','services'];
 
   function ensureState(){
-    if(!window._advFilters || typeof window._advFilters!=='object'){
-      window._advFilters = { stages:[], execs:[], locations:[], partners:[], sources:[], services:[], clients:[] };
-    }
+    if(!window._advFilters || typeof window._advFilters!=='object') window._advFilters={};
     FKEYS.forEach(function(k){
       if(!Array.isArray(window._advFilters[k])) window._advFilters[k]=[];
     });
   }
 
+  var idLabel = function(v){ return v; };
   function partnerLabel(pid){
     if(pid==='__none__') return 'No Partner';
     var list = window._allPartners||[];
@@ -13269,42 +13288,80 @@ async function markQuotePaid(quoteId) {
   // ADMIN RULE: a "client" is a lead whose deal is closed.
   function isClosed(stage){ return /deal closed/i.test(stage||'') || String(stage||'')==='9. Deal Closed'; }
 
-  // Pull the right dataset: on the admin Dashboard use ALL clients' leads,
-  // otherwise the current Leads-tab dataset. Normalize to common field names.
-  // `client` = the company name; `closed` = true when the deal is closed.
-  function leadRows(){
-    if(window.curTab==='dashboard' && window._adminData && (window._adminData.allLeads||[]).length){
-      return window._adminData.allLeads.map(function(l){
-        return { stage:l.stage||'', partner:(l.partner_id?String(l.partner_id):'__none__'),
-                 exec:(l.assigned_to||''), location:(l.location||''),
-                 source:(l.source||''), service:(l.service||''),
-                 client:(l.company||((l.clients&&l.clients.business_name)||'')||''), closed:isClosed(l.stage) };
+  // ── User directory (telecallers + managers) ──
+  function gfUsers(){ return window._userMap || {}; }
+  function userName(uid){ var u=gfUsers()[String(uid)]; return (u&&u.name)?u.name:String(uid); }
+  function userMgr(uid){ var u=gfUsers()[String(uid)]; return (u&&u.manager)?String(u.manager):''; }
+  function campaignName(cid){
+    var c=((window._adminData&&window._adminData.campaigns)||[]).find(function(x){return String(x.id)===String(cid);});
+    return c?(c.name||'Campaign'):String(cid);
+  }
+  // Loads user_profiles once into window._userMap = { uid:{name,role,manager} }.
+  // `manager` comes from manager_id (or a `manager` column) if those exist; otherwise blank.
+  function gfLoadUsers(cb){
+    if(window._userMap){ if(cb)cb(); return; }
+    if(typeof sbFetch!=='function'){ window._userMap={}; if(cb)cb(); return; }
+    sbFetch('/rest/v1/user_profiles?select=*').then(function(r){return r&&r.ok?r.json():[];}).then(function(rows){
+      var m={};
+      (rows||[]).forEach(function(p){
+        m[String(p.user_id)] = {
+          name: (p.display_name||p.name||p.email||('User '+String(p.user_id||'').slice(0,6))),
+          role: (p.role||''),
+          manager: (p.manager_id?String(p.manager_id):(p.manager?String(p.manager):''))
+        };
       });
-    }
-    return (window.leads||[]).map(function(l){
-      return { stage:l.stage||'', partner:(l.partner_id?String(l.partner_id):'__none__'),
-               exec:(l.assignedName||''), location:(l.location||''),
-               source:(l.src||''), service:(l.svc||''),
-               client:(l.company||''), closed:isClosed(l.stage) };
-    });
+      window._userMap=m; if(cb)cb();
+    }).catch(function(){ window._userMap={}; if(cb)cb(); });
   }
 
-  // Column definitions (filterable columns) — `f` is the normalized field name
+  function tcOf(l){ return l.assignedTo || l.assigned_to || ''; }
+  function campOf(l){ return l.campaign_id || l.campaign || l.campaign_name || ''; }
+
+  // Normalize a lead (mapped or raw) into the fields the filter understands.
+  function normalize(l, raw){
+    var company = raw ? (l.company||((l.clients&&l.clients.business_name)||'')||'') : (l.company||'');
+    var tc = String(tcOf(l)||'');
+    return {
+      stage:   l.stage||'',
+      client:  company,
+      campaign:String(campOf(l)||''),
+      location:l.location||'',
+      tc:      tc,
+      manager: userMgr(tc),
+      partner: (l.partner_id?String(l.partner_id):'__none__'),
+      source:  raw ? (l.source||'') : (l.src||''),
+      service: raw ? (l.service||'') : (l.svc||''),
+      closed:  isClosed(l.stage)
+    };
+  }
+  function leadRows(){
+    if(window.curTab==='dashboard' && window._adminData && (window._adminData.allLeads||[]).length){
+      return window._adminData.allLeads.map(function(l){return normalize(l,true);});
+    }
+    return (window.leads||[]).map(function(l){return normalize(l,false);});
+  }
+
+  // Hierarchy order: Client → Campaign / Location / Manager → Telecaller, then the rest
   var SECTIONS = [
-    {key:'stages',    title:'Sales Stage',          f:'stage',    label:function(v){return v;}},
-    {key:'clients',   title:'Client (closed deals)',f:'client',   label:function(v){return v;}},
-    {key:'partners',  title:'Partner',              f:'partner',  label:partnerLabel},
-    {key:'execs',     title:'Assigned To',          f:'exec',     label:function(v){return v;}},
-    {key:'locations', title:'Location',             f:'location', label:function(v){return v;}},
-    {key:'sources',   title:'Source',               f:'source',   label:function(v){return v;}},
-    {key:'services',  title:'Service',              f:'service',  label:function(v){return v;}}
+    {key:'clients',     title:'Client (closed deals)', f:'client',   label:idLabel},
+    {key:'campaigns',   title:'Campaign',              f:'campaign', label:campaignName},
+    {key:'locations',   title:'Location',              f:'location', label:idLabel},
+    {key:'managers',    title:'Manager',               f:'manager',  label:userName},
+    {key:'telecallers', title:'Telecaller',            f:'tc',       label:userName},
+    {key:'stages',      title:'Sales Stage',           f:'stage',    label:idLabel},
+    {key:'partners',    title:'Partner',               f:'partner',  label:partnerLabel},
+    {key:'sources',     title:'Source',                f:'source',   label:idLabel},
+    {key:'services',    title:'Service',               f:'service',  label:idLabel}
   ];
 
   function distinctFor(sec){
     var counts={}, rows=leadRows();
+    var selManagers = (SEL && SEL.managers) ? SEL.managers : [];
     rows.forEach(function(r){
-      // Clients = companies that have a CLOSED deal only
-      if(sec.key==='clients' && !r.closed) return;
+      if(sec.key==='clients' && !r.closed) return;                 // clients = closed deals only
+      if(sec.key==='telecallers' && selManagers.length){           // cascade: only this manager's telecallers
+        if(selManagers.indexOf(r.manager)===-1) return;
+      }
       var v=r[sec.f];
       if(v===undefined||v===null||v==='') return;
       v=String(v);
@@ -13315,7 +13372,7 @@ async function markQuotePaid(quoteId) {
       var order=window.STAGES.map(function(s){return s.name;});
       keys.sort(function(a,b){return order.indexOf(a)-order.indexOf(b);});
     } else {
-      keys.sort();
+      keys.sort(function(a,b){ return String(sec.label(a)).localeCompare(String(sec.label(b))); });
     }
     return keys.map(function(k){return {value:k,label:sec.label(k),n:counts[k]};});
   }
@@ -13347,16 +13404,21 @@ async function markQuotePaid(quoteId) {
   function render(){
     var body=document.getElementById('gfsBody');
     if(!body) return;
+    var openSet = body.__openSet || {};   // remember which sections are expanded
     var html='';
+    var shown=0;
     SECTIONS.forEach(function(sec){
       var opts=distinctFor(sec);
       var sel=SEL[sec.key]||[];
-      var open=sel.length>0;
+      // Hide sections that have no data yet (e.g. Campaign/Manager before those fields exist)
+      if(!opts.length && !sel.length) return;
+      shown++;
+      var open = (sec.key in openSet) ? openSet[sec.key] : (sel.length>0);
       html+='<div style="border:1.5px solid #e9edef;border-radius:12px;margin-bottom:8px;overflow:hidden">'
         +'<div class="gfs-h" data-k="'+sec.key+'" style="display:flex;align-items:center;gap:8px;padding:13px 14px;cursor:pointer">'
           +'<div style="flex:1;font-size:14px;font-weight:600;color:#111b21">'+sec.title+'</div>'
-          +(sel.length?'<span style="font-size:11px;font-weight:700;color:#00a884;background:#d9fdd3;padding:2px 8px;border-radius:10px">'+sel.length+'</span>':'')
-          +'<span style="font-size:12px;color:#667781">'+(open?'▴':'▾')+'</span>'
+          +(sel.length?'<span class="gfs-chip" style="font-size:11px;font-weight:700;color:#00a884;background:#d9fdd3;padding:2px 8px;border-radius:10px">'+sel.length+'</span>':'')
+          +'<span class="gfs-car" style="font-size:12px;color:#667781">'+(open?'▴':'▾')+'</span>'
         +'</div>'
         +'<div class="gfs-b" data-bk="'+sec.key+'" style="display:'+(open?'block':'none')+';border-top:1px solid #e9edef;max-height:230px;overflow-y:auto">';
       if(!opts.length){
@@ -13372,15 +13434,18 @@ async function markQuotePaid(quoteId) {
       }
       html+='</div></div>';
     });
+    if(!shown) html='<div style="padding:24px;text-align:center;color:#8696a0;font-size:13px">No filterable data loaded yet.</div>';
     body.innerHTML=html;
 
-    // Section header toggles
+    // Section header toggles (remember open/closed state)
     body.querySelectorAll('.gfs-h').forEach(function(h){
       h.addEventListener('click',function(){
         var b=body.querySelector('.gfs-b[data-bk="'+h.dataset.k+'"]');
-        if(b) b.style.display = (b.style.display==='none')?'block':'none';
-        var car=h.querySelector('span:last-child');
-        if(car) car.textContent = (b && b.style.display==='none')?'▾':'▴';
+        var nowOpen = b && b.style.display==='none';
+        if(b) b.style.display = nowOpen?'block':'none';
+        var car=h.querySelector('.gfs-car');
+        if(car) car.textContent = nowOpen?'▴':'▾';
+        body.__openSet = body.__openSet||{}; body.__openSet[h.dataset.k]=nowOpen;
       });
     });
     // Option toggles
@@ -13389,14 +13454,15 @@ async function markQuotePaid(quoteId) {
         var k=opt.dataset.k, v=opt.dataset.v;
         var arr=SEL[k]||(SEL[k]=[]);
         var i=arr.indexOf(v);
-        var box=opt.querySelector('.gfs-box');
-        if(i===-1){ arr.push(v); box.style.background='#00a884'; box.style.borderColor='#00a884'; box.innerHTML='<svg width="11" height="11" viewBox="0 0 10 10" fill="none"><path d="M1.5 5L4 7.5L8.5 2.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'; }
-        else { arr.splice(i,1); box.style.background='#fff'; box.style.borderColor='#e9edef'; box.innerHTML=''; }
-        // update the count chip in this section's header
-        var h=body.querySelector('.gfs-h[data-k="'+k+'"]');
-        if(h){
-          var chip=h.querySelector('span');
-          // rebuild header chip simply by re-rendering counts is overkill; leave live count in title area
+        if(i===-1) arr.push(v); else arr.splice(i,1);
+        // Selecting a Manager changes which Telecallers are available → full re-render (cascade)
+        if(k==='managers'){
+          body.__openSet = body.__openSet||{}; body.__openSet['managers']=true; body.__openSet['telecallers']=true;
+          render();
+        } else {
+          var box=opt.querySelector('.gfs-box');
+          if(i===-1){ box.style.background='#00a884'; box.style.borderColor='#00a884'; box.innerHTML='<svg width="11" height="11" viewBox="0 0 10 10" fill="none"><path d="M1.5 5L4 7.5L8.5 2.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'; }
+          else { box.style.background='#fff'; box.style.borderColor='#e9edef'; box.innerHTML=''; }
         }
       });
     });
@@ -13408,9 +13474,11 @@ async function markQuotePaid(quoteId) {
     SEL={};
     FKEYS.forEach(function(k){ SEL[k]=(window._advFilters[k]||[]).slice(); });
     build();
-    render();
     var ov=document.getElementById('gfsOverlay');
-    ov.style.display='flex';
+    if(ov){ ov.style.display='flex'; var b=document.getElementById('gfsBody'); if(b) b.__openSet=null; }
+    render();
+    // Load telecaller/manager names in the background, then refresh labels
+    gfLoadUsers(function(){ if(document.getElementById('gfsOverlay') && document.getElementById('gfsOverlay').style.display==='flex') render(); });
   }
   function close(){
     var ov=document.getElementById('gfsOverlay');
@@ -13429,7 +13497,8 @@ async function markQuotePaid(quoteId) {
     if(typeof window.render==='function') window.render();
   }
   function clearAll(){
-    SEL={stages:[],execs:[],locations:[],partners:[],sources:[],services:[],clients:[]};
+    SEL={}; FKEYS.forEach(function(k){ SEL[k]=[]; });
+    var b=document.getElementById('gfsBody'); if(b) b.__openSet=null;
     render();
   }
 
@@ -13447,6 +13516,260 @@ async function markQuotePaid(quoteId) {
   });
 
   console.log('[GlobalFilter] self-contained filter screen ready');
+})();
+</script>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     TEAM & ACCESS  (client-side user management + role/permission UI)
+     Front-end management layer. Stores users + permissions on user_profiles.
+     NOTE: actual login access (Supabase Auth invite) and data security (RLS)
+     are enforced server-side — see notes delivered with this build.
+     ══════════════════════════════════════════════════════════════════ -->
+<div class="sheet-ov" id="teamSh">
+  <div class="sheet" style="max-height:90vh">
+    <div class="sheet-head">
+      <div class="sheet-title">Team &amp; Access <span id="teamClientName" style="font-weight:500;color:var(--sub)"></span></div>
+      <button class="sheet-x" onclick="closeSheet('teamSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" id="teamBody" style="padding:14px 16px"></div>
+  </div>
+</div>
+
+<div class="sheet-ov" id="userEditSh">
+  <div class="sheet" style="max-height:92vh">
+    <div class="sheet-head">
+      <div class="sheet-title" id="userEditTitle">Add User</div>
+      <button class="sheet-x" onclick="closeSheet('userEditSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" id="userEditBody" style="padding:14px 16px"></div>
+  </div>
+</div>
+
+<style>
+  .role-chip{display:inline-flex;align-items:center;gap:5px;padding:8px 12px;border-radius:20px;border:1.5px solid var(--border);background:var(--white);color:var(--sub);font-size:12px;font-weight:700;cursor:pointer;margin:0 6px 6px 0}
+  .role-chip.on{border-color:var(--green);background:var(--greenl);color:var(--green)}
+  .te-field{margin-bottom:12px}
+  .te-label{font-size:12px;font-weight:700;color:var(--sub);margin-bottom:5px;display:block}
+  .te-input{width:100%;padding:11px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;font-family:var(--f);background:var(--white);color:var(--text);box-sizing:border-box}
+  .te-row{display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--border)}
+  .te-row:last-child{border-bottom:none}
+  .te-rname{font-size:13.5px;color:var(--text);font-weight:600}
+  .te-rsub{font-size:11px;color:var(--sub);margin-top:1px}
+  .te-sw{width:42px;height:24px;border-radius:14px;background:var(--border);position:relative;cursor:pointer;flex-shrink:0;transition:background .15s}
+  .te-sw.on{background:var(--green)}
+  .te-sw::after{content:'';position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .15s}
+  .te-sw.on::after{transform:translateX(18px)}
+  .usr-row{display:flex;align-items:center;gap:11px;padding:12px 0;border-bottom:1px solid var(--border);cursor:pointer}
+  .usr-av{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;flex-shrink:0}
+  .usr-badge{font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px}
+</style>
+
+<script>
+(function(){
+  var FEATURES = [
+    {k:'leads',        name:'View Leads',        sub:'See the leads list'},
+    {k:'campaigns',    name:'View Campaigns',    sub:'Digital flyer campaigns + views'},
+    {k:'reports',      name:'View Reports',      sub:'Analytics & performance'},
+    {k:'calls',        name:'Call Logs',         sub:'See call history'},
+    {k:'followups',    name:'Follow-ups',        sub:'Tasks & appointments'},
+    {k:'assign',       name:'Assign Leads',      sub:'Route leads to others'},
+    {k:'close',        name:'Close Deals',       sub:'Move leads to Deal Closed'},
+    {k:'export',       name:'Export Data',       sub:'Download CSV'},
+    {k:'launch',       name:'Launch Outreach',   sub:'AI / Bulk SMS / Email'},
+    {k:'manage_users', name:'Manage Team',       sub:'Add/edit users (admin)'}
+  ];
+  var SCOPES = [
+    {k:'all_locations',     name:'All locations',     sub:'Every dealership / branch'},
+    {k:'location',          name:'Assigned location', sub:'Only their location(s)'},
+    {k:'location_assigned', name:'Own leads only',    sub:'Only leads assigned to them'}
+  ];
+  function feats(on){ var o={}; FEATURES.forEach(function(f){o[f.k]=0;}); (on||[]).forEach(function(k){o[k]=1;}); return o; }
+  var ROLE_PRESETS = {
+    owner:      {label:'Owner',            scope:'all_locations',     features:feats(['leads','campaigns','reports','calls','followups','assign','close','export','launch','manage_users'])},
+    manager:    {label:'Location Manager', scope:'location',          features:feats(['leads','campaigns','reports','calls','followups','assign','close','export'])},
+    telecaller: {label:'Telecaller',       scope:'location_assigned', features:feats(['leads','calls','followups'])},
+    closer:     {label:'Sales Closer',     scope:'location_assigned', features:feats(['leads','calls','followups','close'])},
+    custom:     {label:'Custom',           scope:'location',          features:feats(['leads','calls','followups'])}
+  };
+  var ROLE_COLOR = {owner:'#7c3aed',manager:'#2563eb',telecaller:'#0891b2',closer:'#d97706',custom:'#667781'};
+
+  var users = [];
+  var draft = null;
+
+  function cid(){ return window._clientId || ''; }
+  function clientName(){ return window._clientName || 'Client'; }
+  function knownLocations(){
+    var set={};
+    (window.leads||[]).forEach(function(l){ if(l.location) set[l.location]=1; });
+    ((window._adminData&&window._adminData.allLeads)||[]).forEach(function(l){ if(l.location) set[l.location]=1; });
+    return Object.keys(set).sort();
+  }
+
+  window.openTeamSheet = function(){
+    document.getElementById('teamClientName').textContent = '· '+clientName();
+    var body=document.getElementById('teamBody');
+    body.innerHTML='<div style="text-align:center;padding:24px;color:var(--sub);font-size:13px">Loading team…</div>';
+    if(typeof openSheet==='function') openSheet('teamSh');
+    loadUsers(function(){ renderTeam(); });
+  };
+
+  function loadUsers(cb){
+    if(typeof sbFetch!=='function'){ users=[]; cb&&cb(); return; }
+    var q = cid() ? ('?client_id=eq.'+encodeURIComponent(cid())+'&select=*&order=display_name.asc') : '?select=*&order=display_name.asc&limit=100';
+    sbFetch('/rest/v1/user_profiles'+q).then(function(r){return r&&r.ok?r.json():[];}).then(function(rows){
+      users = rows||[]; cb&&cb();
+    }).catch(function(){ users=[]; cb&&cb(); });
+  }
+
+  function renderTeam(){
+    var body=document.getElementById('teamBody');
+    var h = '<button onclick="openUserEdit()" style="width:100%;padding:12px;border:none;border-radius:11px;background:var(--green);color:#fff;font-weight:700;font-size:14px;font-family:var(--f);cursor:pointer;margin-bottom:14px">+ Add User</button>';
+    if(!users.length){
+      h += '<div style="text-align:center;padding:24px 12px;color:var(--sub);font-size:13px">No team members yet. Add the owner, managers, telecallers and closers.</div>';
+    } else {
+      h += '<div>';
+      users.forEach(function(u){
+        var role = u.role || 'custom';
+        var col = ROLE_COLOR[role] || '#667781';
+        var label = (ROLE_PRESETS[role]&&ROLE_PRESETS[role].label) || role;
+        var init = (u.display_name||u.email||'?').split(' ').map(function(w){return w[0];}).join('').slice(0,2).toUpperCase();
+        var loc = u.location ? (' · '+u.location) : '';
+        var active = (u.is_active!==false);
+        h += '<div class="usr-row" onclick="openUserEdit(\''+String(u.user_id||u.id||'').replace(/\x27/g,"")+'\')">'
+          +'<div class="usr-av" style="background:'+col+'22;color:'+col+'">'+init+'</div>'
+          +'<div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700;color:var(--text)">'+(u.display_name||'(no name)')+(active?'':' <span style="color:var(--sub);font-weight:500">· inactive</span>')+'</div>'
+          +'<div style="font-size:11.5px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(u.email||'')+loc+'</div></div>'
+          +'<span class="usr-badge" style="background:'+col+'18;color:'+col+'">'+label+'</span>'
+        +'</div>';
+      });
+      h += '</div>';
+    }
+    body.innerHTML=h;
+  }
+
+  window.openUserEdit = function(userId){
+    var existing = userId ? users.find(function(u){return String(u.user_id||u.id)===String(userId);}) : null;
+    var role = existing ? (existing.role||'custom') : 'telecaller';
+    var preset = ROLE_PRESETS[role] || ROLE_PRESETS.custom;
+    var perm = (existing && existing.permissions && typeof existing.permissions==='object') ? existing.permissions : {};
+    draft = {
+      user_id: existing ? (existing.user_id||existing.id) : null,
+      display_name: existing ? (existing.display_name||'') : '',
+      email: existing ? (existing.email||'') : '',
+      location: existing ? (existing.location||'') : '',
+      role: role,
+      scope: perm.scope || preset.scope,
+      features: Object.assign({}, preset.features, perm.features||{}),
+      is_active: existing ? (existing.is_active!==false) : true
+    };
+    document.getElementById('userEditTitle').textContent = existing ? 'Edit User' : 'Add User';
+    renderUserEdit();
+    if(typeof openSheet==='function') openSheet('userEditSh');
+  };
+
+  function applyPreset(role){
+    var p = ROLE_PRESETS[role] || ROLE_PRESETS.custom;
+    draft.role = role;
+    if(role!=='custom'){ draft.scope = p.scope; draft.features = Object.assign({}, p.features); }
+    renderUserEdit();
+  }
+  window._teApplyPreset = applyPreset;
+  window._teSetField = function(k,v){ draft[k]=v; };
+  window._teToggleFeat = function(k){
+    draft.features[k] = draft.features[k]?0:1;
+    draft.role='custom';
+    document.querySelectorAll('#roleChips .role-chip').forEach(function(c){ c.classList.toggle('on', c.dataset.r==='custom'); });
+    var sw=document.querySelector('.te-sw[data-fk="'+k+'"]'); if(sw) sw.classList.toggle('on', !!draft.features[k]);
+  };
+  window._teSetScope = function(s){
+    draft.scope=s; draft.role='custom';
+    document.querySelectorAll('#roleChips .role-chip').forEach(function(c){ c.classList.toggle('on', c.dataset.r==='custom'); });
+    document.querySelectorAll('.te-scope[data-s]').forEach(function(el){
+      var on=el.dataset.s===s;
+      el.classList.toggle('on', on);
+      el.style.borderColor = on ? 'var(--green)' : 'var(--border)';
+      var dot=el.querySelector('span span'); var ring=el.querySelector('span');
+      if(ring) ring.style.borderColor = on?'var(--green)':'var(--border)';
+      if(ring) ring.innerHTML = on?'<span style="width:9px;height:9px;border-radius:50%;background:var(--green)"></span>':'';
+    });
+  };
+
+  function renderUserEdit(){
+    var locs = knownLocations();
+    var dl = locs.map(function(l){return '<option value="'+l.replace(/"/g,'&quot;')+'">';}).join('');
+    var chips = Object.keys(ROLE_PRESETS).map(function(r){
+      return '<span class="role-chip '+(draft.role===r?'on':'')+'" data-r="'+r+'" onclick="_teApplyPreset(\''+r+'\')">'+ROLE_PRESETS[r].label+'</span>';
+    }).join('');
+    var scopeRows = SCOPES.map(function(s){
+      var on=draft.scope===s.k;
+      return '<div class="te-scope'+(on?' on':'')+'" data-s="'+s.k+'" onclick="_teSetScope(\''+s.k+'\')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';border-radius:10px;margin-bottom:7px;cursor:pointer">'
+        +'<span style="width:18px;height:18px;border-radius:50%;border:2px solid '+(on?'var(--green)':'var(--border)')+';display:flex;align-items:center;justify-content:center">'+(on?'<span style="width:9px;height:9px;border-radius:50%;background:var(--green)"></span>':'')+'</span>'
+        +'<div><div class="te-rname">'+s.name+'</div><div class="te-rsub">'+s.sub+'</div></div></div>';
+    }).join('');
+    var featRows = FEATURES.map(function(f){
+      var on = !!draft.features[f.k];
+      return '<div class="te-row"><div><div class="te-rname">'+f.name+'</div><div class="te-rsub">'+f.sub+'</div></div>'
+        +'<div class="te-sw '+(on?'on':'')+'" data-fk="'+f.k+'" onclick="_teToggleFeat(\''+f.k+'\')"></div></div>';
+    }).join('');
+
+    document.getElementById('userEditBody').innerHTML =
+       '<div class="te-field"><label class="te-label">Full name</label><input class="te-input" id="teName" value="'+(draft.display_name||'').replace(/"/g,'&quot;')+'" oninput="_teSetField(\'display_name\',this.value)" placeholder="e.g. Priya Sharma"></div>'
+      +'<div class="te-field"><label class="te-label">Email</label><input class="te-input" id="teEmail" type="email" value="'+(draft.email||'').replace(/"/g,'&quot;')+'" oninput="_teSetField(\'email\',this.value)" placeholder="name@company.com"></div>'
+      +'<div class="te-field"><label class="te-label">Location / Dealership</label><input class="te-input" id="teLoc" list="teLocList" value="'+(draft.location||'').replace(/"/g,'&quot;')+'" oninput="_teSetField(\'location\',this.value)" placeholder="e.g. Skoda Saskatoon"><datalist id="teLocList">'+dl+'</datalist></div>'
+      +'<div class="te-field"><label class="te-label">Role (preset)</label><div id="roleChips">'+chips+'</div></div>'
+      +'<div class="te-field"><label class="te-label">Data access</label>'+scopeRows+'</div>'
+      +'<div class="te-field"><label class="te-label">Feature access</label><div style="border:1.5px solid var(--border);border-radius:11px;padding:2px 12px">'+featRows+'</div></div>'
+      +'<button onclick="saveTeamUser()" id="teSaveBtn" style="width:100%;padding:13px;border:none;border-radius:11px;background:var(--green);color:#fff;font-weight:700;font-size:14px;font-family:var(--f);cursor:pointer;margin-top:6px">Save</button>'
+      +(draft.user_id?'<button onclick="toggleUserActive()" style="width:100%;padding:11px;border:1.5px solid var(--border);border-radius:11px;background:var(--white);color:var(--sub);font-weight:700;font-size:13px;font-family:var(--f);cursor:pointer;margin-top:8px">'+(draft.is_active?'Deactivate user':'Reactivate user')+'</button>':'')
+      +'<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:10px;line-height:1.4">Saving stores the user &amp; permissions. To grant actual login, the owner must invite them (server-side) — see setup notes.</div>';
+  }
+
+  window.toggleUserActive = function(){ draft.is_active=!draft.is_active; saveTeamUser(); };
+
+  window.saveTeamUser = function(){
+    if(!draft.display_name && !draft.email){ if(typeof showToast==='function') showToast('Name or email required'); return; }
+    var btn=document.getElementById('teSaveBtn'); if(btn){ btn.textContent='Saving…'; btn.disabled=true; }
+    var payload = {
+      display_name: draft.display_name,
+      email: draft.email,
+      role: draft.role,
+      location: draft.location,
+      is_active: draft.is_active,
+      permissions: { scope: draft.scope, features: draft.features }
+    };
+    if(cid()) payload.client_id = cid();
+
+    if(typeof sbFetch!=='function'){ if(typeof showToast==='function') showToast('Saved (local only)'); closeSheet('userEditSh'); return; }
+    var p = draft.user_id
+      ? sbFetch('/rest/v1/user_profiles?user_id=eq.'+encodeURIComponent(draft.user_id),{method:'PATCH',headers:{'Prefer':'return=representation'},body:JSON.stringify(payload)})
+      : sbFetch('/rest/v1/user_profiles',{method:'POST',headers:{'Prefer':'return=representation'},body:JSON.stringify(payload)});
+    p.then(function(res){ return res.json().then(function(data){ return {ok:(res.ok||res.status===201), data:data}; }); })
+     .then(function(r){
+        if(!r.ok){
+          var msg=(r.data&&(r.data.message||r.data.hint))||'';
+          if(/permission|column|schema/i.test(msg)){
+            var minimal=Object.assign({},payload); delete minimal.permissions;
+            var retry = draft.user_id
+              ? sbFetch('/rest/v1/user_profiles?user_id=eq.'+encodeURIComponent(draft.user_id),{method:'PATCH',headers:{'Prefer':'return=representation'},body:JSON.stringify(minimal)})
+              : sbFetch('/rest/v1/user_profiles',{method:'POST',headers:{'Prefer':'return=representation'},body:JSON.stringify(minimal)});
+            return retry.then(function(rr){ return {ok:(rr.ok||rr.status===201), warn:'Saved without custom permissions — add a "permissions" JSONB column to store them.'}; });
+          }
+          throw new Error(msg||'Save failed');
+        }
+        return r;
+     })
+     .then(function(r){
+        if(typeof showToast==='function') showToast(r.warn || 'Saved');
+        closeSheet('userEditSh');
+        loadUsers(function(){ renderTeam(); });
+     })
+     .catch(function(e){
+        if(btn){ btn.textContent='Save'; btn.disabled=false; }
+        if(typeof showToast==='function') showToast('Could not save: '+(e.message||'error'));
+     });
+  };
+
+  console.log('[Team&Access] ready');
 })();
 </script>
 
