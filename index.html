@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-24 leadscreen-v25</title>
+<title>Adviuz Hub · v2026-05-24 payouthold-v27</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2740,7 +2740,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-05-24 leadscreen-v25';
+var APP_VERSION = 'v2026-05-24 payouthold-v27';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -3662,7 +3662,16 @@ async function callFn(name, body) {
 
 // ═══ SUPABASE DATA FUNCTIONS ═══
 async function refreshLeads() {
-  if (isPartnerMode()) { await loadPartnerLeads(); render(); return; }
+  if (isPartnerMode()) {
+    var rb=document.getElementById('tbRefresh');
+    if(rb){ rb.style.opacity='0.4'; rb.style.pointerEvents='none'; }
+    await loadPartnerLeads();
+    await loadPartnerComms();
+    if(rb){ rb.style.opacity='1'; rb.style.pointerEvents='auto'; }
+    render();
+    showToast('&#x2705; Refreshed');
+    return;
+  }
   var refBtn = document.getElementById('tbRefresh');
   if(refBtn) { refBtn.style.opacity='0.4'; refBtn.style.pointerEvents='none'; }
   document.getElementById('content').innerHTML =
@@ -8784,8 +8793,8 @@ async function showPartnerUI() {
   document.getElementById('tbTitle').textContent = p.full_name || p.name || 'Partner';
   document.getElementById('tbSub').textContent   = partnerGetRate(p.active_client_count||0) + ' commission · ' + (p.ref_code||'');
 
-  // Hide all admin-only topbar buttons
-  var ids = ['tbPlusBtn','tbSearch','tbRefresh','tbNotifBtn'];
+  // Hide admin-only topbar buttons (keep Refresh — partners can refresh too)
+  var ids = ['tbPlusBtn','tbSearch','tbNotifBtn'];
   ids.forEach(function(id){
     var el = document.getElementById(id);
     if (el) {
@@ -8928,11 +8937,18 @@ function partnerDashHTML() {
   var p     = window._partnerData || {};
   var comms = window._partnerComms || [];
 
-  // Totals
-  var pending = comms.filter(function(c){return c.status==='earned';}).reduce(function(s,c){return s+(+c.commission_cad||0);},0);
-  var paid    = comms.filter(function(c){return c.status==='paid';}).reduce(function(s,c){return s+(+c.commission_cad||0);},0);
+  // Totals — a commission becomes cash-out-able 7 days after the payment (earned_at)
+  var HOLD_DAYS = 7, DAY = 86400000, nowMs = Date.now();
+  function matMs(c){ var t=c.earned_at?new Date(c.earned_at).getTime():0; return t?t+HOLD_DAYS*DAY:nowMs; }
+  function commMature(c){ return nowMs >= matMs(c); }
+  function commDaysLeft(c){ return Math.max(1, Math.ceil((matMs(c)-nowMs)/DAY)); }
+  var earnedC   = comms.filter(function(c){return c.status==='earned';});
+  var available = earnedC.filter(commMature).reduce(function(s,c){return s+(+c.commission_cad||0);},0);
+  var maturing  = earnedC.filter(function(c){return !commMature(c);}).reduce(function(s,c){return s+(+c.commission_cad||0);},0);
+  var nextDays  = earnedC.filter(function(c){return !commMature(c);}).reduce(function(m,c){var d=commDaysLeft(c);return (m===null||d<m)?d:m;}, null);
+  var paid      = comms.filter(function(c){return c.status==='paid';}).reduce(function(s,c){return s+(+c.commission_cad||0);},0);
   var requested = comms.filter(function(c){return c.status==='requested';}).reduce(function(s,c){return s+(+c.commission_cad||0);},0);
-  var total   = comms.reduce(function(s,c){return s+(+c.commission_cad||0);},0);
+  var total     = comms.reduce(function(s,c){return s+(+c.commission_cad||0);},0);
   var MIN_PAYOUT = 100;
   var name = p.full_name||p.name||'Partner';
 
@@ -8944,18 +8960,18 @@ function partnerDashHTML() {
   // ── Cashout hero ──
   h+='<div style="background:linear-gradient(135deg,#0b3d2e,#00a884);border-radius:18px;padding:20px;color:#fff;margin-bottom:12px;box-shadow:0 10px 30px -10px rgba(0,168,132,.5)">';
   h+='<div style="font-size:12px;font-weight:700;opacity:.85;letter-spacing:.06em;text-transform:uppercase">Available to cash out</div>';
-  h+='<div style="font-size:38px;font-weight:900;letter-spacing:-.03em;margin:4px 0 2px">'+money(pending)+'</div>';
-  h+='<div style="font-size:12px;opacity:.8">'+name+(requested>0?' · '+money(requested)+' requested':'')+'</div>';
-  if(pending>=MIN_PAYOUT){
+  h+='<div style="font-size:38px;font-weight:900;letter-spacing:-.03em;margin:4px 0 2px">'+money(available)+'</div>';
+  h+='<div style="font-size:12px;opacity:.8">'+name+(maturing>0?' · '+money(maturing)+' maturing'+(nextDays!=null?' (in '+nextDays+'d)':''):'')+(requested>0?' · '+money(requested)+' requested':'')+'</div>';
+  if(available>=MIN_PAYOUT){
     h+='<button onclick="requestPayout()" style="margin-top:14px;width:100%;padding:13px;border:none;border-radius:12px;background:#fff;color:#0b3d2e;font-weight:800;font-size:15px;font-family:var(--f);cursor:pointer">Request Payout →</button>';
   } else {
-    h+='<div style="margin-top:14px;padding:12px;border-radius:12px;background:rgba(255,255,255,.15);font-size:12.5px;text-align:center">Minimum payout is '+money(MIN_PAYOUT)+'. '+(pending>0?'Earn '+money(MIN_PAYOUT-pending)+' more.':'No commission yet.')+'</div>';
+    h+='<div style="margin-top:14px;padding:12px;border-radius:12px;background:rgba(255,255,255,.15);font-size:12.5px;text-align:center">Minimum payout is '+money(MIN_PAYOUT)+'. '+(available>0?'Earn '+money(MIN_PAYOUT-available)+' more to cash out.':(maturing>0?money(maturing)+' maturing — available in '+(nextDays||HOLD_DAYS)+'d.':'No commission yet.'))+'</div>';
   }
   h+='</div>';
 
   // ── 3 stat cards ──
   h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">';
-  [['Pending',pending,'var(--amber)'],['Paid out',paid,'var(--green)'],['Lifetime',total,'var(--text)']].forEach(function(c){
+  [['Available',available,'var(--green)'],['Maturing',maturing,'var(--amber)'],['Paid out',paid,'var(--text)']].forEach(function(c){
     h+='<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:12px 10px;text-align:center">'
       +'<div style="font-size:10px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">'+c[0]+'</div>'
       +'<div style="font-size:16px;font-weight:800;color:'+c[2]+';letter-spacing:-.02em">'+money(c[1])+'</div></div>';
@@ -8964,7 +8980,7 @@ function partnerDashHTML() {
 
   // ── Commission rate note ──
   h+='<div style="background:var(--bluel);border:1px solid #bfdbfe;border-radius:12px;padding:11px 13px;margin-bottom:12px;font-size:12.5px;color:#1e40af;line-height:1.4">'
-    +'<b>Your rate:</b> 10% on a client\u2019s first order, 5% on every recharge after.</div>';
+    +'<b>Your rate:</b> 10% on a client\u2019s first order, 5% on every recharge after.<br>Commissions become available to cash out <b>7 days</b> after the payment.</div>';
 
   // ── Transactions (commission ledger) ──
   h+='<div style="font-size:14px;font-weight:800;color:var(--text);margin:4px 2px 8px">Transactions</div>';
@@ -8973,7 +8989,10 @@ function partnerDashHTML() {
   } else {
     h+='<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden">';
     comms.forEach(function(c,i){
-      var st=c.status==='paid'?['Paid','var(--green)','var(--greenl)']:c.status==='requested'?['Requested','#2563eb','var(--bluel)']:['Earned','var(--amber)','var(--amberl)'];
+      var st = c.status==='paid' ? ['Paid','var(--green)','var(--greenl)']
+             : c.status==='requested' ? ['Requested','#2563eb','var(--bluel)']
+             : commMature(c) ? ['Available','var(--green)','var(--greenl)']
+             : ['In '+commDaysLeft(c)+'d','var(--amber)','var(--amberl)'];
       var who=(c.leads&&c.leads.name)||c.client_name||c.company||'Client';
       var typ=c.commission_type==='recurring'?'Recharge · 5%':(c.commission_type==='first'?'First order · 10%':((c.rate?(c.rate*100)+'%':'')));
       h+='<div style="display:flex;align-items:center;gap:11px;padding:13px 14px;'+(i?'border-top:1px solid var(--border)':'')+'">'
@@ -8999,8 +9018,10 @@ function partnerDashHTML() {
 
 // Request payout for all "earned" commissions
 async function requestPayout(){
-  var comms=(window._partnerComms||[]).filter(function(c){return c.status==='earned';});
-  if(!comms.length){ showToast('Nothing to cash out'); return; }
+  var HOLD=7, DAY=86400000, nowMs=Date.now();
+  function mature(c){ var t=c.earned_at?new Date(c.earned_at).getTime():0; return t ? (nowMs>=t+HOLD*DAY) : true; }
+  var comms=(window._partnerComms||[]).filter(function(c){return c.status==='earned' && mature(c);});
+  if(!comms.length){ showToast('Nothing available yet — commissions release 7 days after payment'); return; }
   var amt=comms.reduce(function(s,c){return s+(+c.commission_cad||0);},0);
   var ids=comms.map(function(c){return c.id;}).filter(Boolean);
   if(typeof sbFetch!=='function'){ showToast('Payout requested'); return; }
