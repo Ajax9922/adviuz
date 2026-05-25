@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-24 leadcard-v21</title>
+<title>Adviuz Hub · v2026-05-24 leadcard-v22</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -129,6 +129,12 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
 .lr-acts{margin:10px 15px 0;display:flex;flex-direction:column;gap:5px;position:relative;z-index:1}
 .lr-act-line{font-size:12px;color:var(--sub);line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lr-act-line b{color:var(--text);font-weight:700}
+.lr-act-t{font-weight:400;color:var(--muted)}
+.lr-ai{font-size:12px;color:var(--text);line-height:1.45;background:linear-gradient(135deg,rgba(124,58,237,.09),rgba(124,58,237,.02));border:1px solid rgba(124,58,237,.16);border-radius:9px;padding:7px 10px}
+.lr-ai-btn{align-self:flex-start;margin-top:1px;font-size:11px;font-weight:700;color:#7c3aed;background:none;border:none;padding:2px 0;cursor:pointer;font-family:var(--f)}
+.lead-view-toggle{display:flex;align-items:center;justify-content:center;width:36px;height:34px;border:1px solid var(--border);border-radius:9px;background:var(--white);color:var(--sub);cursor:pointer;flex-shrink:0}
+.lead-view-toggle.on{color:var(--green);border-color:var(--green)}
+.lead-view-toggle svg{width:17px;height:17px}
 .lead-row.sel{outline:2px solid var(--green);outline-offset:-2px}
 .lead-count{font-size:12px;font-weight:600;color:var(--sub)}
 
@@ -2709,7 +2715,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-05-24 leadcard-v21';
+var APP_VERSION = 'v2026-05-24 leadcard-v22';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -4361,7 +4367,13 @@ function leadsHTML(){
   var activeNote = activeCount ? '<span class="lead-count" style="color:var(--green);cursor:pointer" onclick="clearAdvancedFilter()">'+activeCount+' filter'+(activeCount>1?'s':'')+' · clear</span>'
                                : '<span class="lead-count">'+vis.length+' lead'+(vis.length!==1?'s':'')+'</span>';
 
-  return '<div class="filter-bar" style="display:flex;align-items:center;gap:8px">'+activeNote+'<div style="flex:1"></div>'+sortSel+'</div>'
+  if(!window._leadView) window._leadView='detailed';
+  var vt = window._leadView==='compact'
+    ? '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>'
+    : '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/></svg>';
+  var viewToggle='<button class="lead-view-toggle'+(window._leadView==='detailed'?' on':'')+'" onclick="window._leadView=(window._leadView===\'compact\'?\'detailed\':\'compact\');render()" title="'+(window._leadView==='compact'?'Show notes':'Hide notes')+'">'+vt+'</button>';
+
+  return '<div class="filter-bar" style="display:flex;align-items:center;gap:8px">'+activeNote+'<div style="flex:1"></div>'+viewToggle+sortSel+'</div>'
     +(anySel?'<div style="background:#e7f8ee;padding:8px 16px;font-size:12px;font-weight:600;color:var(--green);display:flex;align-items:center;justify-content:space-between"><span>'+selIds.size+' selected</span><span onclick="selectAllVisible()" style="cursor:pointer;text-decoration:underline">Select all '+vis.length+'</span></div>':'')
     +'<div class="lead-list">'+rowsHTML
     +(vis.length?'<div class="list-end">'+vis.length+' lead'+(vis.length!==1?'s':'')+' · end of list<div class="app-ver">'+APP_VERSION+'</div></div>':'')
@@ -4577,6 +4589,36 @@ function fmtNum(n) {
 }
 
 
+// Natural, clean activity label (no verbose subjects/from-lines)
+function cleanActLabel(a){
+  var t=(a.type||'').toLowerCase(), lbl=(a.label||'');
+  if(t==='email'||t==='email_sent'||/email/i.test(lbl)) return /receiv|inbound|open/i.test(lbl)?'Email received':'Email sent';
+  if(t==='sms'||/sms|text/i.test(lbl))                   return /receiv|inbound/i.test(lbl)?'SMS received':'SMS sent';
+  if(t==='call'||/call|dial/i.test(lbl))                 return /inbound|received/i.test(lbl)?'Inbound call':(/outbound|made/i.test(lbl)?'Outbound call':'Call');
+  if(t==='note'||/note/i.test(lbl))                      return 'Note';
+  if(t==='fu'||/meeting/i.test(lbl))                     return /meeting/i.test(lbl)?'Meeting scheduled':'Follow-up scheduled';
+  if(t==='stage_change'||/stage/i.test(lbl))             return 'Stage changed';
+  return lbl||'Activity';
+}
+
+// On-demand AI summary for a lead (calls the lead-summary Edge Function)
+async function summarizeLead(id){
+  var l=leads.find(function(x){return x.id===id;}); if(!l) return;
+  if(l._summarizing) return;
+  l._summarizing=true; l.ai_summary='Summarizing…'; render();
+  try{
+    var acts=(leadAct[id]||[]).slice(0,8).map(function(a){
+      return cleanActLabel(a)+(a.time?' ('+a.time+')':'')+(a.body?': '+a.body:'');
+    });
+    var res=await sbFetch('/functions/v1/lead-summary',{method:'POST',body:JSON.stringify({
+      name:l.company||l.name||'', stage:l.stage||'', location:l.location||'', service:l.svc||'', activities:acts
+    })});
+    var j=await res.json();
+    l.ai_summary=(j && (j.summary||j.text)) ? (j.summary||j.text).trim() : 'No summary available';
+  }catch(e){ l.ai_summary=null; if(typeof showToast==='function') showToast('AI summary failed — is lead-summary deployed?'); }
+  l._summarizing=false; render();
+}
+
 function lRow(l,anySel){
   var init=(l.name||l.company||'?').split(' ').map(function(w){return w[0]}).join('').slice(0,2);
   var isSel=selIds.has(l.id);
@@ -4607,15 +4649,25 @@ function lRow(l,anySel){
   chip(I.phone, l.ph);
   chip(I.svc,   l.svc);
 
-  // Up to 2 most recent activities, numbered, one per line
-  var acts=(leadAct[l.id]||[]).slice(0,2);
+  // Activity block — hidden in compact view; clean & natural in detailed view
   var actsHTML='';
-  if(acts.length){
-    actsHTML='<div class="lr-acts">'+acts.map(function(a,i){
-      var t=a.time?' · '+esc(a.time):'';
-      var b=(a.body&&String(a.body).trim())?' — '+esc(String(a.body).trim()):'';
-      return '<div class="lr-act-line"><b>'+(i+1)+'. '+esc(a.label||a.type||'Activity')+'</b>'+t+b+'</div>';
-    }).join('')+'</div>';
+  if(window._leadView!=='compact'){
+    if(l.ai_summary){
+      actsHTML='<div class="lr-acts"><div class="lr-ai">&#10024; '+esc(l.ai_summary)+'</div></div>';
+    } else {
+      var acts=(leadAct[l.id]||[]).slice(0,2);
+      var lines=acts.map(function(a){
+        var lbl=cleanActLabel(a);
+        var t=a.time?'<span class="lr-act-t"> · '+esc(a.time)+'</span>':'';
+        var body=(lbl==='Note' && a.body && String(a.body).trim())?' — '+esc(String(a.body).trim()):'';
+        return '<div class="lr-act-line"><b>'+esc(lbl)+'</b>'+t+body+'</div>';
+      }).join('');
+      if(lines){
+        actsHTML='<div class="lr-acts">'+lines
+          +'<button class="lr-ai-btn" onclick="event.stopPropagation();summarizeLead('+l.id+')">&#10024; AI summary</button>'
+          +'</div>';
+      }
+    }
   }
 
   return '<div class="lead-row simple'+(isSel?' sel':'')+'" style="--lr-rail:'+rail+'" '
