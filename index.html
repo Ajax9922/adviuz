@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-24 partner-scope-v1</title>
+<title>Adviuz Hub · v2026-05-24 partner-dash-view-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -4121,6 +4121,8 @@ function applyAdvancedFilter(){
 
 function clearAdvancedFilter(){
   window._advFilters = { stages:[], execs:[], locations:[], partners:[], sources:[], services:[], clients:[] };
+  if(typeof schPartners!=='undefined' && schPartners) schPartners.clear();
+  window._viewPartnerComms = null;
   updateFilterDot();
   if(typeof updateActiveFilterBar==='function') updateActiveFilterBar();
   renderAdvancedFilter();
@@ -8997,8 +8999,56 @@ async function loadAdminData() {
   } catch(e) { console.warn('[Admin]', e.message); }
 }
 
+// Returns the single partner id currently filtered (advanced filter or schPartners panel), else null
+function gfFilteredPartnerId(){
+  var af = window._advFilters || {};
+  if(af.partners && af.partners.length===1) return String(af.partners[0]);
+  if(typeof schPartners!=='undefined' && schPartners && schPartners.size===1){
+    return String(Array.from(schPartners)[0]);
+  }
+  return null;
+}
+
+// Render a given partner's dashboard (super-admin viewing a partner)
+function partnerDashForId(pid){
+  var partner = (window._allPartners||[]).find(function(x){return String(x.id)===String(pid);});
+  if(!partner){
+    return '<div style="padding:40px 20px;text-align:center;color:var(--sub)">Loading partner…</div>';
+  }
+  // Point partner-dash globals at this partner, then restore after render
+  var savedData = window._partnerData, savedComms = window._partnerComms, savedLeads = window.leads;
+  window._partnerData = partner;
+  // Scope leads to this partner so the dash's lead-based stats are his
+  window.leads = (savedLeads||[]).filter(function(l){ return String(l.partner_id)===String(pid); });
+  // Load his commissions once (cached per partner), then re-render
+  if(!window._viewPartnerComms || window._viewPartnerComms.pid!==String(pid)){
+    window._viewPartnerComms = {pid:String(pid), rows:[], loading:true};
+    if(typeof sbFetch==='function'){
+      sbFetch('/rest/v1/partner_commissions?partner_id=eq.'+encodeURIComponent(pid)+'&select=*,leads(name)&order=earned_at.desc&limit=100')
+        .then(function(r){return r&&r.ok?r.json():[];})
+        .then(function(rows){ window._viewPartnerComms={pid:String(pid),rows:rows||[],loading:false};
+          if(curTab==='dashboard') document.getElementById('content').innerHTML=adminDashHTML(); })
+        .catch(function(){ window._viewPartnerComms={pid:String(pid),rows:[],loading:false}; });
+    }
+  }
+  window._partnerComms = (window._viewPartnerComms&&window._viewPartnerComms.rows)||[];
+
+  var html = partnerDashHTML();
+  // restore globals so other tabs/admin views are unaffected
+  window._partnerData = savedData; window._partnerComms = savedComms; window.leads = savedLeads;
+
+  // Header strip so admin knows this is a partner view
+  var banner = '<div style="background:var(--bluel);border-bottom:1px solid #bfdbfe;padding:9px 14px;font-size:12.5px;color:#1e40af;font-weight:600;display:flex;align-items:center;justify-content:space-between">'
+    +'<span>👤 Viewing partner: '+(partner.full_name||partner.name||partner.email||'Partner')+'</span>'
+    +'<span onclick="clearAdvancedFilter()" style="cursor:pointer;text-decoration:underline">Exit</span></div>';
+  return banner + html;
+}
+
 function adminDashHTML() {
   if (isPartnerMode()) return partnerDashHTML();
+  // Super admin filtering by a SINGLE partner → show THAT partner's dashboard
+  var fp = gfFilteredPartnerId();
+  if (fp && fp !== '__none__') return partnerDashForId(fp);
   var tabs = [{k:'funds',l:'💰 Funds'},{k:'clients',l:'Clients'},{k:'campaigns',l:'Campaigns'},{k:'allleads',l:'All Leads'},{k:'quotes',l:'Quotes'},{k:'invoices',l:'Invoices'},{k:'affiliates',l:'Affiliates'},{k:'commissions',l:'Commissions'}];
   var cur = window._adminDashTab || 'clients';
   var h = '<div style="display:flex;gap:6px;padding:10px 12px 8px;overflow-x:auto;background:var(--white);border-bottom:1px solid var(--border);-webkit-overflow-scrolling:touch">';
