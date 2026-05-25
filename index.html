@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-24 partner-dash-v1</title>
+<title>Adviuz Hub · v2026-05-24 leadsave-fix-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -4357,7 +4357,7 @@ function leadsHTML(){
   return '<div class="filter-bar" style="display:flex;align-items:center;gap:8px">'+activeNote+'<div style="flex:1"></div>'+sortSel+'</div>'
     +(anySel?'<div style="background:#e7f8ee;padding:8px 16px;font-size:12px;font-weight:600;color:var(--green);display:flex;align-items:center;justify-content:space-between"><span>'+selIds.size+' selected</span><span onclick="selectAllVisible()" style="cursor:pointer;text-decoration:underline">Select all '+vis.length+'</span></div>':'')
     +'<div class="lead-list">'+rowsHTML+'</div>'
-    +'<div style="height:80px"></div>';
+    +'<div style="height:24px"></div>';
 }
 
 function onboardingHTML(){
@@ -6411,7 +6411,14 @@ async function saveNewLead(){
   if(em && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)){if(emErr)emErr.style.display='block';showToast('Invalid email address');return}
 
   var ph = cc + rawPh;
-  var selectedPartnerId = (!isPartnerMode() && document.getElementById('aPartner')) ? (document.getElementById('aPartner').value || null) : null;
+  // In partner mode the lead belongs to THIS partner; admin may pick from dropdown.
+  // Robust: any partner context (role OR _isPartnerMode OR _partnerData) → use partner id.
+  var inPartner = (typeof isPartnerMode==='function' && isPartnerMode())
+                  || window._isPartnerMode === true
+                  || !!(window._partnerData && window._partnerData.id);
+  var selectedPartnerId = inPartner
+    ? ((window._partnerData && window._partnerData.id) || null)
+    : ((document.getElementById('aPartner') && document.getElementById('aPartner').value) || null);
   var lead = {
     id: nxtId, name: company, company: company, ph: ph, em: em,
     stage: 'Fresh Lead', src: 'Manual', svc: 'Digital Flyers',
@@ -6583,14 +6590,18 @@ async function doSaveLead(lead) {
         sms_consent: true, call_consent: true, email_consent: true,
         color: lead.col,
         client_id: window._clientId || null,
-        partner_id: lead.partner_id !== undefined ? lead.partner_id : ((window._partnerData && window._partnerData.id) || null),
+        partner_id: (lead.partner_id || ((window._partnerData && window._partnerData.id) || null)),
         stage_code: 'fresh_lead'
       })
     });
     var data = await res.json();
     if(!res.ok) throw new Error(data.message||data.error||'Save failed');
     var saved = Array.isArray(data)?data[0]:data;
-    lead.id = nxtId++;
+    // Guaranteed-unique local id (max existing + 1) — prevents overwriting an
+    // existing lead that already holds the stale nxtId value.
+    var maxId = leads.reduce(function(m,x){return Math.max(m, x.id||0);}, 0);
+    lead.id = maxId + 1;
+    nxtId = lead.id + 1;
     if(saved && saved.id) lead.dbId = saved.id;
     leads.unshift(lead);
 
