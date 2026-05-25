@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-24 footer-even-v18</title>
+<title>Adviuz Hub · v2026-05-24 addlead-batch-v19</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1895,12 +1895,13 @@ input[type=number]{-moz-appearance:textfield}
             <option value="+971">🇦🇪 +971</option>
             <option value="+92">🇵🇰 +92</option>
           </select>
-          <input class="finp" id="aPh" placeholder="10-digit number" type="tel" maxlength="15" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)" inputmode="numeric" oninput="this.value=this.value.replace(/[^0-9]/g,'')" style="flex:1">
+          <input class="finp" id="aPh" placeholder="10-digit number" type="tel" maxlength="20" oninput="cleanPhoneInput(this)" inputmode="numeric" style="flex:1">
         </div>
         <div id="aPhErr" style="font-size:11px;color:var(--red);margin-top:4px;display:none">Enter exactly 10 digits</div>
       </div>
       <div class="fg"><label class="flbl">Email</label>
-        <input class="finp" id="aEm" placeholder="client@email.com" type="email">
+        <input class="finp" id="aEm" placeholder="client@email.com" type="email" oninput="emailSuggest(this.value)">
+        <div id="aEmSug" style="display:none;flex-wrap:wrap;gap:6px;margin-top:8px"></div>
         <div id="aEmErr" style="font-size:11px;color:var(--red);margin-top:4px;display:none">Enter a valid email address</div>
       </div>
       <!-- Hidden fields with defaults -->
@@ -2706,7 +2707,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-05-24 footer-even-v18';
+var APP_VERSION = 'v2026-05-24 addlead-batch-v19';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -3740,7 +3741,7 @@ function mapLead(l, i) {
     location: l.location || '',
     ok: l.sms_consent || false,
     t: timeAgo(l.created_at),
-    rawDate: l.created_at ? l.created_at.slice(0,10) : TOD,
+    rawDate: l.created_at ? locDate(l.created_at) : locToday(),
     col: l.color || COLORS[i % COLORS.length],
     partner_id: l.partner_id || null
   };
@@ -4583,7 +4584,9 @@ function lRow(l,anySel){
   var note=(lastAct && lastAct.body && lastAct.body.trim()) ? (lastAct.time+' · '+lastAct.body.trim()) : '';
   var cb='<div class="l-cb'+(anySel?' vis':'')+(isSel?' chk':'')+'" onclick="event.stopPropagation();toggleSel('+l.id+')"></div>';
   var rail=stgColor(l.stage);
-  var av='<div class="l-av" style="background:linear-gradient(135deg,'+rail+',color-mix(in srgb,'+rail+' 70%,#000));color:#fff">'+init+'</div>';
+  var stgNum=(String(l.stage||'').match(/(\d+)/)||[])[0];
+  var avLabel=stgNum||init;
+  var av='<div class="l-av" style="background:linear-gradient(135deg,'+rail+',color-mix(in srgb,'+rail+' 70%,#000));color:#fff">'+avLabel+'</div>';
 
   // meta chips — show ALL key info at a glance
   function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -4609,6 +4612,7 @@ function lRow(l,anySel){
       +'<div class="l-body">'
         +'<div class="lr-r1"><span class="l-name">'+esc(title)+'</span><span class="l-time">'+l.t+'</span></div>'
         +(subName?'<div class="lr-sub">'+esc(subName)+'</div>':'')
+        +(l.assignedName?'<div class="lr-owner" style="font-size:11.5px;color:var(--sub);margin-top:2px;font-weight:600">&#128100; '+esc(l.assignedName)+'</div>':'')
       +'</div>'
     +'</div>'
     +'<div class="lr-meta">'+stgBadge(l.stage)+chips+'</div>'
@@ -6408,9 +6412,44 @@ function saveNotes(id){var l=leads.find(function(x){return x.id===id});var ta=do
 // ═══════════════════════════════════════
 var pendingNewLead = null;
 
+// ── Data hygiene helpers ──────────────────────────────────
+// Clean any pasted phone (spaces, dashes, parens, +, country code) → 10 digits
+function cleanPhone(v){
+  var d=(v||'').replace(/\D/g,'');
+  if(d.length===11 && d.charAt(0)==='1') d=d.slice(1); // drop NANP country code
+  return d.slice(0,10);
+}
+function cleanPhoneInput(el){ if(el) el.value=cleanPhone(el.value); }
+
+// Local-timezone date helpers (en-CA → "YYYY-MM-DD" in LOCAL time, not UTC)
+function locDate(v){ try{ var d=new Date(v); return isNaN(d)?'':d.toLocaleDateString('en-CA'); }catch(e){ return ''; } }
+function locToday(){ return new Date().toLocaleDateString('en-CA'); }
+
+// Generic email-domain suggestions when the user types "@"
+function emailSuggest(val){
+  var box=document.getElementById('aEmSug'); if(!box) return;
+  var at=(val||'').indexOf('@');
+  if(at<1){ box.style.display='none'; box.innerHTML=''; return; }
+  var local=val.slice(0,at), dompart=val.slice(at+1).toLowerCase();
+  var doms=['gmail.com','outlook.com','yahoo.com','hotmail.com','icloud.com','rediffmail.com'];
+  var matches=doms.filter(function(d){ return d.indexOf(dompart)===0; });
+  if(!matches.length || (matches.length===1 && matches[0]===dompart)){ box.style.display='none'; box.innerHTML=''; return; }
+  box.style.display='flex';
+  box.innerHTML=matches.map(function(d){
+    return '<span onclick="chooseEmailDomain(this)" data-em="'+local.replace(/"/g,'')+'@'+d+'" '
+      +'style="display:inline-block;padding:6px 11px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:12.5px;color:var(--text);cursor:pointer">'
+      +local+'@'+d+'</span>';
+  }).join('');
+}
+function chooseEmailDomain(el){
+  var em=el.getAttribute('data-em'); var inp=document.getElementById('aEm');
+  if(inp) inp.value=em;
+  var box=document.getElementById('aEmSug'); if(box){ box.style.display='none'; box.innerHTML=''; }
+}
+
 async function saveNewLead(){
   var company = (document.getElementById('aCompany')||{}).value.trim();
-  var rawPh   = (document.getElementById('aPh')||{}).value.trim();
+  var rawPh   = cleanPhone((document.getElementById('aPh')||{}).value);
   var cc      = (document.getElementById('aPhCC')||{}).value || '+1';
   var em      = (document.getElementById('aEm')||{}).value.trim();
   var phErr   = document.getElementById('aPhErr');
@@ -6616,6 +6655,9 @@ async function doSaveLead(lead) {
     lead.id = maxId + 1;
     nxtId = lead.id + 1;
     if(saved && saved.id) lead.dbId = saved.id;
+    lead.created_at = (saved && saved.created_at) || new Date().toISOString();
+    lead.rawDate = locDate(lead.created_at);
+    lead.t = 'just now';
     leads.unshift(lead);
 
     // Auto-assign lead to the person who created it (manual = creator owns it)
@@ -8702,7 +8744,7 @@ async function loadPartnerLeads() {
           stage_code: l.stage_code||'fresh_lead',
           note: l.notes||'',
           t: l.created_at ? new Date(l.created_at).toLocaleDateString('en-CA',{month:'short',day:'numeric'}) : '',
-          rawDate: l.created_at ? l.created_at.slice(0,10) : TOD,
+          rawDate: l.created_at ? locDate(l.created_at) : locToday(),
           created_at: l.created_at || '',
           col: ['#00a884','#2563eb','#7c3aed','#d97706','#0891b2','#db2777'][name.charCodeAt(0)%6]||'#00a884',
           partner_id: l.partner_id
