@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-24 payouthold-v27</title>
+<title>Adviuz Hub · v2026-05-25 supersede-v28</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1385,6 +1385,27 @@ input[type=number]{-moz-appearance:textfield}
   </div>
 </div>
 
+<!-- ═══ SUPERSEDE EXISTING QUOTE SHEET ═══ -->
+<div class="sheet-ov" id="supersedeSh" onclick="if(event.target===this)closeSheet('supersedeSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sh-head">
+      <div class="sh-title">Existing open quote</div>
+      <button class="sh-x" onclick="closeSheet('supersedeSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body">
+      <div style="font-size:13px;color:var(--sub);line-height:1.6;margin-bottom:12px" id="supersedeMsg"></div>
+      <div id="supersedeList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:4px"></div>
+      <div style="background:var(--amberl);border-radius:10px;padding:11px 13px;font-size:12px;color:#92400e;margin-top:12px;line-height:1.6">
+        Cancelling stops all future reminders on the old quote(s). Keeping them active means the client may still get reminders for both.
+      </div>
+    </div>
+    <div class="sh-foot">
+      <button class="btn btn-ghost" onclick="chooseSupersede('keep')" style="flex:1">Keep both active</button>
+      <button class="btn" onclick="chooseSupersede('cancel')" style="flex:1.4;justify-content:center;background:var(--green);color:#fff">Cancel old &amp; send new</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ PLANS & PRICING SHEET ═══ -->
 <div class="sheet-ov" id="plansSh" onclick="if(event.target===this)closeSheet('plansSh')">
   <div class="sheet"><div class="sheet-handle"></div>
@@ -2740,7 +2761,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-05-24 payouthold-v27';
+var APP_VERSION = 'v2026-05-25 supersede-v28';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -10650,6 +10671,37 @@ function addPlanToQuote(){
 
 
 var _quoteLeadId = null;
+var _quoteSupersedeChoice = null;  // null=not asked, 'cancel'|'keep'
+var _quoteOpenOld = [];            // old open quotes found for this customer
+
+// Show the "existing open quote" sheet; admin picks cancel-old or keep-both
+function showSupersedeSheet(oldQ){
+  var btn = document.getElementById('sendQuoteBtn');
+  if(btn){ btn.textContent='Send Quote'; btn.disabled=false; } // un-stick the send button
+  var msg = document.getElementById('supersedeMsg');
+  if(msg) msg.innerHTML = 'This client already has <b>'+oldQ.length+' open quote'+(oldQ.length>1?'s':'')+'</b> that '+(oldQ.length>1?'haven\u2019t':'hasn\u2019t')+' been paid. What should happen to '+(oldQ.length>1?'them':'it')+' when you send the new one?';
+  var list = document.getElementById('supersedeList');
+  if(list){
+    list.innerHTML = oldQ.map(function(o){
+      var amt = 'CAD $'+(+o.total||0).toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2});
+      var d = o.created_at ? new Date(o.created_at).toLocaleDateString('en-CA',{month:'short',day:'numeric'}) : '';
+      var stCol = o.status==='viewed' ? 'var(--amber)' : 'var(--blue)';
+      return '<div style="display:flex;align-items:center;gap:10px;padding:11px 13px;background:var(--bg);border:1px solid var(--border);border-radius:10px">'
+        +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;color:var(--text)">'+(o.quote_number||'Quote')+'</div>'
+        +'<div style="font-size:11px;color:var(--sub)">'+d+'</div></div>'
+        +'<div style="text-align:right"><div style="font-size:13px;font-weight:800;color:var(--text)">'+amt+'</div>'
+        +'<span style="font-size:10px;font-weight:700;color:'+stCol+';text-transform:uppercase">'+(o.status||'')+'</span></div></div>';
+    }).join('');
+  }
+  openSheet('supersedeSh');
+}
+
+// Admin made a choice → resume the send
+function chooseSupersede(choice){
+  _quoteSupersedeChoice = choice;
+  closeSheet('supersedeSh');
+  saveAndSendQuote();
+}
 var _quoteItems = [];
 
 // ═══════════════════════════════════════════════════════
@@ -10840,6 +10892,10 @@ function openCreateQuoteSheet(lid) {
   }
   _quoteLeadId = dbLeadId;
 
+  // Fresh supersede decision for each new quote
+  _quoteSupersedeChoice = null;
+  _quoteOpenOld = [];
+
   // Start with NO items — user selects from plans or adds manually
   _quoteItems = [];
 
@@ -11006,6 +11062,20 @@ async function saveAndSendQuote() {
   if(!email) { showToast('Email required'); return; }
   if(!_quoteItems.length || _quoteItems.some(function(i){return !i.name;})) {
     showToast('Add at least one item with a name'); return;
+  }
+
+  // ── Existing open quote? Ask the admin once: cancel old or keep both ──
+  if(_quoteSupersedeChoice === null) {
+    try {
+      var filt = email ? ('recipient_email=eq.'+encodeURIComponent(email))
+                       : (_quoteLeadId ? ('lead_id=eq.'+_quoteLeadId) : null);
+      if(filt) {
+        var oldRes = await sbFetch('/rest/v1/quotes?'+filt+'&status=in.(sent,viewed)&select=id,quote_number,total,status,created_at&order=created_at.desc');
+        var oldQ = oldRes.ok ? await oldRes.json() : [];
+        if(oldQ.length) { _quoteOpenOld = oldQ; showSupersedeSheet(oldQ); return; }
+      }
+    } catch(e) { /* non-fatal — proceed without asking */ }
+    _quoteSupersedeChoice = 'keep'; // nothing open to supersede
   }
 
   var sub = _quoteItems.reduce(function(s,i){return s+(i.total||0);},0);
@@ -11177,6 +11247,24 @@ async function saveAndSendQuote() {
         meta:      { quote_id:q.id, quote_number:q.quote_number, total:total }
       });
     }
+
+    // If the admin chose to supersede, retire the old open quotes (stops reminders)
+    if(_quoteSupersedeChoice === 'cancel' && _quoteOpenOld.length) {
+      var oldIds = _quoteOpenOld.map(function(o){return o.id;}).filter(Boolean);
+      if(oldIds.length) {
+        sbFetch('/rest/v1/quotes?id=in.('+oldIds.join(',')+')', {
+          method:'PATCH', body:JSON.stringify({status:'expired'})
+        }).then(function(){
+          if(_quoteLeadId) logActivity({
+            lead_id: _quoteLeadId, client_id: window._clientId||null,
+            type:'quote_superseded', label:'Quote Superseded',
+            body:'\u267B\uFE0F '+oldIds.length+' old quote'+(oldIds.length>1?'s':'')+' cancelled — replaced by '+(q.quote_number||'new quote'),
+            meta:{ cancelled:oldIds, new_quote_id:q.id }
+          });
+        }).catch(function(){});
+      }
+    }
+    _quoteSupersedeChoice = null; _quoteOpenOld = [];
 
     // Generate quote PDF via pdfmonkey (non-blocking)
     fetch(SB_URL+'/functions/v1/generate-invoice',{
