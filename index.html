@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-24 addlead-batch-v19</title>
+<title>Adviuz Hub · v2026-05-24 addlead-batch-v20</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2707,7 +2707,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-05-24 addlead-batch-v19';
+var APP_VERSION = 'v2026-05-24 addlead-batch-v20';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -6458,11 +6458,11 @@ async function saveNewLead(){
   if(emErr) emErr.style.display='none';
 
   if(!company){showToast('Company / Business Name is required');return}
-  if(!rawPh){showToast('Phone is required');return}
-  if(rawPh.length!==10){if(phErr)phErr.style.display='block';showToast('Phone must be exactly 10 digits');return}
+  if(!rawPh && !em){showToast('Add a phone number or an email to save');return}
+  if(rawPh && rawPh.length!==10){if(phErr)phErr.style.display='block';showToast('Phone must be exactly 10 digits');return}
   if(em && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)){if(emErr)emErr.style.display='block';showToast('Invalid email address');return}
 
-  var ph = cc + rawPh;
+  var ph = rawPh ? (cc + rawPh) : '';
   // In partner mode the lead belongs to THIS partner; admin may pick from dropdown.
   // Robust: any partner context (role OR _isPartnerMode OR _partnerData) → use partner id.
   var inPartner = (typeof isPartnerMode==='function' && isPartnerMode())
@@ -6482,15 +6482,17 @@ async function saveNewLead(){
   var cleanPh = ph.replace(/[^0-9]/g,'');
   var dup = null, dupReason = '';
 
-  var phoneMatch = leads.find(function(l){ return l.ph.replace(/[^0-9]/g,'') === cleanPh; });
-  if(phoneMatch){ dup=phoneMatch; dupReason='Same phone number: '+ph; }
+  if(cleanPh.length>=10){
+    var phoneMatch = leads.find(function(l){ return l.ph && l.ph.replace(/[^0-9]/g,'') === cleanPh; });
+    if(phoneMatch){ dup=phoneMatch; dupReason='Same phone number: '+ph; }
+  }
   if(!dup && em) {
     var emailMatch = leads.find(function(l){ return l.em && l.em.toLowerCase()===em.toLowerCase(); });
     if(emailMatch){ dup=emailMatch; dupReason='Same email: '+em; }
   }
 
   // If not found locally, check DB (catches cross-partner duplicates)
-  if (!dup) {
+  if (!dup && cleanPh.length>=10) {
     try {
       var dbCheck = await sbFetch('/rest/v1/leads?phone=eq.'+encodeURIComponent(ph)+'&client_id=eq.'+window._clientId+'&limit=1');
       if (dbCheck.ok) {
