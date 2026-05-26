@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-25 emailtpl-v29</title>
+<title>Adviuz Hub · v2026-05-26 partnerui-v31</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1232,6 +1232,7 @@ input[type=number]{-moz-appearance:textfield}
       </div>
       <div class="fg"><label class="flbl">CC</label>
         <input class="finp" id="emailCc" type="email" placeholder="cc@email.com (optional)">
+        <div id="emailCcSug" style="display:none;flex-wrap:wrap;gap:6px;margin-top:7px"></div>
       </div>
       <div class="fg"><label class="flbl">Subject <span style="color:var(--red);font-weight:400;font-size:10px">* required</span></label>
         <div style="display:flex;align-items:center;border:1.5px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg)" id="subjWrapper">
@@ -2761,7 +2762,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-05-25 emailtpl-v29';
+var APP_VERSION = 'v2026-05-26 partnerui-v31';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7684,6 +7685,39 @@ async function sendSms(){
     if (btn) { btn.textContent='Send SMS'; btn.disabled=false; }
   }
 }
+function ccChipActive(email){
+  var cur = ((document.getElementById('emailCc')||{}).value||'')
+    .split(',').map(function(s){return s.trim().toLowerCase();}).filter(Boolean);
+  return cur.indexOf(String(email).toLowerCase())!==-1;
+}
+function renderCcSuggestions(l){
+  var box=document.getElementById('emailCcSug'); if(!box) return;
+  var primary=String(l.em||'').toLowerCase();
+  var extras=[l.em2,l.em3,l.em4,l.em5].map(function(e){return (e||'').trim();})
+    .filter(function(e){ return e && e.toLowerCase()!==primary; });
+  // de-dupe
+  var seen={}, list=[];
+  extras.forEach(function(e){ var k=e.toLowerCase(); if(!seen[k]){seen[k]=1;list.push(e);} });
+  if(!list.length){ box.style.display='none'; box.innerHTML=''; return; }
+  box.style.display='flex';
+  box.innerHTML='<span style="font-size:11px;color:var(--sub);width:100%">This lead has other emails — tap to CC:</span>'
+    + list.map(function(e){
+        var on=ccChipActive(e);
+        return '<button type="button" onclick="toggleCc(this,\''+e.replace(/'/g,"\\'")+'\')" '
+          +'style="font-size:12px;font-weight:600;padding:5px 11px;border-radius:999px;cursor:pointer;border:1px solid '
+          +(on?'var(--green);background:var(--greenl);color:#065f46':'var(--border);background:var(--bg);color:var(--text)')+'">'
+          +(on?'✓ ':'+ ')+esc(e)+'</button>';
+      }).join('');
+}
+function toggleCc(btn,email){
+  var inp=document.getElementById('emailCc'); if(!inp) return;
+  var cur=inp.value.split(',').map(function(s){return s.trim();}).filter(Boolean);
+  var i=cur.map(function(s){return s.toLowerCase();}).indexOf(email.toLowerCase());
+  if(i===-1){ cur.push(email); btn.style.cssText='font-size:12px;font-weight:600;padding:5px 11px;border-radius:999px;cursor:pointer;border:1px solid var(--green);background:var(--greenl);color:#065f46'; btn.textContent='✓ '+email; }
+  else { cur.splice(i,1); btn.style.cssText='font-size:12px;font-weight:600;padding:5px 11px;border-radius:999px;cursor:pointer;border:1px solid var(--border);background:var(--bg);color:var(--text)'; btn.textContent='+ '+email; }
+  inp.value=cur.join(', ');
+}
+
 function openEmail(id){
   var l=leads.find(function(x){return x.id===id});
   if(!l) return;
@@ -7691,6 +7725,7 @@ function openEmail(id){
   var company = l.company || l.name || '';
   if(document.getElementById('emailTo'))   document.getElementById('emailTo').value = l.em||'';
   if(document.getElementById('emailCc'))   document.getElementById('emailCc').value = '';
+  renderCcSuggestions(l);
   if(document.getElementById('emailSubj')) document.getElementById('emailSubj').value = '';
   if(document.getElementById('emailBody')) document.getElementById('emailBody').value = 'Hi '+l.name.split(' ')[0]+',\n\n';
   // Set company in subject prefix
@@ -8996,54 +9031,78 @@ function partnerDashHTML() {
   var MIN_PAYOUT = 100;
   var name = p.full_name||p.name||'Partner';
 
-  var money=function(v){return 'CAD $'+(+v||0).toFixed(2);};
+  var money=function(v){return '$'+(+v||0).toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2});};
   var fmtD=function(s){return s?new Date(s).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}):'';};
+  var matureDate=function(c){ return fmtD(new Date(matMs(c)).toISOString()); };
 
-  var h='<div style="padding:14px 12px 90px">';
+  var h='<div style="padding:16px 14px 100px">';
 
-  // ── Cashout hero ──
-  h+='<div style="background:linear-gradient(135deg,#0b3d2e,#00a884);border-radius:18px;padding:20px;color:#fff;margin-bottom:12px;box-shadow:0 10px 30px -10px rgba(0,168,132,.5)">';
-  h+='<div style="font-size:12px;font-weight:700;opacity:.85;letter-spacing:.06em;text-transform:uppercase">Available to cash out</div>';
-  h+='<div style="font-size:38px;font-weight:900;letter-spacing:-.03em;margin:4px 0 2px">'+money(available)+'</div>';
-  h+='<div style="font-size:12px;opacity:.8">'+name+(maturing>0?' · '+money(maturing)+' maturing'+(nextDays!=null?' (in '+nextDays+'d)':''):'')+(requested>0?' · '+money(requested)+' requested':'')+'</div>';
+  // ── Greeting ──
+  h+='<div style="font-size:20px;font-weight:800;color:var(--text);letter-spacing:-.02em;margin:2px 2px 14px">Hi '+name.split(' ')[0]+' 👋</div>';
+
+  // ── ONE big "your money" card ──
+  var heroSub, heroAction;
   if(available>=MIN_PAYOUT){
-    h+='<button onclick="requestPayout()" style="margin-top:14px;width:100%;padding:13px;border:none;border-radius:12px;background:#fff;color:#0b3d2e;font-weight:800;font-size:15px;font-family:var(--f);cursor:pointer">Request Payout →</button>';
+    heroSub = 'Ready to withdraw now';
+    heroAction = '<button onclick="requestPayout()" style="margin-top:16px;width:100%;padding:15px;border:none;border-radius:14px;background:#fff;color:#0b3d2e;font-weight:800;font-size:16px;font-family:var(--f);cursor:pointer">Withdraw '+money(available)+' →</button>';
+  } else if(available>0){
+    heroSub = 'You need '+money(MIN_PAYOUT)+' to withdraw — '+money(MIN_PAYOUT-available)+' to go';
+    heroAction = '<div style="margin-top:14px;padding:12px;border-radius:12px;background:rgba(255,255,255,.16);font-size:13px;text-align:center">Keep going! Withdraw once you reach '+money(MIN_PAYOUT)+'.</div>';
+  } else if(maturing>0){
+    heroSub = money(maturing)+' is on its way — unlocks in '+(nextDays||HOLD_DAYS)+' day'+((nextDays||HOLD_DAYS)===1?'':'s');
+    heroAction = '<div style="margin-top:14px;padding:12px;border-radius:12px;background:rgba(255,255,255,.16);font-size:13px;text-align:center">Your money unlocks 7 days after each client payment.</div>';
   } else {
-    h+='<div style="margin-top:14px;padding:12px;border-radius:12px;background:rgba(255,255,255,.15);font-size:12.5px;text-align:center">Minimum payout is '+money(MIN_PAYOUT)+'. '+(available>0?'Earn '+money(MIN_PAYOUT-available)+' more to cash out.':(maturing>0?money(maturing)+' maturing — available in '+(nextDays||HOLD_DAYS)+'d.':'No commission yet.'))+'</div>';
+    heroSub = 'No earnings yet — share your link below to start';
+    heroAction = '';
   }
+  h+='<div style="background:linear-gradient(135deg,#0b3d2e,#00a884);border-radius:20px;padding:24px 20px;color:#fff;margin-bottom:14px;box-shadow:0 12px 32px -12px rgba(0,168,132,.55)">';
+  h+='<div style="font-size:13px;font-weight:600;opacity:.85">Money you can withdraw</div>';
+  h+='<div style="font-size:46px;font-weight:900;letter-spacing:-.03em;margin:2px 0 4px">'+money(available)+'</div>';
+  h+='<div style="font-size:13px;opacity:.9">'+heroSub+'</div>';
+  h+=heroAction;
   h+='</div>';
 
-  // ── 3 stat cards ──
-  h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">';
-  [['Available',available,'var(--green)'],['Maturing',maturing,'var(--amber)'],['Paid out',paid,'var(--text)']].forEach(function(c){
-    h+='<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:12px 10px;text-align:center">'
-      +'<div style="font-size:10px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">'+c[0]+'</div>'
-      +'<div style="font-size:16px;font-weight:800;color:'+c[2]+';letter-spacing:-.02em">'+money(c[1])+'</div></div>';
-  });
-  h+='</div>';
+  // ── Two simple follow-on numbers (only if they exist) ──
+  var pills=[];
+  if(maturing>0) pills.push(['⏳ On the way', money(maturing), 'unlocks in '+(nextDays||HOLD_DAYS)+'d', 'var(--amber)']);
+  if(paid>0)     pills.push(['✅ Already paid to you', money(paid), 'lifetime', 'var(--green)']);
+  if(pills.length){
+    h+='<div style="display:grid;grid-template-columns:repeat('+pills.length+',1fr);gap:10px;margin-bottom:14px">';
+    pills.forEach(function(c){
+      h+='<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:13px">'
+        +'<div style="font-size:11.5px;font-weight:700;color:var(--sub);margin-bottom:3px">'+c[0]+'</div>'
+        +'<div style="font-size:19px;font-weight:800;color:'+c[3]+';letter-spacing:-.02em">'+c[1]+'</div>'
+        +'<div style="font-size:11px;color:var(--sub);margin-top:1px">'+c[2]+'</div></div>';
+    });
+    h+='</div>';
+  }
 
-  // ── Commission rate note ──
-  h+='<div style="background:var(--bluel);border:1px solid #bfdbfe;border-radius:12px;padding:11px 13px;margin-bottom:12px;font-size:12.5px;color:#1e40af;line-height:1.4">'
-    +'<b>Your rate:</b> 10% on a client\u2019s first order, 5% on every recharge after.<br>Commissions become available to cash out <b>7 days</b> after the payment.</div>';
+  // ── Plain-English "how you earn" ──
+  h+='<div style="background:var(--bluel);border-radius:14px;padding:13px 15px;margin-bottom:16px;font-size:13px;color:#1e40af;line-height:1.5">'
+    +'<b>How you earn:</b> You get <b>10%</b> the first time a client you referred pays, and <b>5%</b> every time they pay again. Your money becomes withdrawable <b>7 days</b> after each payment.</div>';
 
-  // ── Transactions (commission ledger) ──
-  h+='<div style="font-size:14px;font-weight:800;color:var(--text);margin:4px 2px 8px">Transactions</div>';
+  // ── Earnings list (friendly) ──
+  h+='<div style="font-size:15px;font-weight:800;color:var(--text);margin:4px 2px 10px">Your earnings</div>';
   if(!comms.length){
-    h+='<div style="background:var(--white);border:1px dashed var(--border);border-radius:12px;padding:28px 16px;text-align:center;color:var(--sub);font-size:13px">No commissions yet.<br>When your client pays an invoice, your commission appears here.</div>';
+    h+='<div style="background:var(--white);border:1px dashed var(--border);border-radius:14px;padding:32px 18px;text-align:center;color:var(--sub);font-size:13.5px;line-height:1.5">No earnings yet.<br>When someone you referred pays their first invoice, you\u2019ll see your commission here.</div>';
   } else {
-    h+='<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden">';
-    comms.forEach(function(c,i){
-      var st = c.status==='paid' ? ['Paid','var(--green)','var(--greenl)']
-             : c.status==='requested' ? ['Requested','#2563eb','var(--bluel)']
-             : commMature(c) ? ['Available','var(--green)','var(--greenl)']
-             : ['In '+commDaysLeft(c)+'d','var(--amber)','var(--amberl)'];
-      var who=(c.leads&&c.leads.name)||c.client_name||c.company||'Client';
-      var typ=c.commission_type==='recurring'?'Recharge · 5%':(c.commission_type==='first'?'First order · 10%':((c.rate?(c.rate*100)+'%':'')));
-      h+='<div style="display:flex;align-items:center;gap:11px;padding:13px 14px;'+(i?'border-top:1px solid var(--border)':'')+'">'
-        +'<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+who+'</div>'
-        +'<div style="font-size:11.5px;color:var(--sub)">'+fmtD(c.earned_at)+(typ?' · '+typ:'')+(c.deal_amount?' · base '+money(c.deal_amount):'')+'</div></div>'
-        +'<div style="text-align:right"><div style="font-size:14px;font-weight:800;color:var(--text)">'+money(c.commission_cad)+'</div>'
-        +'<span style="font-size:10px;font-weight:800;padding:1px 8px;border-radius:20px;background:'+st[2]+';color:'+st[1]+'">'+st[0]+'</span></div>'
+    h+='<div style="display:flex;flex-direction:column;gap:10px">';
+    comms.forEach(function(c){
+      var who=(c.leads&&c.leads.name)||c.client_name||c.company||'Your client';
+      var first = c.commission_type!=='recurring';
+      var typ = first ? 'First payment · 10%' : 'Repeat payment · 5%';
+      var st, stCol, stBg;
+      if(c.status==='paid'){ st='Paid to you'; stCol='var(--green)'; stBg='var(--greenl)'; }
+      else if(c.status==='requested'){ st='Withdrawal requested'; stCol='#2563eb'; stBg='var(--bluel)'; }
+      else if(commMature(c)){ st='Ready to withdraw'; stCol='var(--green)'; stBg='var(--greenl)'; }
+      else { st='Unlocks '+matureDate(c); stCol='#b45309'; stBg='var(--amberl)'; }
+      h+='<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px 15px">'
+        +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">'
+        +'<div style="min-width:0"><div style="font-size:15px;font-weight:800;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+who+'</div>'
+        +'<div style="font-size:12px;color:var(--sub);margin-top:2px">'+typ+' · '+fmtD(c.earned_at)+'</div></div>'
+        +'<div style="font-size:20px;font-weight:900;color:var(--green);letter-spacing:-.02em;white-space:nowrap">'+money(c.commission_cad)+'</div>'
+        +'</div>'
+        +'<div style="margin-top:10px"><span style="font-size:11.5px;font-weight:700;padding:4px 11px;border-radius:20px;background:'+stBg+';color:'+stCol+'">'+st+'</span></div>'
       +'</div>';
     });
     h+='</div>';
@@ -9051,10 +9110,11 @@ function partnerDashHTML() {
 
   // ── Referral link ──
   var refUrl = p.ref_url || ('https://adviuz.ca/?ref=' + (p.ref_code||''));
-  h+='<div style="background:var(--white);border:1px solid var(--green);border-radius:14px;padding:14px;margin-top:12px">'
-    +'<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">\ud83d\udd17 Your referral link</div>'
-    +'<div style="font-size:12px;color:var(--text);word-break:break-all;background:var(--bg);padding:8px 11px;border-radius:9px;margin-bottom:10px">'+refUrl+'</div>'
-    +'<button onclick="copyPartnerRefLink()" style="width:100%;padding:11px;background:var(--green);color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--f)">Copy link</button></div>';
+  h+='<div style="background:var(--white);border:1px solid var(--green);border-radius:16px;padding:16px;margin-top:16px">'
+    +'<div style="font-size:14px;font-weight:800;color:var(--text);margin-bottom:3px">🔗 Share &amp; earn more</div>'
+    +'<div style="font-size:12.5px;color:var(--sub);margin-bottom:10px;line-height:1.4">Send this link to a business. When they sign up and pay, you earn.</div>'
+    +'<div style="font-size:12.5px;color:var(--text);word-break:break-all;background:var(--bg);padding:10px 12px;border-radius:10px;margin-bottom:10px">'+refUrl+'</div>'
+    +'<button onclick="copyPartnerRefLink()" style="width:100%;padding:13px;background:var(--green);color:#fff;border:none;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;font-family:var(--f)">Copy my link</button></div>';
 
   h+='</div>';
   return h;
