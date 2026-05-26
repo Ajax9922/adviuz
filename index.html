@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-26 partnerui-v31</title>
+<title>Adviuz Hub · v2026-05-26 partnerfilter-v32</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1407,6 +1407,17 @@ input[type=number]{-moz-appearance:textfield}
   </div>
 </div>
 
+<!-- ═══ PARTNER EARNINGS PERIOD FILTER ═══ -->
+<div class="sheet-ov" id="partnerPeriodSh" onclick="if(event.target===this)closeSheet('partnerPeriodSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sh-head">
+      <div class="sh-title">Filter by date</div>
+      <button class="sh-x" onclick="closeSheet('partnerPeriodSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" id="partnerPeriodList"></div>
+  </div>
+</div>
+
 <!-- ═══ PLANS & PRICING SHEET ═══ -->
 <div class="sheet-ov" id="plansSh" onclick="if(event.target===this)closeSheet('plansSh')">
   <div class="sheet"><div class="sheet-handle"></div>
@@ -2762,7 +2773,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-05-26 partnerui-v31';
+var APP_VERSION = 'v2026-05-26 partnerfilter-v32';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -9014,20 +9025,52 @@ function isPartnerMode() { return window._staffRole === 'sales_partner'; }
 // Partner dashboard HTML — injected into adminDashHTML() when role = partner
 function partnerDashHTML() {
   var p     = window._partnerData || {};
-  var comms = window._partnerComms || [];
+  var allComms = window._partnerComms || [];
+
+  // ── Date-range filter (applies to the earnings list + period totals) ──
+  if(!window._partnerPeriod) window._partnerPeriod = 'all';
+  var period = window._partnerPeriod;
+  var DAYMS = 86400000, startOfToday = new Date(); startOfToday.setHours(0,0,0,0);
+  function periodStart(){
+    var d = new Date(startOfToday);
+    switch(period){
+      case 'today':  return d.getTime();
+      case 'yest':   return d.getTime()-DAYMS;
+      case '7d':     return d.getTime()-6*DAYMS;
+      case '30d':    return d.getTime()-29*DAYMS;
+      case 'month':  return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+      case 'lmonth': return new Date(d.getFullYear(), d.getMonth()-1, 1).getTime();
+      default:       return 0; // all time
+    }
+  }
+  function periodEnd(){
+    var d = new Date(startOfToday);
+    switch(period){
+      case 'yest':   return d.getTime()-1;            // end of yesterday
+      case 'lmonth': return new Date(d.getFullYear(), d.getMonth(), 1).getTime()-1;
+      default:       return Date.now()+DAYMS;         // through today
+    }
+  }
+  var pStart=periodStart(), pEnd=periodEnd();
+  var periodLabels={all:'All time',today:'Today',yest:'Yesterday','7d':'Last 7 days','30d':'Last 30 days',month:'This month',lmonth:'Last month'};
+  function inPeriod(c){ if(period==='all') return true; var t=c.earned_at?new Date(c.earned_at).getTime():0; return t>=pStart && t<=pEnd; }
+  var comms = allComms.filter(inPeriod);
 
   // Totals — a commission becomes cash-out-able 7 days after the payment (earned_at)
   var HOLD_DAYS = 7, DAY = 86400000, nowMs = Date.now();
   function matMs(c){ var t=c.earned_at?new Date(c.earned_at).getTime():0; return t?t+HOLD_DAYS*DAY:nowMs; }
   function commMature(c){ return nowMs >= matMs(c); }
   function commDaysLeft(c){ return Math.max(1, Math.ceil((matMs(c)-nowMs)/DAY)); }
-  var earnedC   = comms.filter(function(c){return c.status==='earned';});
+  // Withdrawable / on-the-way are computed on ALL commissions (money doesn't disappear when you filter the view)
+  var earnedC   = allComms.filter(function(c){return c.status==='earned';});
   var available = earnedC.filter(commMature).reduce(function(s,c){return s+(+c.commission_cad||0);},0);
   var maturing  = earnedC.filter(function(c){return !commMature(c);}).reduce(function(s,c){return s+(+c.commission_cad||0);},0);
   var nextDays  = earnedC.filter(function(c){return !commMature(c);}).reduce(function(m,c){var d=commDaysLeft(c);return (m===null||d<m)?d:m;}, null);
-  var paid      = comms.filter(function(c){return c.status==='paid';}).reduce(function(s,c){return s+(+c.commission_cad||0);},0);
-  var requested = comms.filter(function(c){return c.status==='requested';}).reduce(function(s,c){return s+(+c.commission_cad||0);},0);
-  var total     = comms.reduce(function(s,c){return s+(+c.commission_cad||0);},0);
+  var paid      = allComms.filter(function(c){return c.status==='paid';}).reduce(function(s,c){return s+(+c.commission_cad||0);},0);
+  var requested = allComms.filter(function(c){return c.status==='requested';}).reduce(function(s,c){return s+(+c.commission_cad||0);},0);
+  var lifetime  = allComms.reduce(function(s,c){return s+(+c.commission_cad||0);},0);
+  // Earned within the selected period (for the period summary + list)
+  var periodEarned = comms.reduce(function(s,c){return s+(+c.commission_cad||0);},0);
   var MIN_PAYOUT = 100;
   var name = p.full_name||p.name||'Partner';
 
@@ -9039,6 +9082,12 @@ function partnerDashHTML() {
 
   // ── Greeting ──
   h+='<div style="font-size:20px;font-weight:800;color:var(--text);letter-spacing:-.02em;margin:2px 2px 14px">Hi '+name.split(' ')[0]+' 👋</div>';
+
+  // ── Total earned (lifetime) strip ──
+  h+='<div style="background:var(--text);border-radius:16px;padding:16px 18px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between">'
+    +'<div><div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.7)">Total earned so far</div>'
+    +'<div style="font-size:28px;font-weight:900;color:#fff;letter-spacing:-.03em;margin-top:2px">'+money(lifetime)+'</div></div>'
+    +'<div style="font-size:30px">💰</div></div>';
 
   // ── ONE big "your money" card ──
   var heroSub, heroAction;
@@ -9081,8 +9130,18 @@ function partnerDashHTML() {
   h+='<div style="background:var(--bluel);border-radius:14px;padding:13px 15px;margin-bottom:16px;font-size:13px;color:#1e40af;line-height:1.5">'
     +'<b>How you earn:</b> You get <b>10%</b> the first time a client you referred pays, and <b>5%</b> every time they pay again. Your money becomes withdrawable <b>7 days</b> after each payment.</div>';
 
-  // ── Earnings list (friendly) ──
-  h+='<div style="font-size:15px;font-weight:800;color:var(--text);margin:4px 2px 10px">Your earnings</div>';
+  // ── Earnings list (friendly) with date-range filter ──
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;margin:8px 2px 10px">'
+    +'<div style="font-size:15px;font-weight:800;color:var(--text)">Your earnings</div>'
+    +'<button onclick="openPartnerPeriod()" style="display:flex;align-items:center;gap:6px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:7px 12px;font-size:12.5px;font-weight:700;color:var(--text);font-family:var(--f);cursor:pointer">'
+    +'<svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>'
+    +(periodLabels[period]||'All time')+' <span style="color:var(--sub)">▾</span></button></div>';
+  // Period summary line (only when a specific range is chosen)
+  if(period!=='all'){
+    h+='<div style="font-size:12.5px;color:var(--sub);margin:-4px 2px 10px">'
+      +(comms.length? '<b style="color:var(--text)">'+money(periodEarned)+'</b> earned · '+comms.length+' commission'+(comms.length===1?'':'s')+' in '+(periodLabels[period]||'').toLowerCase()
+                    : 'No earnings in '+(periodLabels[period]||'').toLowerCase())+'</div>';
+  }
   if(!comms.length){
     h+='<div style="background:var(--white);border:1px dashed var(--border);border-radius:14px;padding:32px 18px;text-align:center;color:var(--sub);font-size:13.5px;line-height:1.5">No earnings yet.<br>When someone you referred pays their first invoice, you\u2019ll see your commission here.</div>';
   } else {
@@ -9118,6 +9177,24 @@ function partnerDashHTML() {
 
   h+='</div>';
   return h;
+}
+
+// Partner earnings period filter
+function openPartnerPeriod(){
+  var box=document.getElementById('partnerPeriodList'); if(!box) return;
+  var cur=window._partnerPeriod||'all';
+  var opts=[['all','All time'],['today','Today'],['yest','Yesterday'],['7d','Last 7 days'],['30d','Last 30 days'],['month','This month'],['lmonth','Last month']];
+  box.innerHTML=opts.map(function(o){
+    var on=o[0]===cur;
+    return '<button onclick="choosePartnerPeriod(\''+o[0]+'\')" style="display:flex;align-items:center;justify-content:space-between;width:100%;text-align:left;background:'+(on?'var(--greenl)':'var(--white)')+';border:1px solid '+(on?'var(--green)':'var(--border)')+';border-radius:12px;padding:14px 16px;margin-bottom:8px;font-size:15px;font-weight:'+(on?'800':'600')+';color:var(--text);font-family:var(--f);cursor:pointer">'
+      +o[1]+(on?'<span style="color:var(--green)">✓</span>':'')+'</button>';
+  }).join('');
+  openSheet('partnerPeriodSh');
+}
+function choosePartnerPeriod(v){
+  window._partnerPeriod=v;
+  closeSheet('partnerPeriodSh');
+  render();
 }
 
 // Request payout for all "earned" commissions
