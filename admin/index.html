@@ -1480,7 +1480,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
     </div>
     <div class="modal-footer">
       <button class="btn-cancel" onclick="resetClientModal();closeModal('clientModal')">Cancel</button>
-      <button class="btn-save" id="cm-submit-btn" onclick="window._clientModalMode==='edit' ? saveClientEdit() : saveClient()">Create client</button>
+      <button class="btn-save" id="cm-submit-btn" onclick="window._clientModalMode==='edit' ? saveClientEdit() : (window._clientModalMode==='convert' ? saveConvertedClient() : saveClient())">Create client</button>
     </div>
   </div>
 </div>
@@ -4432,7 +4432,10 @@ function renderFilteredLeads(leads, clients) {
       '<td>' + (l.source||'direct') + '</td>' +
       '<td><span class="badge ' + sc + '"><span class="badge-dot"></span>' + (l.stage||'New') + '</span></td>' +
       '<td class="td-mono">' + date + '</td>' +
-      '<td><button class="tbl-btn" onclick="markLeadStage(this)" data-id="' + l.id + '" data-stage="Won">Won</button>' +
+      '<td>' +
+          (l.client_id ? '<span class="tbl-btn" style="background:#16a34a;color:#fff;cursor:default" title="Already a client">✓ Client</span>'
+                       : '<button class="tbl-btn" style="background:#16a34a;color:#fff" onclick="convertLeadToClient(this)" data-id="' + l.id + '" data-name="' + (l.name||'').replace(/"/g,'&quot;') + '" data-email="' + (l.email||'').replace(/"/g,'&quot;') + '" data-phone="' + (l.phone||'') + '">&rarr; Client</button>') +
+          '<button class="tbl-btn" onclick="markLeadStage(this)" data-id="' + l.id + '" data-stage="Won">Won</button>' +
           '<button class="tbl-btn danger" onclick="markLeadStage(this)" data-id="' + l.id + '" data-stage="Lost">Lost</button></td>' +
     '</tr>';
   }).join('');
@@ -4447,6 +4450,111 @@ async function markLeadStage(el) {
   toast('Lead marked as ' + stage);
   loadAdminData();
 }
+
+// ── Manual lead → client conversion (RECORD ONLY: no auth login, no email) ──
+var _convertingLeadId = null;
+function convertLeadToClient(el) {
+  var d = el.dataset;
+  _convertingLeadId = d.id || null;
+  window._clientModalMode = 'convert';
+
+  function setVal(id, v){ var e = document.getElementById(id); if (e) e.value = v || ''; }
+  setVal('cm-name',  d.name);
+  setVal('cm-biz',   d.name);   // leads have no company field → default to name; admin edits
+  setVal('cm-email', d.email);
+  var ph = String(d.phone || '').replace(/\D/g,'');
+  setVal('cm-phone', ph.length > 10 ? ph.slice(-10) : ph);
+  setVal('cm-notes', 'Converted from lead on ' + new Date().toISOString().slice(0,10) + ' (e-transfer / manual).');
+
+  // Record-only: password not needed (no login created). Hide the password group.
+  var passGroup = document.getElementById('cm-pass-group');
+  if (passGroup) passGroup.style.display = 'none';
+  // Optional starting view balance available via cm-balance
+  var balGroup = document.getElementById('cm-balance-group');
+  if (balGroup) { balGroup.style.display = ''; var b=document.getElementById('cm-balance'); if(b){ b.value=''; } }
+
+  var title = document.getElementById('clientModalTitle');
+  if (title) title.textContent = 'Convert lead → client';
+  var btn = document.getElementById('cm-submit-btn');
+  if (btn) btn.textContent = 'Create client (no email)';
+
+  var errEl = document.getElementById('cm-error'); if (errEl) errEl.style.display = 'none';
+  openModal('clientModal');
+}
+
+async function saveConvertedClient() {
+  var name  = (document.getElementById('cm-name')?.value  || '').trim();
+  var biz   = (document.getElementById('cm-biz')?.value   || '').trim();
+  var email = (document.getElementById('cm-email')?.value || '').trim();
+  var notes = (document.getElementById('cm-notes')?.value || '').trim();
+  var cc       = document.getElementById('cm-cc')?.value || '+1';
+  var ccClean  = cc.replace('us','');
+  var phoneRaw = (document.getElementById('cm-phone')?.value || '').replace(/\D/g,'');
+  var phone    = phoneRaw.length === 10 ? ccClean + phoneRaw : '';
+  var balRaw   = (document.getElementById('cm-balance')?.value || '').trim();
+  var balance  = balRaw === '' ? null : (parseInt(balRaw,10) || 0);
+
+  if (!biz)   { showClientError('Business name is required.'); return; }
+  if (!email) { showClientError('Email address is required.'); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showClientError('Enter a valid email address.'); return; }
+
+  var btn = document.getElementById('cm-submit-btn');
+  if (btn) { btn.textContent = 'Creating…'; btn.disabled = true; }
+  var errEl = document.getElementById('cm-error'); if (errEl) errEl.style.display = 'none';
+
+  try {
+    // Guard: if a client with this email already exists, link to it instead of duplicating
+    var existR = await sbAdmin('/rest/v1/clients?email=eq.' + encodeURIComponent(email) + '&select=id&limit=1');
+    var exist  = existR.ok ? await existR.json() : [];
+    var clientId = (exist && exist[0] && exist[0].id) || null;
+
+    if (!clientId) {
+      // RECORD ONLY — direct insert, no create_client_user, no auth, no email
+      var body = {
+        business_name: biz,
+        contact_name:  name || null,
+        email:         email,
+        phone:         phone || null,
+        status:        'active',
+        notes:         notes || null
+      };
+      if (balance !== null) body.view_balance = balance;
+      var insR = await sbAdmin('/rest/v1/clients', {
+        method: 'POST',
+        headers: { Prefer: 'return=representation' },
+        body: JSON.stringify(body)
+      });
+      if (!insR.ok) {
+        var e = await insR.json().catch(function(){ return {}; });
+        showClientError('Client create error: ' + (e.message || e.error || 'Unknown — check Supabase'));
+        if (btn) { btn.textContent = 'Create client (no email)'; btn.disabled = false; }
+        return;
+      }
+      var rows = await insR.json().catch(function(){ return []; });
+      clientId = rows && rows[0] && rows[0].id;
+    } else {
+      toast('Email already a client — linking lead to existing client.');
+    }
+
+    // Link the lead → client + mark closed
+    if (_convertingLeadId && clientId) {
+      await sbAdmin('/rest/v1/leads?id=eq.' + _convertingLeadId, {
+        method: 'PATCH',
+        body: JSON.stringify({ client_id: clientId, stage: 'Won' })
+      }).catch(function(){});
+    }
+
+    _convertingLeadId = null;
+    if (typeof resetClientModal === 'function') resetClientModal();
+    closeModal('clientModal');
+    toast('✅ ' + biz + ' is now a client — available in the Ad Builder.');
+    loadAdminData();
+  } catch (err) {
+    showClientError('Conversion failed: ' + (err.message || 'try again'));
+    if (btn) { btn.textContent = 'Create client (no email)'; btn.disabled = false; }
+  }
+}
+
 function exportLeadsCSV() {
   var leads = window._adminLeads || [];
   if (leads.length === 0) { toast('No leads to export'); return; }
