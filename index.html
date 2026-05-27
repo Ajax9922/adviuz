@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-26 partnerlayout-v33</title>
+<title>Adviuz Hub · v2026-05-26 convertcredit-v34</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1407,6 +1407,27 @@ input[type=number]{-moz-appearance:textfield}
   </div>
 </div>
 
+<!-- ═══ CONVERT COMMISSION → ACCOUNT CREDIT ═══ -->
+<div class="sheet-ov" id="convertCreditSh" onclick="if(event.target===this)closeSheet('convertCreditSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sh-head">
+      <div class="sh-title">Use earnings as account credit</div>
+      <button class="sh-x" onclick="closeSheet('convertCreditSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body">
+      <div style="font-size:13px;color:var(--sub);line-height:1.6;margin-bottom:14px">Turn your available earnings into flyer views in your account balance. You can then assign these views to any campaign.</div>
+      <div class="fg"><label class="flbl">Amount to convert (CAD)</label>
+        <input class="finp" id="convAmt" type="number" inputmode="decimal" min="0" oninput="updateConvertPreview()">
+      </div>
+      <div id="convPreview" style="background:var(--greenl);border-radius:12px;padding:14px 16px;margin-top:12px;font-size:14px;color:#065f46;text-align:center">Enter an amount to see how many views you'll get.</div>
+    </div>
+    <div class="sh-foot">
+      <button class="btn btn-ghost" onclick="closeSheet('convertCreditSh')" style="flex:1">Cancel</button>
+      <button class="btn" id="convConfirmBtn" onclick="doConvertCredit()" style="flex:1.4;justify-content:center;background:var(--green);color:#fff">Convert to views</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ PARTNER EARNINGS PERIOD FILTER ═══ -->
 <div class="sheet-ov" id="partnerPeriodSh" onclick="if(event.target===this)closeSheet('partnerPeriodSh')">
   <div class="sheet"><div class="sheet-handle"></div>
@@ -2773,7 +2794,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-05-26 partnerlayout-v33';
+var APP_VERSION = 'v2026-05-26 convertcredit-v34';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -3297,6 +3318,17 @@ async function loadPartnerComms(){
     var res = await sbFetch('/rest/v1/partner_commissions?partner_id=eq.'+window._partnerData.id+'&order=earned_at.desc&limit=50');
     window._partnerComms = res.ok ? await res.json() : [];
   } catch(e){ window._partnerComms = []; }
+  // Cache flyer plan tiers for the convert-to-credit preview (views parsed from name)
+  if(!window._flyerPlans){
+    try {
+      var pr = await sbFetch('/rest/v1/plans?category=eq.digital_flyers&select=price_cad,name,is_active');
+      var rows = pr.ok ? await pr.json() : [];
+      window._flyerPlans = rows.filter(function(p){return p.is_active!==false;}).map(function(p){
+        var v = parseInt(String(p.name||'').replace(/[^0-9]/g,''),10);
+        return { price:+p.price_cad||0, views:(v>0?v:0) };
+      }).filter(function(p){return p.price>0 && p.views>0;});
+    } catch(e){ window._flyerPlans = []; }
+  }
 }
 
 function copyPartnerLink() {
@@ -9099,7 +9131,10 @@ function partnerDashHTML() {
   var cashSub, cashBtn;
   if(available>=MIN_PAYOUT){
     cashSub = money(available)+' ready';
-    cashBtn = '<button onclick="requestPayout()" style="margin-top:10px;width:100%;padding:13px;border:none;border-radius:12px;background:var(--green);color:#fff;font-weight:800;font-size:15px;font-family:var(--f);cursor:pointer">Request Cashout →</button>';
+    cashBtn = '<div style="display:flex;gap:8px;margin-top:10px">'
+      +'<button onclick="requestPayout()" style="flex:1;padding:13px;border:none;border-radius:12px;background:var(--green);color:#fff;font-weight:800;font-size:14px;font-family:var(--f);cursor:pointer">Request Cashout</button>'
+      +'<button onclick="openConvertCredit('+available+')" style="flex:1;padding:13px;border:1px solid var(--green);border-radius:12px;background:var(--white);color:var(--green);font-weight:800;font-size:14px;font-family:var(--f);cursor:pointer">Use as credit</button>'
+      +'</div>';
   } else if(available>0){
     cashSub = money(available)+' ready · need '+money(MIN_PAYOUT)+' to cash out';
     cashBtn = '<button disabled style="margin-top:10px;width:100%;padding:13px;border:none;border-radius:12px;background:var(--bg);color:var(--sub);font-weight:700;font-size:14px;font-family:var(--f)">'+money(MIN_PAYOUT-available)+' more to cash out</button>';
@@ -9188,6 +9223,70 @@ function choosePartnerPeriod(v){
   window._partnerPeriod=v;
   closeSheet('partnerPeriodSh');
   render();
+}
+
+// ── Convert commission → account credit (flyer views) ──
+var _convAvailable = 0;
+function openConvertCredit(avail){
+  _convAvailable = +avail || 0;
+  var inp=document.getElementById('convAmt');
+  if(inp){ inp.value = _convAvailable.toFixed(2); inp.max=_convAvailable; }
+  updateConvertPreview();
+  openSheet('convertCreditSh');
+}
+// Compute views for a $ amount using the same tier rule as the RPC.
+// Plans cached in window._flyerPlans = [{price, views}]; fallback $5/view.
+function convViewsFor(amount){
+  var plans = window._flyerPlans || [];
+  var rate = null;
+  // best (cheapest) per-view rate whose entry cost the amount can afford
+  plans.filter(function(p){return p.views>0;})
+       .map(function(p){return {rate:p.price/p.views, price:p.price};})
+       .sort(function(a,b){return a.rate-b.rate;})
+       .forEach(function(t){ if(rate===null && amount>=t.price) rate=t.rate; });
+  if(rate===null && plans.length){ // fallback: smallest tier's rate
+    var s=plans.slice().sort(function(a,b){return a.price-b.price;})[0];
+    if(s && s.views>0) rate=s.price/s.views;
+  }
+  if(rate===null) rate=5; // last-resort default
+  return { views: Math.floor(amount/rate), rate: rate };
+}
+function updateConvertPreview(){
+  var amt=parseFloat((document.getElementById('convAmt')||{}).value||'0')||0;
+  var box=document.getElementById('convPreview');
+  var btn=document.getElementById('convConfirmBtn');
+  if(!box) return;
+  if(amt<=0){ box.innerHTML='Enter an amount to see how many views you\u2019ll get.'; if(btn)btn.disabled=true; return; }
+  if(amt>_convAvailable+0.001){ box.innerHTML='You only have <b>$'+_convAvailable.toFixed(2)+'</b> available.'; if(btn)btn.disabled=true; return; }
+  var r=convViewsFor(amt);
+  box.innerHTML='<div style="font-size:22px;font-weight:900">'+r.views+' flyer views</div><div style="font-size:12px;margin-top:2px;opacity:.8">$'+amt.toFixed(2)+' at $'+r.rate.toFixed(2)+'/view → added to your account balance</div>';
+  if(btn)btn.disabled=(r.views<1);
+}
+async function doConvertCredit(){
+  var amt=parseFloat((document.getElementById('convAmt')||{}).value||'0')||0;
+  if(amt<=0 || amt>_convAvailable+0.001){ showToast('Enter a valid amount'); return; }
+  var pid=(window._partnerData||{}).id;
+  if(!pid || typeof sbFetch!=='function'){ showToast('Unable to convert right now'); return; }
+  var btn=document.getElementById('convConfirmBtn');
+  if(btn){ btn.disabled=true; btn.textContent='Converting…'; }
+  try{
+    var res=await sbFetch('/rest/v1/rpc/convert_commission_to_views',{
+      method:'POST', body:JSON.stringify({ p_partner_id:pid, p_amount:amt })
+    });
+    var data=res.ok?await res.json():null;
+    if(data && data.ok){
+      closeSheet('convertCreditSh');
+      showToast('\u2705 '+data.views_credited+' views added to your account');
+      await loadPartnerComms();
+      render();
+    } else {
+      showToast((data&&data.error)||'Conversion failed');
+      if(btn){ btn.disabled=false; btn.textContent='Convert to views'; }
+    }
+  }catch(e){
+    showToast('Conversion error: '+(e.message||'try again'));
+    if(btn){ btn.disabled=false; btn.textContent='Convert to views'; }
+  }
 }
 
 // Request payout for all "earned" commissions
