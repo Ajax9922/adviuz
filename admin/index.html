@@ -2459,12 +2459,11 @@ async function saveCampaign() {
           .replace(/<div id="adviuz-bar-wrap">[\s\S]*?<\/div>\s*<\/div>/gi, '')
           .replace(/<script>\(function\(\)\{var U="https:\/\/crhvvfomwkrgwlnfruad[\s\S]*?<\/script>/gi, '')
           .replace(/<!-- adviuz-start -->[\s\S]*?<!-- adviuz-end -->/gi, '');
-        var injected = injectAdviuzTrackingWithCampaign(stripAdviuzTracking(freshHtml), slug, campaignId, clientId, collectCtaConfig());
-        await deployAdToSubdomain(slug, ad.business_name || slug, injected);
-        // Do NOT save injected HTML back to DB — keep DB clean for future deploys
-        toast('✅ ' + slug + '.latest-promo.com redeployed — visit with no URL params!');
+        // HTML already lives in Supabase; the Cloudflare Worker serves it by hostname.
+        // No Netlify redeploy needed on campaign creation.
+        toast('✅ Campaign created and linked to the ad.');
       } else {
-        toast('⚠️ Campaign created but ad has no HTML — deploy the ad first then recreate campaign');
+        toast('⚠️ Campaign created but ad has no HTML — add the ad HTML first');
       }
     }
   }
@@ -2886,36 +2885,23 @@ async function savePastedCode() {
     return;
   }
 
-  toast('✅ Ad saved! Deploying to Netlify…');
+  toast('✅ Ad saved!');
 
-  // ── Build and deploy HTML ─────────────────────────────────────────
+  // HTML is stored in Supabase (custom_html). The Cloudflare Worker serves it
+  // live by hostname — no Netlify/GitHub deploy needed.
+  // To go live: set this ad's live_url to its hostname (e.g. client.com or sub.client.com).
   try {
-    var ctaCfg = collectCtaConfig();
-
-    // Get linked campaign (if any)
-    var camId  = '';
-    var camClid = clientId;
+    var liveHost = '';
     try {
-      var camR = await sbAdmin('/rest/v1/campaigns?ad_slug=eq.' + adSlug + '&select=id,client_id&limit=1');
-      if (camR.ok) {
-        var cams = await camR.json();
-        if (cams.length) { camId = cams[0].id; camClid = cams[0].client_id || clientId; }
-      }
+      var adRow = await sbAdmin('/rest/v1/ads?ad_slug=eq.' + encodeURIComponent(adSlug) + '&select=live_url&limit=1');
+      if (adRow.ok) { var ar = await adRow.json(); if (ar.length && ar[0].live_url) liveHost = ar[0].live_url; }
     } catch(e) {}
-
-    var rawHtml  = stripAdviuzTracking(rawCode);
-    var injected = injectAdviuzTrackingWithCampaign(rawHtml, adSlug, camId, camClid, ctaCfg);
-    var liveUrl  = await deployAdToSubdomain(adSlug, name, injected);
-
-    if (liveUrl) {
-      showSuccessModal(adSlug, adSlug + '.latest-promo.com', liveUrl);
+    if (liveHost) {
+      showSuccessModal(adSlug, liveHost, 'https://' + liveHost);
     } else {
-      toast('⚠️ Ad saved but deploy failed — check Netlify token in Settings');
+      toast('Ad saved. Set its Live URL (hostname) to publish it.');
     }
-  } catch(deployErr) {
-    console.error('[Deploy error]', deployErr);
-    toast('Ad saved but deploy error: ' + deployErr.message);
-  }
+  } catch(e) {}
 
   var freshAds = await sbAdmin('/rest/v1/ads?order=created_at.desc', {});
   if (freshAds.ok) window._allAds = await freshAds.json();
@@ -3131,6 +3117,22 @@ async function netlifyApi(path, method, body) {
 }
 
 async function deployAdToSubdomain(adSlug, adName, htmlContent) {
+  // DEPRECATED: ads are no longer deployed to Netlify. The Cloudflare Worker
+  // serves custom_html directly from Supabase by hostname (ads.live_url).
+  // This function is kept as a safe no-op so existing buttons don't break.
+  // It returns the ad's live hostname (if set) so callers that expect a URL still work.
+  try {
+    var slug = (adSlug || '').toLowerCase().replace(/[^a-z0-9-]+/g,'-').replace(/^-|-$/g,'');
+    var adRow = await sbAdmin('/rest/v1/ads?ad_slug=eq.' + encodeURIComponent(slug) + '&select=live_url&limit=1');
+    if (adRow.ok) {
+      var ar = await adRow.json();
+      if (ar.length && ar[0].live_url) return 'https://' + ar[0].live_url;
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function _deprecated_deployAdToSubdomain_netlify(adSlug, adName, htmlContent) {
   var slug    = adSlug.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
   var domain  = slug + '.' + AD_DOMAIN;
   var liveUrl = 'https://' + domain;
