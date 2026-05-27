@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-26 partners-tab-v35</title>
+<title>Adviuz Hub · v2026-05-26 partnerlist-v36</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2794,7 +2794,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-05-26 partners-tab-v35';
+var APP_VERSION = 'v2026-05-26 partnerlist-v36';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -9518,12 +9518,14 @@ function adminDashHTML() {
   }
   var tot = _adminData.allLeads.length;
   var closed = _adminData.allLeads.filter(function(l){return l.stage==='9. Deal Closed'||l.stage==='Deal Closed';}).length;
-  h += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:12px">';
-  h += adMini(_adminData.clients.length,'Clients');
-  h += adMini(_adminData.campaigns.length,'Campaigns');
-  h += adMini(tot,'Total Leads');
-  h += adMini(closed,'Closed');
-  h += '</div>';
+  if (cur !== 'affiliates') {  // Partners view is a focused list — no generic KPI tiles
+    h += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:12px">';
+    h += adMini(_adminData.clients.length,'Clients');
+    h += adMini(_adminData.campaigns.length,'Campaigns');
+    h += adMini(tot,'Total Leads');
+    h += adMini(closed,'Closed');
+    h += '</div>';
+  }
   if (cur==='funds')       h += fundsDashHTML();
   else if (cur==='clients')     h += adClientsHTML();
   else if (cur==='campaigns')   h += adCampaignsHTML();
@@ -10377,29 +10379,77 @@ async function adRejectApp(appId) {
 
 function adPartnersListHTML() {
   var partners = _adminData.partners || [];
-  var h = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
-  h += '<div style="font-size:12px;color:var(--sub);font-weight:600">'+partners.length+' partners</div>';
-  h += '<button onclick="openAddPartnerSheet()" style="padding:7px 14px;border-radius:9px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">+ Add Partner</button>';
+  var q = (window._partnerSearch||'').toLowerCase();
+  if(q){
+    partners = partners.filter(function(p){
+      return (p.full_name||'').toLowerCase().indexOf(q)>-1
+          || (p.email||'').toLowerCase().indexOf(q)>-1
+          || (p.ref_code||'').toLowerCase().indexOf(q)>-1
+          || (p.city||'').toLowerCase().indexOf(q)>-1;
+    });
+  }
+  var all = _adminData.partners || [];
+  var activeN = all.filter(function(p){return p.status==='active';}).length;
+
+  var h = '';
+  // Search + Add row
+  h += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">';
+  h += '<div style="flex:1;display:flex;align-items:center;gap:7px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:8px 11px">';
+  h += '<svg width="15" height="15" fill="none" stroke="var(--muted)" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
+  h += '<input id="partnerSearch" placeholder="Search partners…" value="'+(window._partnerSearch||'').replace(/"/g,'&quot;')+'" oninput="window._partnerSearch=this.value;var c=document.getElementById(\'partnerListWrap\');if(c)c.outerHTML=adPartnersListWrap();" style="flex:1;min-width:0;border:none;outline:none;background:none;font-family:var(--f);font-size:14px;color:var(--text)">';
   h += '</div>';
-  if (!partners.length) return h+'<div style="text-align:center;padding:40px;color:var(--sub);font-size:13px">No partners yet — add one manually or approve an application</div>';
-  h += '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
+  h += '<button onclick="openAddPartnerSheet()" style="flex-shrink:0;padding:9px 14px;border-radius:10px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:13px;font-weight:800;cursor:pointer">+ Add</button>';
+  h += '</div>';
+  // Summary line
+  h += '<div style="font-size:12px;color:var(--sub);font-weight:600;margin-bottom:10px">'+all.length+' partner'+(all.length===1?'':'s')+' · <span style="color:var(--green)">'+activeN+' active</span></div>';
+
+  h += '<div id="partnerListWrap">'+adPartnersListRows(partners)+'</div>';
+  return h;
+}
+// Re-rendered standalone on search input
+function adPartnersListWrap() {
+  var partners = _adminData.partners || [];
+  var q = (window._partnerSearch||'').toLowerCase();
+  if(q){
+    partners = partners.filter(function(p){
+      return (p.full_name||'').toLowerCase().indexOf(q)>-1
+          || (p.email||'').toLowerCase().indexOf(q)>-1
+          || (p.ref_code||'').toLowerCase().indexOf(q)>-1
+          || (p.city||'').toLowerCase().indexOf(q)>-1;
+    });
+  }
+  return '<div id="partnerListWrap">'+adPartnersListRows(partners)+'</div>';
+}
+function adPartnersListRows(partners) {
+  if (!partners.length) return '<div style="text-align:center;padding:40px;color:var(--sub);font-size:13px">No partners found.</div>';
+  var palette = ['#2563eb','#7c3aed','#0891b2','#16a34a','#d97706','#db2777','#0d9488','#9333ea'];
+  var h = '<div style="display:flex;flex-direction:column;gap:10px">';
   partners.forEach(function(p, i) {
     var stCol  = p.status==='active'?'var(--green)':p.status==='warning'?'var(--amber)':'var(--red)';
-    var earned = 'CAD $'+(p.total_earned_cad||0).toFixed(2);
-    var paid   = 'CAD $'+(p.total_paid_cad||0).toFixed(2);
+    var stBg   = p.status==='active'?'var(--greenl)':p.status==='warning'?'var(--amberl)':'var(--redl)';
+    var earned = '$'+(+p.total_earned_cad||0).toFixed(2);
+    var paid   = '$'+(+p.total_paid_cad||0).toFixed(2);
+    var rail   = palette[i % palette.length];
     var recurRate = p.active_client_count<=10?'5%':p.active_client_count<=20?'6%':p.active_client_count<=35?'7%':p.active_client_count<=50?'8%':p.active_client_count<=75?'9%':'10%';
-    h += '<div data-pid="'+p.id+'" onclick="openPartnerDetail(this.dataset.pid)" style="padding:12px 14px;cursor:pointer;'+(i?'border-top:1px solid var(--border)':'')+'">'
-    h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">';
-    h += '<div style="width:38px;height:38px;border-radius:10px;background:var(--greenl);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;color:var(--green)">'+(p.full_name||'?').charAt(0)+'</div>';
+    h += '<div data-pid="'+p.id+'" onclick="openPartnerDetail(this.dataset.pid)" style="position:relative;background:var(--white);border:1px solid var(--border);border-radius:16px;overflow:hidden;cursor:pointer">';
+    h += '<div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:'+rail+'"></div>';
+    h += '<div style="padding:14px 15px 14px 18px">';
+    // Row 1: avatar + name + status + time
+    h += '<div style="display:flex;align-items:flex-start;gap:12px">';
+    h += '<div style="width:42px;height:42px;border-radius:11px;background:'+rail+'1a;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:17px;color:'+rail+';flex-shrink:0">'+(p.full_name||'?').charAt(0).toUpperCase()+'</div>';
     h += '<div style="flex:1;min-width:0">';
-    h += '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:13px;font-weight:700;color:var(--text)">'+(p.full_name||'')+'</span>';
-    h += '<span style="font-size:10px;font-weight:700;color:'+stCol+';background:'+stCol+'18;padding:2px 7px;border-radius:10px">'+p.status+'</span></div>';
-    h += '<div style="font-size:11px;color:var(--sub)">'+(p.email||'')+' &nbsp;·&nbsp; <b>'+(p.ref_code||'')+'</b></div>';
-    h += '<div style="font-size:11px;color:var(--sub)">'+(p.city||'')+' &nbsp;·&nbsp; <span style="color:var(--green)">'+(p.active_client_count||0)+' active clients</span> &nbsp;·&nbsp; Recurring: <b style="color:var(--green)">'+recurRate+'</b></div>';
+    h += '<div style="display:flex;align-items:center;gap:7px"><span style="font-size:15px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(p.full_name||'Partner')+'</span>';
+    h += '<span style="flex-shrink:0;font-size:10px;font-weight:800;color:'+stCol+';background:'+stBg+';padding:2px 8px;border-radius:10px;text-transform:capitalize">'+(p.status||'')+'</span></div>';
+    h += '<div style="font-size:12px;color:var(--sub);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(p.email||'')+'</div>';
+    h += '<div style="font-size:11.5px;color:var(--sub);margin-top:2px">'+(p.city?p.city+' · ':'')+'Code <b style="color:var(--text)">'+(p.ref_code||'—')+'</b></div>';
     h += '</div></div>';
-    h += '<div style="display:flex;gap:12px;font-size:11px;color:var(--sub)">';
-    h += '<span>Earned: <b style="color:var(--text)">'+earned+'</b></span>';
-    h += '<span>Paid: <b style="color:var(--green)">'+paid+'</b></span>';
+    // Row 2: chips
+    h += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:11px">';
+    h += '<span style="font-size:11px;font-weight:600;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:4px 9px;color:var(--text)">👥 '+(p.active_client_count||0)+' active clients</span>';
+    h += '<span style="font-size:11px;font-weight:600;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:4px 9px;color:var(--text)">📈 Recurring '+recurRate+'</span>';
+    h += '<span style="font-size:11px;font-weight:600;background:var(--greenl);border-radius:8px;padding:4px 9px;color:var(--green)">Earned '+earned+'</span>';
+    h += '<span style="font-size:11px;font-weight:600;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:4px 9px;color:var(--sub)">Paid '+paid+'</span>';
+    h += '</div>';
     h += '</div></div>';
   });
   return h + '</div>';
