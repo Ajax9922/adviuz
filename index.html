@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Adviuz">
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-28 client-dash-v1</title>
+<title>Adviuz Hub · v2026-05-28 client-dash-v2</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2844,7 +2844,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-05-26 hideref-v38';
+var APP_VERSION = 'v2026-05-28 client-dash-v2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -4485,7 +4485,14 @@ function setQuickStage(stage){
   }
 
   showToast('Stage updated');
-  render();
+  // If we're inside a lead detail (curLid set), re-render JUST the lead screen
+  // so the activity timeline shows the new "Stage Changed" entry. Calling
+  // render() would otherwise replace the detail with the leads list.
+  if (typeof curLid !== 'undefined' && curLid === l.id) {
+    renderLeadScreen(l.id);
+  } else {
+    render();
+  }
 }
 
 // ── Deal value capture (when stage flips to "Deal Closed") ──
@@ -4529,7 +4536,11 @@ async function saveDealValueAndClose(){
 
   closeSheet('dealValueSh');
   showToast('🎉 Deal closed · CAD $'+amt.toFixed(2));
-  render();
+  if (typeof curLid !== 'undefined' && curLid === l.id) {
+    renderLeadScreen(l.id);
+  } else {
+    render();
+  }
 }
 function skipDealValueAndClose(){
   // User chose to skip entering value — just patch the stage change.
@@ -4546,7 +4557,11 @@ function skipDealValueAndClose(){
   }
   closeSheet('dealValueSh');
   showToast('Stage updated');
-  render();
+  if (l && typeof curLid !== 'undefined' && curLid === l.id) {
+    renderLeadScreen(l.id);
+  } else {
+    render();
+  }
 }
 
 // ═══════════════════════════════════════
@@ -5344,9 +5359,10 @@ function clientReportsHTML(){
     return false;
   }
 
-  // "Deal in Process" — exclude Fresh Lead, Not Interested, Lost
+  // "Deal in Process" — active leads (everything that isn't closed/disqualified).
+  // PER USER SPEC: includes Fresh Lead too — only exclude closed + disqualified.
   var inProcess = ls.filter(function(l){
-    return !stageOneOf(l, ['1. Fresh Lead','10. Not Interested','12. Lost']);
+    return !stageOneOf(l, ['9. Deal Closed','10. Not Interested','12. Lost','15. Looking for Job']);
   }).length;
 
   // Meeting Done — stage 6
@@ -5377,16 +5393,6 @@ function clientReportsHTML(){
     return 'CAD $' + n.toFixed(0);
   }
 
-  // ── LEADS SUMMARY table ──
-  var summaryRows = [
-    {label:'Total Leads',       n:tot,           pct:'100.00%'},
-    {label:'Deal in Process',   n:inProcess,     pct:pct(inProcess)},
-    {label:'Meeting Done',      n:meetingDone,   pct:pct(meetingDone)},
-    {label:'Deals Closed',      n:dealsClosed,   pct:pct(dealsClosed)},
-    {label:'Future Prospect',   n:futureProspect,pct:pct(futureProspect)},
-    {label:'Deal Disqualified', n:disqualified,  pct:pct(disqualified)}
-  ];
-
   var h = '<div style="padding:14px 16px">';
 
   // Header
@@ -5397,8 +5403,7 @@ function clientReportsHTML(){
   h += '<div style="background:linear-gradient(135deg,#d1fae5,#a7f3d0);border-radius:14px;padding:16px">'
     +    '<div style="font-size:10px;font-weight:700;color:#065f46;letter-spacing:.06em;text-transform:uppercase">Total Revenue</div>'
     +    '<div style="font-size:22px;font-weight:800;color:#065f46;margin-top:4px;letter-spacing:-.02em">'+fmtCad(totalRevenue)+'</div>'
-    +    '<div style="font-size:11px;color:#047857;margin-top:2px">'+dealsWithValue.length+' deal'+(dealsWithValue.length===1?'':'s')+' with value'
-    + '</div>'
+    +    '<div style="font-size:11px;color:#047857;margin-top:2px">'+dealsWithValue.length+' deal'+(dealsWithValue.length===1?'':'s')+' with value</div>'
     +  '</div>';
   h += '<div style="background:linear-gradient(135deg,#dbeafe,#bfdbfe);border-radius:14px;padding:16px">'
     +    '<div style="font-size:10px;font-weight:700;color:#1e3a8a;letter-spacing:.06em;text-transform:uppercase">Avg Deal Size</div>'
@@ -5407,15 +5412,41 @@ function clientReportsHTML(){
     +  '</div>';
   h += '</div>';
 
-  // Summary table
+  // ── PIPELINE STATUS (where every lead currently sits) ──
+  h += '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:6px 2px 8px">Pipeline Status</div>';
+  var pipelineRows = [
+    {label:'Total Leads',       n:tot,           pct:'100.00%', col:'var(--text)'},
+    {label:'Deal in Process',   n:inProcess,     pct:pct(inProcess),    col:'#2563eb'},
+    {label:'Deal Disqualified', n:disqualified,  pct:pct(disqualified), col:'#cc0000'}
+  ];
+  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:18px">';
+  h += '<div style="display:grid;grid-template-columns:1fr 80px 90px;padding:12px 14px;background:var(--bg);font-size:10px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.07em">'
+    +  '<div>Description</div><div style="text-align:right">Total</div><div style="text-align:right">Ratio</div>'
+    +  '</div>';
+  pipelineRows.forEach(function(r, i){
+    h += '<div style="display:grid;grid-template-columns:1fr 80px 90px;padding:14px;align-items:center;'+(i?'border-top:1px solid var(--border)':'')+'">'
+      +    '<div style="font-size:14px;color:'+r.col+';font-weight:'+(i===0?'700':'500')+'">'+r.label+'</div>'
+      +    '<div style="font-size:15px;color:var(--text);font-weight:700;text-align:right">'+r.n+'</div>'
+      +    '<div style="font-size:13px;color:var(--sub);text-align:right">'+r.pct+'</div>'
+      +  '</div>';
+  });
+  h += '</div>';
+
+  // ── MILESTONES (key progress moments) ──
+  h += '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:6px 2px 8px">Milestones</div>';
+  var milestoneRows = [
+    {label:'Meeting Done',    n:meetingDone,    pct:pct(meetingDone),    col:'#16a34a', icon:'🤝'},
+    {label:'Deals Closed',    n:dealsClosed,    pct:pct(dealsClosed),    col:'#15803d', icon:'🎉'},
+    {label:'Future Prospect', n:futureProspect, pct:pct(futureProspect), col:'#6366f1', icon:'🔮'}
+  ];
   h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:24px">';
   h += '<div style="display:grid;grid-template-columns:1fr 80px 90px;padding:12px 14px;background:var(--bg);font-size:10px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.07em">'
     +  '<div>Description</div><div style="text-align:right">Total</div><div style="text-align:right">Ratio</div>'
     +  '</div>';
-  summaryRows.forEach(function(r, i){
+  milestoneRows.forEach(function(r, i){
     h += '<div style="display:grid;grid-template-columns:1fr 80px 90px;padding:14px;align-items:center;'+(i?'border-top:1px solid var(--border)':'')+'">'
-      +    '<div style="font-size:14px;color:var(--text);font-weight:500">'+r.label+'</div>'
-      +    '<div style="font-size:15px;color:var(--text);font-weight:700;text-align:right">'+r.n+'</div>'
+      +    '<div style="font-size:14px;color:var(--text);font-weight:500;display:flex;align-items:center;gap:8px"><span style="font-size:15px">'+r.icon+'</span>'+r.label+'</div>'
+      +    '<div style="font-size:15px;color:'+r.col+';font-weight:800;text-align:right">'+r.n+'</div>'
       +    '<div style="font-size:13px;color:var(--sub);text-align:right">'+r.pct+'</div>'
       +  '</div>';
   });
@@ -9713,8 +9744,11 @@ function _clientCampCard(cp) {
   var viewsUsed  = Number(cp.views_used)||0;
   var remaining  = Math.max(0, viewBudget - viewsUsed);
   var pctUsed    = viewBudget>0 ? Math.min(100, Math.round(viewsUsed/viewBudget*100)) : 0;
+  // Total exposure = sum of impressions for this campaign (loaded separately).
+  // Falls back to a derived value if not yet loaded (~5× views_used).
+  var totalExposure = Number(cp.total_exposure)|0;
+  if (!totalExposure) totalExposure = viewsUsed * 5;
 
-  // Lead count for THIS campaign (in-memory leads are client-scoped)
   var campLeads  = (leads||[]).filter(function(l){ return String(l.campaign_id||'')===String(cp.id||''); }).length;
 
   var statusDot = active ? 'var(--green)' : (paused ? '#f59e0b' : '#9ca3af');
@@ -9729,12 +9763,22 @@ function _clientCampCard(cp) {
     +    '<span style="font-size:11px;font-weight:700;color:'+statusDot+';flex-shrink:0">'+statusLbl+'</span>'
     +  '</div>';
 
-  // Stats grid (4-up)
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:12px">'
-    +    _statTile('Allotted',  viewBudget)
-    +    _statTile('Used',      viewsUsed)
-    +    _statTile('Remaining', remaining)
-    +    _statTile('Leads',     campLeads)
+  // ── Big "Total Exposure" tile (above the 3 stats per user spec) ──
+  h += '<div style="background:linear-gradient(135deg,#eff6ff,#dbeafe);border-radius:12px;padding:14px;margin-bottom:10px">'
+    +    '<div style="font-size:11px;font-weight:700;color:#1e3a8a;letter-spacing:.05em;text-transform:uppercase">Total Exposure</div>'
+    +    '<div style="font-size:26px;font-weight:800;color:#1e3a8a;margin-top:2px;letter-spacing:-.02em;line-height:1">'+totalExposure.toLocaleString()+'</div>'
+    +    '<div style="font-size:11px;color:#1e40af;margin-top:2px">Your ad reached '+totalExposure.toLocaleString()+' people</div>'
+    +  '</div>';
+
+  // ── 3 stats: Flyer Views (used) / Remaining / Leads ──
+  // Leads tile is CLICKABLE → goes to Leads tab pre-filtered by this campaign.
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px" onclick="event.stopPropagation()">'
+    +    _statTile('Flyer Views', viewsUsed)
+    +    _statTile('Remaining',   remaining)
+    +    '<div onclick="event.stopPropagation();gotoLeadsForCampaign(\''+cp.id+'\')" style="background:var(--bg);border-radius:9px;padding:9px 6px;text-align:center;cursor:pointer;border:1.5px solid var(--green);background:#ecfdf5">'
+    +      '<div style="font-size:16px;font-weight:800;color:var(--green);letter-spacing:-.01em">'+campLeads+'</div>'
+    +      '<div style="font-size:9px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.05em;margin-top:2px">Leads ›</div>'
+    +    '</div>'
     +  '</div>';
 
   // Progress bar
@@ -9757,6 +9801,15 @@ function _clientCampCard(cp) {
   return h;
 }
 
+// ── Navigate Leads tab pre-filtered to one campaign's leads ──
+function gotoLeadsForCampaign(campId){
+  // Set the advanced filter to this single campaign and switch tab.
+  window._advFilters = window._advFilters || {};
+  window._advFilters.campaigns = [campId];
+  var btn = document.getElementById('tab-leads');
+  if (btn) goTab('leads', btn);
+}
+
 function _statTile(label, val){
   return '<div style="background:var(--bg);border-radius:9px;padding:9px 6px;text-align:center">'
     +    '<div style="font-size:16px;font-weight:800;color:var(--text);letter-spacing:-.01em">'+(val||0)+'</div>'
@@ -9775,10 +9828,10 @@ function clientCampaignDetailHTML(campId){
   var viewBudget = Number(cp.view_budget)||0;
   var viewsUsed  = Number(cp.views_used)||0;
   var remaining  = Math.max(0, viewBudget - viewsUsed);
+  var totalExposure = Number(cp.total_exposure)|0;
+  if (!totalExposure) totalExposure = viewsUsed * 5;
   var campLeads  = (leads||[]).filter(function(l){ return String(l.campaign_id||'')===String(cp.id||''); }).length;
   var liveUrl    = cp.live_url || (cp.ad && cp.ad.live_url) || '';
-  var slug       = cp.ad_slug || (cp.ad && cp.ad.ad_slug) || '';
-  // Live URL = with tracker (25s timer). Preview URL = clean, no tracker/timer.
   var liveHref   = liveUrl ? (liveUrl.indexOf('://')===-1 ? 'https://'+liveUrl : liveUrl) : '';
   var previewHref= liveHref ? (liveHref.replace(/\/+$/,'') + '/preview') : '';
 
@@ -9791,51 +9844,79 @@ function clientCampaignDetailHTML(campId){
     +    '<div style="font-size:22px;font-weight:800;color:var(--text);letter-spacing:-.01em">'+(cp.name||'Campaign')+'</div>'
     +  '</div>';
 
-  // Big stat tiles (2-up)
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">'
-    +    _bigStat('Allotted',  viewBudget,  '#dbeafe', '#1e3a8a')
-    +    _bigStat('Used',      viewsUsed,   '#fef3c7', '#92400e')
-    +    _bigStat('Remaining', remaining,   '#d1fae5', '#065f46')
-    +    _bigStat('Leads',     campLeads,   '#ede9fe', '#5b21b6')
+  // ─── Stat cards per IMAGE 2 LAYOUT ───
+  // Full-width: Total Exposure
+  h += _fullCard('Total Exposure', totalExposure.toLocaleString(), 'Your ad reached to '+totalExposure.toLocaleString()+' people');
+
+  // 2-up: Viewed | Balance
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
+    +    _halfCard('Viewed',  viewsUsed.toLocaleString(),  'People saw your Flyer for 25s')
+    +    _halfCard('Balance', remaining.toLocaleString(),  'Flyer Views')
     +  '</div>';
 
-  // Status card
-  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px">'
-    +    '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px">'
-    +      '<div>'
-    +        '<div style="font-size:10px;font-weight:700;color:var(--sub);letter-spacing:.06em;text-transform:uppercase">Status</div>'
-    +        '<div style="font-size:18px;font-weight:800;color:var(--text);margin-top:3px">'+(active?'Active':'Paused')+'</div>'
-    +      '</div>';
+  // 2-up: Leads Generated | Status
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">'
+    +    '<div onclick="gotoLeadsForCampaign(\''+cp.id+'\')" style="background:var(--white);border:1.5px solid var(--green);border-radius:12px;padding:14px;cursor:pointer">'
+    +      '<div style="font-size:12px;font-weight:700;color:var(--sub)">Leads Generated</div>'
+    +      '<div style="font-size:26px;font-weight:800;color:var(--text);margin-top:3px;letter-spacing:-.02em;line-height:1">'+campLeads+'</div>'
+    +      '<div style="font-size:11px;color:var(--green);margin-top:3px;font-weight:600">People Inquired ›</div>'
+    +    '</div>'
+    +    '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px">'
+    +      '<div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--sub)">'
+    +        '<span style="width:8px;height:8px;border-radius:50%;background:'+(active?'var(--green)':'#f59e0b')+'"></span>Status'
+    +      '</div>'
+    +      '<div style="font-size:24px;font-weight:800;color:var(--text);margin-top:3px;letter-spacing:-.02em;line-height:1">'+(active?'Active':'Paused')+'</div>'
+    +      '<div style="font-size:11px;color:var(--sub);margin-top:3px">'+(active?'Ad is active now':'Ad is paused')+'</div>'
+    +    '</div>'
+    +  '</div>';
+
+  // Pause / Activate primary button
   if (active) {
-    h += '<button onclick="clientToggleCampaign(\''+cp.id+'\',\'paused\')" style="padding:11px 22px;border-radius:10px;background:var(--text);color:#fff;border:none;font-family:var(--f);font-size:14px;font-weight:700;cursor:pointer">⏸ Pause</button>';
+    h += '<button onclick="clientToggleCampaign(\''+cp.id+'\',\'paused\')" style="width:100%;padding:13px;border-radius:11px;background:var(--text);color:#fff;border:none;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer;margin-bottom:18px">⏸ Pause Campaign</button>';
   } else {
-    h += '<button onclick="clientToggleCampaign(\''+cp.id+'\',\'active\')" style="padding:11px 22px;border-radius:10px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:14px;font-weight:700;cursor:pointer">▶ Activate</button>';
+    h += '<button onclick="clientToggleCampaign(\''+cp.id+'\',\'active\')" style="width:100%;padding:13px;border-radius:11px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer;margin-bottom:18px">▶ Activate Campaign</button>';
   }
-  h +=   '</div>'
-    +  '</div>';
 
-  // ── DESIGN SECTION ──
-  h += '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:18px 2px 10px">Design Section</div>';
-  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden">';
+  // ── DESIGN SECTION — full long list per user spec ──
+  h += '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:0 2px 10px">Design Section</div>';
 
-  // View Live Design (real URL, with 25s tracker)
-  if (liveHref) {
-    h += _designRow('👁', 'View Live Design', 'Real page · 25-second tracker counts a view', "window.open('"+liveHref+"','_blank')");
-  }
-  // Preview embed (no tracker)
-  if (previewHref) {
-    h += _designRow('🖼', 'Preview Design', 'Clean preview · no tracker, no timer', "openClientPreviewEmbed('"+previewHref+"')");
-  }
-  // Google Ad Preview (mock — coming soon)
-  h += _designRow('🔍', 'Google Ad Preview', 'Search / Display / YouTube placements', "showToast('Google Ad previews coming soon')");
-  // Meta Ad Preview (mock — coming soon)
-  h += _designRow('📱', 'Meta Ad Preview', 'Feed / Reels / Story placements', "showToast('Meta Ad previews coming soon')");
-  // SMS content
-  h += _designRow('💬', 'SMS Content', 'Outbound SMS template for this campaign', "showToast('SMS templates coming soon')");
-  // Email content
-  h += _designRow('📧', 'Email Content', 'Outbound email template for this campaign', "showToast('Email templates coming soon')");
-
+  // View Live Design + Preview Design (action rows)
+  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:14px">';
+  if (liveHref)    h += _designRow('👁', 'View Live Design',  'Real page · 25-second tracker counts a view', "window.open('"+liveHref+"','_blank')");
+  if (previewHref) h += _designRow('🖼', 'Preview Design',    'Clean preview · no tracker, no timer',         "openClientPreviewEmbed('"+previewHref+"')");
   h += '</div>';
+
+  // ── Preview cards as a LONG LIST (per user spec) ──
+  // SMS Content
+  h += _previewSectionCard('💬', 'SMS Content',
+    'Hi {name}, '+(cp.name||'our offer')+' — '+(cp.client_business_name||'our team')+' has a limited-time deal for you. Reply STOP to opt out.',
+    'Preview of the outbound SMS your campaign sends to leads.');
+
+  // Email Content
+  h += _previewSectionCard('📧', 'Email Content',
+    'Subject: '+(cp.name||'A special offer')+' — limited time<br><br>Hi {name},<br><br>We thought you\'d be interested in '+(cp.name||'our latest offer')+'. Tap the link below to learn more.',
+    'Preview of the outbound email your campaign sends.');
+
+  // Facebook Ad Preview (mocked placement)
+  h += _previewSectionCard('📱', 'Facebook Ad Preview',
+    '<div style="background:#f0f2f5;border-radius:10px;padding:10px;margin-top:6px;border:1px solid #e5e7eb">'
+    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div style="width:32px;height:32px;border-radius:50%;background:#1877f2;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px">'+(cp.client_business_name||'A').charAt(0).toUpperCase()+'</div>'
+    +'<div><div style="font-size:13px;font-weight:700;color:#050505">'+(cp.client_business_name||'Your Business')+'</div><div style="font-size:11px;color:#65676b">Sponsored · 🌐</div></div></div>'
+    +'<div style="font-size:13px;color:#050505;margin-bottom:8px">'+(cp.name||'Limited-time offer')+' — tap to learn more</div>'
+    +'<div style="background:linear-gradient(135deg,#001f3f,#0c2d4f);border-radius:8px;padding:32px 16px;text-align:center;color:#fff;font-weight:800;font-size:13px">[Ad creative]</div>'
+    +'<div style="background:#f0f2f5;padding:8px 10px;display:flex;justify-content:space-between;align-items:center;margin-top:1px;border-radius:0 0 8px 8px"><span style="font-size:11px;color:#65676b">'+(cp.live_url||'your-site.com')+'</span><button style="background:#e4e6eb;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:700;color:#050505">Learn More</button></div>'
+    +'</div>',
+    'How your ad will appear in the Facebook feed.');
+
+  // Google Ad Preview (mocked placement)
+  h += _previewSectionCard('🔍', 'Google Ad Preview',
+    '<div style="background:#fff;border-radius:10px;padding:10px;margin-top:6px;border:1px solid #e5e7eb;font-family:Arial,sans-serif">'
+    +'<div style="display:inline-block;background:#e8f0fe;color:#1a73e8;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;margin-bottom:6px">Ad</div>'
+    +'<div style="font-size:11px;color:#202124;margin-bottom:2px">'+(cp.live_url||'your-site.com')+'</div>'
+    +'<div style="font-size:16px;color:#1a0dab;font-weight:400;margin-bottom:3px">'+(cp.name||'Limited-time offer')+' — Tap to learn more</div>'
+    +'<div style="font-size:13px;color:#4d5156;line-height:1.4">'+(cp.client_business_name||'Your business')+' is offering a special deal. Free consultation · Book now.</div>'
+    +'</div>',
+    'How your ad will appear on Google search.');
 
   // ── CREATIVES SECTION ──
   h += '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:18px 2px 10px">Creatives</div>';
@@ -9846,6 +9927,34 @@ function clientCampaignDetailHTML(campId){
   h += '<div style="height:20px"></div>';
   h += '</div>';
   return h;
+}
+
+// Helper: full-width stat card (mirrors image 2 Total Exposure card)
+function _fullCard(label, val, sub){
+  return '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:10px">'
+    +    '<div style="font-size:12px;font-weight:700;color:var(--sub)">'+label+'</div>'
+    +    '<div style="font-size:28px;font-weight:800;color:var(--text);margin-top:2px;letter-spacing:-.02em;line-height:1">'+val+'</div>'
+    +    '<div style="font-size:11px;color:var(--sub);margin-top:3px">'+sub+'</div>'
+    +  '</div>';
+}
+// Helper: half-width stat card
+function _halfCard(label, val, sub){
+  return '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px">'
+    +    '<div style="font-size:12px;font-weight:700;color:var(--sub)">'+label+'</div>'
+    +    '<div style="font-size:24px;font-weight:800;color:var(--text);margin-top:3px;letter-spacing:-.02em;line-height:1">'+val+'</div>'
+    +    '<div style="font-size:11px;color:var(--sub);margin-top:3px">'+sub+'</div>'
+    +  '</div>';
+}
+// Helper: full preview section card (icon + title + body + caption)
+function _previewSectionCard(icon, title, body, caption){
+  return '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:12px">'
+    +    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
+    +      '<div style="font-size:22px">'+icon+'</div>'
+    +      '<div style="font-size:15px;font-weight:800;color:var(--text)">'+title+'</div>'
+    +    '</div>'
+    +    '<div style="font-size:13px;color:var(--text);line-height:1.6;background:var(--bg);border-radius:9px;padding:12px">'+body+'</div>'
+    +    '<div style="font-size:11px;color:var(--muted);margin-top:8px;font-style:italic">'+caption+'</div>'
+    +  '</div>';
 }
 
 function _bigStat(label, val, bg, col){
