@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Adviuz">
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-26 hideref-v38</title>
+<title>Adviuz Hub · v2026-05-28 client-dash-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -4468,7 +4468,10 @@ function setQuickStage(stage){
       body: JSON.stringify(patch)
     }).catch(function(){});
     if(stage !== old && typeof logActivity === 'function'){
-      logActivity({ lead_id:l.dbId, client_id:window._clientId||null, type:'stage_change',
+      // Pass l.id (in-memory) so leadAct[l.id] updates and the activity
+      // timeline rerenders. logActivity internally resolves l.dbId for the
+      // activity_log row.
+      logActivity({ lead_id:l.id, db_lead_id:l.dbId, client_id:window._clientId||null, type:'stage_change',
                     label:'Stage Changed', body:'Stage changed to '+stage });
     }
   }
@@ -4518,7 +4521,7 @@ async function saveDealValueAndClose(){
         })
       });
       if (typeof logActivity === 'function') {
-        logActivity({ lead_id:l.dbId, client_id:window._clientId||null, type:'stage_change',
+        logActivity({ lead_id:l.id, db_lead_id:l.dbId, client_id:window._clientId||null, type:'stage_change',
                       label:'Deal Closed', body:'Deal closed for CAD $'+amt.toFixed(2) });
       }
     } catch(e) { console.warn('[saveDealValueAndClose]', e.message); }
@@ -4537,7 +4540,7 @@ function skipDealValueAndClose(){
       body: JSON.stringify({ stage:_dvNewStage, updated_at:new Date().toISOString() })
     }).catch(function(){});
     if (typeof logActivity === 'function') {
-      logActivity({ lead_id:l.dbId, client_id:window._clientId||null, type:'stage_change',
+      logActivity({ lead_id:l.id, db_lead_id:l.dbId, client_id:window._clientId||null, type:'stage_change',
                     label:'Stage Changed', body:'Stage changed to '+_dvNewStage });
     }
   }
@@ -5400,7 +5403,7 @@ function clientReportsHTML(){
   h += '<div style="background:linear-gradient(135deg,#dbeafe,#bfdbfe);border-radius:14px;padding:16px">'
     +    '<div style="font-size:10px;font-weight:700;color:#1e3a8a;letter-spacing:.06em;text-transform:uppercase">Avg Deal Size</div>'
     +    '<div style="font-size:22px;font-weight:800;color:#1e3a8a;margin-top:4px;letter-spacing:-.02em">'+fmtCad(avgDealSize)+'</div>'
-    +    '<div style="font-size:11px;color:#1e40af;margin-top:2px">across closed deals</div>'
+    +    '<div style="font-size:11px;color:#1e40af;margin-top:2px">revenue ÷ deals closed</div>'
     +  '</div>';
   h += '</div>';
 
@@ -5820,8 +5823,8 @@ function renderLeadScreen(id) {
     : '<span onclick="openAssignSheet('+l.id+')" style="color:var(--blue);font-weight:600;cursor:pointer">+ Assign to someone</span>';
   h += ldInfoRow('👤','Assigned To', assignedHtml);
 
-  // Partner assignment row (admin only)
-  if (!isPartnerMode()) {
+  // Partner assignment row (admin only — not partners themselves, not clients)
+  if (!isPartnerMode() && !isClientMode()) {
     var partnerOfLead = window._allPartners && l.partner_id ? window._allPartners.find(function(p){ return p.id === l.partner_id; }) : null;
     var partnerHtml = partnerOfLead
       ? '<span style="font-weight:600;color:var(--blue)">' + (partnerOfLead.full_name||partnerOfLead.email) + '</span>'
@@ -9059,6 +9062,48 @@ function matchStageName(stageName) {
   // Exact match
   var exact = STAGES.find(function(s){ return s.name === stageName; });
   if (exact) return exact.name;
+  // Common aliases — what legacy leads/imports may store vs. our canonical
+  // numbered names. Lowercased keys for forgiving matching.
+  var alias = {
+    'new':                    '1. Fresh Lead',
+    'fresh':                  '1. Fresh Lead',
+    'fresh lead':             '1. Fresh Lead',
+    'lead':                   '1. Fresh Lead',
+    'call not connected':     '2. Call Not Connected',
+    'no answer':              '2. Call Not Connected',
+    'callback':               '3. Connected - Callback Requested',
+    'callback requested':     '3. Connected - Callback Requested',
+    'follow up':              '4. Follow-up Scheduled',
+    'follow-up':              '4. Follow-up Scheduled',
+    'followup':               '4. Follow-up Scheduled',
+    'meeting booked':         '5. Meeting Booked',
+    'meeting scheduled':      '5. Meeting Booked',
+    'meeting locked':         '5. Meeting Booked',
+    'meeting done':           '6. Meeting Done',
+    'visited':                '6. Meeting Done',
+    'visit done':             '6. Meeting Done',
+    'proposal':               '7. Proposal Sent',
+    'proposal sent':          '7. Proposal Sent',
+    'quote sent':             '7. Proposal Sent',
+    'negotiating':            '8. Negotiating',
+    'negotiation':            '8. Negotiating',
+    'won':                    '9. Deal Closed',
+    'deal closed':            '9. Deal Closed',
+    'closed':                 '9. Deal Closed',
+    'sale':                   '9. Deal Closed',
+    'not interested':         '10. Not Interested',
+    'no':                     '10. Not Interested',
+    'future':                 '11. Future Prospect',
+    'future prospect':        '11. Future Prospect',
+    'lost':                   '12. Lost',
+    'partnership':            '13. Looking for Partnership',
+    'vendor':                 '14. Vendor / Supplier',
+    'supplier':               '14. Vendor / Supplier',
+    'job':                    '15. Looking for Job',
+    'looking for job':        '15. Looking for Job'
+  };
+  var key = stageName.toLowerCase().trim();
+  if (alias[key]) return alias[key];
   // Match without number prefix (e.g. "Fresh Lead" -> "1. Fresh Lead")
   var bare = stageName.replace(/^\d+\.\s*/, '');
   var fuzzy = STAGES.find(function(s){ return s.name.replace(/^\d+\.\s*/, '') === bare; });
@@ -9543,10 +9588,37 @@ async function showClientUI() {
 async function loadClientCampaigns() {
   var cid = window._clientId; if(!cid) return;
   try {
-    // Join ads so we can get the live URL + slug for the design previews.
-    var res = await sbFetch('/rest/v1/campaigns?select=*,ad:ads(id,live_url,ad_slug,name)&client_id=eq.'+cid+'&order=created_at.desc&limit=100');
-    if (res.ok) window._clientCampaigns = await res.json();
-  } catch(e) { window._clientCampaigns = []; }
+    // 1) Fetch campaigns. Plain query — no embed — so a missing FK or schema
+    //    cache hiccup won't silently return empty.
+    var res = await sbFetch('/rest/v1/campaigns?client_id=eq.'+cid+'&order=created_at.desc&limit=100');
+    if (!res.ok) { window._clientCampaigns = []; return; }
+    var camps = await res.json();
+
+    // 2) Fetch ads referenced by these campaigns (if any) so we can show
+    //    live URL + slug in the design section.
+    var adIds = camps.map(function(c){ return c.ad_id; }).filter(function(x){ return !!x; });
+    var adsById = {};
+    if (adIds.length) {
+      var aRes = await sbFetch('/rest/v1/ads?select=id,live_url,ad_slug,name&id=in.('+adIds.join(',')+')');
+      if (aRes.ok) {
+        var ads = await aRes.json();
+        ads.forEach(function(a){ adsById[a.id] = a; });
+      }
+    }
+    camps.forEach(function(c){
+      var a = adsById[c.ad_id];
+      if (a) {
+        // Mirror onto the campaign so existing render code keeps working
+        c.live_url = c.live_url || a.live_url;
+        c.ad_slug  = c.ad_slug  || a.ad_slug;
+        c.ad       = a;
+      }
+    });
+    window._clientCampaigns = camps;
+  } catch(e) {
+    console.warn('[loadClientCampaigns]', e.message);
+    window._clientCampaigns = [];
+  }
 }
 
 async function loadClientLeads() {
