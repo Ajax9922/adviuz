@@ -1924,10 +1924,8 @@ input[type=number]{-moz-appearance:textfield}
       <!-- Plan -->
       <div class="fg"><div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px">Plan &amp; Balance</div>
         <select class="fsel" id="su-plan" style="margin-bottom:8px">
-          <option value="starter">Starter</option>
-          <option value="pro">Pro</option>
-          <option value="agency">Agency</option>
-          <option value="enterprise">Enterprise</option>
+          <option value="basic">Basic</option>
+          <option value="ai_sales_engine">AI Sales Engine</option>
         </select>
         <input class="finp" id="su-ai-mins" placeholder="AI Minutes Balance" type="number" style="margin-bottom:8px">
         <input class="finp" id="su-sms-bal" placeholder="SMS Balance" type="number">
@@ -2159,14 +2157,13 @@ input[type=number]{-moz-appearance:textfield}
         <select class="fsel" id="fuType"><option value="call">&#x1F4DE; Call</option><option value="meeting">&#x1F91D; Meeting</option><option value="sms">&#x1F4AC; SMS</option><option value="email">&#x1F4E7; Email</option><option value="demo">&#x1F4BB; Demo</option></select>
       </div>
       <div class="fg2">
-        <div><label class="flbl">Date</label><input class="finp" type="date" id="fuDate"></div>
-        <div><label class="flbl">Time</label><input class="finp" type="time" id="fuTime"></div>
+        <div><label class="flbl">Date</label><input class="finp" type="date" id="fuDate" onchange="fuTryAutoSave()"></div>
+        <div><label class="flbl">Time</label><input class="finp" type="time" id="fuTime" onchange="fuTryAutoSave()"></div>
       </div>
       <div class="fg"><label class="flbl">Note</label><textarea class="fta" id="fuNote" placeholder="What to discuss..."></textarea></div>
     </div>
     <div class="sh-foot">
-      <button class="btn btn-ghost" onclick="closeSheet('fuSh')" style="flex:1">Cancel</button>
-      <button class="btn btn-dark" onclick="saveFu()" style="flex:2;justify-content:center">Schedule</button>
+      <button class="btn btn-ghost" onclick="closeSheet('fuSh')" style="flex:1">Close</button>
     </div>
   </div>
 </div>
@@ -3708,6 +3705,7 @@ function doLogout() {
   window._isClientMode  = false;
   window._clientData    = null;
   window._clientId      = null;
+  window._clientPlan    = null;
   window._clientCampaigns = [];
   // Restore admin topbar buttons
   ['tbPlusBtn','tbSearch','tbRefresh','tbNotifBtn'].forEach(function(id){
@@ -4072,8 +4070,23 @@ function goTab(tab,btn){
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active')});
   btn.classList.add('active');
   var c=TAB_CFG[tab];
-  document.getElementById('tbTitle').textContent=c.t;
-  document.getElementById('tbSub').textContent=c.s;
+  // Per-mode topbar override on the dashboard tab so we never show "Adviuz Admin"
+  // to a client or partner.
+  var titleText = c.t;
+  var subText   = c.s;
+  if (tab === 'dashboard') {
+    if (window._isClientMode && window._clientData) {
+      var cd = window._clientData;
+      titleText = cd.business_name || cd.name || 'My Account';
+      subText   = (cd.view_balance != null ? (cd.view_balance + ' views') : 'Client');
+    } else if (window._isPartnerMode && window._partnerData) {
+      var pd = window._partnerData;
+      titleText = pd.full_name || pd.name || 'Partner';
+      subText   = partnerGetRate(pd.active_client_count||0) + ' commission · ' + (pd.ref_code||'');
+    }
+  }
+  document.getElementById('tbTitle').textContent=titleText;
+  document.getElementById('tbSub').textContent=subText;
   if(typeof updateActiveFilterBar==='function') updateActiveFilterBar();
   var refBtn=document.getElementById('tbRefresh');
   if(refBtn) refBtn.style.display='flex'; // refresh on every tab, for admin AND partner
@@ -5600,9 +5613,9 @@ function renderLeadScreen(id) {
   // ══ SECTION 2 — MEETING | QUOTE | INVOICE ══
   h += '<div style="background:var(--white);padding:12px 16px;margin-bottom:4px">';
   h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">';
-  h += ldQuickBtn('🤝','Meeting','#ede9fe','#7c3aed',  pLock('openMeetingScreen('+l.id+')','Meetings'));
-  h += ldQuickBtn('📄','Quotes','#fef3c7','#d97706',   pLock('openLeadQuotes('+l.id+')','Quotes'));
-  h += ldQuickBtn('🧾','Invoices','#d1fae5','#00a884', pLock('openLeadInvoices('+l.id+')','Invoices'));
+  h += ldQuickBtn('🤝','Meeting','#ede9fe','#7c3aed',  pLock('openMeetingScreen('+l.id+')','Meetings','meeting'));
+  h += ldQuickBtn('📄','Quotes','#fef3c7','#d97706',   pLock('openLeadQuotes('+l.id+')','Quotes','quotes'));
+  h += ldQuickBtn('🧾','Invoices','#d1fae5','#00a884', pLock('openLeadInvoices('+l.id+')','Invoices','invoices'));
   h += '</div></div>';
   h += '<div style="height:4px;background:var(--bg)"></div>';
 
@@ -5610,14 +5623,14 @@ function renderLeadScreen(id) {
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
   h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Message</div>';
   h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">';
-  h += ldCallBtn('📧','Email','#dbeafe','#2563eb', pLock('lsDoEmail()','Email'));
+  h += ldCallBtn('📧','Email','#dbeafe','#2563eb', pLock('lsDoEmail()','Email','email'));
   h += ldCallBtn('💬','SMS','#d1fae5','var(--green)','openSmsSheet()');
   h += ldCallBtn('🟢','WhatsApp','#dcfce7','#25d366','lsDoWa()');
   h += '</div>';
   h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Call</div>';
   h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">';
   h += ldCallBtn('📞','Dialer','#ffe0e0','var(--red)','lsDialer()');
-  h += ldCallBtn('🤖','AI Call','linear-gradient(135deg,#ede9fe,#dbeafe)','#6366f1', pLock('lsDoAiCall()','AI Calls'));
+  h += ldCallBtn('🤖','AI Call','linear-gradient(135deg,#ede9fe,#dbeafe)','#6366f1', pLock('lsDoAiCall()','AI Calls','ai_call'));
   h += ldCallBtn('📣','IVR Call','#ede9fe','#7c3aed','lsDoIvrCall()');
   h += '</div></div>';
   h += '<div style="height:4px;background:var(--bg)"></div>';
@@ -6418,6 +6431,7 @@ function lsDoWa(){
 function lsDoAiCall(){
   var l=lsGetLead();if(!l)return;
   if(isPartnerMode()){showToast('🔒 AI Calls are only available for Authorized Sellers — contact your admin to unlock');return;}
+  if(isClientMode() && !clientCan('ai_call')){showToast('🔒 AI Calls are available on the AI Sales Engine plan — contact us to upgrade');return;}
   requireLeadInfo(l,[
     {field:'name',     label:'Contact Name',    placeholder:'e.g. John Smith'},
     {field:'location', label:'City / Province', placeholder:'e.g. Toronto, ON'}
@@ -6429,6 +6443,7 @@ function lsDoAiCall(){
 function lsDoEmail(){
   var l=lsGetLead();if(!l)return;
   if(isPartnerMode()){showToast('📧 Email requires admin approval — contact your admin to send emails');return;}
+  if(isClientMode() && !clientCan('email')){showToast('📧 Email is available on the AI Sales Engine plan — contact us to upgrade');return;}
   requireLeadInfo(l,[
     {field:'name', label:'Contact Name', placeholder:'e.g. John Smith'},
     {field:'em',   label:'Email Address', type:'email', placeholder:'client@email.com'}
@@ -7036,6 +7051,7 @@ function openFu(id){
   document.getElementById('fuDate').value=fmt(new Date(Date.now()+86400000));
   document.getElementById('fuTime').value='10:00';
   document.getElementById('fuNote').value='';
+  window._fuAutoSaved = false;
   closeSheet('leadSh');openSheet('fuSh');
 }
 function saveFu(){
@@ -7045,6 +7061,17 @@ function saveFu(){
   tasks.push({id:nxtTid++,lid:fuLid,type:tp,date:dt,time:tm,note:no,done:false});
   var l=leads.find(function(x){return x.id===fuLid});if(l&&l.stage==='New')l.stage='Follow-up';
   closeSheet('fuSh');showToast('Follow-up scheduled for '+fmtDate(dt));
+}
+
+// Auto-save once BOTH date and time are filled. Debounced via a per-sheet
+// flag so we don't double-save if the user adjusts time after date is set.
+function fuTryAutoSave(){
+  var dt=document.getElementById('fuDate'); var tm=document.getElementById('fuTime');
+  if(!dt||!tm) return;
+  if(!dt.value || !tm.value) return;
+  if(window._fuAutoSaved) return;
+  window._fuAutoSaved = true;
+  saveFu();
 }
 
 // ═══════════════════════════════════════
@@ -9187,6 +9214,18 @@ async function showClientUI() {
   if (!ok || !window._clientData) { showToast('Client account not found'); return; }
   var c = window._clientData;
 
+  // ── Load client plan from client_integrations (defaults to 'basic' if no row).
+  // clientCan() reads window._clientPlan, so this MUST happen before any
+  // lead-detail render that uses pLock(..., feature).
+  window._clientPlan = 'basic';
+  try {
+    var ciRes = await sbFetch('/rest/v1/client_integrations?select=plan&client_id=eq.'+c.id+'&limit=1');
+    if (ciRes.ok) {
+      var ciArr = await ciRes.json();
+      if (ciArr.length && ciArr[0].plan) window._clientPlan = ciArr[0].plan;
+    }
+  } catch(e) { /* silent: stays on basic */ }
+
   // Topbar: business name + balance
   document.getElementById('tbTitle').textContent = c.business_name || c.name || 'My Account';
   document.getElementById('tbSub').textContent   = (c.view_balance != null ? (c.view_balance + ' views') : 'Client');
@@ -9339,12 +9378,43 @@ function toggleAllPartners() {
 
 function isPartnerMode() { return window._staffRole === 'sales_partner'; }
 
-// Partner-locked features. Returns either the real onclick string, or a toast
-// explaining the lock. Single source of truth for partner feature-gating.
-function pLock(action, label) {
-  return isPartnerMode()
-    ? 'showToast("🔒 ' + label + ' is only available for Authorized Sellers — contact your admin to unlock")'
-    : action;
+// ── Client plan gating ───────────────────────────────────────────────
+// client_integrations.plan stores the plan string. Anything that isn't
+// explicitly 'ai_sales_engine' resolves to 'basic' (safest default).
+window._clientPlan = window._clientPlan || null;
+function normalizeClientPlan(raw) {
+  var p = String(raw || '').toLowerCase().trim();
+  // Legacy values from earlier dropdowns: starter/pro/agency/enterprise/etc.
+  // Only 'ai_sales_engine' (or explicit 'ai'/'pro_ai') unlock premium features.
+  if (p === 'ai_sales_engine' || p === 'ai' || p === 'pro_ai') return 'ai_sales_engine';
+  return 'basic';
+}
+function clientGetPlan() { return normalizeClientPlan(window._clientPlan); }
+// Per-feature plan map. Returns true if the current client can use the feature.
+// For non-client roles (staff/partner) this is irrelevant — clientCan() is only
+// consulted when isClientMode() is true.
+function clientCan(feature) {
+  var plan = clientGetPlan();
+  var aiOnly = { meeting:1, quotes:1, invoices:1, email:1, ai_call:1 };
+  if (aiOnly[feature]) return plan === 'ai_sales_engine';
+  // sms / whatsapp / ivr_call / etc. — open on all plans
+  return true;
+}
+
+// Unified action lock for action buttons. Layered:
+//   • Partner mode  → all premium actions show partner-upgrade toast
+//   • Client + Basic plan + feature flagged AI-only → upgrade-plan toast
+//   • Otherwise → the original action string
+// Backward-compatible: existing call sites without `feature` only get the
+// partner check, so nothing breaks.
+function pLock(action, label, feature) {
+  if (isPartnerMode()) {
+    return 'showToast("🔒 ' + label + ' is only available for Authorized Sellers — contact your admin to unlock")';
+  }
+  if (isClientMode() && feature && !clientCan(feature)) {
+    return 'showToast("🔒 ' + label + ' is available on the AI Sales Engine plan — contact us to upgrade")';
+  }
+  return action;
 }
 
 // Partner dashboard HTML — injected into adminDashHTML() when role = partner
