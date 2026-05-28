@@ -6,6 +6,8 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Adviuz">
+<meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <title>Adviuz Hub · v2026-05-26 hideref-v38</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -60,7 +62,7 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
 .scroll::-webkit-scrollbar{display:none}
 
 /* Tabbar */
-.tabbar{background:var(--white);display:flex;flex-shrink:0;padding-bottom:0;border-top:1px solid var(--border);position:relative;z-index:1}
+.tabbar{background:var(--white);display:flex;flex-shrink:0;padding-bottom:env(safe-area-inset-bottom, 0px);border-top:1px solid var(--border);position:relative;z-index:1}
 .tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 0 10px;cursor:pointer;color:var(--muted);border:none;background:none;font-family:var(--f);position:relative;transition:color .12s}
 .tab.active{color:var(--green)}
 .tab svg{width:22px;height:22px;margin-bottom:3px;stroke-width:1.75}
@@ -5291,6 +5293,34 @@ async function loadLeadActivity(localId, dbId) {
       return { type:row.type||'note', label:row.label||row.type, time:row.created_at, body:body, rec:false };
     });
 
+    // ── Dedupe: activity_log historically duplicated calls/SMS that are also
+    //    in lead_activity (each event got logged to both tables). lead_activity
+    //    has the rich data (call_sid, recording, duration, ai_summary), so it's
+    //    the source of truth — drop activity_log rows that match a lead_activity
+    //    row of the same type within ±90 seconds.
+    var DEDUP_WINDOW_MS = 90 * 1000;
+    var TYPE_GROUPS = {
+      call:         'call',
+      sms_sent:     'sms',
+      sms_received: 'sms',
+      sms:          'sms'
+    };
+    function groupOf(t){ return TYPE_GROUPS[t] || t; }
+    norm2 = norm2.filter(function(a2){
+      var g2 = groupOf(a2.type);
+      // Only dedupe types that webhooks write to lead_activity.
+      if (g2 !== 'call' && g2 !== 'sms') return true;
+      var t2 = new Date(a2.time).getTime();
+      if (isNaN(t2)) return true;
+      var dup = norm1.some(function(a1){
+        if (groupOf(a1.type) !== g2) return false;
+        var t1 = new Date(a1.time).getTime();
+        if (isNaN(t1)) return false;
+        return Math.abs(t1 - t2) <= DEDUP_WINDOW_MS;
+      });
+      return !dup;
+    });
+
     // Merge both, sort newest first
     var all = norm1.concat(norm2).sort(function(a,b){ return new Date(b.time)-new Date(a.time); });
 
@@ -7156,27 +7186,24 @@ function _makeCall(l) {
       endCallSheet(); 
       showToast('Call ended · '+durStr);
       // ── Update lead_activity row with duration ──
+      // lead_activity is the canonical store for calls — it gets the call_sid on
+      // accept, duration on disconnect, and recording_url + ai_summary from the
+      // Twilio webhook. We DO NOT also write to activity_log here (that would
+      // create a duplicate row that loadLeadActivity would merge in).
       if (_actRowId) {
         sbFetch('/rest/v1/lead_activity?id=eq.'+_actRowId, {
           method: 'PATCH',
           body: JSON.stringify({ duration_seconds: dur })
         }).catch(function(e){ console.warn('[Call] duration update failed:', e); });
       }
-      // ── Save to activity_log for timeline ──
-      logActivity({
-        lead_id:    l.id,
-        db_lead_id: l.dbId,
-        client_id:  window._clientId,
-        type:       'call',
-        label:      '📞 Outbound Call',
-        body:       'Outbound call · Duration: '+durStr
-      });
-      // Add to local activity immediately
+      // Add to local activity immediately (instant UI feedback; gets replaced
+      // by the canonical lead_activity row on next loadLeadActivity refresh).
       if (!leadAct[l.id]) leadAct[l.id] = [];
       leadAct[l.id].unshift({
         type: 'call', label: '📞 Outbound Call',
         time: 'Just now', body: 'Outbound call · Duration: '+durStr,
-        dur: durStr, rec: false, callType: 'outbound'
+        dur: durStr, rec: false, callType: 'outbound',
+        _localOnly: true   // marker so dedup logic can identify locally-added entries
       });
       if (curLid === l.id) renderLeadScreen(l.id);
       // Reload from DB after 5s — recording webhook needs time to fire
