@@ -3046,11 +3046,21 @@ async function doLogin() {
         if (pArr.length) { isPartner = true; window._partnerData = pArr[0]; }
       }
 
+      // Check if client — detected by clients.auth_user_id, the SAME field
+      // every client-scoped RLS policy uses, so the gate and the database
+      // can never disagree about who this client is.
+      var isClient = false;
       if (!isStaff && !isPartner) {
+        var cRes = await sbFetch('/rest/v1/clients?select=*&auth_user_id=eq.'+user.id+'&limit=1');
+        var cArr = cRes.ok ? await cRes.json() : [];
+        if (cArr.length) { isClient = true; window._clientData = cArr[0]; window._clientId = cArr[0].id; }
+      }
+
+      if (!isStaff && !isPartner && !isClient) {
         authToken = null; currentUser = null;
         throw new Error('Access denied — not an authorised user. Contact relations@adviuz.com');
       }
-      window._staffRole = isPartner ? 'sales_partner' : (m.role || 'super_admin');
+      window._staffRole = isPartner ? 'sales_partner' : (isClient ? 'client' : (m.role || 'super_admin'));
     } catch(gateErr) {
       if (gateErr.message.indexOf('Access denied') > -1) {
         authToken = null; currentUser = null;
@@ -3655,6 +3665,9 @@ function onLoginSuccess() {
   syncStageSelects();
   if (window._staffRole === 'sales_partner') {
     showPartnerUI();
+  } else if (window._staffRole === 'client') {
+    showClientUI();
+    return; // client UI owns its own load + render
   } else {
     showAdminUI();
   }
@@ -3692,6 +3705,10 @@ function doLogout() {
   window._isPartnerMode = false;
   window._partnerData   = null;
   window._partnerComms  = [];
+  window._isClientMode  = false;
+  window._clientData    = null;
+  window._clientId      = null;
+  window._clientCampaigns = [];
   // Restore admin topbar buttons
   ['tbPlusBtn','tbSearch','tbRefresh','tbNotifBtn'].forEach(function(id){
     var el = document.getElementById(id);
@@ -4420,7 +4437,7 @@ function setQuickStage(stage){
 // RENDER DISPATCH
 // ═══════════════════════════════════════
 function render(){
-  var pages={leads:leadsHTML,followups:followupsHTML,reports:reportsHTML,calls:callsHTML,dashboard:window._isPartnerMode?partnerDashHTML:adminDashHTML};
+  var pages={leads:leadsHTML,followups:followupsHTML,reports:reportsHTML,calls:callsHTML,dashboard:window._isPartnerMode?partnerDashHTML:(window._isClientMode?clientDashHTML:adminDashHTML)};
   document.getElementById('content').innerHTML=(pages[curTab]||leadsHTML)();
   if(typeof updateActiveFilterBar==='function') updateActiveFilterBar();
   if(typeof renderStats==='function') renderStats();
@@ -9142,6 +9159,134 @@ async function loadPartnerComms() {
     var res = await sbFetch('/rest/v1/partner_commissions?partner_id=eq.'+p.id+'&order=earned_at.desc&limit=100');
     if (res.ok) window._partnerComms = await res.json();
   } catch(e) { window._partnerComms = []; }
+}
+
+// ══════════════════════════════════════════════════════
+// CLIENT VIEW  (hairtattoo-style account: campaigns, balance, design)
+// ══════════════════════════════════════════════════════
+window._clientData = window._clientData || null;
+window._clientId   = window._clientId   || null;
+window._clientCampaigns = [];
+
+function isClientMode() { return window._staffRole === 'client'; }
+
+// On session-restore the role is known but _clientData may be empty — reload it.
+async function ensureClientData() {
+  if (window._clientData && window._clientId) return true;
+  if (!currentUser || !currentUser.id) return false;
+  try {
+    var res = await sbFetch('/rest/v1/clients?select=*&auth_user_id=eq.'+currentUser.id+'&limit=1');
+    var arr = res.ok ? await res.json() : [];
+    if (arr.length) { window._clientData = arr[0]; window._clientId = arr[0].id; return true; }
+  } catch(e) { console.warn('[ensureClientData]', e.message); }
+  return false;
+}
+
+async function showClientUI() {
+  var ok = await ensureClientData();
+  if (!ok || !window._clientData) { showToast('Client account not found'); return; }
+  var c = window._clientData;
+
+  // Topbar: business name + balance
+  document.getElementById('tbTitle').textContent = c.business_name || c.name || 'My Account';
+  document.getElementById('tbSub').textContent   = (c.view_balance != null ? (c.view_balance + ' views') : 'Client');
+
+  // Hide staff-only topbar buttons (clients don't add leads / global search / notifs)
+  ['tbPlusBtn','tbSearch','tbNotifBtn'].forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) { var btn = el.tagName==='BUTTON'?el:el.closest('button'); if(btn) btn.style.display='none'; }
+  });
+  var menuBtn = document.querySelector('.tb-menu');
+  if (menuBtn) menuBtn.style.display = 'none';
+  var am = document.getElementById('adminMenuSection');
+  if (am) am.style.display = 'none';
+
+  // Sign Out button
+  if (!document.getElementById('clientSignOutBtn')) {
+    var tbRight = document.querySelector('.tb-right');
+    if (tbRight) {
+      var b = document.createElement('button');
+      b.id = 'clientSignOutBtn';
+      b.onclick = doLogout;
+      b.style.cssText = 'padding:6px 14px;border-radius:20px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);color:#fff;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap';
+      b.textContent = 'Sign Out';
+      tbRight.appendChild(b);
+    }
+  } else { document.getElementById('clientSignOutBtn').style.display=''; }
+
+  // Tab bar (least-privilege): Dashboard, Leads, Reports. Hide the rest.
+  var dashTab = document.getElementById('tab-dashboard');
+  if (dashTab) dashTab.style.display = 'flex';
+  ['tab-followups','tab-calls'].forEach(function(id){
+    var el = document.getElementById(id); if (el) el.style.display='none';
+  });
+  ['tab-reports'].forEach(function(id){
+    var el = document.getElementById(id); if (el) el.style.display='flex';
+  });
+  var leadsLbl = document.querySelector('#tab-leads .tab-lbl');
+  if (leadsLbl) leadsLbl.textContent = 'Leads';
+
+  window._isClientMode = true;
+
+  // Land on the dashboard
+  var dashBtn = document.getElementById('tab-dashboard');
+  goTab('dashboard', dashBtn);
+
+  await loadClientCampaigns();
+  await loadClientLeads();
+  render();
+}
+
+async function loadClientCampaigns() {
+  var cid = window._clientId; if(!cid) return;
+  try {
+    var res = await sbFetch('/rest/v1/campaigns?client_id=eq.'+cid+'&order=created_at.desc&limit=100');
+    if (res.ok) window._clientCampaigns = await res.json();
+  } catch(e) { window._clientCampaigns = []; }
+}
+
+async function loadClientLeads() {
+  var cid = window._clientId; if(!cid) return;
+  try {
+    var res = await sbFetch('/rest/v1/leads?client_id=eq.'+cid+'&order=created_at.desc&limit=300');
+    if (res.ok) {
+      var dbLeads = await res.json();
+      leads = dbLeads.map(mapLead);
+      nxtId = leads.length + 1;
+    }
+  } catch(e) { console.warn('[loadClientLeads]', e.message); }
+}
+
+// Minimal placeholder dashboard — confirms login lands successfully.
+// The full campaigns/balance/design UI gets built on top of this next.
+function clientDashHTML() {
+  var c = window._clientData || {};
+  var camps = window._clientCampaigns || [];
+  var bal = (c.view_balance != null ? c.view_balance : 0);
+  var h = '<div style="padding:16px">';
+  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:14px">'
+     + '<div style="font-size:12px;color:var(--sub);font-weight:600;text-transform:uppercase;letter-spacing:.05em">Account Balance</div>'
+     + '<div style="font-size:30px;font-weight:800;color:var(--text);margin-top:4px">'+bal+' <span style="font-size:14px;color:var(--sub);font-weight:600">Flyer Views</span></div>'
+     + '</div>';
+  h += '<div style="font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);margin:6px 2px 10px">Campaigns ('+camps.length+')</div>';
+  if (!camps.length) {
+    h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:24px;text-align:center;color:var(--sub);font-size:13px">No campaigns yet</div>';
+  } else {
+    camps.forEach(function(cp){
+      var active = (cp.status||'')==='active';
+      h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:10px">'
+         + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
+         +   '<span style="width:9px;height:9px;border-radius:50%;background:'+(active?'var(--green)':'var(--red)')+'"></span>'
+         +   '<span style="font-size:15px;font-weight:700;color:var(--text)">'+(cp.name||'Campaign')+'</span>'
+         +   '<span style="margin-left:auto;font-size:11px;color:var(--sub)">'+(cp.status||'')+'</span>'
+         + '</div>'
+         + '<div style="font-size:12px;color:var(--sub)">Views used: '+(cp.views_used||0)+(cp.view_budget?(' / '+cp.view_budget):'')+'</div>'
+         + '</div>';
+    });
+  }
+  h += '<div style="text-align:center;color:var(--muted);font-size:11px;margin-top:16px">Full dashboard (design previews, ad mockups) coming next</div>';
+  h += '</div>';
+  return h;
 }
 
 function partnerStageLabel(s) {
