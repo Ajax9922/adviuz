@@ -4078,7 +4078,7 @@ function goTab(tab,btn){
     if (window._isClientMode && window._clientData) {
       var cd = window._clientData;
       titleText = cd.business_name || cd.name || 'My Account';
-      subText   = (cd.view_balance != null ? (cd.view_balance + ' views') : 'Client');
+      subText   = (window._clientPlan === 'ai_sales_engine') ? 'AI Sales Engine' : 'Basic plan';
     } else if (window._isPartnerMode && window._partnerData) {
       var pd = window._partnerData;
       titleText = pd.full_name || pd.name || 'Partner';
@@ -5685,11 +5685,13 @@ function renderLeadScreen(id) {
     h += '<button onclick="markDone('+t.id+');renderLeadScreen('+l.id+')" style="padding:4px 10px;border-radius:7px;background:rgba(0,168,132,.15);border:none;color:var(--green);font-family:var(--f);font-size:11px;font-weight:700;cursor:pointer">Done ✓</button>';
     h += '</div>';
   });
-  // Picker row
+  // Auto-save on change — no Set button per UX request. lsQuickSaveFu is
+  // self-debouncing via window._lsFuSaved so we never double-save while the
+  // picker is being adjusted.
   h += '<div style="display:flex;gap:8px">';
-  h += '<input type="datetime-local" id="lsFuDatetime" value="'+dtDef+'" style="flex:1;border:1.5px solid var(--border);border-radius:9px;padding:10px 12px;font-family:var(--f);font-size:14px;color:var(--text);outline:none;background:var(--white);min-width:0">';
-  h += '<button onclick="lsQuickSaveFu('+l.id+')" style="flex-shrink:0;padding:10px 14px;border-radius:9px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">+ Set</button>';
+  h += '<input type="datetime-local" id="lsFuDatetime" value="'+dtDef+'" onchange="lsQuickSaveFu('+l.id+')" style="flex:1;border:1.5px solid var(--border);border-radius:9px;padding:10px 12px;font-family:var(--f);font-size:14px;color:var(--text);outline:none;background:var(--white);min-width:0">';
   h += '</div>';
+  h += '<div style="font-size:11px;color:var(--muted);margin-top:6px;text-align:center">Pick a date and time — follow-up saves automatically</div>';
   h += '</div>';
 
   h += '<div style="height:4px;background:var(--bg)"></div>';
@@ -5958,6 +5960,13 @@ function ldCallBtn(icon, label, bg, col, fn){
 function lsQuickSaveFu(lid){
   var dtEl = document.getElementById('lsFuDatetime');
   if(!dtEl||!dtEl.value){showToast('Pick a date and time');return;}
+  // Debounce: same lid + same value within 1.5s = ignore. Prevents accidental
+  // double-saves while the user is still adjusting the picker.
+  var key = lid + '|' + dtEl.value;
+  if (window._lsFuLast === key) return;
+  window._lsFuLast = key;
+  setTimeout(function(){ if (window._lsFuLast === key) window._lsFuLast = null; }, 60000);
+
   var parts = dtEl.value.split('T');
   tasks.push({id:nxtTid++,lid:lid,type:'call',date:parts[0],time:parts[1]||'10:00',note:'',done:false});
   if(!leadAct[lid])leadAct[lid]=[];
@@ -7302,7 +7311,10 @@ function startCallTimer() {
 }
 
 function stopCall() {
-  if (activeCall) { activeCall.disconnect(); activeCall=null; }
+  if (activeCall) {
+    try { activeCall.disconnect(); } catch(e) { console.warn('[stopCall] disconnect threw:', e && e.message); }
+    activeCall = null;
+  }
   endCallSheet();
 }
 
@@ -9226,9 +9238,12 @@ async function showClientUI() {
     }
   } catch(e) { /* silent: stays on basic */ }
 
-  // Topbar: business name + balance
+  // Topbar: business name + plan label (no duplicate balance number — the
+  // dashboard card shows balance, topbar shows identity/plan to avoid the
+  // "967 vs 22/994" confusion).
+  var planLbl = (window._clientPlan === 'ai_sales_engine') ? 'AI Sales Engine' : 'Basic plan';
   document.getElementById('tbTitle').textContent = c.business_name || c.name || 'My Account';
-  document.getElementById('tbSub').textContent   = (c.view_balance != null ? (c.view_balance + ' views') : 'Client');
+  document.getElementById('tbSub').textContent   = planLbl;
 
   // Hide staff-only topbar buttons (clients don't add leads / global search / notifs)
   ['tbPlusBtn','tbSearch','tbNotifBtn'].forEach(function(id){
@@ -9253,13 +9268,14 @@ async function showClientUI() {
     }
   } else { document.getElementById('clientSignOutBtn').style.display=''; }
 
-  // Tab bar (least-privilege): Dashboard, Leads, Reports. Hide the rest.
+  // Tab bar (least-privilege): Dashboard, Leads, Follow-ups, Reports.
+  // Hide Calls — telephony infra is staff-side for now.
   var dashTab = document.getElementById('tab-dashboard');
   if (dashTab) dashTab.style.display = 'flex';
-  ['tab-followups','tab-calls'].forEach(function(id){
+  ['tab-calls'].forEach(function(id){
     var el = document.getElementById(id); if (el) el.style.display='none';
   });
-  ['tab-reports'].forEach(function(id){
+  ['tab-followups','tab-reports'].forEach(function(id){
     var el = document.getElementById(id); if (el) el.style.display='flex';
   });
   var leadsLbl = document.querySelector('#tab-leads .tab-lbl');
@@ -9407,12 +9423,21 @@ function clientCan(feature) {
 //   • Otherwise → the original action string
 // Backward-compatible: existing call sites without `feature` only get the
 // partner check, so nothing breaks.
+// IMPORTANT: HTML buttons render this string inside onclick="..." (double-
+// quoted), so the JS must use SINGLE quotes around the toast message. Any
+// apostrophes inside the message must be HTML-escaped to '\\u2019' to avoid
+// breaking the attribute.
 function pLock(action, label, feature) {
+  function tos(msg) {
+    // Wrap in single quotes; convert apostrophes in the message to a
+    // typographic right-quote so they don't terminate the string.
+    return "showToast('" + String(msg).replace(/'/g, '\u2019') + "')";
+  }
   if (isPartnerMode()) {
-    return 'showToast("🔒 ' + label + ' is only available for Authorized Sellers — contact your admin to unlock")';
+    return tos('🔒 ' + label + ' is only available for Authorized Sellers — contact your admin to unlock');
   }
   if (isClientMode() && feature && !clientCan(feature)) {
-    return 'showToast("🔒 ' + label + ' is available on the AI Sales Engine plan — contact us to upgrade")';
+    return tos('🔒 ' + label + ' is available on the AI Sales Engine plan — contact us to upgrade');
   }
   return action;
 }
