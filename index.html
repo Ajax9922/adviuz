@@ -3918,7 +3918,9 @@ function mapLead(l, i) {
     t: timeAgo(l.created_at),
     rawDate: l.created_at ? locDate(l.created_at) : locToday(),
     col: l.color || COLORS[i % COLORS.length],
-    partner_id: l.partner_id || null
+    partner_id: l.partner_id || null,
+    meeting_date: l.meeting_date || null,
+    deal_value:   (l.deal_value != null ? Number(l.deal_value) : null)
   };
 }
 
@@ -4070,6 +4072,12 @@ function goTab(tab,btn){
   curTab=tab;
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active')});
   btn.classList.add('active');
+  // When the client taps Dashboard, always start at the campaigns list view —
+  // never leave them stuck inside a stale detail page.
+  if (tab === 'dashboard' && window._isClientMode) {
+    window._clientDashView = 'list';
+    window._clientDashCampId = null;
+  }
   var c=TAB_CFG[tab];
   // Per-mode topbar override on the dashboard tab so we never show "Adviuz Admin"
   // to a client or partner.
@@ -4247,6 +4255,12 @@ function renderAdvancedFilter(){
     {key:'sources',   title:'Source',                   opts:d.sources},
     {key:'services',  title:'Service',                  opts:d.services}
   ];
+  // Clients shouldn't see the internal Partner classification — it's an
+  // agency-side concept (which sales partner referred the lead) and exposing
+  // it leaks the agency's network. Hide it for client mode.
+  if (isClientMode()) {
+    sections = sections.filter(function(s){ return s.key !== 'partners'; });
+  }
   box.innerHTML = sections.map(function(sec){
     var selected = af[sec.key]||[];
     var count = selected.length;
@@ -4432,17 +4446,102 @@ function setQuickStage(stage){
   if(!l) return;
   var old = l.stage;
   l.stage = stage;
-  if(l.dbId){
+
+  // ── A) Auto-capture meeting_date when stage flips to "Meeting Done" ──
+  // (Only set if not already populated, so re-toggling doesn't overwrite.)
+  var nowIso = new Date().toISOString();
+  var patch = { stage: stage, updated_at: nowIso };
+  if (stage.indexOf('Meeting Done') !== -1 && (old || '').indexOf('Meeting Done') === -1) {
+    if (!l.meeting_date) {
+      l.meeting_date = nowIso;
+      patch.meeting_date = nowIso;
+    }
+  }
+
+  // ── B) Deal Closed → prompt for deal value (deferred PATCH happens in
+  //     saveDealValueAndClose so the value gets stored in the same write).
+  var isClosed = stage.indexOf('Deal Closed') !== -1 && (old || '').indexOf('Deal Closed') === -1;
+
+  if (l.dbId && !isClosed) {
     sbFetch('/rest/v1/leads?id=eq.'+l.dbId, {
       method:'PATCH',
-      body: JSON.stringify({ stage:stage, updated_at:new Date().toISOString() })
+      body: JSON.stringify(patch)
     }).catch(function(){});
     if(stage !== old && typeof logActivity === 'function'){
       logActivity({ lead_id:l.dbId, client_id:window._clientId||null, type:'stage_change',
                     label:'Stage Changed', body:'Stage changed to '+stage });
     }
   }
+
   closeSheet('quickStageSh');
+
+  if (isClosed) {
+    // Open the deal-value sheet — it'll PATCH everything together on save.
+    openDealValueSheet(l.id, old, stage);
+    return; // toast comes from the sheet's save handler
+  }
+
+  showToast('Stage updated');
+  render();
+}
+
+// ── Deal value capture (when stage flips to "Deal Closed") ──
+var _dvLeadId = null, _dvOldStage = null, _dvNewStage = null;
+function openDealValueSheet(leadId, oldStage, newStage){
+  _dvLeadId = leadId; _dvOldStage = oldStage; _dvNewStage = newStage;
+  var l = leads.find(function(x){ return x.id===leadId; });
+  var nm = document.getElementById('dvLeadName');
+  if(nm) nm.textContent = l ? ('· '+(l.company||l.name||'')) : '';
+  var inp = document.getElementById('dvAmount');
+  if(inp){ inp.value = ''; setTimeout(function(){ inp.focus(); }, 250); }
+  openSheet('dealValueSh');
+}
+async function saveDealValueAndClose(){
+  var l = leads.find(function(x){ return x.id===_dvLeadId; });
+  if(!l){ closeSheet('dealValueSh'); return; }
+  var inp = document.getElementById('dvAmount');
+  var raw = inp ? inp.value : '';
+  var amt = parseFloat(String(raw).replace(/[^0-9.\-]/g,''));
+  if (isNaN(amt) || amt < 0) { showToast('Enter a valid amount'); return; }
+
+  var nowIso = new Date().toISOString();
+  l.deal_value = amt;
+
+  if (l.dbId) {
+    try {
+      await sbFetch('/rest/v1/leads?id=eq.'+l.dbId, {
+        method:'PATCH',
+        body: JSON.stringify({
+          stage: _dvNewStage,
+          deal_value: amt,
+          updated_at: nowIso
+        })
+      });
+      if (typeof logActivity === 'function') {
+        logActivity({ lead_id:l.dbId, client_id:window._clientId||null, type:'stage_change',
+                      label:'Deal Closed', body:'Deal closed for CAD $'+amt.toFixed(2) });
+      }
+    } catch(e) { console.warn('[saveDealValueAndClose]', e.message); }
+  }
+
+  closeSheet('dealValueSh');
+  showToast('🎉 Deal closed · CAD $'+amt.toFixed(2));
+  render();
+}
+function skipDealValueAndClose(){
+  // User chose to skip entering value — just patch the stage change.
+  var l = leads.find(function(x){ return x.id===_dvLeadId; });
+  if(l && l.dbId){
+    sbFetch('/rest/v1/leads?id=eq.'+l.dbId, {
+      method:'PATCH',
+      body: JSON.stringify({ stage:_dvNewStage, updated_at:new Date().toISOString() })
+    }).catch(function(){});
+    if (typeof logActivity === 'function') {
+      logActivity({ lead_id:l.dbId, client_id:window._clientId||null, type:'stage_change',
+                    label:'Stage Changed', body:'Stage changed to '+_dvNewStage });
+    }
+  }
+  closeSheet('dealValueSh');
   showToast('Stage updated');
   render();
 }
@@ -5122,6 +5221,10 @@ function rptPeriodLabel() {
 }
 
 function reportsHTML(){
+  // Client mode → simpler, Glide-style "Leads Summary + Breakdown" report.
+  // Staff continues with the existing detailed report below.
+  if (isClientMode()) return clientReportsHTML();
+
   var filtLeads = rptFilterLeads(leads);
 
   var tot    = filtLeads.length;
@@ -5216,6 +5319,132 @@ function reportsHTML(){
     +'<div style="background:var(--bg);border-radius:9px;padding:13px"><div style="font-size:26px;font-weight:800;color:var(--sub)">'+ms+'</div><div style="font-size:11px;color:var(--sub);margin-top:3px;font-weight:600">Missed</div></div>'
     +'</div></div>'
     +'<div style="height:8px"></div>';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CLIENT REPORTS  (Glide-style: Leads Summary + Leads Breakdown)
+// Scoped to the client's own leads via RLS + loadClientLeads(). Stages
+// are bucketed into Deal in Process / Meeting Done / Deals Closed /
+// Deal Disqualified per the user's spec.
+// ═══════════════════════════════════════════════════════════════════
+function clientReportsHTML(){
+  var ls = (leads || []);
+  var tot = ls.length;
+
+  // Bucket helpers — use stage name match. STAGES are numbered ('1. Fresh Lead',
+  // '6. Meeting Done', '9. Deal Closed', '10. Not Interested', '12. Lost', etc).
+  function stageOneOf(l, list){
+    var s = l.stage || '';
+    for (var i=0; i<list.length; i++) {
+      if (s === list[i] || s.indexOf(list[i].replace(/^\d+\.\s*/,'')) !== -1) return true;
+    }
+    return false;
+  }
+
+  // "Deal in Process" — exclude Fresh Lead, Not Interested, Lost
+  var inProcess = ls.filter(function(l){
+    return !stageOneOf(l, ['1. Fresh Lead','10. Not Interested','12. Lost']);
+  }).length;
+
+  // Meeting Done — stage 6
+  var meetingDone = ls.filter(function(l){ return stageOneOf(l, ['6. Meeting Done']); }).length;
+
+  // Deals Closed — stage 9
+  var dealsClosed = ls.filter(function(l){ return stageOneOf(l, ['9. Deal Closed']); }).length;
+
+  // Deal Disqualified — Not Interested + Lost + Looking for Job
+  var disqualified = ls.filter(function(l){
+    return stageOneOf(l, ['10. Not Interested','12. Lost','15. Looking for Job']);
+  }).length;
+
+  // Future Prospect — stage 11
+  var futureProspect = ls.filter(function(l){ return stageOneOf(l, ['11. Future Prospect']); }).length;
+
+  // Revenue from closed deals (uses leads.deal_value populated on close).
+  var closedLeads = ls.filter(function(l){ return stageOneOf(l, ['9. Deal Closed']); });
+  var totalRevenue = closedLeads.reduce(function(s,l){ return s + (Number(l.deal_value)||0); }, 0);
+  var dealsWithValue = closedLeads.filter(function(l){ return l.deal_value != null && !isNaN(l.deal_value); });
+  var avgDealSize = dealsWithValue.length ? (totalRevenue / dealsWithValue.length) : 0;
+
+  function pct(n){ if(!tot) return '0%'; return ((n/tot)*100).toFixed(2)+'%'; }
+  function fmtCad(n){
+    if (!n) return 'CAD $0';
+    if (n >= 1000000) return 'CAD $' + (n/1000000).toFixed(2) + 'M';
+    if (n >= 1000)    return 'CAD $' + (n/1000).toFixed(1) + 'K';
+    return 'CAD $' + n.toFixed(0);
+  }
+
+  // ── LEADS SUMMARY table ──
+  var summaryRows = [
+    {label:'Total Leads',       n:tot,           pct:'100.00%'},
+    {label:'Deal in Process',   n:inProcess,     pct:pct(inProcess)},
+    {label:'Meeting Done',      n:meetingDone,   pct:pct(meetingDone)},
+    {label:'Deals Closed',      n:dealsClosed,   pct:pct(dealsClosed)},
+    {label:'Future Prospect',   n:futureProspect,pct:pct(futureProspect)},
+    {label:'Deal Disqualified', n:disqualified,  pct:pct(disqualified)}
+  ];
+
+  var h = '<div style="padding:14px 16px">';
+
+  // Header
+  h += '<div style="font-size:22px;font-weight:800;color:var(--text);margin-bottom:14px">Leads Summary</div>';
+
+  // ── Revenue cards (2-up) ──
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px">';
+  h += '<div style="background:linear-gradient(135deg,#d1fae5,#a7f3d0);border-radius:14px;padding:16px">'
+    +    '<div style="font-size:10px;font-weight:700;color:#065f46;letter-spacing:.06em;text-transform:uppercase">Total Revenue</div>'
+    +    '<div style="font-size:22px;font-weight:800;color:#065f46;margin-top:4px;letter-spacing:-.02em">'+fmtCad(totalRevenue)+'</div>'
+    +    '<div style="font-size:11px;color:#047857;margin-top:2px">'+dealsWithValue.length+' deal'+(dealsWithValue.length===1?'':'s')+' with value'
+    + '</div>'
+    +  '</div>';
+  h += '<div style="background:linear-gradient(135deg,#dbeafe,#bfdbfe);border-radius:14px;padding:16px">'
+    +    '<div style="font-size:10px;font-weight:700;color:#1e3a8a;letter-spacing:.06em;text-transform:uppercase">Avg Deal Size</div>'
+    +    '<div style="font-size:22px;font-weight:800;color:#1e3a8a;margin-top:4px;letter-spacing:-.02em">'+fmtCad(avgDealSize)+'</div>'
+    +    '<div style="font-size:11px;color:#1e40af;margin-top:2px">across closed deals</div>'
+    +  '</div>';
+  h += '</div>';
+
+  // Summary table
+  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:24px">';
+  h += '<div style="display:grid;grid-template-columns:1fr 80px 90px;padding:12px 14px;background:var(--bg);font-size:10px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.07em">'
+    +  '<div>Description</div><div style="text-align:right">Total</div><div style="text-align:right">Ratio</div>'
+    +  '</div>';
+  summaryRows.forEach(function(r, i){
+    h += '<div style="display:grid;grid-template-columns:1fr 80px 90px;padding:14px;align-items:center;'+(i?'border-top:1px solid var(--border)':'')+'">'
+      +    '<div style="font-size:14px;color:var(--text);font-weight:500">'+r.label+'</div>'
+      +    '<div style="font-size:15px;color:var(--text);font-weight:700;text-align:right">'+r.n+'</div>'
+      +    '<div style="font-size:13px;color:var(--sub);text-align:right">'+r.pct+'</div>'
+      +  '</div>';
+  });
+  h += '</div>';
+
+  // ── LEADS BREAKDOWN (per-stage) ──
+  h += '<div style="font-size:22px;font-weight:800;color:var(--text);margin-bottom:14px">Leads Breakdown</div>';
+
+  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden">';
+  h += '<div style="display:grid;grid-template-columns:1fr 80px;padding:12px 14px;background:var(--bg);font-size:10px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.07em">'
+    +  '<div>Sales Stage</div><div style="text-align:right">Leads</div>'
+    +  '</div>';
+  STAGES.forEach(function(s, i){
+    var n = ls.filter(function(l){ return l.stage === s.name; }).length;
+    h += '<div style="display:grid;grid-template-columns:1fr 80px;padding:13px 14px;align-items:center;'+(i?'border-top:1px solid var(--border)':'')+'">'
+      +    '<div style="font-size:14px;color:var(--text);display:flex;align-items:center;gap:8px">'
+      +      '<span style="width:8px;height:8px;border-radius:50%;background:'+s.color+';flex-shrink:0"></span>'
+      +      s.name
+      +    '</div>'
+      +    '<div style="font-size:14px;color:var(--text);font-weight:700;text-align:right">'+n+'</div>'
+      +  '</div>';
+  });
+  h += '</div>';
+
+  // Footer note
+  h += '<div style="text-align:center;color:var(--muted);font-size:11px;margin-top:18px;line-height:1.5">'
+    +    'Scoped to your account · ' + tot + ' lead' + (tot===1?'':'s') + ' total<br>'
+    +    'Custom stages + deal-value tracking coming next'
+    +  '</div>';
+
+  h += '</div>';
+  return h;
 }
 
 // ═══════════════════════════════════════
@@ -9301,9 +9530,10 @@ async function showClientUI() {
 
   window._isClientMode = true;
 
-  // Land on the dashboard
-  var dashBtn = document.getElementById('tab-dashboard');
-  goTab('dashboard', dashBtn);
+  // Land on Leads — clients spend most of their time here. Dashboard is a
+  // secondary tab (campaigns + balance overview).
+  var leadsBtn = document.getElementById('tab-leads');
+  if (leadsBtn) goTab('leads', leadsBtn);
 
   await loadClientCampaigns();
   await loadClientLeads();
@@ -9313,7 +9543,8 @@ async function showClientUI() {
 async function loadClientCampaigns() {
   var cid = window._clientId; if(!cid) return;
   try {
-    var res = await sbFetch('/rest/v1/campaigns?client_id=eq.'+cid+'&order=created_at.desc&limit=100');
+    // Join ads so we can get the live URL + slug for the design previews.
+    var res = await sbFetch('/rest/v1/campaigns?select=*,ad:ads(id,live_url,ad_slug,name)&client_id=eq.'+cid+'&order=created_at.desc&limit=100');
     if (res.ok) window._clientCampaigns = await res.json();
   } catch(e) { window._clientCampaigns = []; }
 }
@@ -9330,37 +9561,356 @@ async function loadClientLeads() {
   } catch(e) { console.warn('[loadClientLeads]', e.message); }
 }
 
-// Minimal placeholder dashboard — confirms login lands successfully.
-// The full campaigns/balance/design UI gets built on top of this next.
+// ═══════════════════════════════════════════════════════════════════
+// CLIENT CAMPAIGN DASHBOARD
+// ═══════════════════════════════════════════════════════════════════
+// Two views in one render function, switched via window._clientDashView:
+//   • 'list'   → Account Balance card + filter + campaign cards
+//   • 'detail' → A single campaign's stats + Design Section + Creatives
+// Pause/Activate hits the DB immediately (campaigns.status flip).
+// Add Balance opens a sheet of view bundles → direct Stripe payment links.
+// On payment success the stripe-webhook (server-side) credits view_balance
+// and sends invoice + confirmation, so the UI doesn't need to do anything
+// after redirect except refresh.
+// ═══════════════════════════════════════════════════════════════════
+
+window._clientDashView    = window._clientDashView    || 'list';
+window._clientDashCampId  = window._clientDashCampId  || null;
+window._clientCampFilter  = window._clientCampFilter  || { name:'', status:'' };
+
 function clientDashHTML() {
-  var c = window._clientData || {};
-  var camps = window._clientCampaigns || [];
-  var bal = (c.view_balance != null ? c.view_balance : 0);
-  var h = '<div style="padding:16px">';
-  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:14px">'
-     + '<div style="font-size:12px;color:var(--sub);font-weight:600;text-transform:uppercase;letter-spacing:.05em">Account Balance</div>'
-     + '<div style="font-size:30px;font-weight:800;color:var(--text);margin-top:4px">'+bal+' <span style="font-size:14px;color:var(--sub);font-weight:600">Flyer Views</span></div>'
-     + '</div>';
-  h += '<div style="font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);margin:6px 2px 10px">Campaigns ('+camps.length+')</div>';
-  if (!camps.length) {
-    h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:24px;text-align:center;color:var(--sub);font-size:13px">No campaigns yet</div>';
-  } else {
-    camps.forEach(function(cp){
-      var active = (cp.status||'')==='active';
-      h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:10px">'
-         + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
-         +   '<span style="width:9px;height:9px;border-radius:50%;background:'+(active?'var(--green)':'var(--red)')+'"></span>'
-         +   '<span style="font-size:15px;font-weight:700;color:var(--text)">'+(cp.name||'Campaign')+'</span>'
-         +   '<span style="margin-left:auto;font-size:11px;color:var(--sub)">'+(cp.status||'')+'</span>'
-         + '</div>'
-         + '<div style="font-size:12px;color:var(--sub)">Views used: '+(cp.views_used||0)+(cp.view_budget?(' / '+cp.view_budget):'')+'</div>'
-         + '</div>';
-    });
+  if (window._clientDashView === 'detail' && window._clientDashCampId) {
+    return clientCampaignDetailHTML(window._clientDashCampId);
   }
-  h += '<div style="text-align:center;color:var(--muted);font-size:11px;margin-top:16px">Full dashboard (design previews, ad mockups) coming next</div>';
+  return clientCampaignListHTML();
+}
+
+function clientCampaignListHTML() {
+  var c     = window._clientData || {};
+  var camps = window._clientCampaigns || [];
+  var bal   = (c.view_balance != null ? c.view_balance : 0);
+  var f     = window._clientCampFilter || { name:'', status:'' };
+
+  // Apply filters (in-memory)
+  var filtered = camps.filter(function(cp){
+    if (f.name   && cp.id !== f.name)        return false;
+    if (f.status && (cp.status||'') !== f.status) return false;
+    return true;
+  });
+
+  var h = '<div style="padding:14px 16px">';
+
+  // ── Account Balance card with + Add Balance button ──
+  h += '<div style="background:linear-gradient(135deg,#001f3f,#0c2d4f);border-radius:16px;padding:18px;margin-bottom:14px;color:#fff">'
+    +    '<div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.7);letter-spacing:.07em;text-transform:uppercase">Account Balance</div>'
+    +    '<div style="font-size:34px;font-weight:800;margin-top:6px;letter-spacing:-.02em;line-height:1">'+bal+' <span style="font-size:14px;font-weight:600;color:rgba(255,255,255,.75)">Flyer Views</span></div>'
+    +    '<button onclick="openAddBalanceSheet()" style="margin-top:14px;width:100%;padding:13px;border-radius:11px;background:#fff;color:#001f3f;border:none;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer">+ Add Balance</button>'
+    +  '</div>';
+
+  // ── Filter row (Name + Status) ──
+  var hasFilter = !!(f.name || f.status);
+  h += '<div style="display:flex;gap:8px;margin-bottom:14px">';
+  h += '<button onclick="openCampaignFilterSheet()" style="flex:1;padding:10px 14px;border-radius:10px;background:'+(hasFilter?'var(--text)':'var(--white)')+';color:'+(hasFilter?'#fff':'var(--text)')+';border:1.5px solid var(--border);font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">'
+    +   '🔎 Filter'+(hasFilter?' ('+((f.name?1:0)+(f.status?1:0))+')':'')
+    + '</button>';
+  if (hasFilter) {
+    h += '<button onclick="clientCampClearFilter()" style="padding:10px 14px;border-radius:10px;background:var(--white);color:var(--sub);border:1.5px solid var(--border);font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">Clear</button>';
+  }
+  h += '</div>';
+
+  // ── Section header ──
+  h += '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:4px 2px 10px">Campaigns ('+filtered.length+')</div>';
+
+  // ── Campaign cards ──
+  if (!filtered.length) {
+    h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:28px 16px;text-align:center;color:var(--sub);font-size:13px">'
+      +    (camps.length ? 'No campaigns match the current filter.' : 'No campaigns yet.')
+      + '</div>';
+  } else {
+    filtered.forEach(function(cp){ h += _clientCampCard(cp); });
+  }
+
   h += '</div>';
   return h;
 }
+
+function _clientCampCard(cp) {
+  var active     = (cp.status||'').toLowerCase() === 'active';
+  var paused     = (cp.status||'').toLowerCase() === 'paused';
+  var viewBudget = Number(cp.view_budget)||0;
+  var viewsUsed  = Number(cp.views_used)||0;
+  var remaining  = Math.max(0, viewBudget - viewsUsed);
+  var pctUsed    = viewBudget>0 ? Math.min(100, Math.round(viewsUsed/viewBudget*100)) : 0;
+
+  // Lead count for THIS campaign (in-memory leads are client-scoped)
+  var campLeads  = (leads||[]).filter(function(l){ return String(l.campaign_id||'')===String(cp.id||''); }).length;
+
+  var statusDot = active ? 'var(--green)' : (paused ? '#f59e0b' : '#9ca3af');
+  var statusLbl = active ? 'Active' : (paused ? 'Paused' : (cp.status||'—'));
+
+  var h = '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:10px;cursor:pointer" onclick="openClientCampaignDetail(\''+cp.id+'\')">';
+
+  // Header
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">'
+    +    '<span style="width:9px;height:9px;border-radius:50%;background:'+statusDot+';flex-shrink:0"></span>'
+    +    '<span style="font-size:16px;font-weight:800;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(cp.name||'Campaign')+'</span>'
+    +    '<span style="font-size:11px;font-weight:700;color:'+statusDot+';flex-shrink:0">'+statusLbl+'</span>'
+    +  '</div>';
+
+  // Stats grid (4-up)
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:12px">'
+    +    _statTile('Allotted',  viewBudget)
+    +    _statTile('Used',      viewsUsed)
+    +    _statTile('Remaining', remaining)
+    +    _statTile('Leads',     campLeads)
+    +  '</div>';
+
+  // Progress bar
+  h += '<div style="height:6px;background:var(--bg);border-radius:99px;overflow:hidden;margin-bottom:12px">'
+    +    '<div style="height:100%;width:'+pctUsed+'%;background:linear-gradient(90deg,var(--green),#22c55e);border-radius:99px;transition:width .4s"></div>'
+    +  '</div>';
+
+  // Action buttons (Pause / Activate)
+  h += '<div style="display:flex;gap:8px" onclick="event.stopPropagation()">';
+  if (active) {
+    h += '<button onclick="event.stopPropagation();clientToggleCampaign(\''+cp.id+'\',\'paused\')" style="flex:1;padding:10px;border-radius:9px;background:var(--text);color:#fff;border:none;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">⏸ Pause</button>';
+    h += '<button disabled style="flex:1;padding:10px;border-radius:9px;background:var(--bg);color:var(--muted);border:1px solid var(--border);font-family:var(--f);font-size:13px;font-weight:700;cursor:not-allowed">▶ Active</button>';
+  } else {
+    h += '<button disabled style="flex:1;padding:10px;border-radius:9px;background:var(--bg);color:var(--muted);border:1px solid var(--border);font-family:var(--f);font-size:13px;font-weight:700;cursor:not-allowed">⏸ Paused</button>';
+    h += '<button onclick="event.stopPropagation();clientToggleCampaign(\''+cp.id+'\',\'active\')" style="flex:1;padding:10px;border-radius:9px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">▶ Activate</button>';
+  }
+  h += '</div>';
+
+  h += '</div>';
+  return h;
+}
+
+function _statTile(label, val){
+  return '<div style="background:var(--bg);border-radius:9px;padding:9px 6px;text-align:center">'
+    +    '<div style="font-size:16px;font-weight:800;color:var(--text);letter-spacing:-.01em">'+(val||0)+'</div>'
+    +    '<div style="font-size:9px;font-weight:600;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-top:2px">'+label+'</div>'
+    +  '</div>';
+}
+
+// ── Campaign DETAIL view ──
+function clientCampaignDetailHTML(campId){
+  var cp = (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(campId); });
+  if (!cp) {
+    return '<div style="padding:40px 20px;text-align:center;color:var(--sub)">Campaign not found. <a href="javascript:clientBackToCampaigns()" style="color:var(--green);text-decoration:underline">Back</a></div>';
+  }
+
+  var active     = (cp.status||'').toLowerCase() === 'active';
+  var viewBudget = Number(cp.view_budget)||0;
+  var viewsUsed  = Number(cp.views_used)||0;
+  var remaining  = Math.max(0, viewBudget - viewsUsed);
+  var campLeads  = (leads||[]).filter(function(l){ return String(l.campaign_id||'')===String(cp.id||''); }).length;
+  var liveUrl    = cp.live_url || (cp.ad && cp.ad.live_url) || '';
+  var slug       = cp.ad_slug || (cp.ad && cp.ad.ad_slug) || '';
+  // Live URL = with tracker (25s timer). Preview URL = clean, no tracker/timer.
+  var liveHref   = liveUrl ? (liveUrl.indexOf('://')===-1 ? 'https://'+liveUrl : liveUrl) : '';
+  var previewHref= liveHref ? (liveHref.replace(/\/+$/,'') + '/preview') : '';
+
+  var h = '<div style="padding:14px 16px">';
+
+  // Back + title
+  h += '<button onclick="clientBackToCampaigns()" style="background:none;border:none;color:var(--sub);font-family:var(--f);font-size:13px;cursor:pointer;padding:0 0 12px 0;display:flex;align-items:center;gap:5px">‹ Campaigns</button>';
+  h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">'
+    +    '<span style="width:11px;height:11px;border-radius:50%;background:'+(active?'var(--green)':'#f59e0b')+'"></span>'
+    +    '<div style="font-size:22px;font-weight:800;color:var(--text);letter-spacing:-.01em">'+(cp.name||'Campaign')+'</div>'
+    +  '</div>';
+
+  // Big stat tiles (2-up)
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">'
+    +    _bigStat('Allotted',  viewBudget,  '#dbeafe', '#1e3a8a')
+    +    _bigStat('Used',      viewsUsed,   '#fef3c7', '#92400e')
+    +    _bigStat('Remaining', remaining,   '#d1fae5', '#065f46')
+    +    _bigStat('Leads',     campLeads,   '#ede9fe', '#5b21b6')
+    +  '</div>';
+
+  // Status card
+  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px">'
+    +    '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px">'
+    +      '<div>'
+    +        '<div style="font-size:10px;font-weight:700;color:var(--sub);letter-spacing:.06em;text-transform:uppercase">Status</div>'
+    +        '<div style="font-size:18px;font-weight:800;color:var(--text);margin-top:3px">'+(active?'Active':'Paused')+'</div>'
+    +      '</div>';
+  if (active) {
+    h += '<button onclick="clientToggleCampaign(\''+cp.id+'\',\'paused\')" style="padding:11px 22px;border-radius:10px;background:var(--text);color:#fff;border:none;font-family:var(--f);font-size:14px;font-weight:700;cursor:pointer">⏸ Pause</button>';
+  } else {
+    h += '<button onclick="clientToggleCampaign(\''+cp.id+'\',\'active\')" style="padding:11px 22px;border-radius:10px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:14px;font-weight:700;cursor:pointer">▶ Activate</button>';
+  }
+  h +=   '</div>'
+    +  '</div>';
+
+  // ── DESIGN SECTION ──
+  h += '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:18px 2px 10px">Design Section</div>';
+  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden">';
+
+  // View Live Design (real URL, with 25s tracker)
+  if (liveHref) {
+    h += _designRow('👁', 'View Live Design', 'Real page · 25-second tracker counts a view', "window.open('"+liveHref+"','_blank')");
+  }
+  // Preview embed (no tracker)
+  if (previewHref) {
+    h += _designRow('🖼', 'Preview Design', 'Clean preview · no tracker, no timer', "openClientPreviewEmbed('"+previewHref+"')");
+  }
+  // Google Ad Preview (mock — coming soon)
+  h += _designRow('🔍', 'Google Ad Preview', 'Search / Display / YouTube placements', "showToast('Google Ad previews coming soon')");
+  // Meta Ad Preview (mock — coming soon)
+  h += _designRow('📱', 'Meta Ad Preview', 'Feed / Reels / Story placements', "showToast('Meta Ad previews coming soon')");
+  // SMS content
+  h += _designRow('💬', 'SMS Content', 'Outbound SMS template for this campaign', "showToast('SMS templates coming soon')");
+  // Email content
+  h += _designRow('📧', 'Email Content', 'Outbound email template for this campaign', "showToast('Email templates coming soon')");
+
+  h += '</div>';
+
+  // ── CREATIVES SECTION ──
+  h += '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:18px 2px 10px">Creatives</div>';
+  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:24px;text-align:center;color:var(--sub);font-size:13px">'
+    +    'Creative uploads (banners, video, headshots) coming next'
+    +  '</div>';
+
+  h += '<div style="height:20px"></div>';
+  h += '</div>';
+  return h;
+}
+
+function _bigStat(label, val, bg, col){
+  return '<div style="background:'+bg+';border-radius:12px;padding:14px">'
+    +    '<div style="font-size:10px;font-weight:700;color:'+col+';opacity:.7;letter-spacing:.06em;text-transform:uppercase">'+label+'</div>'
+    +    '<div style="font-size:24px;font-weight:800;color:'+col+';margin-top:4px;letter-spacing:-.02em;line-height:1">'+(val||0)+'</div>'
+    +  '</div>';
+}
+
+function _designRow(icon, label, sub, action){
+  return '<div onclick="'+action+'" style="display:flex;align-items:center;gap:13px;padding:14px 16px;cursor:pointer;border-bottom:1px solid var(--border)">'
+    +    '<div style="font-size:22px;flex-shrink:0;width:30px;text-align:center">'+icon+'</div>'
+    +    '<div style="flex:1;min-width:0">'
+    +      '<div style="font-size:14px;font-weight:700;color:var(--text)">'+label+'</div>'
+    +      '<div style="font-size:11px;color:var(--sub);margin-top:1px">'+sub+'</div>'
+    +    '</div>'
+    +    '<div style="color:var(--muted);font-size:18px;flex-shrink:0">›</div>'
+    +  '</div>';
+}
+
+// ── Navigation between list ↔ detail ──
+function openClientCampaignDetail(campId){
+  window._clientDashView   = 'detail';
+  window._clientDashCampId = campId;
+  document.getElementById('content').innerHTML = clientDashHTML();
+}
+function clientBackToCampaigns(){
+  window._clientDashView   = 'list';
+  window._clientDashCampId = null;
+  document.getElementById('content').innerHTML = clientDashHTML();
+}
+
+// ── Pause / Activate (immediate DB flip) ──
+async function clientToggleCampaign(campId, newStatus){
+  if (!campId || !newStatus) return;
+  try {
+    var res = await sbFetch('/rest/v1/campaigns?id=eq.'+campId, {
+      method:'PATCH',
+      body: JSON.stringify({ status: newStatus, updated_at: new Date().toISOString() })
+    });
+    if (!res.ok) throw new Error('Update failed');
+    // Update local cache so re-render reflects immediately
+    var cp = (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(campId); });
+    if (cp) cp.status = newStatus;
+    showToast(newStatus === 'active' ? '▶ Campaign activated' : '⏸ Campaign paused');
+    document.getElementById('content').innerHTML = clientDashHTML();
+  } catch(e) {
+    showToast('Could not update campaign: '+(e.message||'error'));
+  }
+}
+
+// ── Live preview embed (uses the Worker's /preview path — clean page, no tracker) ──
+function openClientPreviewEmbed(previewHref){
+  window._clientPreviewUrl = previewHref;
+  var iframe = document.getElementById('clientPreviewIframe');
+  if (iframe) iframe.src = previewHref;
+  openSheet('clientPreviewSh');
+}
+
+// ── Campaign filter sheet (Name + Status) ──
+function openCampaignFilterSheet(){
+  // Populate Name dropdown with the client's campaigns
+  var sel = document.getElementById('campFilterName');
+  if (sel) {
+    var camps = window._clientCampaigns || [];
+    var f = window._clientCampFilter || {};
+    var opts = '<option value="">All campaigns</option>';
+    camps.forEach(function(c){
+      opts += '<option value="'+c.id+'"'+(f.name===c.id?' selected':'')+'>'+(c.name||'(unnamed)')+'</option>';
+    });
+    sel.innerHTML = opts;
+  }
+  var st = document.getElementById('campFilterStatus');
+  if (st) st.value = (window._clientCampFilter && window._clientCampFilter.status) || '';
+  openSheet('campFilterSh');
+}
+function applyCampaignFilter(){
+  var sel = document.getElementById('campFilterName');
+  var st  = document.getElementById('campFilterStatus');
+  window._clientCampFilter = {
+    name:   sel ? sel.value : '',
+    status: st  ? st.value  : ''
+  };
+  closeSheet('campFilterSh');
+  document.getElementById('content').innerHTML = clientDashHTML();
+}
+function clientCampClearFilter(){
+  window._clientCampFilter = { name:'', status:'' };
+  document.getElementById('content').innerHTML = clientDashHTML();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ADD BALANCE — view bundles → direct Stripe payment links
+// ═══════════════════════════════════════════════════════════════════
+// Bundles match the existing emailed-quote pricing (see buildPlansHtml).
+// stripe-webhook on the backend credits clients.view_balance and sends
+// invoice + confirmation email on payment success.
+window._viewBundles = [
+  { views:200,    price:1000,  link:'https://buy.stripe.com/4gM6oAbKJ8kmgjB9579EI03' },
+  { views:500,    price:2500,  link:'https://buy.stripe.com/fZudR22a9fMO5EX8139EI0b' },
+  { views:1000,   price:5000,  link:'https://buy.stripe.com/8x2dR2eWVcAC6J11CF9EI0c' },
+  { views:2500,   price:12500, link:'https://buy.stripe.com/6oU00c4ihbwy8R9ftv9EI0d' },
+  { views:5000,   price:25000, link:'https://buy.stripe.com/dRmaEQ9CB0RU3wP2GJ9EI0e' },
+  { views:10000,  price:50000, link:'https://buy.stripe.com/cNieV67ut6ceebt8139EI0f' }
+];
+
+function openAddBalanceSheet(){
+  var box = document.getElementById('addBalanceBundles');
+  if (box) box.innerHTML = window._viewBundles.map(_bundleCard).join('');
+  openSheet('addBalanceSh');
+}
+
+function _bundleCard(b){
+  var perView = (b.price / b.views).toFixed(2);
+  // Pre-fill client email into Stripe checkout if Stripe supports it via URL.
+  // Stripe Payment Links accept ?prefilled_email=… for autofill on the checkout page.
+  var email = (window._clientData && window._clientData.email) ? window._clientData.email : '';
+  var sep = b.link.indexOf('?')>-1 ? '&' : '?';
+  var clientRef = (window._clientId||'') + ':' + b.views;
+  var fullLink = b.link
+    + (email ? (sep + 'prefilled_email=' + encodeURIComponent(email)) : '')
+    + ((email ? '&' : sep) + 'client_reference_id=' + encodeURIComponent(clientRef));
+
+  return '<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:16px;margin-bottom:10px;display:flex;align-items:center;gap:12px">'
+    +    '<div style="flex:1;min-width:0">'
+    +      '<div style="font-size:18px;font-weight:800;color:var(--text);letter-spacing:-.01em">'+b.views.toLocaleString()+' Flyer Views</div>'
+    +      '<div style="font-size:12px;color:var(--sub);margin-top:2px">CAD $'+perView+' per view · 25-second guaranteed</div>'
+    +    '</div>'
+    +    '<a href="'+fullLink+'" target="_blank" rel="noopener" style="text-decoration:none;flex-shrink:0;padding:10px 18px;border-radius:10px;background:var(--green);color:#fff;font-family:var(--f);font-size:14px;font-weight:800;display:inline-flex;align-items:center;gap:6px">'
+    +      '$'+b.price.toLocaleString()
+    +    '</a>'
+    +  '</div>';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// END CLIENT CAMPAIGN DASHBOARD
+// ═══════════════════════════════════════════════════════════════════
 
 function partnerStageLabel(s) {
   var m = {
@@ -14256,6 +14806,89 @@ async function markQuotePaid(quoteId) {
       <button class="sheet-x" onclick="closeSheet('quickStageSh')">&#x2715;</button>
     </div>
     <div class="sh-body" id="quickStageList" style="padding:14px 16px"></div>
+  </div>
+</div>
+
+<!-- ══ DEAL VALUE SHEET — prompts amount when closing a deal ═════════ -->
+<div class="sheet-ov" id="dealValueSh" onclick="if(event.target===this)closeSheet('dealValueSh')" style="z-index:780">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">🎉 Deal Closed <span id="dvLeadName" style="font-weight:500;color:var(--sub)"></span></div>
+      <button class="sheet-x" onclick="closeSheet('dealValueSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" style="padding:16px">
+      <div style="font-size:13px;color:var(--sub);margin-bottom:14px;line-height:1.5">Capture the deal value — this powers your Reports (revenue totals, average deal size, ROI per campaign).</div>
+      <label class="flbl" style="display:block;margin-bottom:6px">Deal Value (CAD)</label>
+      <div style="display:flex;align-items:center;gap:8px;border:1.5px solid var(--border);border-radius:10px;padding:4px 12px;background:var(--white)">
+        <span style="font-size:18px;font-weight:700;color:var(--sub)">$</span>
+        <input class="finp" id="dvAmount" type="number" step="0.01" min="0" placeholder="0.00" style="border:none;padding:12px 0;font-size:18px;font-weight:700;flex:1;outline:none;background:transparent">
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px">Tip: enter the total contract value, even if billed in installments.</div>
+    </div>
+    <div class="sh-foot">
+      <button class="btn btn-ghost" onclick="skipDealValueAndClose()" style="flex:1">Skip</button>
+      <button class="btn btn-dark" onclick="saveDealValueAndClose()" style="flex:2;justify-content:center">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ ADD BALANCE SHEET — pick a view bundle, pay via Stripe ════════ -->
+<div class="sheet-ov" id="addBalanceSh" onclick="if(event.target===this)closeSheet('addBalanceSh')" style="z-index:785">
+  <div class="sheet" style="max-height:90dvh">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">+ Add Balance</div>
+      <button class="sheet-x" onclick="closeSheet('addBalanceSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" style="padding:16px">
+      <div style="font-size:13px;color:var(--sub);margin-bottom:14px;line-height:1.5">
+        Pick a flyer-views bundle. You'll be taken to Stripe to pay securely. Once payment succeeds, your balance is credited automatically and you'll receive an invoice + confirmation email — then you can allocate the views to any campaign.
+      </div>
+      <div id="addBalanceBundles"></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center;line-height:1.5">
+        Powered by Stripe · CAD pricing · Includes invoice + 25-second view guarantee
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ CAMPAIGN FILTER SHEET — Name + Status ════════════════════════ -->
+<div class="sheet-ov" id="campFilterSh" onclick="if(event.target===this)closeSheet('campFilterSh')" style="z-index:786">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">Filter Campaigns</div>
+      <button class="sheet-x" onclick="closeSheet('campFilterSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" style="padding:16px">
+      <label class="flbl" style="display:block;margin-bottom:6px">Campaign</label>
+      <select class="fsel" id="campFilterName" style="width:100%;margin-bottom:16px"></select>
+      <label class="flbl" style="display:block;margin-bottom:6px">Status</label>
+      <select class="fsel" id="campFilterStatus" style="width:100%">
+        <option value="">All statuses</option>
+        <option value="active">Active</option>
+        <option value="paused">Paused</option>
+      </select>
+    </div>
+    <div class="sh-foot">
+      <button class="btn btn-ghost" onclick="clientCampClearFilter();closeSheet('campFilterSh')" style="flex:1">Clear all</button>
+      <button class="btn btn-dark" onclick="applyCampaignFilter()" style="flex:2;justify-content:center">Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ LIVE PREVIEW SHEET — embedded iframe of /preview ══════════════ -->
+<div class="sheet-ov" id="clientPreviewSh" onclick="if(event.target===this)closeSheet('clientPreviewSh')" style="z-index:787">
+  <div class="sheet" style="max-height:94dvh">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">🖼 Preview Design</div>
+      <button class="sheet-x" onclick="closeSheet('clientPreviewSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" style="padding:0;flex:1;overflow:hidden;display:flex">
+      <iframe id="clientPreviewIframe" style="border:none;width:100%;height:70dvh;background:#fff" src="about:blank"></iframe>
+    </div>
   </div>
 </div>
 
