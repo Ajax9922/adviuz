@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Adviuz">
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
-<title>Adviuz Hub · v2026-05-28 client-dash-v2</title>
+<title>Adviuz Hub · v2026-05-28 client-dash-v3</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2844,7 +2844,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-05-28 client-dash-v2';
+var APP_VERSION = 'v2026-05-28 client-dash-v3';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -4336,8 +4336,12 @@ function updateActiveFilterBar(){
   }
   if(af.campaigns && af.campaigns.length){
     parts.push('Campaign: '+af.campaigns.map(function(cid){
-      var c=((window._adminData&&window._adminData.campaigns)||[]).find(function(x){return String(x.id)===String(cid);});
-      return c ? (c.name||'Campaign') : ('Campaign '+cid);
+      // Look up name across both data sources (admin sees _adminData; clients
+      // see _clientCampaigns). Fall back to '(unnamed)' rather than the raw UUID.
+      var pool = ((window._adminData&&window._adminData.campaigns)||[])
+                 .concat(window._clientCampaigns||[]);
+      var c = pool.find(function(x){return String(x.id)===String(cid);});
+      return c ? (c.name||'(unnamed campaign)') : '(unknown campaign)';
     }).join(', '));
   }
   add('Stage', af.stages);
@@ -6320,6 +6324,7 @@ function lsStagePillsHTML(activeStage) {
 
 function lsSetStage(stage){
   var l = lsGetLead(); if(!l) return;
+  var oldStage = l.stage;             // ← was missing — caused ReferenceError on the line below
   l.stage = stage;
   // Update the dropdown border/color to match stage color
   var sel = document.getElementById('lsStageSelect');
@@ -6327,21 +6332,53 @@ function lsSetStage(stage){
   // Update the badge in the header
   var hdBadge = document.querySelector('.ls-header .stg-badge');
   if(hdBadge) hdBadge.outerHTML = stgBadge(stage);
-  if(l.dbId) sbFetch('/rest/v1/leads?id=eq.'+l.dbId,{method:'PATCH',body:JSON.stringify({stage:stage,updated_at:new Date().toISOString()})}).catch(function(){});
 
-  // Log stage change to timeline
-  if(l.dbId && stage !== oldStage) {
+  var nowIso = new Date().toISOString();
+  var patch = { stage:stage, updated_at:nowIso };
+
+  // ── Auto-capture meeting_date when stage flips to "Meeting Done" ──
+  if (stage.indexOf('Meeting Done') !== -1 && (oldStage||'').indexOf('Meeting Done') === -1) {
+    if (!l.meeting_date) {
+      l.meeting_date = nowIso;
+      patch.meeting_date = nowIso;
+    }
+  }
+
+  // ── Deal Closed flip → defer DB patch & open value sheet ──
+  var isClosed = stage.indexOf('Deal Closed') !== -1 && (oldStage||'').indexOf('Deal Closed') === -1;
+
+  if (l.dbId && !isClosed) {
+    sbFetch('/rest/v1/leads?id=eq.'+l.dbId, { method:'PATCH', body:JSON.stringify(patch) }).catch(function(){});
+  }
+
+  // Log stage change to timeline (in-memory + DB)
+  if(l.dbId && stage !== oldStage && !isClosed) {
     logActivity({
-      lead_id:   l.dbId,
-      client_id: window._clientId||null,
-      type:      'stage_change',
-      label:     'Stage Changed',
-      body:      '🔄 '+oldStage+' → '+stage,
-      meta:      { from:oldStage, to:stage }
+      lead_id:    l.id,              // ← was l.dbId — leadAct[] is keyed by l.id (in-memory)
+      db_lead_id: l.dbId,            //   pass dbId separately so DB row gets the FK
+      client_id:  window._clientId||null,
+      type:       'stage_change',
+      label:      'Stage Changed',
+      body:       '🔄 '+(oldStage||'(none)')+' → '+stage,
+      meta:       { from:oldStage, to:stage }
     });
   }
+
+  if (isClosed) {
+    // Open the deal-value sheet — saveDealValueAndClose / skipDealValueAndClose
+    // will persist the stage + value together and log activity.
+    openDealValueSheet(l.id, oldStage, stage);
+    return;
+  }
+
   showToast('Stage → '+stage);
-  if(curTab==='leads') render();
+  // If we're inside the lead detail, re-render IT (not the leads list) so the
+  // activity timeline immediately shows the new "Stage Changed" entry.
+  if (typeof curLid !== 'undefined' && curLid === l.id) {
+    renderLeadScreen(l.id);
+  } else if (curTab==='leads') {
+    render();
+  }
 }
 
 
@@ -9707,17 +9744,17 @@ function clientCampaignListHTML() {
   h += '<div style="background:linear-gradient(135deg,#001f3f,#0c2d4f);border-radius:16px;padding:18px;margin-bottom:14px;color:#fff">'
     +    '<div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.7);letter-spacing:.07em;text-transform:uppercase">Account Balance</div>'
     +    '<div style="font-size:34px;font-weight:800;margin-top:6px;letter-spacing:-.02em;line-height:1">'+bal+' <span style="font-size:14px;font-weight:600;color:rgba(255,255,255,.75)">Flyer Views</span></div>'
-    +    '<button onclick="openAddBalanceSheet()" style="margin-top:14px;width:100%;padding:13px;border-radius:11px;background:#fff;color:#001f3f;border:none;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer">+ Add Balance</button>'
+    +    '<button onclick="openAddBalanceSheet()" data-action="openAddBalanceSheet" style="margin-top:14px;width:100%;padding:13px;border-radius:11px;background:#fff;color:#001f3f;border:none;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer">+ Add Balance</button>'
     +  '</div>';
 
   // ── Filter row (Name + Status) ──
   var hasFilter = !!(f.name || f.status);
   h += '<div style="display:flex;gap:8px;margin-bottom:14px">';
-  h += '<button onclick="openCampaignFilterSheet()" style="flex:1;padding:10px 14px;border-radius:10px;background:'+(hasFilter?'var(--text)':'var(--white)')+';color:'+(hasFilter?'#fff':'var(--text)')+';border:1.5px solid var(--border);font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">'
+  h += '<button onclick="openCampaignFilterSheet()" data-action="openCampaignFilterSheet" style="flex:1;padding:10px 14px;border-radius:10px;background:'+(hasFilter?'var(--text)':'var(--white)')+';color:'+(hasFilter?'#fff':'var(--text)')+';border:1.5px solid var(--border);font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">'
     +   '🔎 Filter'+(hasFilter?' ('+((f.name?1:0)+(f.status?1:0))+')':'')
     + '</button>';
   if (hasFilter) {
-    h += '<button onclick="clientCampClearFilter()" style="padding:10px 14px;border-radius:10px;background:var(--white);color:var(--sub);border:1.5px solid var(--border);font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">Clear</button>';
+    h += '<button onclick="clientCampClearFilter()" data-action="clientCampClearFilter" style="padding:10px 14px;border-radius:10px;background:var(--white);color:var(--sub);border:1.5px solid var(--border);font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">Clear</button>';
   }
   h += '</div>';
 
@@ -14901,6 +14938,42 @@ async function markQuotePaid(quoteId) {
   var note=document.getElementById('mp-note'); if(note) note.value='';
   openSheet('markPaidSh');
 }
+
+// ════════════════════════════════════════════════════════════════════
+// CLICK DELEGATION SAFETY NET
+// Some browsers / extensions / cache states have been observed not firing
+// inline onclick="..." reliably. This is a defensive fallback: any element
+// with data-action="<fnName:arg>" gets handled here. Functions are also
+// explicitly placed on window so HTML-attribute onclick always resolves.
+// ════════════════════════════════════════════════════════════════════
+window.openAddBalanceSheet      = openAddBalanceSheet;
+window.openCampaignFilterSheet  = openCampaignFilterSheet;
+window.clientCampClearFilter    = clientCampClearFilter;
+window.applyCampaignFilter      = applyCampaignFilter;
+window.clientToggleCampaign     = clientToggleCampaign;
+window.openClientCampaignDetail = openClientCampaignDetail;
+window.clientBackToCampaigns    = clientBackToCampaigns;
+window.gotoLeadsForCampaign     = gotoLeadsForCampaign;
+window.openClientPreviewEmbed   = openClientPreviewEmbed;
+
+document.addEventListener('click', function(ev){
+  var t = ev.target;
+  while (t && t !== document.body) {
+    var act = t.getAttribute && t.getAttribute('data-action');
+    if (act) {
+      var bits = act.split(':');
+      var fnName = bits[0];
+      var arg    = bits.slice(1).join(':') || null;
+      var fn     = window[fnName];
+      if (typeof fn === 'function') {
+        try { arg ? fn(arg) : fn(); } catch(e){ console.warn('[data-action]', fnName, e.message); }
+        ev.stopPropagation();
+        return;
+      }
+    }
+    t = t.parentElement;
+  }
+}, false);
 
 </script>
 
