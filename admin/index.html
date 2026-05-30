@@ -1099,10 +1099,15 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
                 <label class="fld">Your domain *</label>
                 <input class="fld" id="paste-own-domain" placeholder="hairtattoopromotion.com" style="font-family:var(--mono)"
                   oninput="this.value=this.value.toLowerCase();_adWizQueueCheck()">
-                <div style="margin-top:8px">
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
                   <button type="button" onclick="_adWizBuyDomain()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:8px;border:1px solid var(--brand);background:var(--brand-light);color:var(--brand);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">&#128722; Buy a domain on Cloudflare &#8599;</button>
+                  <button type="button" onclick="_adWizLoadDomains()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">&#8635; Refresh my domains</button>
                 </div>
-                <div style="font-size:11px;color:var(--muted);margin-top:6px">Buy it in Cloudflare (Adviuz account), then paste it here. Auto-listing &amp; one-click connect arrives in the next build step.</div>
+                <div id="wiz-domain-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px"></div>
+                <div style="margin-top:8px">
+                  <button type="button" id="wiz-connect-btn" onclick="_adWizConnectDomain()" style="display:none;align-items:center;gap:6px;padding:8px 12px;border-radius:8px;border:none;background:var(--brand);color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">&#128279; Connect this domain to the ad server</button>
+                </div>
+                <div style="font-size:11px;color:var(--muted);margin-top:6px">Buy in Cloudflare &rarr; Refresh &rarr; pick your domain &rarr; Connect. Then finish the wizard to publish.</div>
               </div>
 
               <div id="wiz-host-status" style="font-size:12px;font-weight:600;margin-top:8px;min-height:16px"></div>
@@ -2762,6 +2767,7 @@ function _adWizDsrcChange(){
   var ownB = document.getElementById('wiz-dsrc-own-block');
   if (subB) subB.style.display = (src === 'sub') ? '' : 'none';
   if (ownB) ownB.style.display = (src === 'own') ? '' : 'none';
+  var _cb = document.getElementById('wiz-connect-btn'); if (_cb) _cb.style.display = 'none';
   var sl = document.getElementById('wiz-dsrc-sub-lbl');
   var ol = document.getElementById('wiz-dsrc-own-lbl');
   if (sl){ sl.style.borderColor = (src === 'sub') ? 'var(--brand)' : 'var(--border)'; sl.style.background = (src === 'sub') ? 'var(--brand-light)' : 'var(--surface)'; }
@@ -2777,6 +2783,54 @@ function _adWizSetSource(src){
 
 function _adWizBuyDomain(){
   window.open('https://dash.cloudflare.com/?to=/:account/domains/register', '_blank');
+}
+
+async function _adWizLoadDomains(){
+  var box = document.getElementById('wiz-domain-list');
+  if (box) box.innerHTML = '<span style="font-size:12px;color:var(--muted)">Loading your domains\u2026</span>';
+  try {
+    var r = await sbAdmin('/functions/v1/cloudflare-domains', { method:'POST', body: JSON.stringify({ action:'list' }) });
+    var data = await r.json().catch(function(){ return {}; });
+    if (!r.ok || !data.ok){
+      if (box) box.innerHTML = '<span style="font-size:12px;color:var(--danger)">' + ((data && data.error) || ('Could not load domains (' + r.status + ')')) + '</span>';
+      return;
+    }
+    var doms = data.domains || [];
+    if (!doms.length){
+      if (box) box.innerHTML = '<span style="font-size:12px;color:var(--muted)">No domains in your Cloudflare account yet. Buy one, then Refresh.</span>';
+      return;
+    }
+    if (box) box.innerHTML = doms.map(function(d){
+      var extra = (d.status && d.status !== 'active') ? (' \u00b7 ' + d.status) : '';
+      return '<button type="button" onclick="_adWizPickDomain(\'' + d.name + '\')" style="border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:14px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font)">' + d.name + extra + '</button>';
+    }).join('');
+  } catch(e){
+    if (box) box.innerHTML = '<span style="font-size:12px;color:var(--danger)">Network error loading domains.</span>';
+  }
+}
+
+function _adWizPickDomain(name){
+  var inp = document.getElementById('paste-own-domain');
+  if (inp) inp.value = name;
+  var cbtn = document.getElementById('wiz-connect-btn');
+  if (cbtn) cbtn.style.display = 'inline-flex';
+  _adWizQueueCheck();
+}
+
+async function _adWizConnectDomain(){
+  var host = _adWizGetHost();
+  if (!host) return;
+  var cbtn = document.getElementById('wiz-connect-btn');
+  if (cbtn){ cbtn.disabled = true; cbtn.textContent = 'Connecting\u2026'; }
+  try {
+    var r = await sbAdmin('/functions/v1/cloudflare-domains', { method:'POST', body: JSON.stringify({ action:'connect', hostname: host }) });
+    var data = await r.json().catch(function(){ return {}; });
+    if (r.ok && data.ok) toast('\u2705 ' + host + ' connected to the ad server');
+    else toast('Connect failed: ' + ((data && data.error) || r.status));
+  } catch(e){
+    toast('Connect failed: network error');
+  }
+  if (cbtn){ cbtn.disabled = false; cbtn.innerHTML = '\ud83d\udd17 Connect this domain to the ad server'; }
 }
 
 function _adWizQueueCheck(){
