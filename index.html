@@ -3920,7 +3920,13 @@ function mapLead(l, i) {
     col: l.color || COLORS[i % COLORS.length],
     partner_id: l.partner_id || null,
     meeting_date: l.meeting_date || null,
-    deal_value:   (l.deal_value != null ? Number(l.deal_value) : null)
+    deal_value:   (l.deal_value != null ? Number(l.deal_value) : null),
+    // Campaign linkage — REQUIRED for the campaign dashboard lead counts and
+    // the campaign filter chip. Without these the count is always 0 because
+    // the filters read l.campaign_id / l.campaign / l.campaign_name.
+    campaign_id:   l.campaign_id   || null,
+    campaign:      l.campaign      || null,
+    campaign_name: l.campaign_name || null
   };
 }
 
@@ -9787,7 +9793,7 @@ function _clientCampCard(cp) {
   var totalExposure = Number(cp.total_exposure)|0;
   if (!totalExposure) totalExposure = viewsUsed * 5;
 
-  var campLeads  = (leads||[]).filter(function(l){ return String(l.campaign_id||'')===String(cp.id||''); }).length;
+  var campLeads  = (leads||[]).filter(function(l){ return gfCampaignId(l)===String(cp.id||''); }).length;
 
   var statusDot = active ? 'var(--green)' : (paused ? '#f59e0b' : '#9ca3af');
   var statusLbl = active ? 'Active' : (paused ? 'Paused' : (cp.status||'—'));
@@ -9856,6 +9862,72 @@ function _statTile(label, val){
 }
 
 // ── Campaign DETAIL view ──
+// ══════════════════════════════════════════════════════════════
+// Task 2 — Faithful Facebook + Google ad previews for the client.
+// Driven by campaigns.placement_preview (set by admin). Falls back
+// to campaign name / business name when fields are empty so the card
+// never looks broken on older campaigns.
+// ══════════════════════════════════════════════════════════════
+function _ppEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+function _clientAdPreviews(cp){
+  var pp  = (cp && cp.placement_preview) || {};
+  var biz = pp.businessName || cp.client_business_name || 'Your Business';
+  var url = pp.displayUrl || (cp.live_url || 'your-site.com').replace(/^https?:\/\//,'');
+  var cta = pp.cta || 'Learn More';
+  var img = pp.creativeUrl || '';
+  var letter = (biz.charAt(0) || 'A').toUpperCase();
+
+  var logo = pp.logoUrl
+    ? '<div style="width:36px;height:36px;border-radius:50%;overflow:hidden;flex-shrink:0"><img src="'+_ppEsc(pp.logoUrl)+'" style="width:100%;height:100%;object-fit:cover"></div>'
+    : '<div style="width:36px;height:36px;border-radius:50%;background:#001f3f;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;flex-shrink:0">'+_ppEsc(letter)+'</div>';
+
+  var creative = img
+    ? '<img src="'+_ppEsc(img)+'" style="width:100%;display:block">'
+    : '<div style="background:#e4e6eb;aspect-ratio:1.91/1;display:flex;align-items:center;justify-content:center;color:#90949c;font-size:12px;font-weight:600">No creative uploaded yet</div>';
+
+  // ── Facebook feed mockup ──
+  var fb = ''
+    + '<div style="max-width:100%;background:#fff;border:1px solid #dadde1;border-radius:10px;overflow:hidden;margin-top:6px;font-family:Helvetica,Arial,sans-serif">'
+    +   '<div style="display:flex;align-items:center;gap:9px;padding:11px 12px 9px">'+logo
+    +     '<div><div style="font-size:13px;font-weight:700;color:#050505;line-height:1.2">'+_ppEsc(biz)+'</div>'
+    +       '<div style="font-size:11px;color:#65676b;display:flex;align-items:center;gap:4px">Sponsored · 🌐</div></div>'
+    +     '<div style="margin-left:auto;color:#65676b;font-weight:700">···</div>'
+    +   '</div>'
+    +   (pp.fbPrimaryText ? '<div style="padding:0 12px 9px;font-size:13px;color:#050505;line-height:1.45;white-space:pre-wrap">'+_ppEsc(pp.fbPrimaryText)+'</div>' : '')
+    +   creative
+    +   '<div style="display:flex;align-items:center;gap:10px;background:#f0f2f5;padding:9px 12px">'
+    +     '<div style="flex:1;min-width:0">'
+    +       '<div style="font-size:11px;text-transform:uppercase;color:#65676b">'+_ppEsc(url)+'</div>'
+    +       '<div style="font-size:14px;font-weight:700;color:#050505;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_ppEsc(pp.fbHeadline||cp.name||biz)+'</div>'
+    +       (pp.fbDesc ? '<div style="font-size:12px;color:#65676b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_ppEsc(pp.fbDesc)+'</div>' : '')
+    +     '</div>'
+    +     '<button style="background:#e4e6eb;color:#050505;border:none;border-radius:6px;padding:8px 13px;font-size:13px;font-weight:700;white-space:nowrap">'+_ppEsc(cta)+'</button>'
+    +   '</div>'
+    +   '<div style="display:flex;border-top:1px solid #ced0d4"><div style="flex:1;text-align:center;padding:7px 0;font-size:13px;font-weight:600;color:#65676b">👍 Like</div><div style="flex:1;text-align:center;padding:7px 0;font-size:13px;font-weight:600;color:#65676b">💬 Comment</div><div style="flex:1;text-align:center;padding:7px 0;font-size:13px;font-weight:600;color:#65676b">↪ Share</div></div>'
+    + '</div>';
+
+  // ── Google mockup (responsive display style, matches the screenshots) ──
+  var gHeadParts = (pp.googleHeadline||'').split('|').map(function(s){return s.trim();}).filter(Boolean);
+  var gTitle = gHeadParts.join(' - ') || cp.name || biz;
+  var g = ''
+    + '<div style="max-width:100%;background:#fff;border:1px solid #dadce0;border-radius:10px;overflow:hidden;margin-top:6px;font-family:Arial,sans-serif">'
+    +   creative
+    +   '<div style="padding:11px 12px">'
+    +     '<div style="display:flex;align-items:center;gap:7px;margin-bottom:5px">'
+    +       (pp.logoUrl ? '<img src="'+_ppEsc(pp.logoUrl)+'" style="width:20px;height:20px;border-radius:3px;object-fit:cover">' : '')
+    +       '<span style="background:#1a73e8;color:#fff;font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px">Ad</span>'
+    +       '<span style="font-size:12px;color:#202124">'+_ppEsc(biz)+'</span>'
+    +     '</div>'
+    +     '<div style="font-size:16px;font-weight:500;color:#202124;line-height:1.3;margin-bottom:3px">'+_ppEsc(gTitle)+'</div>'
+    +     (pp.googleDesc ? '<div style="font-size:13px;color:#5f6368;line-height:1.4">'+_ppEsc(pp.googleDesc)+'</div>' : '')
+    +     '<button style="margin-top:10px;background:#fff;color:#1a73e8;border:1px solid #dadce0;border-radius:18px;padding:7px 16px;font-size:13px;font-weight:600">'+_ppEsc(cta)+'</button>'
+    +   '</div>'
+    + '</div>';
+
+  return { facebook: fb, google: g };
+}
+
 function clientCampaignDetailHTML(campId){
   var cp = (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(campId); });
   if (!cp) {
@@ -9868,7 +9940,7 @@ function clientCampaignDetailHTML(campId){
   var remaining  = Math.max(0, viewBudget - viewsUsed);
   var totalExposure = Number(cp.total_exposure)|0;
   if (!totalExposure) totalExposure = viewsUsed * 5;
-  var campLeads  = (leads||[]).filter(function(l){ return String(l.campaign_id||'')===String(cp.id||''); }).length;
+  var campLeads  = (leads||[]).filter(function(l){ return gfCampaignId(l)===String(cp.id||''); }).length;
   var liveUrl    = cp.live_url || (cp.ad && cp.ad.live_url) || '';
   var liveHref   = liveUrl ? (liveUrl.indexOf('://')===-1 ? 'https://'+liveUrl : liveUrl) : '';
   var previewHref= liveHref ? (liveHref.replace(/\/+$/,'') + '/preview') : '';
@@ -9935,26 +10007,10 @@ function clientCampaignDetailHTML(campId){
     'Subject: '+(cp.name||'A special offer')+' — limited time<br><br>Hi {name},<br><br>We thought you\'d be interested in '+(cp.name||'our latest offer')+'. Tap the link below to learn more.',
     'Preview of the outbound email your campaign sends.');
 
-  // Facebook Ad Preview (mocked placement)
-  h += _previewSectionCard('📱', 'Facebook Ad Preview',
-    '<div style="background:#f0f2f5;border-radius:10px;padding:10px;margin-top:6px;border:1px solid #e5e7eb">'
-    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div style="width:32px;height:32px;border-radius:50%;background:#1877f2;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px">'+(cp.client_business_name||'A').charAt(0).toUpperCase()+'</div>'
-    +'<div><div style="font-size:13px;font-weight:700;color:#050505">'+(cp.client_business_name||'Your Business')+'</div><div style="font-size:11px;color:#65676b">Sponsored · 🌐</div></div></div>'
-    +'<div style="font-size:13px;color:#050505;margin-bottom:8px">'+(cp.name||'Limited-time offer')+' — tap to learn more</div>'
-    +'<div style="background:linear-gradient(135deg,#001f3f,#0c2d4f);border-radius:8px;padding:32px 16px;text-align:center;color:#fff;font-weight:800;font-size:13px">[Ad creative]</div>'
-    +'<div style="background:#f0f2f5;padding:8px 10px;display:flex;justify-content:space-between;align-items:center;margin-top:1px;border-radius:0 0 8px 8px"><span style="font-size:11px;color:#65676b">'+(cp.live_url||'your-site.com')+'</span><button style="background:#e4e6eb;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:700;color:#050505">Learn More</button></div>'
-    +'</div>',
-    'How your ad will appear in the Facebook feed.');
-
-  // Google Ad Preview (mocked placement)
-  h += _previewSectionCard('🔍', 'Google Ad Preview',
-    '<div style="background:#fff;border-radius:10px;padding:10px;margin-top:6px;border:1px solid #e5e7eb;font-family:Arial,sans-serif">'
-    +'<div style="display:inline-block;background:#e8f0fe;color:#1a73e8;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;margin-bottom:6px">Ad</div>'
-    +'<div style="font-size:11px;color:#202124;margin-bottom:2px">'+(cp.live_url||'your-site.com')+'</div>'
-    +'<div style="font-size:16px;color:#1a0dab;font-weight:400;margin-bottom:3px">'+(cp.name||'Limited-time offer')+' — Tap to learn more</div>'
-    +'<div style="font-size:13px;color:#4d5156;line-height:1.4">'+(cp.client_business_name||'Your business')+' is offering a special deal. Free consultation · Book now.</div>'
-    +'</div>',
-    'How your ad will appear on Google search.');
+  // Facebook + Google Ad Previews — driven by admin-entered placement_preview
+  var _pv = _clientAdPreviews(cp);
+  h += _previewSectionCard('📱', 'Facebook Ad Preview', _pv.facebook, 'How your ad appears in the Facebook feed.');
+  h += _previewSectionCard('🔍', 'Google Ad Preview',   _pv.google,   'How your ad appears on Google.');
 
   // ── CREATIVES SECTION ──
   h += '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:18px 2px 10px">Creatives</div>';
