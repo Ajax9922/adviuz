@@ -9870,63 +9870,226 @@ function _statTile(label, val){
 // ══════════════════════════════════════════════════════════════
 function _ppEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
 
-function _clientAdPreviews(cp){
-  var pp  = (cp && cp.placement_preview) || {};
-  var biz = pp.businessName || cp.client_business_name || 'Your Business';
-  var url = pp.displayUrl || (cp.live_url || 'your-site.com').replace(/^https?:\/\//,'');
-  var cta = pp.cta || 'Learn More';
-  var img = pp.creativeUrl || '';
-  var letter = (biz.charAt(0) || 'A').toUpperCase();
+// Adviuz brand identity — Facebook/Instagram ads always run from the Adviuz page.
+var ADVIUZ_LOGO = 'https://i.imgur.com/TyX0P0G.jpeg';
+var ADVIUZ_NAME = 'Adviuz';
 
-  var logo = pp.logoUrl
-    ? '<div style="width:36px;height:36px;border-radius:50%;overflow:hidden;flex-shrink:0"><img src="'+_ppEsc(pp.logoUrl)+'" style="width:100%;height:100%;object-fit:cover"></div>'
-    : '<div style="width:36px;height:36px;border-radius:50%;background:#001f3f;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;flex-shrink:0">'+_ppEsc(letter)+'</div>';
+// Resolve the live href for clickable CTAs (real 25-second visitor experience).
+function _ppLiveHref(cp){
+  var u = cp.live_url || (cp.ad && cp.ad.live_url) || '';
+  if (!u) return '';
+  return u.indexOf('://') === -1 ? 'https://' + u : u;
+}
 
-  var creative = img
-    ? '<img src="'+_ppEsc(img)+'" style="width:100%;display:block">'
-    : '<div style="background:#e4e6eb;aspect-ratio:1.91/1;display:flex;align-items:center;justify-content:center;color:#90949c;font-size:12px;font-weight:600">No creative uploaded yet</div>';
+// Normalize the content object the renderers consume.
+function _ppContent(cp){
+  var pp = (cp && cp.placement_preview) || {};
+  return {
+    biz:   pp.businessName || ADVIUZ_NAME,
+    logo:  pp.logoUrl || ADVIUZ_LOGO,
+    url:   pp.displayUrl || (cp.live_url || 'latest-promo.com').replace(/^https?:\/\//,''),
+    cta:   pp.cta && pp.cta !== 'No button' ? pp.cta : (pp.cta === 'No button' ? '' : 'Learn more'),
+    img:   pp.creativeUrl || '',
+    fbText: pp.fbPrimaryText || '',
+    fbHead: pp.fbHeadline || cp.name || '',
+    fbDesc: pp.fbDesc || '',
+    gHead:  (pp.googleHeadline || cp.name || '').trim(),
+    gDesc:  pp.googleDesc || '',
+    emailSubject: pp.emailSubject || '',
+    emailBody:    pp.emailBody || '',
+    smsText:      pp.sms || '',
+    href:  _ppLiveHref(cp)
+  };
+}
 
-  // ── Facebook feed mockup ──
-  var fb = ''
-    + '<div style="max-width:100%;background:#fff;border:1px solid #dadde1;border-radius:10px;overflow:hidden;margin-top:6px;font-family:Helvetica,Arial,sans-serif">'
-    +   '<div style="display:flex;align-items:center;gap:9px;padding:11px 12px 9px">'+logo
-    +     '<div><div style="font-size:13px;font-weight:700;color:#050505;line-height:1.2">'+_ppEsc(biz)+'</div>'
+function _ppCreative(c, ratio){
+  if (c.img) return '<img src="'+_ppEsc(c.img)+'" style="width:100%;display:block">';
+  return '<div style="background:#e4e6eb;aspect-ratio:'+(ratio||'1.91/1')+';display:flex;align-items:center;justify-content:center;color:#90949c;font-size:12px;font-weight:600">No creative uploaded yet</div>';
+}
+function _ppCtaBtn(c, style){
+  if (!c.cta) return '';
+  var open = c.href ? "window.open('"+c.href+"','_blank')" : '';
+  return '<button onclick="'+open+'" style="cursor:pointer;'+style+'">'+_ppEsc(c.cta)+'</button>';
+}
+function _ppLogoCircle(c, size){
+  size = size || 36;
+  return '<div style="width:'+size+'px;height:'+size+'px;border-radius:50%;overflow:hidden;flex-shrink:0;background:#fff"><img src="'+_ppEsc(c.logo)+'" style="width:100%;height:100%;object-fit:cover"></div>';
+}
+
+// ── FACEBOOK feed ──
+function _ppFacebook(c){
+  return ''
+    + '<div style="max-width:100%;background:#fff;border:1px solid #dadde1;border-radius:10px;overflow:hidden;font-family:Helvetica,Arial,sans-serif">'
+    +   '<div style="display:flex;align-items:center;gap:9px;padding:11px 12px 9px">'+_ppLogoCircle(c)
+    +     '<div><div style="font-size:13px;font-weight:700;color:#050505;line-height:1.2">'+_ppEsc(c.biz)+'</div>'
     +       '<div style="font-size:11px;color:#65676b;display:flex;align-items:center;gap:4px">Sponsored · 🌐</div></div>'
     +     '<div style="margin-left:auto;color:#65676b;font-weight:700">···</div>'
     +   '</div>'
-    +   (pp.fbPrimaryText ? '<div style="padding:0 12px 9px;font-size:13px;color:#050505;line-height:1.45;white-space:pre-wrap">'+_ppEsc(pp.fbPrimaryText)+'</div>' : '')
-    +   creative
+    +   (c.fbText ? '<div style="padding:0 12px 9px;font-size:13px;color:#050505;line-height:1.45;white-space:pre-wrap">'+_ppEsc(c.fbText)+'</div>' : '')
+    +   _ppCreative(c)
     +   '<div style="display:flex;align-items:center;gap:10px;background:#f0f2f5;padding:9px 12px">'
     +     '<div style="flex:1;min-width:0">'
-    +       '<div style="font-size:11px;text-transform:uppercase;color:#65676b">'+_ppEsc(url)+'</div>'
-    +       '<div style="font-size:14px;font-weight:700;color:#050505;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_ppEsc(pp.fbHeadline||cp.name||biz)+'</div>'
-    +       (pp.fbDesc ? '<div style="font-size:12px;color:#65676b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_ppEsc(pp.fbDesc)+'</div>' : '')
+    +       '<div style="font-size:11px;text-transform:uppercase;color:#65676b">'+_ppEsc(c.url)+'</div>'
+    +       '<div style="font-size:14px;font-weight:700;color:#050505;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_ppEsc(c.fbHead||c.biz)+'</div>'
+    +       (c.fbDesc ? '<div style="font-size:12px;color:#65676b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_ppEsc(c.fbDesc)+'</div>' : '')
     +     '</div>'
-    +     '<button style="background:#e4e6eb;color:#050505;border:none;border-radius:6px;padding:8px 13px;font-size:13px;font-weight:700;white-space:nowrap">'+_ppEsc(cta)+'</button>'
+    +     _ppCtaBtn(c,'background:#e4e6eb;color:#050505;border:none;border-radius:6px;padding:8px 13px;font-size:13px;font-weight:700;white-space:nowrap')
     +   '</div>'
     +   '<div style="display:flex;border-top:1px solid #ced0d4"><div style="flex:1;text-align:center;padding:7px 0;font-size:13px;font-weight:600;color:#65676b">👍 Like</div><div style="flex:1;text-align:center;padding:7px 0;font-size:13px;font-weight:600;color:#65676b">💬 Comment</div><div style="flex:1;text-align:center;padding:7px 0;font-size:13px;font-weight:600;color:#65676b">↪ Share</div></div>'
     + '</div>';
+}
 
-  // ── Google mockup (responsive display style, matches the screenshots) ──
-  var gHeadParts = (pp.googleHeadline||'').split('|').map(function(s){return s.trim();}).filter(Boolean);
-  var gTitle = gHeadParts.join(' - ') || cp.name || biz;
-  var g = ''
-    + '<div style="max-width:100%;background:#fff;border:1px solid #dadce0;border-radius:10px;overflow:hidden;margin-top:6px;font-family:Arial,sans-serif">'
-    +   creative
-    +   '<div style="padding:11px 12px">'
-    +     '<div style="display:flex;align-items:center;gap:7px;margin-bottom:5px">'
-    +       (pp.logoUrl ? '<img src="'+_ppEsc(pp.logoUrl)+'" style="width:20px;height:20px;border-radius:3px;object-fit:cover">' : '')
-    +       '<span style="background:#1a73e8;color:#fff;font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px">Ad</span>'
-    +       '<span style="font-size:12px;color:#202124">'+_ppEsc(biz)+'</span>'
+// ── INSTAGRAM feed ──
+function _ppInstagram(c){
+  return ''
+    + '<div style="max-width:100%;background:#fff;border:1px solid #dbdbdb;border-radius:10px;overflow:hidden;font-family:Helvetica,Arial,sans-serif">'
+    +   '<div style="display:flex;align-items:center;gap:9px;padding:10px 12px">'+_ppLogoCircle(c,32)
+    +     '<div style="line-height:1.15"><div style="font-size:13px;font-weight:700;color:#262626">'+_ppEsc(c.biz.toLowerCase().replace(/\s+/g,'_'))+'</div>'
+    +       '<div style="font-size:11px;color:#8e8e8e">Sponsored</div></div>'
+    +     '<div style="margin-left:auto;color:#262626;font-weight:700">···</div>'
+    +   '</div>'
+    +   _ppCreative(c,'1/1')
+    +   '<div style="display:flex;gap:14px;padding:9px 12px 4px;font-size:18px">♡ 💬 ✈</div>'
+    +   (c.fbText ? '<div style="padding:0 12px 8px;font-size:13px;color:#262626;line-height:1.4"><b>'+_ppEsc(c.biz.toLowerCase().replace(/\s+/g,'_'))+'</b> '+_ppEsc(c.fbText)+'</div>' : '')
+    +   (c.cta ? '<div style="border-top:1px solid #efefef;padding:11px 12px;display:flex;align-items:center;justify-content:space-between">'
+    +       '<span style="font-size:13px;font-weight:600;color:#262626">'+_ppEsc(c.url)+'</span>'
+    +       _ppCtaBtn(c,'background:none;border:none;color:#0095f6;font-size:14px;font-weight:700') + '</div>' : '')
+    + '</div>';
+}
+
+// ── YOUTUBE in-feed ──
+function _ppYouTube(c){
+  return ''
+    + '<div style="max-width:100%;background:#fff;border:1px solid #e5e5e5;border-radius:10px;overflow:hidden;font-family:Roboto,Arial,sans-serif">'
+    +   '<div style="position:relative">'+_ppCreative(c,'16/9')
+    +     '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:54px;height:38px;background:rgba(255,0,0,.9);border-radius:8px;display:flex;align-items:center;justify-content:center"><div style="width:0;height:0;border-left:14px solid #fff;border-top:9px solid transparent;border-bottom:9px solid transparent;margin-left:3px"></div></div>'
+    +   '</div>'
+    +   '<div style="display:flex;gap:10px;padding:11px 12px">'+_ppLogoCircle(c,36)
+    +     '<div style="flex:1;min-width:0">'
+    +       '<div style="font-size:14px;font-weight:600;color:#0f0f0f;line-height:1.3">'+_ppEsc(c.gHead||c.fbHead||c.biz)+'</div>'
+    +       '<div style="font-size:12px;color:#606060;margin-top:2px">'+_ppEsc(c.biz)+' · <span style="background:#e8eaed;color:#3c4043;padding:0 4px;border-radius:3px;font-size:10px;font-weight:700">Ad</span></div>'
+    +       (c.gDesc ? '<div style="font-size:12px;color:#606060;margin-top:3px;line-height:1.35">'+_ppEsc(c.gDesc)+'</div>' : '')
     +     '</div>'
-    +     '<div style="font-size:16px;font-weight:500;color:#202124;line-height:1.3;margin-bottom:3px">'+_ppEsc(gTitle)+'</div>'
-    +     (pp.googleDesc ? '<div style="font-size:13px;color:#5f6368;line-height:1.4">'+_ppEsc(pp.googleDesc)+'</div>' : '')
-    +     '<button style="margin-top:10px;background:#fff;color:#1a73e8;border:1px solid #dadce0;border-radius:18px;padding:7px 16px;font-size:13px;font-weight:600">'+_ppEsc(cta)+'</button>'
+    +   '</div>'
+    +   (c.cta ? '<div style="padding:0 12px 12px">'+_ppCtaBtn(c,'width:100%;background:#fff;color:#065fd4;border:1px solid #d3d3d3;border-radius:18px;padding:9px;font-size:13px;font-weight:600')+'</div>' : '')
+    + '</div>';
+}
+
+// ── GMAIL sponsored (Promotions tab) ──
+function _ppGmail(c){
+  return ''
+    + '<div style="max-width:100%;background:#fff;border:1px solid #e0e0e0;border-radius:10px;overflow:hidden;font-family:Roboto,Arial,sans-serif">'
+    +   '<div style="padding:10px 12px;border-bottom:1px solid #f1f3f4;font-size:11px;font-weight:700;color:#5f6368;letter-spacing:.04em">PROMOTIONS</div>'
+    +   '<div style="display:flex;gap:11px;padding:12px">'
+    +     '<div style="width:30px;height:30px;border-radius:50%;background:#1a73e8;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;overflow:hidden"><img src="'+_ppEsc(c.logo)+'" style="width:100%;height:100%;object-fit:cover"></div>'
+    +     '<div style="flex:1;min-width:0">'
+    +       '<div style="font-size:12px;color:#5f6368;margin-bottom:2px"><b style="color:#202124">Sponsored</b> · '+_ppEsc(c.biz)+'</div>'
+    +       '<div style="font-size:14px;font-weight:700;color:#202124;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_ppEsc(c.emailSubject||c.fbHead||c.gHead||'Special offer')+'</div>'
+    +       (c.emailBody ? '<div style="font-size:13px;color:#5f6368;line-height:1.4;margin-top:3px">'+_ppEsc(c.emailBody)+'</div>' : '')
+    +       (c.img ? '<div style="margin-top:9px;border:1px solid #e8eaed;border-radius:8px;overflow:hidden">'+_ppCreative(c)+'</div>' : '')
+    +       (c.cta ? '<div style="margin-top:9px">'+_ppCtaBtn(c,'background:#1a73e8;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:600')+'</div>' : '')
+    +     '</div>'
+    +     '<div style="color:#5f6368;flex-shrink:0">☆</div>'
     +   '</div>'
     + '</div>';
-
-  return { facebook: fb, google: g };
 }
+
+// ── GOOGLE DISPLAY NETWORK — creative inside rotating publisher frames ──
+var _PP_PUBLISHERS = [
+  { name:'CBC',            band:'#e60505', fg:'#fff', wm:'◉ CBC',            sub:'NEWS' },
+  { name:'Global News',    band:'#000',    fg:'#fff', wm:'Global<span style="color:#e30613">▶</span>NEWS', sub:'' },
+  { name:'Financial Post', band:'#0046be', fg:'#fff', wm:'FINANCIAL POST',   sub:'' },
+  { name:'Toronto Star',   band:'#1a8cff', fg:'#fff', wm:'TORONTO STAR',     sub:'' },
+  { name:'National Post',  band:'#f2c200', fg:'#111', wm:'NATIONAL POST',    sub:'' },
+  { name:'CTV News',       band:'#fff',    fg:'#111', wm:'CTV NEWS',         sub:'', bordered:true }
+];
+function _ppDisplayFrame(c, pubIndex){
+  var p = _PP_PUBLISHERS[pubIndex % _PP_PUBLISHERS.length];
+  return ''
+    + '<div style="max-width:100%;background:#fff;border:1px solid #e0e0e0;border-radius:10px;overflow:hidden;font-family:Arial,sans-serif">'
+    +   '<div style="background:'+p.band+';color:'+p.fg+';padding:11px 14px;font-size:17px;font-weight:800;text-align:center;letter-spacing:.02em;'+(p.bordered?'border-bottom:1px solid #eee':'')+'">'+p.wm+(p.sub?' <span style="font-weight:600;font-size:13px">'+p.sub+'</span>':'')+'</div>'
+    +   '<div style="padding:6px 0;text-align:center;font-size:10px;color:#aaa;letter-spacing:.1em;background:#f7f7f7">ADVERTISEMENT</div>'
+    +   '<div style="padding:10px 12px 14px">'
+    +     '<div style="border:1px solid #e8eaed;border-radius:10px;overflow:hidden">'
+    +       '<div style="position:relative">'+_ppCreative(c)
+    +         '<div style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.55);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px">ⓘ Ad</div></div>'
+    +       '<div style="padding:10px 12px;display:flex;align-items:center;gap:10px">'
+    +         '<div style="flex:1;min-width:0">'
+    +           '<div style="font-size:14px;font-weight:700;color:#202124;line-height:1.25">'+_ppEsc(c.gHead||c.fbHead||c.biz)+'</div>'
+    +           (c.gDesc ? '<div style="font-size:12px;color:#5f6368;margin-top:2px;line-height:1.35">'+_ppEsc(c.gDesc)+'</div>' : '')
+    +           '<div style="font-size:11px;color:#1a73e8;margin-top:3px">'+_ppEsc(c.url)+'</div>'
+    +         '</div>'
+    +         _ppCtaBtn(c,'background:#1a73e8;color:#fff;border:none;border-radius:6px;padding:8px 13px;font-size:12px;font-weight:600;white-space:nowrap;flex-shrink:0')
+    +       '</div>'
+    +     '</div>'
+    +   '</div>'
+    +   '<div style="padding:10px 12px;border-top:1px solid #f1f3f4;color:#bbb;font-size:11px">Article continues below…</div>'
+    + '</div>';
+}
+function _ppDisplayNetwork(c){
+  // Rotating publisher selector + frame. State held on window so taps re-render.
+  var idx = window._ppDisplayIdx || 0;
+  var chips = _PP_PUBLISHERS.map(function(p,i){
+    var on = i === (idx % _PP_PUBLISHERS.length);
+    return '<button onclick="_ppRotateDisplay('+i+')" style="cursor:pointer;border:1px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'var(--green)':'#fff')+';color:'+(on?'#fff':'var(--sub)')+';border-radius:14px;padding:5px 11px;font-size:11px;font-weight:700;white-space:nowrap;font-family:var(--f)">'+p.name+'</button>';
+  }).join('');
+  return ''
+    + '<div style="font-size:11px;color:var(--sub);margin-bottom:8px">Your ad rotates across Canada\u2019s top news sites via the Google Display Network. Tap a publisher:</div>'
+    + '<div style="display:flex;gap:7px;overflow-x:auto;padding-bottom:8px;margin-bottom:10px;-webkit-overflow-scrolling:touch">'+chips+'</div>'
+    + '<div id="ppDisplayFrame">'+_ppDisplayFrame(c, idx)+'</div>';
+}
+
+// Build all placement HTML for a campaign.
+function _clientAdPreviews(cp){
+  var c = _ppContent(cp);
+  return {
+    facebook:  _ppFacebook(c),
+    instagram: _ppInstagram(c),
+    youtube:   _ppYouTube(c),
+    gmail:     _ppGmail(c),
+    display:   _ppDisplayNetwork(c),
+    _content:  c
+  };
+}
+
+// Tabbed Meta-Ads-Manager-style container.
+var _PP_TABS = [
+  { k:'facebook',  l:'Facebook'  },
+  { k:'instagram', l:'Instagram' },
+  { k:'youtube',   l:'YouTube'   },
+  { k:'gmail',     l:'Gmail'     },
+  { k:'display',   l:'News Sites'}
+];
+function clientPreviewTabsHTML(cp){
+  var pv = _clientAdPreviews(cp);
+  window._ppActiveTab = window._ppActiveTab || 'facebook';
+  var active = window._ppActiveTab;
+  var tabs = _PP_TABS.map(function(t){
+    var on = t.k === active;
+    return '<button onclick="_ppSwitchTab(\''+t.k+'\')" style="cursor:pointer;flex-shrink:0;border:none;background:none;font-family:var(--f);font-size:13px;font-weight:700;padding:10px 4px;color:'+(on?'var(--text)':'var(--sub)')+';border-bottom:2.5px solid '+(on?'var(--green)':'transparent')+'">'+t.l+'</button>';
+  }).join('');
+  return ''
+    + '<div style="display:flex;gap:18px;overflow-x:auto;border-bottom:1px solid var(--border);margin-bottom:14px;-webkit-overflow-scrolling:touch">'+tabs+'</div>'
+    + '<div id="ppTabBody">'+ pv[active] +'</div>';
+}
+function _ppSwitchTab(k){
+  window._ppActiveTab = k;
+  var cp = (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(window._clientDashCampId); });
+  if (!cp) return;
+  var body = document.getElementById('ppTabBody');
+  if (body) body.innerHTML = _clientAdPreviews(cp)[k];
+}
+function _ppRotateDisplay(i){
+  window._ppDisplayIdx = i;
+  var cp = (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(window._clientDashCampId); });
+  if (!cp) return;
+  var frame = document.getElementById('ppDisplayFrame');
+  if (frame) frame.innerHTML = _ppDisplayFrame(_ppContent(cp), i);
+  // update chip styles by re-rendering the whole display block
+  var body = document.getElementById('ppTabBody');
+  if (body && window._ppActiveTab === 'display') body.innerHTML = _ppDisplayNetwork(_ppContent(cp));
+}
+
 
 function clientCampaignDetailHTML(campId){
   var cp = (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(campId); });
@@ -9987,36 +10150,36 @@ function clientCampaignDetailHTML(campId){
     h += '<button onclick="clientToggleCampaign(\''+cp.id+'\',\'active\')" style="width:100%;padding:13px;border-radius:11px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer;margin-bottom:18px">▶ Activate Campaign</button>';
   }
 
-  // ── DESIGN SECTION — full long list per user spec ──
-  h += '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:0 2px 10px">Design Section</div>';
-
-  // View Live Design + Preview Design (action rows)
-  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:14px">';
-  if (liveHref)    h += _designRow('👁', 'View Live Design',  'Real page · 25-second tracker counts a view', "window.open('"+liveHref+"','_blank')");
-  if (previewHref) h += _designRow('🖼', 'Preview Design',    'Clean preview · no tracker, no timer',         "openClientPreviewEmbed('"+previewHref+"')");
+  // ── AD PREVIEWS (Meta-Ads-Manager style tabs) ──
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin:0 2px 10px">'
+    +    '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub)">Ad Previews</div>';
+  if (previewHref) {
+    h += '<button onclick="openClientPreviewEmbed(\''+previewHref+'\')" style="background:var(--text);color:#fff;border:none;border-radius:9px;padding:8px 14px;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">🖼 Preview Design</button>';
+  }
   h += '</div>';
 
-  // ── Preview cards as a LONG LIST (per user spec) ──
-  // SMS Content
-  h += _previewSectionCard('💬', 'SMS Content',
-    'Hi {name}, '+(cp.name||'our offer')+' — '+(cp.client_business_name||'our team')+' has a limited-time deal for you. Reply STOP to opt out.',
-    'Preview of the outbound SMS your campaign sends to leads.');
+  // Reach line — full network (your website's placement list)
+  h += '<div style="font-size:11px;color:var(--sub);margin:0 2px 12px;line-height:1.5">Running across <b style="color:var(--text)">Facebook, Instagram, YouTube, Gmail</b> &amp; the <b style="color:var(--text)">Google Display Network</b> — including CBC, Global News, Financial Post, Toronto Star, National Post &amp; more.</div>';
 
-  // Email Content
-  h += _previewSectionCard('📧', 'Email Content',
-    'Subject: '+(cp.name||'A special offer')+' — limited time<br><br>Hi {name},<br><br>We thought you\'d be interested in '+(cp.name||'our latest offer')+'. Tap the link below to learn more.',
-    'Preview of the outbound email your campaign sends.');
-
-  // Facebook + Google Ad Previews — driven by admin-entered placement_preview
-  var _pv = _clientAdPreviews(cp);
-  h += _previewSectionCard('📱', 'Facebook Ad Preview', _pv.facebook, 'How your ad appears in the Facebook feed.');
-  h += _previewSectionCard('🔍', 'Google Ad Preview',   _pv.google,   'How your ad appears on Google.');
-
-  // ── CREATIVES SECTION ──
-  h += '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:18px 2px 10px">Creatives</div>';
-  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:24px;text-align:center;color:var(--sub);font-size:13px">'
-    +    'Creative uploads (banners, video, headshots) coming next'
+  // Tabbed preview container
+  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px 14px 16px;margin-bottom:16px">'
+    +    clientPreviewTabsHTML(cp)
     +  '</div>';
+
+  // ── DELIVERY CONTENT (SMS + Email, admin-authored) ──
+  var _c = _ppContent(cp);
+  h += '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:0 2px 10px">Outreach Content</div>';
+
+  // SMS Content — from admin, fallback to generated
+  h += _previewSectionCard('💬', 'SMS Content',
+    _c.smsText || ('Hi {name}, '+(cp.name||'our offer')+' — '+ADVIUZ_NAME+' has a limited-time deal for you. Reply STOP to opt out.'),
+    'The outbound SMS your campaign sends to leads.');
+
+  // Email Content — Gmail sponsored styling handled in preview tab; here show the raw copy
+  h += _previewSectionCard('📧', 'Sponsored Email (Gmail)',
+    (_c.emailSubject ? 'Subject: '+_ppEsc(_c.emailSubject)+'<br><br>' : '')
+      + (_c.emailBody ? _ppEsc(_c.emailBody) : 'Hi {name}, we thought you\u2019d be interested in '+(cp.name||'our latest offer')+'. Tap below to learn more.'),
+    'Appears in the Gmail Promotions tab — see the Gmail preview tab above.');
 
   h += '<div style="height:20px"></div>';
   h += '</div>';
@@ -10070,14 +10233,33 @@ function _designRow(icon, label, sub, action){
 }
 
 // ── Navigation between list ↔ detail ──
+// Hide the leads-style header (search + KPI strip + filter bar) while viewing
+// a single campaign — those controls belong to the leads list, not the
+// campaign dashboard. Restored when returning to the list.
+function _setLeadsChromeHidden(hidden){
+  ['activeFilterBar','ctrlBar','statsStrip','searchWrap'].forEach(function(id){
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (hidden) {
+      if (el.dataset.prevDisplay == null) el.dataset.prevDisplay = el.style.display || '';
+      el.style.display = 'none';
+    } else {
+      el.style.display = (el.dataset.prevDisplay != null ? el.dataset.prevDisplay : '');
+      delete el.dataset.prevDisplay;
+    }
+  });
+}
 function openClientCampaignDetail(campId){
   window._clientDashView   = 'detail';
   window._clientDashCampId = campId;
+  _setLeadsChromeHidden(true);
   document.getElementById('content').innerHTML = clientDashHTML();
+  document.getElementById('content').scrollTop = 0;
 }
 function clientBackToCampaigns(){
   window._clientDashView   = 'list';
   window._clientDashCampId = null;
+  _setLeadsChromeHidden(false);
   document.getElementById('content').innerHTML = clientDashHTML();
 }
 
