@@ -1075,16 +1075,37 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
             <div style="padding:18px">
               <div style="font-size:11px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Choose the live domain</div>
               <div style="font-size:12px;color:var(--muted);margin-bottom:14px">This becomes the public URL the ad runs on.</div>
-              <div class="form-group">
+
+              <div style="display:flex;gap:8px;margin-bottom:16px">
+                <label id="wiz-dsrc-sub-lbl" style="flex:1;display:flex;align-items:center;gap:8px;padding:10px 12px;border:2px solid var(--brand);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;background:var(--brand-light)">
+                  <input type="radio" name="wiz-dsrc" value="sub" checked onchange="_adWizDsrcChange()" style="accent-color:var(--brand)"> Subdomain
+                </label>
+                <label id="wiz-dsrc-own-lbl" style="flex:1;display:flex;align-items:center;gap:8px;padding:10px 12px;border:2px solid var(--border);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600;background:var(--surface)">
+                  <input type="radio" name="wiz-dsrc" value="own" onchange="_adWizDsrcChange()" style="accent-color:var(--brand)"> Own domain
+                </label>
+              </div>
+
+              <div id="wiz-dsrc-sub-block" class="form-group">
                 <label class="fld">Subdomain *</label>
                 <div style="display:flex;align-items:center;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--surface)">
                   <input class="fld" id="paste-ad-slug" placeholder="smilestudio" style="border:none;border-radius:0;flex:1;padding:9px 10px;font-size:13px;font-family:var(--mono)"
-                    oninput="this.dataset.manualEdit='1';this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'')">
+                    oninput="this.dataset.manualEdit='1';this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'');_adWizQueueCheck()">
                   <span style="padding:9px 10px;font-size:11px;color:var(--muted);background:var(--surface2);white-space:nowrap;border-left:1px solid var(--border)">.latest-promo.com</span>
                 </div>
                 <div style="font-size:11px;color:var(--muted);margin-top:4px">Short and clean &mdash; becomes the live URL.</div>
               </div>
-              <div style="font-size:12px;color:var(--muted);margin-top:8px">Buying a standalone domain is added in the next build step.</div>
+
+              <div id="wiz-dsrc-own-block" class="form-group" style="display:none">
+                <label class="fld">Your domain *</label>
+                <input class="fld" id="paste-own-domain" placeholder="hairtattoopromotion.com" style="font-family:var(--mono)"
+                  oninput="this.value=this.value.toLowerCase();_adWizQueueCheck()">
+                <div style="margin-top:8px">
+                  <button type="button" onclick="_adWizBuyDomain()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:8px;border:1px solid var(--brand);background:var(--brand-light);color:var(--brand);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">&#128722; Buy a domain on Cloudflare &#8599;</button>
+                </div>
+                <div style="font-size:11px;color:var(--muted);margin-top:6px">Buy it in Cloudflare (Adviuz account), then paste it here. Auto-listing &amp; one-click connect arrives in the next build step.</div>
+              </div>
+
+              <div id="wiz-host-status" style="font-size:12px;font-weight:600;margin-top:8px;min-height:16px"></div>
             </div>
           </div>
 
@@ -2700,8 +2721,114 @@ function toggleNewAdMenu() {
 // AD WIZARD (stepped paste-code modal) -----------------------------
 var _adWizStep = 1;
 var _adWizMax  = 3;
+var _adWizHostOk = false;
+var _adWizCheckTimer = null;
 
-function _adWizReset(){ _adWizStep = 1; _adWizGo(1); }
+function _adWizDomainSource(){
+  var el = document.querySelector('#pasteCodeModal input[name="wiz-dsrc"]:checked');
+  return el ? el.value : 'sub';
+}
+
+function _adWizGetHost(){
+  if (_adWizDomainSource() === 'own'){
+    return (document.getElementById('paste-own-domain')?.value || '')
+      .trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/\s+/g, '');
+  }
+  var slug = (document.getElementById('paste-ad-slug')?.value || '').trim();
+  return slug ? (slug + '.latest-promo.com') : '';
+}
+
+function _adWizSetHostStatus(state){
+  var el = document.getElementById('wiz-host-status');
+  if (!el) return;
+  var host = _adWizGetHost();
+  var own  = (_adWizDomainSource() === 'own');
+  var map = {
+    empty:    ['', 'var(--muted)'],
+    checking: ['Checking availability\u2026', 'var(--muted)'],
+    invalid:  ['That does not look like a valid ' + (own ? 'domain' : 'subdomain') + '.', 'var(--danger)'],
+    taken:    ['\u2717 ' + host + ' is already used by another ad.', 'var(--danger)'],
+    ok:       ['\u2713 ' + host + ' is available.', 'var(--green)'],
+    error:    ['Could not verify right now \u2014 you can still continue.', 'var(--muted)']
+  };
+  var m = map[state] || map.empty;
+  el.textContent = m[0];
+  el.style.color = m[1];
+}
+
+function _adWizDsrcChange(){
+  var src  = _adWizDomainSource();
+  var subB = document.getElementById('wiz-dsrc-sub-block');
+  var ownB = document.getElementById('wiz-dsrc-own-block');
+  if (subB) subB.style.display = (src === 'sub') ? '' : 'none';
+  if (ownB) ownB.style.display = (src === 'own') ? '' : 'none';
+  var sl = document.getElementById('wiz-dsrc-sub-lbl');
+  var ol = document.getElementById('wiz-dsrc-own-lbl');
+  if (sl){ sl.style.borderColor = (src === 'sub') ? 'var(--brand)' : 'var(--border)'; sl.style.background = (src === 'sub') ? 'var(--brand-light)' : 'var(--surface)'; }
+  if (ol){ ol.style.borderColor = (src === 'own') ? 'var(--brand)' : 'var(--border)'; ol.style.background = (src === 'own') ? 'var(--brand-light)' : 'var(--surface)'; }
+  _adWizQueueCheck();
+}
+
+function _adWizSetSource(src){
+  var rs = document.querySelector('#pasteCodeModal input[name="wiz-dsrc"][value="' + src + '"]');
+  if (rs) rs.checked = true;
+  _adWizDsrcChange();
+}
+
+function _adWizBuyDomain(){
+  window.open('https://dash.cloudflare.com/?to=/:account/domains/register', '_blank');
+}
+
+function _adWizQueueCheck(){
+  clearTimeout(_adWizCheckTimer);
+  _adWizHostOk = false;
+  var host = _adWizGetHost();
+  if (!host){ _adWizSetHostStatus('empty'); return; }
+  _adWizSetHostStatus('checking');
+  _adWizCheckTimer = setTimeout(_adWizDoCheck, 400);
+}
+
+async function _adWizDoCheck(){
+  var host = _adWizGetHost();
+  var own  = (_adWizDomainSource() === 'own');
+  if (!host){ _adWizHostOk = false; _adWizSetHostStatus('empty'); return; }
+  var valid = own
+    ? /^([a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(host)
+    : /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test((document.getElementById('paste-ad-slug')?.value || '').trim());
+  if (!valid){ _adWizHostOk = false; _adWizSetHostStatus('invalid'); return; }
+  try {
+    var r = await sbAdmin('/rest/v1/ads?live_url=eq.' + encodeURIComponent(host) + '&select=id&limit=3', {});
+    if (!r.ok){ _adWizHostOk = true; _adWizSetHostStatus('error'); return; }
+    var rows = await r.json();
+    var taken = rows.some(function(x){ return x.id !== window._editingAdId; });
+    if (taken){ _adWizHostOk = false; _adWizSetHostStatus('taken'); }
+    else { _adWizHostOk = true; _adWizSetHostStatus('ok'); }
+  } catch(e){ _adWizHostOk = true; _adWizSetHostStatus('error'); }
+}
+
+function _adWizPrefillDomain(ad){
+  var lu = (ad && ad.live_url) ? String(ad.live_url) : '';
+  if (lu && /\.latest-promo\.com$/.test(lu)){
+    var slug = document.getElementById('paste-ad-slug'); if (slug) slug.value = lu.replace(/\.latest-promo\.com$/, '');
+    _adWizSetSource('sub');
+  } else if (lu){
+    var own = document.getElementById('paste-own-domain'); if (own) own.value = lu;
+    _adWizSetSource('own');
+  } else {
+    var slug2 = document.getElementById('paste-ad-slug'); if (slug2 && ad && ad.ad_slug) slug2.value = ad.ad_slug;
+    _adWizSetSource('sub');
+  }
+}
+
+function _adWizReset(){
+  _adWizStep = 1;
+  var slug = document.getElementById('paste-ad-slug'); if (slug) slug.value = '';
+  var own  = document.getElementById('paste-own-domain'); if (own) own.value = '';
+  _adWizHostOk = false;
+  _adWizSetSource('sub');
+  _adWizSetHostStatus('empty');
+  _adWizGo(1);
+}
 
 function _adWizGo(n){
   if (n < 1) n = 1;
@@ -2723,10 +2850,11 @@ function _adWizGo(n){
   if (back) back.style.display = (n === 1) ? 'none' : '';
   if (next) next.style.display = (n === _adWizMax) ? 'none' : '';
   if (save) save.style.display = (n === _adWizMax) ? '' : 'none';
+  if (n === 2) _adWizQueueCheck();
   if (n === _adWizMax) _adWizRenderReview();
 }
 
-function _adWizNext(){
+async function _adWizNext(){
   var e = document.getElementById('paste-code-error');
   if (_adWizStep === 1){
     var nm = (document.getElementById('paste-ad-name')?.value || '').trim();
@@ -2736,16 +2864,12 @@ function _adWizNext(){
       if (e){ e.textContent = 'Add an ad name, a client, and the HTML to continue.'; e.style.display = 'block'; }
       return;
     }
+    if (e) e.style.display = 'none';
   }
   if (_adWizStep === 2){
-    var sl = (document.getElementById('paste-ad-slug')?.value || '').trim();
-    if (!sl){
-      _adWizGo(1);
-      if (e){ e.textContent = 'Choose a subdomain to continue.'; e.style.display = 'block'; }
-      return;
-    }
+    await _adWizDoCheck();
+    if (!_adWizGetHost() || !_adWizHostOk) return;
   }
-  if (e) e.style.display = 'none';
   _adWizGo(_adWizStep + 1);
 }
 
@@ -2753,8 +2877,7 @@ function _adWizRenderReview(){
   var box = document.getElementById('wiz-review');
   if (!box) return;
   var nm   = (document.getElementById('paste-ad-name')?.value || '').trim();
-  var sl   = (document.getElementById('paste-ad-slug')?.value || '').trim();
-  var host = sl ? (sl + '.latest-promo.com') : '\u2014';
+  var host = _adWizGetHost() || '\u2014';
   box.innerHTML = '<b>' + (nm || 'Untitled ad') + '</b> will go live at <b>' + host + '</b>.';
 }
 function openPasteCode() {
@@ -2794,6 +2917,7 @@ function openEditHtml(btnEl) {
   var btn = document.getElementById('paste-code-save-btn');
   if (btn) btn.textContent = 'Update ad →';
   _adWizReset();
+  _adWizPrefillDomain(ad);
   openModal('pasteCodeModal');
 }
 // ── CTA BUILDER UI ────────────────────────────────────────────────────
@@ -2936,6 +3060,9 @@ async function savePastedCode() {
     ? slugField.toLowerCase().replace(/[^a-z0-9-]/g,'').replace(/^-|-$/g,'')
     : name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
   if (!adSlug) adSlug = 'ad-' + Date.now().toString(36);
+  // Final live hostname chosen in the wizard (subdomain or own domain)
+  var liveHost = (typeof _adWizGetHost === 'function') ? _adWizGetHost() : '';
+  if (!liveHost) liveHost = adSlug + '.latest-promo.com';
   // Save RAW html to DB — tracking is injected at deploy time, never stored
   var rawCode = code; // never store tracking in DB
   var isEdit = !!window._editingAdId;
@@ -2944,7 +3071,7 @@ async function savePastedCode() {
     r = await sbAdmin('/rest/v1/ads?id=eq.' + window._editingAdId, {
       method: 'PATCH',
       headers: { 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ business_name:name, client_id:clientId, custom_html:rawCode, ad_slug:adSlug })
+      body: JSON.stringify({ business_name:name, client_id:clientId, custom_html:rawCode, ad_slug:adSlug, live_url:liveHost })
     });
   } else {
     r = await sbAdmin('/rest/v1/ads', {
@@ -2954,6 +3081,7 @@ async function savePastedCode() {
         business_name: name,
         client_id:     clientId,
         ad_slug:       adSlug,
+        live_url:      liveHost,
         custom_html:   rawCode,
         logo_letter:   name[0].toUpperCase(),
         brand_color:   '#C8102E',
