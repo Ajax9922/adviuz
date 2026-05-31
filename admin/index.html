@@ -4282,6 +4282,17 @@ function openEditCampaign(btn) {
     + '<div class="form-group"><label class="fld">Email body</label>'
     + '<textarea class="fld" id="ecam-pp-emailbody" rows="3" placeholder="All treatments by trained SMP specialists. $400 OFF this month — book your free consultation today."></textarea></div>'
     + '</div>'
+    + '<div style="margin-top:6px;padding-top:14px;border-top:1px solid var(--border)">'
+    + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">&#127919; Tracking &amp; Pixels</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Paste only the ID from each platform &mdash; we build the official code and fire PageView + Lead events on the live page.</div>'
+    + '<div class="form-group"><label class="fld">Meta Pixel ID (Facebook / Instagram)</label><input class="fld" id="ecam-tg-meta" placeholder="1234567890"></div>'
+    + '<div class="form-group"><label class="fld">Google tag ID (G-&hellip; or AW-&hellip;)</label><input class="fld" id="ecam-tg-google" placeholder="G-XXXXXXX or AW-XXXXXXX"></div>'
+    + '<div class="form-group"><label class="fld">Google Ads conversion (optional, AW-&hellip;/label)</label><input class="fld" id="ecam-tg-googleconv" placeholder="AW-123456789/AbC-D_efGh"></div>'
+    + '<div class="form-group"><label class="fld">TikTok Pixel ID</label><input class="fld" id="ecam-tg-tiktok" placeholder="CABCDEFGHIJKLMNOP"></div>'
+    + '<div class="form-group"><label class="fld">LinkedIn Partner ID</label><input class="fld" id="ecam-tg-linkedin" placeholder="1234567"></div>'
+    + '<div class="form-group"><label class="fld">X / Twitter Pixel ID</label><input class="fld" id="ecam-tg-twitter" placeholder="o1abc"></div>'
+    + '<div class="form-group"><label class="fld">Custom head code (anything else)</label><textarea class="fld" id="ecam-tg-custom" rows="3" placeholder="&lt;!-- extra verification or pixel code --&gt;"></textarea></div>'
+    + '</div>'
     + '</div>'
     + '<div class="modal-foot">'
     + '<button class="btn-cancel" onclick="document.getElementById(\'editCampaignModal\').remove()">Cancel</button>'
@@ -4306,6 +4317,14 @@ function openEditCampaign(btn) {
   setV('ecam-pp-sms',       pp.sms);
   setV('ecam-pp-emailsubj', pp.emailSubject);
   setV('ecam-pp-emailbody', pp.emailBody);
+  var tg = (cam && cam.tracking_tags) || {};
+  setV('ecam-tg-meta',       tg.meta_pixel);
+  setV('ecam-tg-google',     tg.google_tag);
+  setV('ecam-tg-googleconv', tg.google_conversion);
+  setV('ecam-tg-tiktok',     tg.tiktok_pixel);
+  setV('ecam-tg-linkedin',   tg.linkedin_id);
+  setV('ecam-tg-twitter',    tg.twitter_pixel);
+  setV('ecam-tg-custom',     tg.custom_head);
   // Show existing creative thumbnail + logo status
   if (pp.creativeUrl) {
     var pe = document.getElementById('ecam-pp-img-preview');
@@ -4393,6 +4412,20 @@ async function saveCampaignEdit() {
   // Only save if at least one field is filled (avoids wiping with an empty object)
   var hasAny = Object.keys(pp).some(function(k){ return pp[k]; });
   payload.placement_preview = hasAny ? pp : null;
+
+  // -- Tracking & Pixels -> tracking_tags JSONB --
+  var tgMap = {
+    meta_pixel:        ev('ecam-tg-meta'),
+    google_tag:        ev('ecam-tg-google'),
+    google_conversion: ev('ecam-tg-googleconv'),
+    tiktok_pixel:      ev('ecam-tg-tiktok'),
+    linkedin_id:       ev('ecam-tg-linkedin'),
+    twitter_pixel:     ev('ecam-tg-twitter'),
+    custom_head:       ev('ecam-tg-custom')
+  };
+  var tgOut = {};
+  Object.keys(tgMap).forEach(function(k){ if (tgMap[k]) tgOut[k] = tgMap[k]; });
+  payload.tracking_tags = tgOut;
 
   var r = await sbAdmin('/rest/v1/campaigns?id=eq.' + id, {
     method: 'PATCH',
