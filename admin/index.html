@@ -1960,6 +1960,10 @@ function renderClientRows(clients, leads) {
     var balance    = Math.max(0, purchased - done);
     var unallotted = Math.max(0, purchased - allotted);
     var clientLeads= leads.filter(function(l){ return l.client_id === c.id; }).length;
+    var leadsAllot = allCamps.reduce(function(t,cam){ return t + (cam.billing_model==='leads' ? (cam.leads_target||0) : 0); }, 0);
+    var leadsDone  = allCamps.reduce(function(t,cam){ return t + (cam.billing_model==='leads' ? (cam.leads_generated||0) : 0); }, 0);
+    var leadBal    = c.lead_balance || 0;
+    var leadsPurch = leadBal + leadsDone;
 
     // Package tags
     var isViews = c.billing_model !== 'leads';
@@ -1990,14 +1994,14 @@ function renderClientRows(clients, leads) {
       '<td><div class="td-name">' + (c.contact_name||c.business_name||'—') + pkgTag + '</div><div class="td-email">' + (c.email||'—') + '</div></td>' +
       // Business Name
       '<td>' + (c.business_name||'—') + '</td>' +
-      // Views Purchased
-      '<td class="td-mono" style="text-align:right">' + (isViews ? purchased.toLocaleString() : (c.leads_purchased||0)+' leads') + '</td>' +
-      // Views Allotted
-      '<td class="td-mono" style="text-align:right">' + (isViews ? allotted.toLocaleString() : '—') + '</td>' +
-      // Views Done
-      '<td class="td-mono" style="text-align:right">' + (isViews ? done.toLocaleString() : '—') + '</td>' +
+      // Purchased (views or leads)
+      '<td class="td-mono" style="text-align:right">' + (isViews ? purchased.toLocaleString() : leadsPurch.toLocaleString()+' leads') + '</td>' +
+      // Allotted
+      '<td class="td-mono" style="text-align:right">' + (isViews ? allotted.toLocaleString() : leadsAllot.toLocaleString()) + '</td>' +
+      // Done
+      '<td class="td-mono" style="text-align:right">' + (isViews ? done.toLocaleString() : leadsDone.toLocaleString()) + '</td>' +
       // Balance
-      '<td class="td-mono" style="text-align:right;' + balColor + '">' + (isViews ? balance.toLocaleString() : '—') + '</td>' +
+      '<td class="td-mono" style="text-align:right;' + (isViews ? balColor : ((leadBal<10)?'color:var(--danger);font-weight:700':'')) + '">' + (isViews ? balance.toLocaleString() : leadBal.toLocaleString()) + '</td>' +
       // Leads
       '<td class="td-mono" style="text-align:right">' + clientLeads + '</td>' +
       // Last Seen
@@ -2109,10 +2113,21 @@ function renderCampaignRows(campaigns, clients) {
     var fbImp    = cam.fb_impressions     || 0;
     var gImp     = cam.google_impressions || 0;
     var totalImp = fbImp + gImp;
+    // Leads campaign metrics
+    var isLeadsCam = cam.billing_model === 'leads';
+    var lTarget = cam.leads_target || 0;
+    var lDone   = cam.leads_generated || 0;
+    var lPct    = lTarget > 0 ? Math.min(100, Math.round(lDone / lTarget * 100)) : 0;
+    var lRemain = Math.max(0, lTarget - lDone);
+    var lBarColor = lPct >= 100 ? 'var(--success)' : lPct >= 85 ? 'var(--warning)' : 'var(--brand)';
     // Status logic
     var status = cam.status || 'active';
-    if (status === 'active' && balance < 200 && budget > 0) status = 'low';
-    if (balance === 0 && budget > 0) status = 'completed';
+    if (isLeadsCam) {
+      if (status === 'active' && lTarget > 0 && lDone >= lTarget) status = 'completed';
+    } else {
+      if (status === 'active' && balance < 200 && budget > 0) status = 'low';
+      if (balance === 0 && budget > 0) status = 'completed';
+    }
     var statusConfig = {
       active:    { label: 'Active',       cls: 'active' },
       paused:    { label: 'Paused',       cls: 'paused' },
@@ -2166,18 +2181,25 @@ function renderCampaignRows(campaigns, clients) {
       '</td>' +
       // Impressions
       '<td>' + impDisplay + '</td>' +
-      // Views (25s)
+      // Views (25s) — or Leads progress for leads campaigns
       '<td>' +
-        '<div style="font-weight:700;font-size:13px">' + used.toLocaleString() + '</div>' +
-        '<div style="font-size:10px;color:var(--muted)">of ' + budget.toLocaleString() + ' allotted</div>' +
-        '<div style="height:4px;background:var(--surface2);border-radius:2px;margin-top:4px;width:80px">' +
-          '<div style="height:100%;width:' + pct + '%;background:' + barColor + ';border-radius:2px;transition:width 0.4s"></div>' +
-        '</div>' +
+        (isLeadsCam
+          ? '<div style="font-weight:700;font-size:13px">' + lDone.toLocaleString() + '</div>'
+            + '<div style="font-size:10px;color:var(--muted)">of ' + lTarget.toLocaleString() + ' leads</div>'
+            + '<div style="height:4px;background:var(--surface2);border-radius:2px;margin-top:4px;width:80px"><div style="height:100%;width:' + lPct + '%;background:' + lBarColor + ';border-radius:2px;transition:width 0.4s"></div></div>'
+          : '<div style="font-weight:700;font-size:13px">' + used.toLocaleString() + '</div>'
+            + '<div style="font-size:10px;color:var(--muted)">of ' + budget.toLocaleString() + ' allotted</div>'
+            + '<div style="height:4px;background:var(--surface2);border-radius:2px;margin-top:4px;width:80px"><div style="height:100%;width:' + pct + '%;background:' + barColor + ';border-radius:2px;transition:width 0.4s"></div></div>'
+        ) +
       '</td>' +
-      // Balance remaining
+      // Balance remaining — or leads remaining
       '<td>' +
-        '<div style="font-weight:700;font-size:13px;' + (balance < 200 ? 'color:var(--danger)' : '') + '">' + balance.toLocaleString() + '</div>' +
-        '<div style="font-size:10px;color:var(--muted)">' + pct + '% used</div>' +
+        (isLeadsCam
+          ? '<div style="font-weight:700;font-size:13px;' + (lRemain===0 && lTarget>0 ? 'color:var(--success)' : '') + '">' + lRemain.toLocaleString() + '</div>'
+            + '<div style="font-size:10px;color:var(--muted)">' + lPct + '% reached</div>'
+          : '<div style="font-weight:700;font-size:13px;' + (balance < 200 ? 'color:var(--danger)' : '') + '">' + balance.toLocaleString() + '</div>'
+            + '<div style="font-size:10px;color:var(--muted)">' + pct + '% used</div>'
+        ) +
       '</td>' +
       // Leads count column
       '<td style="text-align:center">' +
