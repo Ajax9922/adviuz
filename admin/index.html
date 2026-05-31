@@ -1563,7 +1563,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
     <div class="modal-body">
       <div style="background:var(--surface2);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--muted)">
         <strong style="color:var(--text)">Step 3 of 3.</strong>
-        Link the client, their ad, and assign views from their wallet.
+        <span id="cam-step-hint">Link the client, their ad, and assign views from their wallet.</span>
       </div>
       <div class="form-grid">
         <div class="form-group full">
@@ -1889,9 +1889,9 @@ function renderAdminDashboard(clients, views, leads, campaigns, txns) {
         var camLeads = leads.filter(function(l){ return l.campaign_id === cam.id; }).length;
         var camAd = window._allAds ? window._allAds.find(function(a){ return a.id === cam.ad_id; }) : null;
         var camSlug = camAd ? (camAd.ad_slug || '').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') : '';
-        var liveUrl = camSlug
-          ? 'https://' + camSlug + '.latest-promo.com'
-          : 'https://latest-promo.com';
+        var liveUrl = (camAd && camAd.live_url)
+          ? 'https://' + camAd.live_url
+          : (camSlug ? 'https://' + camSlug + '.latest-promo.com' : 'https://latest-promo.com');
         return '<tr>' +
           '<td><div class="td-name" style="cursor:pointer;color:var(--brand)" onclick="window.open(this.dataset.url,\'_blank\')" data-url="' + liveUrl + '">' + cam.name + ' ↗</div></td>' +
           '<td>' + (client ? client.business_name : '—') + '</td>' +
@@ -2127,9 +2127,9 @@ function renderCampaignRows(campaigns, clients) {
     var adSlugParam = window._allAds ? (window._allAds.find(function(a){return a.id===cam.ad_id;}) || {}).ad_slug : '';
     var camAdObj = window._allAds ? window._allAds.find(function(a){ return a.id === cam.ad_id; }) : null;
     var camAdSlug = camAdObj ? (camAdObj.ad_slug || '').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') : (adSlugParam || '');
-    var liveUrl = camAdSlug
-      ? 'https://' + camAdSlug + '.latest-promo.com'
-      : 'https://latest-promo.com';
+    var liveUrl = (camAdObj && camAdObj.live_url)
+      ? 'https://' + camAdObj.live_url
+      : (camAdSlug ? 'https://' + camAdSlug + '.latest-promo.com' : 'https://latest-promo.com');
     // Impressions display
     var impDisplay = totalImp > 0
       ? '<div style="font-weight:700;font-size:13px">' + totalImp.toLocaleString() + '</div>'
@@ -2472,12 +2472,13 @@ async function saveCampaign() {
   var adId     = document.getElementById('cam-ad-sel')?.value        || '';
   var prodType = document.getElementById('cam-product-type')?.value  || 'views';
   var notes    = document.getElementById('cam-notes-input')?.value   || '';
-  if (!name)     { toast('Enter a campaign name'); return; }
-  if (!clientId) { toast('Select a client'); return; }
-  if (!adId)     { toast('Select an ad page'); return; }
-  if (!budget)   { toast('Enter how many ' + (prodType==='leads'?'leads':'views') + ' to assign'); return; }
+  _camMark('cam-name-input',false); _camMark('cam-client-sel2',false); _camMark('cam-ad-sel',false); _camMark('cam-views-input',false);
+  if (!name)     { _camMark('cam-name-input',true);  toast('Enter a campaign name'); return; }
+  if (!clientId) { _camMark('cam-client-sel2',true); toast('Select a client'); return; }
+  if (!adId)     { _camMark('cam-ad-sel',true);      toast('Select an ad page'); return; }
+  if (!budget)   { _camMark('cam-views-input',true); toast('Enter how many ' + (prodType==='leads'?'leads':'views') + ' to assign'); return; }
   if (budget > (window._camClientBalance || 0)) {
-    toast((prodType==='leads'?'Leads':'Views') + ' assigned exceeds client balance'); return;
+    _camMark('cam-views-input',true); toast((prodType==='leads'?'Leads':'Views') + ' assigned exceeds client balance'); return;
   }
   // Get the ad slug to build the UTM source
   var utmCampaign = name.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'');
@@ -2497,12 +2498,12 @@ async function saveCampaign() {
       status:        'active'
     })
   });
-  closeModal('campaignModal');
   if (!r.ok) {
     var err = await r.json();
     toast('Campaign error: ' + (err.message || JSON.stringify(err)));
     return;
   }
+  closeModal('campaignModal');
   var camData = await r.json();
   var campaignId = camData[0] ? camData[0].id : null;
   toast('Campaign created! Redeploying ad with campaign baked in...');
@@ -3941,9 +3942,10 @@ function copyAdURL(el) {
   var campaignId = el.dataset.campaign  || '';
   var platform   = el.dataset.platform  || 'facebook';
   var camAdO = window._allCampaigns ? (window._allCampaigns.find(function(c){ return c.id===campaignId; })||{}) : {};
-  var camAdSl = window._allAds ? ((window._allAds.find(function(a){ return a.id===camAdO.ad_id; })||{}).ad_slug||'') : '';
+  var camAdFull = window._allAds ? (window._allAds.find(function(a){ return a.id===camAdO.ad_id; })||{}) : {};
+  var camAdSl = camAdFull.ad_slug || '';
   var camAdSl2 = camAdSl.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
-  var url = camAdSl2 ? 'https://' + camAdSl2 + '.latest-promo.com' : 'https://latest-promo.com';
+  var url = camAdFull.live_url ? 'https://' + camAdFull.live_url : (camAdSl2 ? 'https://' + camAdSl2 + '.latest-promo.com' : 'https://latest-promo.com');
   if (navigator.clipboard) navigator.clipboard.writeText(url).catch(function(){});
   toast('Ad URL copied!');
 }
@@ -4035,6 +4037,7 @@ function resetCampaignModal() {
   var info = document.getElementById('cam-wallet-info');
   if (info) info.style.display = 'none';
   window._camClientBalance = 0;
+  ['cam-name-input','cam-client-sel2','cam-ad-sel','cam-views-input'].forEach(function(id){ _camMark(id,false); });
   if (typeof setCamType === 'function') setCamType('views');
 }
 function copyShortUrl(code) {
@@ -4754,6 +4757,11 @@ function showClientBalance() {
   }
 }
 // ── CAMPAIGN MODAL: client selected → show wallet ──
+function _camMark(id, bad){
+  var el=document.getElementById(id); if(!el) return;
+  if(bad){ el.style.borderColor='var(--danger)'; el.style.boxShadow='0 0 0 2px rgba(220,38,38,.15)'; el.focus(); }
+  else { el.style.borderColor=''; el.style.boxShadow=''; }
+}
 function _camType(){ return (document.getElementById('cam-product-type')?.value) || 'views'; }
 function setCamType(type){
   var h = document.getElementById('cam-product-type'); if (h) h.value = type;
@@ -4763,6 +4771,7 @@ function setCamType(type){
   var unit = (type==='leads') ? 'leads' : 'views';
   var ua = document.getElementById('cam-unit-avail'); if (ua) ua.textContent = unit + ' available';
   var ub = document.getElementById('cam-unit-assign'); if (ub) ub.textContent = unit;
+  var hint = document.getElementById('cam-step-hint'); if (hint) hint.textContent = (unit==='leads') ? 'Link the client, their ad, and assign leads from their wallet.' : 'Link the client, their ad, and assign views from their wallet.';
   onCamClientChange();
 }
 function onCamClientChange() {
@@ -4803,6 +4812,7 @@ function onCamClientChange() {
 }
 function updateCamWalletPreview() {
   var input   = document.getElementById('cam-views-input');
+  _camMark('cam-views-input', false);
   var remain  = document.getElementById('cam-wallet-remain');
   var bar     = document.getElementById('cam-wallet-bar');
   var warning = document.getElementById('cam-wallet-warning');
