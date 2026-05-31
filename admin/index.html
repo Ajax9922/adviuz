@@ -2528,7 +2528,15 @@ async function saveCampaign() {
   closeModal('campaignModal');
   var camData = await r.json();
   var campaignId = camData[0] ? camData[0].id : null;
-  toast('Campaign created! Redeploying ad with campaign baked in...');
+  // Map this ad to the campaign so the live page tags views + leads to it
+  if (campaignId && adId) {
+    await sbAdmin('/rest/v1/ads?id=eq.' + adId, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ campaign_id: campaignId })
+    });
+  }
+  toast('Campaign created and linked to the ad.');
 
   // Redeploy the ad with campaign_id baked in for clean URL
   if (campaignId && adId) {
@@ -2675,6 +2683,7 @@ function renderAdBuilderPanel() {
       '<td style="padding:10px 14px">' +
         '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
           '<button class="tbl-btn" data-url="' + liveUrl.replace(/"/g,'&quot;') + '" onclick="window.open(this.dataset.url,\'_blank\')" title="Open live ad">↗ Live</button>' +
+          (ad.live_url ? '<button class="tbl-btn" data-url="https://' + ad.live_url + '/preview" onclick="window.open(this.dataset.url,\'_blank\')" title="Preview (no view counted)">&#128065; Preview</button>' : '') +
           '<button class="tbl-btn" data-id="' + ad.id + '" onclick="openEditAd(this)">Edit</button>' +
           (ad.custom_html ? '<button class="tbl-btn" data-id="' + ad.id + '" onclick="openEditHtml(this)">Edit HTML</button>' : '') +
           '<button class="tbl-btn danger" data-id="' + ad.id + '" data-name="' + (ad.business_name||'Ad').replace(/"/g,'&quot;') + '" onclick="deleteAd(this)">Delete</button>' +
