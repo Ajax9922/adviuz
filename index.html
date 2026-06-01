@@ -2684,6 +2684,9 @@ Dr. Sarah
       <div class="ls-sub" id="lsSub"></div>
     </div>
     <div class="ls-nav">
+      <button class="ls-nav-btn" id="lsRefresh" onclick="refreshCurrentLead(this)" title="Refresh">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      </button>
       <button class="ls-nav-btn" id="lsPrev" onclick="navLead(-1)">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
       </button>
@@ -5575,6 +5578,7 @@ function openLead(id) {
   curLid = id;
   renderLeadScreen(id);
   document.getElementById('leadScreen').classList.add('open');
+  initLeadPullToRefresh();
   document.querySelector('.tabbar').style.display = 'none';
   var idx = leads.findIndex(function(l){ return l.id === id; });
   document.getElementById('lsPrev').disabled = idx <= 0;
@@ -5684,7 +5688,15 @@ async function loadLeadActivity(localId, dbId) {
     });
 
     var existing   = leadAct[localId] || [];
-    var justNow    = existing.filter(function(a){ return a.time==='Just now'; });
+    // call_sids that now exist as real DB rows
+    var _dbCallSids = norm1.filter(function(r){ return r.call_sid; }).map(function(r){ return r.call_sid; });
+    var justNow    = existing.filter(function(a){
+      if (a.time !== 'Just now') return false;
+      // Drop a locally-added call placeholder once its real DB row has loaded
+      // (matched by call_sid) so the same call never shows twice.
+      if (a._localOnly && a.call_sid && _dbCallSids.indexOf(a.call_sid) !== -1) return false;
+      return true;
+    });
     leadAct[localId] = justNow.concat(dbActs);
     if(curLid === localId) renderLeadScreen(localId);
   } catch(e) {
@@ -5696,6 +5708,36 @@ function closeLead() {
   document.getElementById('leadScreen').classList.remove('open');
   document.querySelector('.tabbar').style.display = 'flex';
   render();
+}
+
+// Manual refresh (header button) — reloads the open lead's activity + recordings.
+function refreshCurrentLead(btn){
+  var l = leads.find(function(x){ return x.id === curLid; });
+  if (!l || !l.dbId) { showToast('Nothing to refresh'); return; }
+  if (btn) { var sv = btn.querySelector('svg'); if (sv){ sv.style.transition='transform .6s ease'; sv.style.transform='rotate(360deg)'; setTimeout(function(){ sv.style.transition='none'; sv.style.transform='none'; }, 650); } }
+  loadLeadActivity(l.id, l.dbId);
+}
+
+// Pull-to-refresh: swipe down while at the top of the lead screen to reload.
+function initLeadPullToRefresh(){
+  var el = document.getElementById('lsBody');
+  if (!el || el._ptrInit) return;
+  el._ptrInit = true;
+  var startY = 0, armed = false;
+  el.addEventListener('touchstart', function(e){
+    armed  = (el.scrollTop <= 0);
+    startY = e.touches[0].clientY;
+  }, { passive: true });
+  el.addEventListener('touchmove', function(e){
+    if (!armed) return;
+    if (el.scrollTop > 0) { armed = false; return; }
+    if (e.touches[0].clientY - startY > 75) {
+      armed = false;
+      showToast('🔄 Refreshing…');
+      refreshCurrentLead(document.getElementById('lsRefresh'));
+    }
+  }, { passive: true });
+  el.addEventListener('touchend', function(){ armed = false; }, { passive: true });
 }
 
 // ── Sheet helpers ──
@@ -6021,7 +6063,7 @@ function renderLeadScreen(id) {
   // ══ RECENT CALL RECORDING (above notes) — show 1 most recent only ══
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
   h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">📼 Recent Call Recording</div>';
-  var recentCall = acts.find(function(a){ return a.type==='call'; });
+  var recentCall = acts.find(function(a){ return a.type==='call' && a.recording_url; }) || acts.find(function(a){ return a.type==='call'; });
   if (!recentCall) {
     h += '<div style="font-size:13px;color:var(--sub);padding:4px 0 8px">No call recordings yet</div>';
   } else {
@@ -7576,11 +7618,13 @@ function _makeCall(l) {
   }).then(function(call) {
     activeCall = call;
     var _actRowId = null; // tracks the lead_activity row for this call
+    var _callSidShared = ''; // call_sid shared into the placeholder so it can dedupe vs the DB row
     call.on('accept', function(){
       if(s) s.textContent = 'Connected ✅';
       startCallTimer();
       // ── Save lead_activity row with call_sid immediately ──
       var callSid = (call.parameters && call.parameters.CallSid) || '';
+      _callSidShared = callSid;
       if (l.dbId) {
         sbFetch('/rest/v1/lead_activity', {
           method: 'POST',
@@ -7634,6 +7678,7 @@ function _makeCall(l) {
         type: 'call', label: '📞 Outbound Call',
         time: 'Just now', body: 'Outbound call · Duration: '+durStr,
         dur: durStr, rec: false, callType: 'outbound',
+        call_sid: _callSidShared,
         _localOnly: true   // marker so dedup logic can identify locally-added entries
       });
       if (curLid === l.id) renderLeadScreen(l.id);
