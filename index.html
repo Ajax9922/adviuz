@@ -7592,6 +7592,7 @@ function _makeCall(l) {
           headers: { 'Prefer': 'return=representation' },
           body: JSON.stringify({
             lead_id:       l.dbId,
+            client_id:     window._clientId || null,
             activity_type: 'call',
             description:   'Outbound call',
             call_sid:      callSid,
@@ -7599,11 +7600,20 @@ function _makeCall(l) {
             created_at:    new Date().toISOString()
           })
         }).then(function(r){
-          return r.json();
-        }).then(function(row){
-          if (row && row[0] && row[0].id) _actRowId = row[0].id;
-          console.log('[Call] lead_activity saved, id:', _actRowId, 'call_sid:', callSid);
-        }).catch(function(e){ console.warn('[Call] lead_activity save failed:', e); });
+          return r.json().catch(function(){ return null; }).then(function(b){ return { ok: r.ok, status: r.status, body: b }; });
+        }).then(function(res){
+          if (res.ok && res.body && res.body[0] && res.body[0].id) {
+            _actRowId = res.body[0].id;
+            console.log('[Call] lead_activity saved, id:', _actRowId, 'call_sid:', callSid);
+          } else {
+            var msg = (res.body && res.body.message) ? res.body.message : ('HTTP ' + res.status);
+            console.error('[Call] lead_activity save FAILED:', msg, res.body);
+            showToast('⚠️ Call not saved: ' + msg);
+          }
+        }).catch(function(e){ console.error('[Call] lead_activity save error:', e); showToast('⚠️ Call not saved (network)'); });
+      } else {
+        console.warn('[Call] no l.dbId — call row not saved (lead not synced to DB)');
+        showToast('⚠️ Call not saved: lead not in database');
       }
     });
     call.on('disconnect', function(){ 
