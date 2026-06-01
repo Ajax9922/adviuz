@@ -10226,6 +10226,8 @@ async function loadCallLog() {
 window._clientDashView    = window._clientDashView    || 'list';
 window._clientDashCampId  = window._clientDashCampId  || null;
 window._clientCampFilter  = window._clientCampFilter  || { name:'', status:'' };
+window._campSelMode       = window._campSelMode       || false;   // bulk select on/off
+window._campSel           = window._campSel           || {};      // {campId:true} selected
 
 function clientDashHTML() {
   if (window._clientDashView === 'detail' && window._clientDashCampId) {
@@ -10267,6 +10269,23 @@ function clientCampaignListHTML() {
   }
   h += '</div>';
 
+  // ── Bulk select controls (#9) ──
+  if (filtered.length) {
+    if (!window._campSelMode) {
+      h += '<div style="display:flex;justify-content:flex-end;margin-bottom:8px">'
+        +    '<button onclick="campStartSelect()" style="padding:7px 12px;border-radius:9px;border:1px solid var(--border);background:var(--white);color:var(--text);font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">☑ Select</button>'
+        +  '</div>';
+    } else {
+      var nSel = Object.keys(window._campSel||{}).length;
+      h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:8px 10px">'
+        +    '<span style="font-size:12px;font-weight:800;color:#1e3a8a;flex:1">'+nSel+' selected</span>'
+        +    '<button onclick="campBulkToggle(\'active\')" style="padding:8px 12px;border-radius:8px;border:none;background:var(--green);color:#fff;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">▶ Activate</button>'
+        +    '<button onclick="campBulkToggle(\'paused\')" style="padding:8px 12px;border-radius:8px;border:none;background:var(--text);color:#fff;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">⏸ Pause</button>'
+        +    '<button onclick="campCancelSelect()" style="padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--white);color:var(--sub);font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">Cancel</button>'
+        +  '</div>';
+    }
+  }
+
   // ── Section header ──
   h += '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:4px 2px 10px">Campaigns ('+filtered.length+')</div>';
 
@@ -10300,13 +10319,30 @@ function _clientCampCard(cp) {
   var statusDot = active ? 'var(--green)' : (paused ? '#f59e0b' : '#9ca3af');
   var statusLbl = active ? 'Active' : (paused ? 'Paused' : (cp.status||'—'));
 
-  var h = '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:10px;cursor:pointer" onclick="openClientCampaignDetail(\''+cp.id+'\')">';
+  var selMode  = !!window._campSelMode;
+  var selected = !!(window._campSel||{})[cp.id];
+  var liveUrl    = cp.live_url || (cp.ad && cp.ad.live_url) || '';
+  var liveHref   = liveUrl ? (liveUrl.indexOf('://')===-1 ? 'https://'+liveUrl : liveUrl) : '';
+  var previewHref= liveHref ? (liveHref.replace(/\/+$/,'') + '/preview') : '';
+
+  var cardClick = selMode ? ('campToggleSel(\''+cp.id+'\')') : ('openClientCampaignDetail(\''+cp.id+'\')');
+  var h = '<div style="background:var(--white);border:1.5px solid '+(selected?'var(--green)':'var(--border)')+';border-radius:14px;padding:16px;margin-bottom:10px;cursor:pointer" onclick="'+cardClick+'">';
 
   // Header
-  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">'
-    +    '<span style="width:9px;height:9px;border-radius:50%;background:'+statusDot+';flex-shrink:0"></span>'
-    +    '<span style="font-size:16px;font-weight:800;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(cp.name||'Campaign')+'</span>'
-    +    '<span style="font-size:11px;font-weight:700;color:'+statusDot+';flex-shrink:0">'+statusLbl+'</span>'
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">';
+  if (selMode) {
+    h += '<span style="width:20px;height:20px;border-radius:6px;border:2px solid '+(selected?'var(--green)':'var(--border)')+';background:'+(selected?'var(--green)':'#fff')+';flex-shrink:0;display:flex;align-items:center;justify-content:center">'
+      +    (selected?'<svg width="11" height="11" viewBox="0 0 10 10" fill="none"><path d="M1.5 5L4 7.5L8.5 2.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>':'')
+      +  '</span>';
+  } else {
+    h += '<span style="width:9px;height:9px;border-radius:50%;background:'+statusDot+';flex-shrink:0"></span>';
+  }
+  if (!selMode && previewHref) {
+    h += '<span onclick="event.stopPropagation();openClientPreviewEmbed(\''+previewHref+'\')" style="font-size:16px;font-weight:800;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:underline;text-decoration-color:var(--border);text-underline-offset:3px;cursor:pointer">'+(cp.name||'Campaign')+'</span>';
+  } else {
+    h += '<span style="font-size:16px;font-weight:800;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(cp.name||'Campaign')+'</span>';
+  }
+  h += '<span style="font-size:11px;font-weight:700;color:'+statusDot+';flex-shrink:0">'+statusLbl+'</span>'
     +  '</div>';
 
   // ── Big "Total Exposure" tile (above the 3 stats per user spec) ──
@@ -10782,6 +10818,25 @@ async function clientToggleCampaign(campId, newStatus){
   } catch(e) {
     showToast('Could not update campaign: '+(e.message||'error'));
   }
+}
+
+// ── Bulk select / pause / activate (#9) ──
+function campStartSelect(){ window._campSelMode=true; window._campSel={}; document.getElementById('content').innerHTML=clientDashHTML(); }
+function campCancelSelect(){ window._campSelMode=false; window._campSel={}; document.getElementById('content').innerHTML=clientDashHTML(); }
+function campToggleSel(id){ window._campSel=window._campSel||{}; if(window._campSel[id]) delete window._campSel[id]; else window._campSel[id]=true; document.getElementById('content').innerHTML=clientDashHTML(); }
+async function campBulkToggle(status){
+  var ids=Object.keys(window._campSel||{});
+  if(!ids.length){ showToast('Select at least one campaign'); return; }
+  showToast('Updating '+ids.length+' campaign'+(ids.length>1?'s':'')+'…');
+  for(var i=0;i<ids.length;i++){
+    try{
+      var res=await sbFetch('/rest/v1/campaigns?id=eq.'+ids[i],{method:'PATCH',body:JSON.stringify({status:status,updated_at:new Date().toISOString()})});
+      if(res&&res.ok){ var cp=(window._clientCampaigns||[]).find(function(x){return String(x.id)===String(ids[i]);}); if(cp) cp.status=status; }
+    }catch(e){}
+  }
+  window._campSelMode=false; window._campSel={};
+  showToast(status==='active'?'▶ Campaigns activated':'⏸ Campaigns paused');
+  document.getElementById('content').innerHTML=clientDashHTML();
 }
 
 // ── Live preview embed (uses the Worker's /preview path — clean page, no tracker) ──
