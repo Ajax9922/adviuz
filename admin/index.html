@@ -4197,6 +4197,37 @@ function openPreviewInTab() {
   var url = window._currentPreviewUrl || 'https://adviuzdev.netlify.app';
   window.open(url, '_blank');
 }
+// ── TWILIO: load account numbers into the campaign-edit dropdown ──
+window._twNumberCache = null;
+async function loadTwilioNumbers(force){
+  var sel = document.getElementById('ecam-tw-number');
+  if (!sel) return;
+  // Helper used by the prefill to select the saved number once the list is in.
+  window._setTwNumberSelected = function(val){
+    if (!val) return;
+    var found = false;
+    for (var i=0;i<sel.options.length;i++){ if (sel.options[i].value === val){ sel.selectedIndex = i; found = true; break; } }
+    if (!found){ var o=document.createElement('option'); o.value=val; o.textContent=val+' (current)'; sel.appendChild(o); sel.value=val; }
+  };
+  try {
+    if (force || !window._twNumberCache){
+      var res = await sbAdmin('/functions/v1/twilio-voice?action=list-numbers');
+      var data = res.ok ? await res.json() : {};
+      window._twNumberCache = (data && data.numbers) ? data.numbers : [];
+    }
+    var nums = window._twNumberCache || [];
+    var html = '<option value="">— Select a number —</option>';
+    for (var j=0;j<nums.length;j++){
+      var n = nums[j];
+      var lbl = n.phone + (n.label && n.label !== n.phone ? ' · ' + n.label : '');
+      html += '<option value="'+n.phone+'">'+lbl+'</option>';
+    }
+    sel.innerHTML = html;
+    if (window._editCamTwNumber) window._setTwNumberSelected(window._editCamTwNumber);
+  } catch(e){
+    sel.innerHTML = '<option value="">Could not load numbers — check Twilio config</option>';
+  }
+}
 // ── EDIT CAMPAIGN ──
 function openEditCampaign(btn) {
   window._editCampaignId = btn.dataset.id;
@@ -4295,12 +4326,17 @@ function openEditCampaign(btn) {
     + '</div>'
     + '<div style="margin-top:6px;padding-top:14px;border-top:1px solid var(--border)">'
     + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">&#128222; Twilio Number (Calls &amp; SMS)</div>'
-    + '<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Assigned to this client for the Dialer, SMS &amp; inbound calls. Buy a number on Twilio, then paste it here and Save.</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Assigned to this client for the Dialer, SMS &amp; inbound calls. Pick a number you own, or buy a new one on Twilio then refresh.</div>'
     + '<div class="form-group"><label class="fld">Twilio phone number</label>'
     +   '<div style="display:flex;gap:8px;align-items:center">'
-    +     '<input class="fld" id="ecam-tw-phone" placeholder="+1xxxxxxxxxx" style="flex:1">'
+    +     '<select class="fld" id="ecam-tw-number" style="flex:1"><option value="">Loading numbers&hellip;</option></select>'
+    +     '<button type="button" onclick="loadTwilioNumbers(true)" title="Refresh list" style="padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px;cursor:pointer">&#8635;</button>'
     +     '<button type="button" onclick="window.open(\'https://console.twilio.com/us1/develop/phone-numbers/manage/search\',\'_blank\')" style="white-space:nowrap;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:12px;font-weight:700;cursor:pointer">Buy new &#8599;</button>'
     +   '</div>'
+    + '</div>'
+    + '<div class="form-group"><label class="fld">Forward calls to (client&apos;s phone)</label>'
+    +   '<input class="fld" id="ecam-tw-forward" placeholder="+1xxxxxxxxxx">'
+    +   '<div style="font-size:10px;color:var(--muted);margin-top:4px">Inbound calls to the number above ring this phone. Defaults to the client&apos;s profile number.</div>'
     + '</div>'
     + '</div>'
     + '</div>'
@@ -4337,9 +4373,22 @@ function openEditCampaign(btn) {
   setV('ecam-tg-custom',     tg.custom_head);
   window._editCamClientId = cam ? cam.client_id : null;
   if (window._editCamClientId) {
-    sbAdmin('/rest/v1/client_integrations?client_id=eq.' + window._editCamClientId + '&select=twilio_phone&limit=1')
+    loadTwilioNumbers();
+    sbAdmin('/rest/v1/client_integrations?client_id=eq.' + window._editCamClientId + '&select=twilio_phone,forward_to_phone&limit=1')
       .then(function(res){ return res.ok ? res.json() : []; })
-      .then(function(rows){ if (rows && rows[0] && rows[0].twilio_phone) setV('ecam-tw-phone', rows[0].twilio_phone); })
+      .then(function(rows){
+        var row = (rows && rows[0]) || {};
+        window._editCamTwNumber = row.twilio_phone || '';
+        if (window._setTwNumberSelected) window._setTwNumberSelected(window._editCamTwNumber);
+        if (row.forward_to_phone) { setV('ecam-tw-forward', row.forward_to_phone); }
+        else {
+          // No forward saved yet — default to the client's profile phone
+          sbAdmin('/rest/v1/clients?id=eq.' + window._editCamClientId + '&select=phone&limit=1')
+            .then(function(r2){ return r2.ok ? r2.json() : []; })
+            .then(function(cr){ if (cr && cr[0] && cr[0].phone) setV('ecam-tw-forward', cr[0].phone); })
+            .catch(function(){});
+        }
+      })
       .catch(function(){});
   }
   // Show existing creative thumbnail + logo status
@@ -4444,23 +4493,35 @@ async function saveCampaignEdit() {
   Object.keys(tgMap).forEach(function(k){ if (tgMap[k]) tgOut[k] = tgMap[k]; });
   payload.tracking_tags = tgOut;
 
-  // -- Twilio number -> client_integrations.twilio_phone (client-level) --
-  var twPhone = ev('ecam-tw-phone');
-  var twClient = window._editCamClientId;
+  // -- Twilio number + forward -> client_integrations (client-level) --
+  var twPhone   = ev('ecam-tw-number');
+  var twForward = ev('ecam-tw-forward');
+  var twClient  = window._editCamClientId;
   if (twClient) {
     try {
+      var twBody = { twilio_phone: twPhone || null, forward_to_phone: twForward || null };
       var gr = await sbAdmin('/rest/v1/client_integrations?client_id=eq.' + twClient + '&select=id&limit=1');
       var grows = gr.ok ? await gr.json() : [];
       if (grows && grows[0]) {
         await sbAdmin('/rest/v1/client_integrations?id=eq.' + grows[0].id, {
           method: 'PATCH', headers: { Prefer: 'return=minimal' },
-          body: JSON.stringify({ twilio_phone: twPhone || null })
+          body: JSON.stringify(twBody)
         });
-      } else if (twPhone) {
+      } else if (twPhone || twForward) {
+        twBody.client_id = twClient;
         await sbAdmin('/rest/v1/client_integrations', {
           method: 'POST', headers: { Prefer: 'return=minimal' },
-          body: JSON.stringify({ client_id: twClient, twilio_phone: twPhone })
+          body: JSON.stringify(twBody)
         });
+      }
+      // Auto-point this number's inbound voice webhook at our function (best-effort)
+      if (twPhone) {
+        try {
+          var wr = await sbAdmin('/functions/v1/twilio-voice?action=set-inbound-webhook', {
+            method: 'POST', body: JSON.stringify({ phone: twPhone })
+          });
+          if (!wr.ok) toast('Number saved, but auto-wiring its webhook failed — set it manually in Twilio.');
+        } catch(e){ toast('Number saved, but auto-wiring its webhook failed — set it manually in Twilio.'); }
       }
     } catch(e){}
   }
