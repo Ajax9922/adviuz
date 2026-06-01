@@ -1893,7 +1893,11 @@ input[type=number]{-moz-appearance:textfield}
       <div class="fg"><div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px">Twilio (Calls &amp; SMS)</div>
         <input class="finp" id="su-twilio-sid" placeholder="Account SID (ACxxxx...)" style="margin-bottom:8px">
         <input class="finp" id="su-twilio-token" placeholder="Auth Token" type="password" style="margin-bottom:8px">
-        <input class="finp" id="su-twilio-phone" placeholder="Phone Number (+1xxxxxxxxxx)">
+        <div style="display:flex;gap:8px;align-items:center">
+          <input class="finp" id="su-twilio-phone" placeholder="Phone Number (+1xxxxxxxxxx)" style="flex:1">
+          <button type="button" class="btn btn-ghost" onclick="window.open('https://console.twilio.com/us1/develop/phone-numbers/manage/search','_blank')" style="white-space:nowrap;padding:8px 12px;font-size:12px">Buy new &#8599;</button>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:6px">Buy a number on Twilio, then paste it here and Save.</div>
       </div>
 
       <!-- Retell AI -->
@@ -15721,6 +15725,7 @@ document.addEventListener('click', function(ev){
   var ROLE_COLOR = {owner:'#7c3aed',manager:'#2563eb',telecaller:'#0891b2',closer:'#d97706',custom:'#667781'};
 
   var users = [];
+  var teamCampaigns = [];
   var draft = null;
 
   function cid(){ return window._clientId || ''; }
@@ -15738,6 +15743,7 @@ document.addEventListener('click', function(ev){
     body.innerHTML='<div style="text-align:center;padding:24px;color:var(--sub);font-size:13px">Loading team…</div>';
     if(typeof openSheet==='function') openSheet('teamSh');
     loadUsers(function(){ renderTeam(); });
+    loadTeamCampaigns();
   };
 
   function loadUsers(cb){
@@ -15746,6 +15752,14 @@ document.addEventListener('click', function(ev){
     sbFetch('/rest/v1/user_profiles'+q).then(function(r){return r&&r.ok?r.json():[];}).then(function(rows){
       users = rows||[]; cb&&cb();
     }).catch(function(){ users=[]; cb&&cb(); });
+  }
+
+  function loadTeamCampaigns(){
+    if(typeof sbFetch!=='function' || !cid()){ teamCampaigns=[]; return; }
+    sbFetch('/rest/v1/campaigns?client_id=eq.'+encodeURIComponent(cid())+'&select=id,name&order=created_at.desc&limit=100')
+      .then(function(r){return r&&r.ok?r.json():[];})
+      .then(function(rows){ teamCampaigns=rows||[]; })
+      .catch(function(){ teamCampaigns=[]; });
   }
 
   function renderTeam(){
@@ -15779,15 +15793,19 @@ document.addEventListener('click', function(ev){
     var role = existing ? (existing.role||'custom') : 'telecaller';
     var preset = ROLE_PRESETS[role] || ROLE_PRESETS.custom;
     var perm = (existing && existing.permissions && typeof existing.permissions==='object') ? existing.permissions : {};
+    var exLs = (existing && existing.lead_scope && typeof existing.lead_scope==='object') ? existing.lead_scope : {};
     draft = {
       user_id: existing ? (existing.user_id||existing.id) : null,
       display_name: existing ? (existing.display_name||'') : '',
       email: existing ? (existing.email||'') : '',
-      location: existing ? (existing.location||'') : '',
+      phone: existing ? (existing.phone||'') : '',
+      location: existing ? (existing.location|| (Array.isArray(exLs.location)?exLs.location[0]:'') ||'') : '',
       role: role,
       scope: perm.scope || preset.scope,
       features: Object.assign({}, preset.features, perm.features||{}),
-      is_active: existing ? (existing.is_active!==false) : true
+      is_active: existing ? (existing.is_active!==false) : true,
+      _camps: Array.isArray(exLs.campaign_id) ? exLs.campaign_id.slice() : [],
+      _filterAll: !(exLs && (exLs.location || exLs.campaign_id))
     };
     document.getElementById('userEditTitle').textContent = existing ? 'Edit User' : 'Add User';
     renderUserEdit();
@@ -15802,6 +15820,8 @@ document.addEventListener('click', function(ev){
   }
   window._teApplyPreset = applyPreset;
   window._teSetField = function(k,v){ draft[k]=v; };
+  window._teToggleAll = function(on){ draft._filterAll=!!on; var b=document.getElementById('teFilterBox'); if(b) b.style.display=on?'none':''; };
+  window._teToggleCamp = function(id){ var i=draft._camps.indexOf(id); if(i>=0) draft._camps.splice(i,1); else draft._camps.push(id); };
   window._teToggleFeat = function(k){
     draft.features[k] = draft.features[k]?0:1;
     draft.role='custom';
@@ -15824,6 +15844,10 @@ document.addEventListener('click', function(ev){
   function renderUserEdit(){
     var locs = knownLocations();
     var dl = locs.map(function(l){return '<option value="'+l.replace(/"/g,'&quot;')+'">';}).join('');
+    var campBoxes = (teamCampaigns||[]).map(function(c){
+      var on = draft._camps.indexOf(c.id)>=0;
+      return '<label style="display:flex;gap:8px;align-items:center;padding:6px 0;font-size:13px;color:var(--text)"><input type="checkbox" '+(on?'checked':'')+' onchange="_teToggleCamp(\''+c.id+'\')"> '+String(c.name||'(campaign)').replace(/</g,'&lt;')+'</label>';
+    }).join('') || '<div style="font-size:12px;color:var(--sub)">No campaigns yet.</div>';
     var chips = Object.keys(ROLE_PRESETS).map(function(r){
       return '<span class="role-chip '+(draft.role===r?'on':'')+'" data-r="'+r+'" onclick="_teApplyPreset(\''+r+'\')">'+ROLE_PRESETS[r].label+'</span>';
     }).join('');
@@ -15842,13 +15866,21 @@ document.addEventListener('click', function(ev){
     document.getElementById('userEditBody').innerHTML =
        '<div class="te-field"><label class="te-label">Full name</label><input class="te-input" id="teName" value="'+(draft.display_name||'').replace(/"/g,'&quot;')+'" oninput="_teSetField(\'display_name\',this.value)" placeholder="e.g. Priya Sharma"></div>'
       +'<div class="te-field"><label class="te-label">Email</label><input class="te-input" id="teEmail" type="email" value="'+(draft.email||'').replace(/"/g,'&quot;')+'" oninput="_teSetField(\'email\',this.value)" placeholder="name@company.com"></div>'
+      +'<div class="te-field"><label class="te-label">Phone (for call routing)</label><input class="te-input" id="tePhone" type="tel" value="'+(draft.phone||'').replace(/"/g,'&quot;')+'" oninput="_teSetField(\'phone\',this.value)" placeholder="+1xxxxxxxxxx"></div>'
       +'<div class="te-field"><label class="te-label">Location / Dealership</label><input class="te-input" id="teLoc" list="teLocList" value="'+(draft.location||'').replace(/"/g,'&quot;')+'" oninput="_teSetField(\'location\',this.value)" placeholder="e.g. Skoda Saskatoon"><datalist id="teLocList">'+dl+'</datalist></div>'
+      +'<div class="te-field"><label class="te-label">Which leads they work on</label>'
+        +'<label style="display:flex;gap:8px;align-items:center;margin-bottom:8px;font-size:13px;color:var(--text)"><input type="checkbox" id="teScopeAll" '+(draft._filterAll?'checked':'')+' onchange="_teToggleAll(this.checked)"> All leads (no filter)</label>'
+        +'<div id="teFilterBox" style="'+(draft._filterAll?'display:none':'')+';border:1.5px solid var(--border);border-radius:11px;padding:10px 12px">'
+          +'<div style="font-size:11px;color:var(--sub);margin-bottom:6px">Uses the Location above (if set), plus any campaigns you pick:</div>'
+          +'<div style="font-size:12px;font-weight:700;color:var(--sub);margin-bottom:2px">Campaigns</div>'+campBoxes
+        +'</div>'
+      +'</div>'
       +'<div class="te-field"><label class="te-label">Role (preset)</label><div id="roleChips">'+chips+'</div></div>'
       +'<div class="te-field"><label class="te-label">Data access</label>'+scopeRows+'</div>'
       +'<div class="te-field"><label class="te-label">Feature access</label><div style="border:1.5px solid var(--border);border-radius:11px;padding:2px 12px">'+featRows+'</div></div>'
       +'<button onclick="saveTeamUser()" id="teSaveBtn" style="width:100%;padding:13px;border:none;border-radius:11px;background:var(--green);color:#fff;font-weight:700;font-size:14px;font-family:var(--f);cursor:pointer;margin-top:6px">Save</button>'
       +(draft.user_id?'<button onclick="toggleUserActive()" style="width:100%;padding:11px;border:1.5px solid var(--border);border-radius:11px;background:var(--white);color:var(--sub);font-weight:700;font-size:13px;font-family:var(--f);cursor:pointer;margin-top:8px">'+(draft.is_active?'Deactivate user':'Reactivate user')+'</button>':'')
-      +'<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:10px;line-height:1.4">Saving stores the user &amp; permissions. To grant actual login, the owner must invite them (server-side) — see setup notes.</div>';
+      +'<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:10px;line-height:1.4">'+((draft.role==='telecaller'&&!draft.user_id)?'A login is created automatically and a welcome email with sign-in steps is sent.':'Saving stores the user &amp; permissions.')+'</div>';
   }
 
   window.toggleUserActive = function(){ draft.is_active=!draft.is_active; saveTeamUser(); };
@@ -15856,12 +15888,48 @@ document.addEventListener('click', function(ev){
   window.saveTeamUser = function(){
     if(!draft.display_name && !draft.email){ if(typeof showToast==='function') showToast('Name or email required'); return; }
     var btn=document.getElementById('teSaveBtn'); if(btn){ btn.textContent='Saving…'; btn.disabled=true; }
+    // Which leads this person works on (drives auto-assignment)
+    var ls = {};
+    if(!draft._filterAll){
+      if(draft.location) ls.location = [draft.location];
+      if(draft._camps && draft._camps.length) ls.campaign_id = draft._camps.slice();
+    }
+    function _teDone(msg){ if(typeof showToast==='function') showToast(msg||'Saved'); closeSheet('userEditSh'); loadUsers(function(){ renderTeam(); }); }
+    function _teFail(e){ if(btn){ btn.textContent='Save'; btn.disabled=false; } if(typeof showToast==='function') showToast('Could not save: '+((e&&e.message)||e||'error')); }
+
+    // NEW telecaller -> create login (server) + branded welcome email
+    if(draft.role==='telecaller' && !draft.user_id){
+      if(!draft.email){ _teFail('Email required for a telecaller login'); return; }
+      sbFetch('/functions/v1/create-telecaller',{ method:'POST', body: JSON.stringify({ client_id: cid(), name: draft.display_name, email: draft.email, phone: draft.phone, lead_scope: ls }) })
+        .then(function(res){ return res.json().then(function(d){ return {ok:res.ok,d:d}; }); })
+        .then(function(r){
+          if(!r.ok || !r.d || r.d.ok===false){ throw new Error((r.d&&r.d.error)||'Could not create login'); }
+          sbFetch('/functions/v1/send-email',{ method:'POST', body: JSON.stringify({
+            to: draft.email, toName: draft.display_name,
+            subject: 'You have been added to '+(window._clientName||'your team')+' on Adviuz',
+            html: '<h2>Welcome'+(draft.display_name?(', '+draft.display_name):'')+'!</h2>'
+              +'<p>You have been added as a telecaller'+(window._clientName?(' for <strong>'+window._clientName+'</strong>'):'')+' on Adviuz.</p>'
+              +'<p><strong>How to log in:</strong></p>'
+              +'<ol><li>Go to <a href="https://hub.adviuz.ca/">https://hub.adviuz.ca</a></li>'
+              +'<li>Choose <strong>Login with email code</strong></li>'
+              +'<li>Enter this email address ('+draft.email+')</li>'
+              +'<li>We will email you a 6-digit code &mdash; enter it to sign in.</li></ol>'
+              +'<p>No password needed &mdash; you get a fresh code each time you log in.</p>'
+              +'<p>Questions? Just reply to this email.</p>' }) }).catch(function(){});
+          _teDone('Telecaller added \u2014 login email sent');
+        })
+        .catch(_teFail);
+      return;
+    }
+
     var payload = {
       display_name: draft.display_name,
       email: draft.email,
+      phone: draft.phone || null,
       role: draft.role,
       location: draft.location,
       is_active: draft.is_active,
+      lead_scope: ls,
       permissions: { scope: draft.scope, features: draft.features }
     };
     if(cid()) payload.client_id = cid();
@@ -15875,7 +15943,7 @@ document.addEventListener('click', function(ev){
         if(!r.ok){
           var msg=(r.data&&(r.data.message||r.data.hint))||'';
           if(/permission|column|schema/i.test(msg)){
-            var minimal=Object.assign({},payload); delete minimal.permissions;
+            var minimal=Object.assign({},payload); delete minimal.permissions; delete minimal.lead_scope; delete minimal.phone;
             var retry = draft.user_id
               ? sbFetch('/rest/v1/user_profiles?user_id=eq.'+encodeURIComponent(draft.user_id),{method:'PATCH',headers:{'Prefer':'return=representation'},body:JSON.stringify(minimal)})
               : sbFetch('/rest/v1/user_profiles',{method:'POST',headers:{'Prefer':'return=representation'},body:JSON.stringify(minimal)});
