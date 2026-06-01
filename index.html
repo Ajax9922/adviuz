@@ -4139,7 +4139,7 @@ var TAB_CFG={
   leads:    {t:'Leads',     s:'',search:true,plus:true},
   followups:{t:'Follow-ups',s:'Tasks & Meetings',    search:false,plus:false},
   reports:  {t:'Reports',   s:'Analytics & insights',search:false,plus:false},
-  calls:    {t:'Calls',     s:'Call log',            search:false,plus:false},
+  calls:    {t:'Calls',     s:'Call log',            search:true,plus:false},
   dashboard:{t:'Dashboard', s:'Adviuz Admin',        search:false,plus:false},
 };
 
@@ -5070,19 +5070,30 @@ function lRow(l,anySel){
     +'</div>';
 
   // ── Last activity / note ──
-  var last=(leadAct[l.id]||[])[0];
+  var compact = window._leadView!=='detailed';
+  var actsArr = leadAct[l.id]||[];
   var lastHTML='';
-  if(last){
-    var lbl=cleanActLabel(last);
-    var body=(lbl==='Note' && last.body && String(last.body).trim()) ? ' — '+esc(String(last.body).trim()) : '';
-    var t=last.time?'<span class="sl-act-t"> · '+esc(last.time)+'</span>':'';
-    lastHTML='<div class="sl-last"><b>'+esc(lbl)+'</b>'+t+body+'</div>';
-  } else if(l.note){
-    lastHTML='<div class="sl-last"><b>Note</b> — '+esc(l.note)+'</div>';
+  if(!compact && actsArr.length){
+    // Detailed view → show the 3 most recent events
+    lastHTML='<div class="sl-recent">'+actsArr.slice(0,3).map(function(a){
+      var lbl=cleanActLabel(a);
+      var bd=(a.body && String(a.body).trim()) ? ' — '+esc(String(a.body).trim()) : '';
+      var t=a.time?'<span class="sl-act-t"> · '+esc(a.time)+'</span>':'';
+      return '<div class="sl-last"><b>'+esc(lbl)+'</b>'+t+bd+'</div>';
+    }).join('')+'</div>';
+  } else {
+    var last=actsArr[0];
+    if(last){
+      var lbl=cleanActLabel(last);
+      var body=(lbl==='Note' && last.body && String(last.body).trim()) ? ' — '+esc(String(last.body).trim()) : '';
+      var t=last.time?'<span class="sl-act-t"> · '+esc(last.time)+'</span>':'';
+      lastHTML='<div class="sl-last"><b>'+esc(lbl)+'</b>'+t+body+'</div>';
+    } else if(l.note){
+      lastHTML='<div class="sl-last"><b>Note</b> — '+esc(l.note)+'</div>';
+    }
   }
 
   // ── Detailed mode only: WhatsApp · SMS · Call(primary, right) ──
-  var compact = window._leadView!=='detailed';
   var actBtns='';
   if(!compact){
     actBtns='<div class="sl-actions">'
@@ -5572,7 +5583,14 @@ function clientReportsHTML(){
 function callsHTML(){
   var wvBars=Array.from({length:28},function(){var h=3+Math.random()*16,d=(.4+Math.random()*.8).toFixed(2);return'<div class="lw-bar" style="--h:'+h+'px;--d:'+d+'s"></div>'}).join('');
 
-  var callRows=callLog.filter(gfCallInScope).map(function(c){
+  var _cq=(schQ||'').toLowerCase();
+  var callRows=callLog.filter(gfCallInScope).filter(function(c){
+    if(!_cq) return true;
+    var ld=leads.find(function(l){return l.id===c.lid});
+    var nm=((ld&&ld.name)||'').toLowerCase();
+    var ph=((ld&&ld.ph)||'').toLowerCase();
+    return nm.indexOf(_cq)!==-1 || ph.indexOf(_cq)!==-1 || (c.note||'').toLowerCase().indexOf(_cq)!==-1;
+  }).map(function(c){
     var lead=leads.find(function(l){return l.id===c.lid})||{name:'Unknown',col:'#667781'};
     var init=lead.name.split(' ').map(function(w){return w[0]}).join('').slice(0,2);
     var outCls=c.out==='answered'?'co-ans':c.out==='voicemail'?'co-vm':'co-ms';
@@ -9923,7 +9941,61 @@ async function showClientUI() {
   await loadClientLeads();
   window._leadsLoading = false;
   await loadCallLog();
+  await preloadActivity();
   render();
+}
+
+// Bulk-load recent activity for ALL the client's leads so the list shows each
+// lead's last event and the detail shows recent activity WITHOUT opening it
+// first. Opening a lead still refreshes it via loadLeadActivity.
+async function preloadActivity() {
+  try {
+    var cid = window._clientId; if (!cid) return;
+    var byDbId = {}; (leads||[]).forEach(function(l){ if (l.dbId) byDbId[l.dbId] = l.id; });
+    var qs = '?client_id=eq.'+cid+'&select=*&order=created_at.desc&limit=800';
+    var rs = await Promise.all([
+      sbFetch('/rest/v1/lead_activity'+qs),
+      sbFetch('/rest/v1/activity_log'+qs)
+    ]);
+    var rows1 = rs[0].ok ? (await rs[0].json().catch(function(){return[];})) : [];
+    var rows2 = rs[1].ok ? (await rs[1].json().catch(function(){return[];})) : [];
+    var g1={}, g2={};
+    rows1.forEach(function(r){ var lid=byDbId[r.lead_id]; if(lid==null) return; (g1[lid]=g1[lid]||[]).push(r); });
+    rows2.forEach(function(r){ var lid=byDbId[r.lead_id]; if(lid==null) return; (g2[lid]=g2[lid]||[]).push(r); });
+    function fmt(t){ var d=new Date(t); return isNaN(d)?t:(d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit',hour12:true})); }
+    var TG={call:'call',sms_sent:'sms',sms_received:'sms',sms:'sms'};
+    function go(t){ return TG[t]||t; }
+    var allLids={}; Object.keys(g1).forEach(function(k){allLids[k]=1;}); Object.keys(g2).forEach(function(k){allLids[k]=1;});
+    Object.keys(allLids).forEach(function(lidStr){
+      var localId = parseInt(lidStr,10);
+      var lr1 = g1[localId]||[], lr2 = g2[localId]||[];
+      var norm1 = lr1.map(function(row){
+        var type=row.activity_type||'note';
+        var rawBody=(row.description||'').replace(/\s*\(SID:[^)]+\)/g,'').trim();
+        var body=rawBody;
+        if(type==='sms_received'){ var m=rawBody.match(/:\s*"?(.+?)"?\s*$/); if(m) body=m[1]; }
+        var label=type==='sms_received'?'📩 SMS Reply':type==='sms_sent'?'💬 SMS Sent':type==='call'?'📞 Call':type==='assignment'?'👤 Assigned':rawBody.slice(0,50);
+        var durSec=row.duration_seconds||0;
+        var durStr=durSec>0?(Math.floor(durSec/60)+'m '+(durSec%60)+'s'):'—';
+        var dir=(row.direction||'').toLowerCase();
+        var isInbound=dir==='inbound'||type==='sms_received';
+        if(type==='call') label=isInbound?'📞 Inbound Call':'📞 Outbound Call';
+        return {type:type,label:label,time:row.created_at,body:body,rec:!!row.recording_url,recording_url:row.recording_url||null,dur:durStr,duration_seconds:durSec,call_sid:row.call_sid||null,direction:dir,callType:isInbound?'inbound':'outbound',isInbound:isInbound,summary:row.ai_summary||row.summary||null,id:row.id,call_note:row.call_note||null};
+      });
+      var norm2 = lr2.map(function(row){ var body=(row.body||'').replace(/\s*\(SID:[^)]+\)/g,'').trim(); return {type:row.type||'note',label:row.label||row.type,time:row.created_at,body:body,rec:false}; });
+      norm2 = norm2.filter(function(a2){
+        var g=go(a2.type); if(g!=='call'&&g!=='sms') return true;
+        var t2=new Date(a2.time).getTime(); if(isNaN(t2)) return true;
+        return !norm1.some(function(a1){ if(go(a1.type)!==g) return false; var t1=new Date(a1.time).getTime(); return !isNaN(t1) && Math.abs(t1-t2)<=90000; });
+      });
+      var all = norm1.concat(norm2).sort(function(a,b){ return new Date(b.time)-new Date(a.time); });
+      var dbActs = all.map(function(row){ return Object.assign({}, row, {time:fmt(row.time)}); });
+      var existing = leadAct[localId]||[];
+      var justNow = existing.filter(function(a){ return a.time==='Just now'; });
+      leadAct[localId] = justNow.concat(dbActs);
+    });
+    console.log('[preloadActivity] done');
+  } catch(e) { console.warn('[preloadActivity]', e.message); }
 }
 
 async function loadClientCampaigns() {
