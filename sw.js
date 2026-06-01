@@ -12,8 +12,8 @@ self.addEventListener('push', function (event) {
   var title = data.title || 'Adviuz Hub';
   var options = {
     body:    data.body || 'You have a new message',
-    icon:    data.icon || '/icon-192.png',
-    badge:   '/icon-192.png',
+    icon:    data.icon || '/apple-touch-icon.png',
+    badge:   '/apple-touch-icon.png',
     tag:     data.tag || 'adviuz-msg',
     renotify: true,
     data:    { url: data.url || '/' }
