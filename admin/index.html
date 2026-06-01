@@ -1843,7 +1843,7 @@ async function loadAdminData() {
     const [clients, viewEvents, leads, campaigns, transactions, ads, impressions] = await Promise.all([
       sbAdmin('/rest/v1/clients?order=created_at.desc').then(r => r.ok ? r.json() : []),
       sbAdmin('/rest/v1/view_events?order=viewed_at.desc&limit=500').then(r => r.ok ? r.json() : []),
-      sbAdmin('/rest/v1/leads?order=submitted_at.desc&limit=200').then(r => r.ok ? r.json() : []),
+      sbAdmin('/rest/v1/leads?order=updated_at.desc.nullslast&limit=200').then(r => r.ok ? r.json() : []),
       sbAdmin('/rest/v1/campaigns?order=created_at.desc').then(r => r.ok ? r.json() : []),
       sbAdmin('/rest/v1/transactions?order=created_at.desc').then(r => r.ok ? r.json() : []),
       sbAdmin('/rest/v1/ads?order=created_at.desc').then(r => r.ok ? r.json() : []),
@@ -4293,6 +4293,16 @@ function openEditCampaign(btn) {
     + '<div class="form-group"><label class="fld">X / Twitter Pixel ID</label><input class="fld" id="ecam-tg-twitter" placeholder="o1abc"></div>'
     + '<div class="form-group"><label class="fld">Custom head code (anything else)</label><textarea class="fld" id="ecam-tg-custom" rows="3" placeholder="&lt;!-- extra verification or pixel code --&gt;"></textarea></div>'
     + '</div>'
+    + '<div style="margin-top:6px;padding-top:14px;border-top:1px solid var(--border)">'
+    + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">&#128222; Twilio Number (Calls &amp; SMS)</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Assigned to this client for the Dialer, SMS &amp; inbound calls. Buy a number on Twilio, then paste it here and Save.</div>'
+    + '<div class="form-group"><label class="fld">Twilio phone number</label>'
+    +   '<div style="display:flex;gap:8px;align-items:center">'
+    +     '<input class="fld" id="ecam-tw-phone" placeholder="+1xxxxxxxxxx" style="flex:1">'
+    +     '<button type="button" onclick="window.open(\'https://console.twilio.com/us1/develop/phone-numbers/manage/search\',\'_blank\')" style="white-space:nowrap;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:12px;font-weight:700;cursor:pointer">Buy new &#8599;</button>'
+    +   '</div>'
+    + '</div>'
+    + '</div>'
     + '</div>'
     + '<div class="modal-foot">'
     + '<button class="btn-cancel" onclick="document.getElementById(\'editCampaignModal\').remove()">Cancel</button>'
@@ -4325,6 +4335,13 @@ function openEditCampaign(btn) {
   setV('ecam-tg-linkedin',   tg.linkedin_id);
   setV('ecam-tg-twitter',    tg.twitter_pixel);
   setV('ecam-tg-custom',     tg.custom_head);
+  window._editCamClientId = cam ? cam.client_id : null;
+  if (window._editCamClientId) {
+    sbAdmin('/rest/v1/client_integrations?client_id=eq.' + window._editCamClientId + '&select=twilio_phone&limit=1')
+      .then(function(res){ return res.ok ? res.json() : []; })
+      .then(function(rows){ if (rows && rows[0] && rows[0].twilio_phone) setV('ecam-tw-phone', rows[0].twilio_phone); })
+      .catch(function(){});
+  }
   // Show existing creative thumbnail + logo status
   if (pp.creativeUrl) {
     var pe = document.getElementById('ecam-pp-img-preview');
@@ -4426,6 +4443,27 @@ async function saveCampaignEdit() {
   var tgOut = {};
   Object.keys(tgMap).forEach(function(k){ if (tgMap[k]) tgOut[k] = tgMap[k]; });
   payload.tracking_tags = tgOut;
+
+  // -- Twilio number -> client_integrations.twilio_phone (client-level) --
+  var twPhone = ev('ecam-tw-phone');
+  var twClient = window._editCamClientId;
+  if (twClient) {
+    try {
+      var gr = await sbAdmin('/rest/v1/client_integrations?client_id=eq.' + twClient + '&select=id&limit=1');
+      var grows = gr.ok ? await gr.json() : [];
+      if (grows && grows[0]) {
+        await sbAdmin('/rest/v1/client_integrations?id=eq.' + grows[0].id, {
+          method: 'PATCH', headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify({ twilio_phone: twPhone || null })
+        });
+      } else if (twPhone) {
+        await sbAdmin('/rest/v1/client_integrations', {
+          method: 'POST', headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify({ client_id: twClient, twilio_phone: twPhone })
+        });
+      }
+    } catch(e){}
+  }
 
   var r = await sbAdmin('/rest/v1/campaigns?id=eq.' + id, {
     method: 'PATCH',
