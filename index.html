@@ -6193,16 +6193,11 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
       h += '</div>';
 
       // Recording player
-      if (item.rec || item.recording_url) {
-        h += '<div style="display:flex;align-items:center;gap:10px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:9px 12px;margin-bottom:8px">';
-        h += '<button onclick="toggleDummyRec('+i+')" id="recPlayBtn'+i+'" style="width:32px;height:32px;border-radius:50%;background:#dc2626;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 6px rgba(220,38,38,.3)">';
-        h += '<svg id="recPlayIco'+i+'" fill="white" viewBox="0 0 24 24" style="width:10px;height:10px;margin-left:2px"><polygon points="5,3 19,12 5,21"/></svg></button>';
-        h += '<div style="flex:1;min-width:0">';
-        h += '<div style="font-size:10px;font-weight:700;color:#9ca3af;margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em">Recording</div>';
-        h += '<div style="height:4px;background:#e5e7eb;border-radius:2px"><div id="recProgBar'+i+'" style="height:100%;width:0%;background:linear-gradient(90deg,#dc2626,#f87171);border-radius:2px;transition:width .3s"></div></div>';
-        h += '</div>';
-        h += '<span id="recTimer'+i+'" style="font-size:11px;color:#6b7280;font-weight:600;font-family:monospace;flex-shrink:0">'+(dur||'—')+'</span>';
-        if (item.recording_url) h += '<a href="'+item.recording_url+'" target="_blank" style="font-size:11px;color:#2563eb;font-weight:700;text-decoration:none;flex-shrink:0">Download</a>';
+      if (item.recording_url) {
+        h += '<div style="display:flex;flex-direction:column;gap:6px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:9px 12px;margin-bottom:8px">';
+        h += '<div style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em">Recording'+(dur && dur!=='—' ? ' &middot; '+dur : '')+'</div>';
+        h += '<audio src="'+item.recording_url+'" preload="none" style="width:100%;height:36px;outline:none" controls></audio>';
+        h += '<a href="'+item.recording_url+'" download target="_blank" style="font-size:11px;color:#2563eb;font-weight:700;text-decoration:none;align-self:flex-end">&#11015; Download</a>';
         h += '</div>';
       }
 
@@ -7642,14 +7637,24 @@ function _makeCall(l) {
         _localOnly: true   // marker so dedup logic can identify locally-added entries
       });
       if (curLid === l.id) renderLeadScreen(l.id);
-      // Reload from DB after 5s — recording webhook needs time to fire
-      setTimeout(function(){
-        if (l.dbId) loadLeadActivity(l.id, l.dbId);
-      }, 5000);
-      // Reload again after 30s in case recording takes longer
-      setTimeout(function(){
-        if (l.dbId) loadLeadActivity(l.id, l.dbId);
-      }, 30000);
+      // Poll the DB until the recording lands. Twilio finishes processing the
+      // recording a few seconds after the call ends, so instead of two fixed
+      // checks we re-read every 4s (up to ~92s) and stop as soon as a recording
+      // shows for this call. loadLeadActivity re-renders the open lead, so the
+      // recording appears on its own — no need to close/reopen the app.
+      if (l.dbId) {
+        if (window._recPoll) { clearInterval(window._recPoll); window._recPoll = null; }
+        var _recPolls = 0;
+        var _recPollLead = l;
+        loadLeadActivity(_recPollLead.id, _recPollLead.dbId); // immediate first read
+        window._recPoll = setInterval(function(){
+          _recPolls++;
+          loadLeadActivity(_recPollLead.id, _recPollLead.dbId);
+          var acts = leadAct[_recPollLead.id] || [];
+          var hasRec = acts.some(function(a){ return a.callType === 'outbound' && a.recording_url; });
+          if (hasRec || _recPolls >= 23) { clearInterval(window._recPoll); window._recPoll = null; }
+        }, 4000);
+      }
       generateCallSummary(l, dur);
     });
     call.on('error',      function(e){ showToast('❌ '+e.message); endCallSheet(); });
