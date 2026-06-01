@@ -7611,6 +7611,20 @@ async function initTwilioDevice() {
       var phone  = from.replace(/\D/g,'').slice(-10);
       var lead   = leads.find(function(l){ return l.ph.replace(/\D/g,'').slice(-10) === phone; });
       _callLeadId = lead ? lead.id : null;
+
+      // Close the call UI whenever this inbound call ends, is canceled (e.g. it
+      // was answered on the forward phone instead), or errors. Without this the
+      // laptop screen stays "on" after the call has actually ended.
+      function _endInbound(){
+        try { clearTimeout(window._icTimeout); } catch(e){}
+        var ov = document.getElementById('incomingCallOv'); if (ov) ov.style.display = 'none';
+        endCallSheet();
+      }
+      conn.on('disconnect', function(){ console.log('[Twilio] inbound disconnect'); _endInbound(); });
+      conn.on('cancel',     function(){ console.log('[Twilio] inbound cancel (answered elsewhere / caller hung up)'); _endInbound(); });
+      conn.on('reject',     function(){ _endInbound(); });
+      conn.on('error',      function(e){ console.error('[Twilio] inbound error:', e && e.message); _endInbound(); });
+
       showIncomingCall(lead ? (lead.company||lead.name) : from, from, lead);
     });
 
