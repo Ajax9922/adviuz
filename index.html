@@ -5443,8 +5443,126 @@ function reportsHTML(){
 // are bucketed into Deal in Process / Meeting Done / Deals Closed /
 // Deal Disqualified per the user's spec.
 // ═══════════════════════════════════════════════════════════════════
+// ── Reports filters (campaign / location / service / date) ─────────────
+window._rptFilters = window._rptFilters || { campaigns:[], locations:[], services:[], preset:'all', from:'', to:'' };
+
+function rptYmd(dt){ return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); }
+
+function rptApplyFilters(arr){
+  var f = window._rptFilters || {};
+  return (arr||[]).filter(function(l){
+    if(f.from || f.to){
+      var d=(l.rawDate||'').slice(0,10);
+      if(f.from && (!d || d<f.from)) return false;
+      if(f.to   && (!d || d>f.to))   return false;
+    }
+    if(f.campaigns&&f.campaigns.length){ var cid=String(l.campaign_id||l.campaign||l.campaign_name||''); if(f.campaigns.indexOf(cid)===-1) return false; }
+    if(f.locations&&f.locations.length){ if(f.locations.indexOf(l.location||'')===-1) return false; }
+    if(f.services &&f.services.length ){ if(f.services.indexOf(l.svc||'')===-1) return false; }
+    return true;
+  });
+}
+function rptActiveCount(){
+  var f=window._rptFilters||{}; var n=0;
+  if(f.from||f.to) n++;
+  if((f.campaigns||[]).length) n++;
+  if((f.locations||[]).length) n++;
+  if((f.services||[]).length)  n++;
+  return n;
+}
+function rptCampName(cid){
+  var lists=[].concat(((window._adminData&&window._adminData.campaigns)||[]),(window._clientCampaigns||[]));
+  var c=lists.find(function(x){return String(x.id)===String(cid);});
+  return c?(c.name||c.campaign_name||'Campaign'):String(cid);
+}
+function rptDistinct(field){
+  var seen={}, out=[];
+  (leads||[]).forEach(function(l){
+    var v = field==='campaign' ? String(l.campaign_id||l.campaign||l.campaign_name||'')
+          : field==='location' ? (l.location||'')
+          : (l.svc||'');
+    if(v && !seen[v]){ seen[v]=1; out.push(v); }
+  });
+  return out;
+}
+function ensureRptFilterSheet(){
+  if(document.getElementById('rptFilterSh')) return;
+  var html='<div class="sheet-ov" id="rptFilterSh" onclick="if(event.target===this)closeSheet(\'rptFilterSh\')" style="z-index:870">'
+    +'<div class="sheet" style="max-height:90dvh">'
+      +'<div class="sheet-handle"></div>'
+      +'<div class="sheet-head"><div class="sheet-title">&#x1F50E; Filter Reports</div><button class="sheet-x" onclick="closeSheet(\'rptFilterSh\')">&#x2715;</button></div>'
+      +'<div class="sh-body" id="rptFilterBody" style="padding:14px 16px"></div>'
+      +'<div class="sh-foot"><button class="btn btn-ghost" onclick="rptClearFilters()" style="flex:1">Clear all</button><button class="btn btn-primary" onclick="rptApplyAndClose()" style="flex:2;justify-content:center">Apply</button></div>'
+    +'</div></div>';
+  var w=document.createElement('div'); w.innerHTML=html; document.body.appendChild(w.firstElementChild);
+}
+function openRptFilter(){
+  ensureRptFilterSheet();
+  window._rptDraft = JSON.parse(JSON.stringify(window._rptFilters||{campaigns:[],locations:[],services:[],preset:'all',from:'',to:''}));
+  renderRptFilter();
+  openSheet('rptFilterSh');
+}
+function renderRptFilter(){
+  var box=document.getElementById('rptFilterBody'); if(!box) return;
+  var d=window._rptDraft||(window._rptDraft={campaigns:[],locations:[],services:[],preset:'all',from:'',to:''});
+  function chip(label,on,onclick){
+    return '<button onclick="'+onclick+'" style="padding:7px 12px;border-radius:9px;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'#d9fdd3':'#fff')+';color:var(--text);font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer">'+label+'</button>';
+  }
+  var html='';
+  html+='<div style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Date</div>';
+  html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">'
+    +chip('All time',(d.preset||'all')==='all','rptSetPreset(\'all\')')
+    +chip('Today',d.preset==='today','rptSetPreset(\'today\')')
+    +chip('Last 7 days',d.preset==='7d','rptSetPreset(\'7d\')')
+    +chip('Last 30 days',d.preset==='30d','rptSetPreset(\'30d\')')
+    +chip('Custom',d.preset==='custom','rptSetPreset(\'custom\')')
+    +'</div>';
+  if(d.preset==='custom'){
+    html+='<div style="display:flex;gap:8px;margin-bottom:14px">'
+      +'<input type="date" value="'+(d.from||'')+'" onchange="window._rptDraft.from=this.value" style="flex:1;padding:8px;border:1px solid var(--border);border-radius:8px;font-family:var(--f);font-size:13px">'
+      +'<input type="date" value="'+(d.to||'')+'" onchange="window._rptDraft.to=this.value" style="flex:1;padding:8px;border:1px solid var(--border);border-radius:8px;font-family:var(--f);font-size:13px"></div>';
+  } else { html+='<div style="height:4px"></div>'; }
+  function section(title,field,sel){
+    var opts=rptDistinct(field); if(!opts.length) return '';
+    var s='<div style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin:6px 0 8px">'+title+'</div><div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">';
+    s+=opts.map(function(v){
+      var lbl=field==='campaign'?rptCampName(v):v;
+      var safe=String(v).replace(/'/g,"\\'");
+      return chip(esc(lbl), sel.indexOf(v)!==-1, 'rptToggle(\''+field+'\',\''+safe+'\')');
+    }).join('');
+    return s+'</div>';
+  }
+  html+=section('Campaign','campaign',d.campaigns||[]);
+  html+=section('Location','location',d.locations||[]);
+  html+=section('Service','service',d.services||[]);
+  box.innerHTML=html;
+}
+function rptSetPreset(k){ window._rptDraft.preset=k; if(k!=='custom'){ window._rptDraft.from=''; window._rptDraft.to=''; } renderRptFilter(); }
+function rptToggle(field,v){
+  var key=field==='campaign'?'campaigns':field==='location'?'locations':'services';
+  var arr=window._rptDraft[key]||(window._rptDraft[key]=[]);
+  var i=arr.indexOf(v); if(i===-1) arr.push(v); else arr.splice(i,1);
+  renderRptFilter();
+}
+function rptClearFilters(){
+  window._rptFilters={campaigns:[],locations:[],services:[],preset:'all',from:'',to:''};
+  if(document.getElementById('rptFilterSh')) closeSheet('rptFilterSh');
+  render();
+}
+function rptApplyAndClose(){
+  var d=window._rptDraft||{campaigns:[],locations:[],services:[],preset:'all',from:'',to:''};
+  if(d.preset && d.preset!=='all' && d.preset!=='custom'){
+    var now=new Date(), fromD=new Date();
+    if(d.preset==='7d')  fromD.setDate(fromD.getDate()-6);
+    if(d.preset==='30d') fromD.setDate(fromD.getDate()-29);
+    d.from=rptYmd(fromD); d.to=rptYmd(now);
+  } else if(d.preset==='all'){ d.from=''; d.to=''; }
+  window._rptFilters=JSON.parse(JSON.stringify(d));
+  closeSheet('rptFilterSh'); render();
+}
+
 function clientReportsHTML(){
-  var ls = (leads || []);
+  var ls = rptApplyFilters(leads || []);
   var tot = ls.length;
 
   // Bucket helpers — use stage name match. STAGES are numbered ('1. Fresh Lead',
@@ -5492,6 +5610,13 @@ function clientReportsHTML(){
   }
 
   var h = '<div style="padding:14px 16px">';
+
+  // ── Filters bar (campaign / location / service / date) ──
+  var _af = rptActiveCount();
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">';
+  h += '<button onclick="openRptFilter()" style="display:flex;align-items:center;gap:6px;padding:9px 14px;border-radius:10px;border:1.5px solid '+(_af?'var(--green)':'var(--border)')+';background:'+(_af?'#d9fdd3':'var(--white)')+';color:var(--text);font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">&#x1F50E; Filters'+(_af?' ('+_af+')':'')+'</button>';
+  if(_af) h += '<button onclick="rptClearFilters()" style="padding:9px 12px;border-radius:10px;border:1px solid var(--border);background:var(--white);color:var(--sub);font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer">Clear</button>';
+  h += '</div>';
 
   // Header
   h += '<div style="font-size:22px;font-weight:800;color:var(--text);margin-bottom:14px">Leads Summary</div>';
