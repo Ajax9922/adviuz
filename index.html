@@ -9,6 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Adviuz">
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
+<link rel="manifest" href="/manifest.json">
 <title>Adviuz Hub · v2026-05-28 client-dash-v3</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -16503,6 +16504,100 @@ document.addEventListener('click', function(ev){
       }
     }
     if (tries > 600) clearInterval(timer); // give up after ~5 min (e.g. not logged in)
+  }, 500);
+})();
+</script>
+
+<script>
+/* ── Push notifications: register service worker + device opt-in (Adviuz Phase 2) ── */
+(function () {
+  var VAPID_PUBLIC = 'BBr6pRL0MVP4aAOha9jXH25ziwC_r3cQuT8oeOYYqeedmiIn4Shhkd0UW6sC7xEBPr5EtJ3x7u0bvyPP7XWNR6A';
+
+  function supported() {
+    return ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window);
+  }
+  function urlB64ToUint8(base64String) {
+    var padding = '='.repeat((4 - base64String.length % 4) % 4);
+    var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    var raw = atob(base64);
+    var arr = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+    return arr;
+  }
+  async function saveSubscription(sub) {
+    var j = sub.toJSON();
+    if (!j || !j.keys || !currentUser) return;
+    await sbFetch('/rest/v1/push_subscriptions?on_conflict=endpoint', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates' },
+      body: JSON.stringify({
+        user_id:    currentUser.id,
+        client_id:  window._clientId || null,
+        endpoint:   sub.endpoint,
+        p256dh:     j.keys.p256dh,
+        auth:       j.keys.auth,
+        user_agent: (navigator.userAgent || '').slice(0, 200)
+      })
+    });
+  }
+  async function subscribeAndSave() {
+    var reg = await navigator.serviceWorker.register('/sw.js');
+    await navigator.serviceWorker.ready;
+    var sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlB64ToUint8(VAPID_PUBLIC)
+      });
+    }
+    await saveSubscription(sub);
+    return sub;
+  }
+
+  window.adviuzEnablePush = async function () {
+    if (!supported()) { if (window.showToast) showToast('Notifications not supported on this device'); return; }
+    try {
+      var perm = await Notification.requestPermission();
+      if (perm !== 'granted') { if (window.showToast) showToast('Notifications were not allowed'); return; }
+      await subscribeAndSave();
+      if (window.showToast) showToast('🔔 Notifications enabled');
+      hidePill();
+    } catch (e) {
+      if (window.showToast) showToast('Could not enable notifications');
+      console.warn('[push] enable error', e);
+    }
+  };
+
+  function hidePill() { var p = document.getElementById('adviuzPushPill'); if (p) p.style.display = 'none'; }
+  function showPill() {
+    if (document.getElementById('adviuzPushPill')) return;
+    var b = document.createElement('button');
+    b.id = 'adviuzPushPill';
+    b.textContent = '🔔 Turn on alerts';
+    b.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:78px;z-index:9000;'
+      + 'background:var(--green,#34d399);color:#04231a;border:none;border-radius:999px;'
+      + 'padding:10px 16px;font-family:var(--f,inherit);font-size:13px;font-weight:700;'
+      + 'box-shadow:0 4px 14px rgba(0,0,0,.22);cursor:pointer';
+    b.onclick = function () { window.adviuzEnablePush(); };
+    document.body.appendChild(b);
+  }
+
+  if (!supported()) return;
+  navigator.serviceWorker.register('/sw.js').catch(function () {});
+
+  var tries = 0;
+  var timer = setInterval(function () {
+    tries++;
+    var loggedIn = (typeof currentUser !== 'undefined') && currentUser && window._clientId;
+    if (loggedIn) {
+      clearInterval(timer);
+      if (Notification.permission === 'granted') {
+        subscribeAndSave().catch(function () {});   // keep this device registered, silently
+      } else if (Notification.permission === 'default') {
+        showPill();                                  // offer the opt-in button
+      }
+    }
+    if (tries > 600) clearInterval(timer);
   }, 500);
 })();
 </script>
