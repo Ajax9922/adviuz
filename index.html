@@ -950,17 +950,17 @@ input[type=number]{-moz-appearance:textfield}
 <div id="loginScreen" class="login-screen">
   <div class="login-logo">A</div>
   <div class="login-name">Adviuz</div>
-  <div class="login-tag" id="loginTagLine">Hub &middot; Authorized Access Only</div>
+  <div class="login-tag" id="loginTagLine">Hub &middot; Secure sign-in</div>
 
   <div class="login-card">
     <!-- Tabs -->
-    <div class="login-tabs">
+    <div class="login-tabs" style="display:none">
       <button class="login-tab active" id="tabAdmin" onclick="switchLoginTab('admin')">Client Login</button>
       <button class="login-tab" id="tabPartner" onclick="switchLoginTab('partner')">Partner Login</button>
     </div>
 
     <!-- ── CLIENT LOGIN PANEL ── -->
-    <div id="adminLoginPanel">
+    <div id="adminLoginPanel" style="display:none">
       <div class="login-title">Sign in</div>
       <div class="login-sub">Hub access · Authorized users only</div>
       <div class="login-err" id="loginErr"></div>
@@ -980,15 +980,15 @@ input[type=number]{-moz-appearance:textfield}
     </div>
 
     <!-- ── PARTNER OTP PANEL ── -->
-    <div id="partnerLoginPanel" style="display:none">
+    <div id="partnerLoginPanel">
       <!-- Step 1: Enter email -->
       <div id="otpStep1">
-        <div class="login-title">Partner login</div>
-        <div class="login-sub">We'll send a 6-digit code to your email</div>
+        <div class="login-title">Sign in</div>
+        <div class="login-sub">Enter your email and we'll send a 6-digit code</div>
         <div class="login-err" id="otpErr"></div>
         <div class="login-success" id="otpSuccess"></div>
         <label class="login-label">Your email</label>
-        <input class="login-input" id="otpEmail" type="email" placeholder="partner@email.com" autocomplete="email" onkeydown="if(event.key==='Enter')sendPartnerOTP()">
+        <input class="login-input" id="otpEmail" type="email" placeholder="you@email.com" autocomplete="email" onkeydown="if(event.key==='Enter')sendPartnerOTP()">
         <button class="login-btn" id="otpSendBtn" onclick="sendPartnerOTP()">Send Code</button>
       </div>
       <!-- Step 2: Enter OTP -->
@@ -3147,7 +3147,7 @@ async function sendPartnerOTP() {
       body: JSON.stringify({ email: email, create_user: false })
     });
     var data = await res.json();
-    if (!res.ok) throw new Error(data.msg || data.message || 'Could not send code. Are you a registered partner?');
+    if (!res.ok) throw new Error(data.msg || data.message || "This email isn't registered. Please contact your manager.");
 
     // Show step 2
     document.getElementById('otpStep1').style.display = 'none';
@@ -3159,6 +3159,51 @@ async function sendPartnerOTP() {
     err.className = 'login-err show';
     btn.disabled = false; btn.textContent = 'Send Code';
   }
+}
+
+// Unified role gate for both password and OTP logins. Sets window._staffRole
+// plus the relevant data (partner / client / telecaller). Throws if no access.
+async function applyRoleGate(user){
+  var mRes = await sbFetch('/rest/v1/client_members?select=role,user_type,client_id&user_id=eq.'+user.id+'&limit=1');
+  var members = mRes.ok ? await mRes.json() : [];
+  var m = members[0] || {};
+  var isStaff = (m.user_type==='staff') || (m.role==='super_admin') || (m.role==='manager');
+  var isTelecaller = (m.role==='telecaller');
+  var isPartner=false, isClient=false;
+  if(!isStaff && !isTelecaller){
+    var pRes = await sbFetch('/rest/v1/sales_partners?user_id=eq.'+user.id+'&limit=1');
+    var pArr = pRes.ok ? await pRes.json() : [];
+    if(pArr.length){ isPartner=true; window._partnerData=pArr[0]; }
+  }
+  if(!isStaff && !isPartner && !isTelecaller){
+    var cRes = await sbFetch('/rest/v1/clients?select=*&auth_user_id=eq.'+user.id+'&limit=1');
+    var cArr = cRes.ok ? await cRes.json() : [];
+    if(cArr.length){ isClient=true; window._clientData=cArr[0]; window._clientId=cArr[0].id; }
+  }
+  if(isTelecaller){
+    window._isTelecaller = true;
+    window._telecallerUserId = user.id;
+    window._clientId = m.client_id;
+    try {
+      var tcRes = await sbFetch('/rest/v1/clients?select=*&id=eq.'+m.client_id+'&limit=1');
+      var tcArr = tcRes.ok ? await tcRes.json() : [];
+      if(tcArr.length){ window._clientData = tcArr[0]; }
+    } catch(e){}
+    try {
+      var tsRes = await sbFetch('/rest/v1/user_profiles?select=lead_scope&user_id=eq.'+user.id+'&client_id=eq.'+m.client_id+'&limit=1');
+      var tsArr = tsRes.ok ? await tsRes.json() : [];
+      window._telecallerScope = (tsArr[0] && tsArr[0].lead_scope) || {};
+    } catch(e){ window._telecallerScope = {}; }
+  }
+  if(!isStaff && !isPartner && !isClient && !isTelecaller){
+    authToken=null; currentUser=null;
+    throw new Error('Access denied \u2014 not an authorised user. Contact relations@adviuz.com');
+  }
+  window._staffRole = isPartner ? 'sales_partner'
+                    : isTelecaller ? 'telecaller'
+                    : isClient ? 'client'
+                    : (m.role || 'super_admin');
+  return window._staffRole;
 }
 
 async function verifyPartnerOTP() {
@@ -3184,26 +3229,9 @@ async function verifyPartnerOTP() {
     authToken   = data.access_token;
     currentUser = data.user;
 
-    // Load partner data
-    var pRes = await fetch(SB_URL+'/rest/v1/sales_partners?user_id=eq.'+data.user.id+'&limit=1', {
-      headers:{'apikey':SB_ANON,'Authorization':'Bearer '+authToken}
-    });
-    var pArr = pRes.ok ? await pRes.json() : [];
+    await applyRoleGate(data.user);
 
-    // Try by email if no user_id match
-    if (!pArr.length) {
-      var pRes2 = await fetch(SB_URL+'/rest/v1/sales_partners?email=eq.'+encodeURIComponent(email)+'&limit=1', {
-        headers:{'apikey':SB_ANON,'Authorization':'Bearer '+authToken}
-      });
-      pArr = pRes2.ok ? await pRes2.json() : [];
-    }
-
-    if (!pArr.length) throw new Error('No partner account found for this email. Contact relations@adviuz.com');
-
-    window._partnerData = pArr[0];
-    window._staffRole   = 'sales_partner';
-
-    saveSession(authToken, data.refresh_token, data.user, 'sales_partner', true);
+    saveSession(authToken, data.refresh_token, data.user, window._staffRole, true);
     onLoginSuccess();
 
   } catch(e) {
@@ -3670,6 +3698,9 @@ function onLoginSuccess() {
   } else if (window._staffRole === 'client') {
     showClientUI();
     return; // client UI owns its own load + render
+  } else if (window._staffRole === 'telecaller') {
+    showClientUI().then(function(){ applyTelecallerRestrictions(); });
+    return; // telecaller uses the client UI, locked down
   } else {
     showAdminUI();
   }
@@ -3710,6 +3741,9 @@ function doLogout() {
   window._isClientMode  = false;
   window._clientData    = null;
   window._clientId      = null;
+  window._isTelecaller  = false;
+  window._telecallerUserId = null;
+  window._telecallerScope = null;
   window._clientPlan    = null;
   window._clientCampaigns = [];
   // Restore admin topbar buttons
@@ -3854,6 +3888,7 @@ async function loadLeadsFromDB() {
     }
     // Load leads scoped to this client
     var cFilter = '&client_id=eq.'+window._clientId;
+    // (Telecaller visibility is applied after fetch, by their lead filter)
     var res = await sbFetch('/rest/v1/leads?select=*'+cFilter+'&order=created_at.desc&limit=500');
     if (!res.ok) {
       var err = await res.json().catch(function(){return{}});
@@ -3862,6 +3897,15 @@ async function loadLeadsFromDB() {
     }
     var data = await res.json();
     console.log('[Adviuz] Loaded', data.length, 'leads by client_id');
+    // Telecaller: keep only leads matching their lead filter (location/stage/service/campaign)
+    if (window._isTelecaller && window._telecallerScope) {
+      var _sc = window._telecallerScope;
+      data = data.filter(function(l){
+        function ok(col){ var vv=_sc[col]; if(!Array.isArray(vv)||!vv.length) return true; var lv = (col==='campaign_id') ? String(l[col]) : l[col]; return vv.indexOf(lv)>=0; }
+        return ok('location') && ok('stage') && ok('service') && ok('campaign_id');
+      });
+      console.log('[Adviuz] Telecaller filter ->', data.length, 'leads');
+    }
 
     // Secondary query: fetch partner-assigned leads that may have a
     // different (or null) client_id — e.g. leads entered via partner portal
@@ -9590,6 +9634,22 @@ async function ensureClientData() {
     if (arr.length) { window._clientData = arr[0]; window._clientId = arr[0].id; return true; }
   } catch(e) { console.warn('[ensureClientData]', e.message); }
   return false;
+}
+
+function applyTelecallerRestrictions(){
+  // No team management for telecallers — hide the menu entry point.
+  var menuBtn = document.querySelector('.tb-menu');
+  if (menuBtn) menuBtn.style.display = 'none';
+  // Keep Leads / Follow-ups / Reports / Calls; hide Dashboard (client overview).
+  var dash = document.getElementById('tab-dashboard');
+  if (dash) dash.style.display = 'none';
+  ['tab-followups','tab-reports','tab-calls'].forEach(function(id){
+    var el = document.getElementById(id); if (el) el.style.display='flex';
+  });
+  var leadsLbl = document.querySelector('#tab-leads .tab-lbl');
+  if (leadsLbl) leadsLbl.textContent = 'My Leads';
+  var leadsBtn = document.getElementById('tab-leads');
+  if (leadsBtn) goTab('leads', leadsBtn);
 }
 
 async function showClientUI() {
@@ -15722,6 +15782,7 @@ document.addEventListener('click', function(ev){
 
   var users = [];
   var teamCampaigns = [];
+  var teamFilterVals = {location:[],stage:[],service:[]};
   var draft = null;
 
   function cid(){ return window._clientId || ''; }
@@ -15732,6 +15793,24 @@ document.addEventListener('click', function(ev){
     ((window._adminData&&window._adminData.allLeads)||[]).forEach(function(l){ if(l.location) set[l.location]=1; });
     return Object.keys(set).sort();
   }
+  function knownVals(col){ return (teamFilterVals[col]||[]).slice(); }
+  function dimGroup(dim,label,options){
+    var sc = (draft._scope && draft._scope[dim]) || {any:true,vals:[]};
+    var h = '<div style="margin-bottom:10px;border:1.5px solid var(--border);border-radius:11px;padding:10px 12px">';
+    h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:'+(sc.any?'0':'6px')+'">'
+       + '<span style="font-size:12px;font-weight:800;color:var(--text)">'+label+'</span>'
+       + '<label style="font-size:12px;color:var(--sub);display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" '+(sc.any?'checked':'')+' onchange="_teDimAny(\''+dim+'\',this.checked)"> All</label>'
+       + '</div>';
+    if(!sc.any){
+      if(!options.length){ h += '<div style="font-size:12px;color:var(--sub)">No values found in leads yet.</div>'; }
+      else { h += options.map(function(o){
+        var on = sc.vals.indexOf(o.value)>=0;
+        return '<label style="display:flex;gap:8px;align-items:center;padding:5px 0;font-size:13px;color:var(--text);cursor:pointer"><input type="checkbox" '+(on?'checked':'')+' onchange="_teDimVal(\''+dim+'\',this.value)" value="'+String(o.value).replace(/"/g,'&quot;')+'"> '+String(o.label).replace(/</g,'&lt;')+'</label>';
+      }).join(''); }
+    }
+    h += '</div>';
+    return h;
+  }
 
   window.openTeamSheet = function(){
     document.getElementById('teamClientName').textContent = '· '+clientName();
@@ -15740,6 +15819,7 @@ document.addEventListener('click', function(ev){
     if(typeof openSheet==='function') openSheet('teamSh');
     loadUsers(function(){ renderTeam(); });
     loadTeamCampaigns();
+    loadTeamFilterValues();
   };
 
   function loadUsers(cb){
@@ -15756,6 +15836,17 @@ document.addEventListener('click', function(ev){
       .then(function(r){return r&&r.ok?r.json():[];})
       .then(function(rows){ teamCampaigns=rows||[]; })
       .catch(function(){ teamCampaigns=[]; });
+  }
+  function loadTeamFilterValues(){
+    if(typeof sbFetch!=='function' || !cid()){ teamFilterVals={location:[],stage:[],service:[]}; return; }
+    sbFetch('/rest/v1/leads?client_id=eq.'+encodeURIComponent(cid())+'&select=location,stage,service&limit=1000')
+      .then(function(r){return r&&r.ok?r.json():[];})
+      .then(function(rows){
+        var L={},S={},V={};
+        (rows||[]).forEach(function(l){ if(l.location)L[l.location]=1; if(l.stage)S[l.stage]=1; if(l.service)V[l.service]=1; });
+        teamFilterVals = { location:Object.keys(L).sort(), stage:Object.keys(S).sort(), service:Object.keys(V).sort() };
+      })
+      .catch(function(){ teamFilterVals={location:[],stage:[],service:[]}; });
   }
 
   function renderTeam(){
@@ -15800,8 +15891,7 @@ document.addEventListener('click', function(ev){
       scope: perm.scope || preset.scope,
       features: Object.assign({}, preset.features, perm.features||{}),
       is_active: existing ? (existing.is_active!==false) : true,
-      _camps: Array.isArray(exLs.campaign_id) ? exLs.campaign_id.slice() : [],
-      _filterAll: !(exLs && (exLs.location || exLs.campaign_id))
+      _scope: (function(){ var o={}; ['location','stage','service','campaign_id'].forEach(function(d){ var v=(exLs && Array.isArray(exLs[d]))?exLs[d].slice():null; o[d]={any:!v||!v.length, vals:v||[]}; }); return o; })()
     };
     document.getElementById('userEditTitle').textContent = existing ? 'Edit User' : 'Add User';
     renderUserEdit();
@@ -15816,8 +15906,8 @@ document.addEventListener('click', function(ev){
   }
   window._teApplyPreset = applyPreset;
   window._teSetField = function(k,v){ draft[k]=v; };
-  window._teToggleAll = function(on){ draft._filterAll=!!on; var b=document.getElementById('teFilterBox'); if(b) b.style.display=on?'none':''; };
-  window._teToggleCamp = function(id){ var i=draft._camps.indexOf(id); if(i>=0) draft._camps.splice(i,1); else draft._camps.push(id); };
+  window._teDimAny = function(dim,on){ if(!draft._scope[dim]) draft._scope[dim]={any:true,vals:[]}; draft._scope[dim].any=!!on; if(on) draft._scope[dim].vals=[]; renderUserEdit(); };
+  window._teDimVal = function(dim,val){ var sc=draft._scope[dim]; if(!sc){ sc=draft._scope[dim]={any:false,vals:[]}; } var i=sc.vals.indexOf(val); if(i>=0) sc.vals.splice(i,1); else sc.vals.push(val); };
   window._teToggleFeat = function(k){
     draft.features[k] = draft.features[k]?0:1;
     draft.role='custom';
@@ -15840,10 +15930,10 @@ document.addEventListener('click', function(ev){
   function renderUserEdit(){
     var locs = knownLocations();
     var dl = locs.map(function(l){return '<option value="'+l.replace(/"/g,'&quot;')+'">';}).join('');
-    var campBoxes = (teamCampaigns||[]).map(function(c){
-      var on = draft._camps.indexOf(c.id)>=0;
-      return '<label style="display:flex;gap:8px;align-items:center;padding:6px 0;font-size:13px;color:var(--text)"><input type="checkbox" '+(on?'checked':'')+' onchange="_teToggleCamp(\''+c.id+'\')"> '+String(c.name||'(campaign)').replace(/</g,'&lt;')+'</label>';
-    }).join('') || '<div style="font-size:12px;color:var(--sub)">No campaigns yet.</div>';
+    var filterGroups = dimGroup('location','Location', knownVals('location').map(function(v){return {value:v,label:v};}))
+      + dimGroup('stage','Lead stage', knownVals('stage').map(function(v){return {value:v,label:v};}))
+      + dimGroup('service','Service', knownVals('service').map(function(v){return {value:v,label:v};}))
+      + dimGroup('campaign_id','Campaign', (teamCampaigns||[]).map(function(c){return {value:c.id,label:c.name||'(campaign)'};}));
     var chips = Object.keys(ROLE_PRESETS).map(function(r){
       return '<span class="role-chip '+(draft.role===r?'on':'')+'" data-r="'+r+'" onclick="_teApplyPreset(\''+r+'\')">'+ROLE_PRESETS[r].label+'</span>';
     }).join('');
@@ -15865,11 +15955,8 @@ document.addEventListener('click', function(ev){
       +'<div class="te-field"><label class="te-label">Phone (for call routing)</label><input class="te-input" id="tePhone" type="tel" value="'+(draft.phone||'').replace(/"/g,'&quot;')+'" oninput="_teSetField(\'phone\',this.value)" placeholder="+1xxxxxxxxxx"></div>'
       +'<div class="te-field"><label class="te-label">Location / Dealership</label><input class="te-input" id="teLoc" list="teLocList" value="'+(draft.location||'').replace(/"/g,'&quot;')+'" oninput="_teSetField(\'location\',this.value)" placeholder="e.g. Skoda Saskatoon"><datalist id="teLocList">'+dl+'</datalist></div>'
       +'<div class="te-field"><label class="te-label">Which leads they work on</label>'
-        +'<label style="display:flex;gap:8px;align-items:center;margin-bottom:8px;font-size:13px;color:var(--text)"><input type="checkbox" id="teScopeAll" '+(draft._filterAll?'checked':'')+' onchange="_teToggleAll(this.checked)"> All leads (no filter)</label>'
-        +'<div id="teFilterBox" style="'+(draft._filterAll?'display:none':'')+';border:1.5px solid var(--border);border-radius:11px;padding:10px 12px">'
-          +'<div style="font-size:11px;color:var(--sub);margin-bottom:6px">Uses the Location above (if set), plus any campaigns you pick:</div>'
-          +'<div style="font-size:12px;font-weight:700;color:var(--sub);margin-bottom:2px">Campaigns</div>'+campBoxes
-        +'</div>'
+       +'<div style="font-size:11px;color:var(--sub);margin-bottom:8px">Pick the leads this person works on. Leave a section on \u201cAll\u201d for no limit on that column. Sections combine (e.g. Brampton + Nail Spa).</div>'
+       + filterGroups
       +'</div>'
       +'<div class="te-field"><label class="te-label">Role (preset)</label><div id="roleChips">'+chips+'</div></div>'
       +'<div class="te-field"><label class="te-label">Data access</label>'+scopeRows+'</div>'
@@ -15884,12 +15971,12 @@ document.addEventListener('click', function(ev){
   window.saveTeamUser = function(){
     if(!draft.display_name && !draft.email){ if(typeof showToast==='function') showToast('Name or email required'); return; }
     var btn=document.getElementById('teSaveBtn'); if(btn){ btn.textContent='Saving…'; btn.disabled=true; }
-    // Which leads this person works on (drives auto-assignment)
+    // Which leads this person works on (filter -> visibility + auto-assignment)
     var ls = {};
-    if(!draft._filterAll){
-      if(draft.location) ls.location = [draft.location];
-      if(draft._camps && draft._camps.length) ls.campaign_id = draft._camps.slice();
-    }
+    ['location','stage','service','campaign_id'].forEach(function(dim){
+      var sc = draft._scope && draft._scope[dim];
+      if(sc && !sc.any && sc.vals && sc.vals.length) ls[dim] = sc.vals.slice();
+    });
     function _teDone(msg){ if(typeof showToast==='function') showToast(msg||'Saved'); closeSheet('userEditSh'); loadUsers(function(){ renderTeam(); }); }
     function _teFail(e){ if(btn){ btn.textContent='Save'; btn.disabled=false; } if(typeof showToast==='function') showToast('Could not save: '+((e&&e.message)||e||'error')); }
 
