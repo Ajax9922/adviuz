@@ -15464,6 +15464,8 @@ function invSetHeader(left, title, right) {
 // VIEW 1: Invoice List
 // ═══════════════════════════════════
 function openLeadInvoices(lid) {
+  if(window._invFromAdmin && !lid){ window._invFromAdmin=false; invClose(); return; }
+  window._invFromAdmin = false;
   var l = leads.find(function(x){ return x.id===lid; });
   if(!l) return;
   _invMgrLeadId = lid;
@@ -16229,39 +16231,162 @@ function seqWrap(firstName, body, sig, fromEmail) {
 
 
 
+// ── Invoices Dashboard Tab (Sales vs Tax + monthly list) ──
 function adInvoicesHTML() {
-  var invs = _adminData.invoices || [];
-  var total = invs.reduce(function(s,i){return s+(i.payment_status==='paid'?parseFloat(i.total||0):0);}, 0);
-  var pending = invs.filter(function(i){return i.payment_status==='paid';}).length;
-  var h = '<div style="padding:0 12px 12px">';
-  h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0">';
-  h += '<div><div style="font-size:12px;color:var(--sub);font-weight:600">'+invs.length+' invoices</div>';
-  h += '<div style="font-size:11px;color:var(--green);font-weight:700">$'+fmtCAD(total)+' collected</div></div>';
-  h += '<button onclick="openCreateInvoiceSheet()" style="padding:8px 14px;border-radius:9px;background:var(--navy,#001f3f);border:none;color:#fff;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">+ Create Invoice</button>';
-  h += '</div>';
-  if (!invs.length) return h+'<div style="text-align:center;padding:40px;color:var(--sub)">No invoices yet.<br>Generate one by marking a quote as paid.</div></div>';
-  var stColors = {paid:'var(--green)',pending:'var(--amber)',overdue:'var(--red)',cancelled:'var(--muted)'};
-  h += '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
-  invs.forEach(function(inv, i) {
-    var stCol = stColors[inv.payment_status]||'var(--sub)';
-    var pmIcons = {stripe:'💳',etransfer:'🏦',cash:'💵',cheque:'📝',pending:'⏳'};
-    var pmIcon = pmIcons[inv.payment_method]||'💰';
-    var invDate = inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : '';
-    h += '<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;'+(i?'border-top:1px solid var(--border)':'')+'">'
-      +'<div style="flex:1;min-width:0">'
-        +'<div style="font-size:13px;font-weight:700;color:var(--text)">'+inv.invoice_number+'</div>'
-        +'<div style="font-size:11px;color:var(--sub)">'+(inv.client_business||inv.client_name)+' &middot; '+invDate+'</div>'
-        +'<div style="font-size:10px;color:var(--muted)">'+pmIcon+' '+(inv.payment_method||'pending')+'</div>'
-      +'</div>'
-      +'<div style="text-align:right;flex-shrink:0">'
-        +'<div style="font-size:14px;font-weight:800;color:var(--text)">$'+fmtCAD(inv.total)+' CAD</div>'
-        +'<div style="font-size:10px;font-weight:700;color:'+stCol+';text-transform:uppercase">'+inv.payment_status+'</div>'
-      +'</div>'
-      +(inv.pdf_url?'<button onclick="window.open(\''+inv.pdf_url+'\',\'_blank\')" style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1px solid var(--border);cursor:pointer;font-size:14px;flex-shrink:0">&#x1F4C4;</button>':'')
-      +(inv.payment_status==='pending'?'<button data-qid="'+inv.quote_id+'" data-invid="'+inv.id+'" onclick="openMarkPaid(this.dataset.qid,this.dataset.invid)" style="padding:6px 10px;border-radius:8px;background:var(--green);border:none;color:#fff;font-family:var(--f);font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0">Mark Paid</button>':'')
-    +'</div>';
+  var invs = (_adminData.invoices || []).slice();
+
+  // ── All-time totals ──
+  var grossAll = 0, beforeAll = 0, taxAll = 0, collected = 0;
+  invs.forEach(function(i){
+    var t  = parseFloat(i.total||0);
+    var tx = parseFloat(i.total_tax||0);
+    grossAll  += t;  taxAll += tx;  beforeAll += (t - tx);
+    if(i.payment_status==='paid') collected += t;
   });
-  return h+'</div></div>';
+
+  // ── Group by month (YYYY-MM) ──
+  var MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var byMonth = {};
+  invs.forEach(function(i){
+    var ds = (i.invoice_date||'').slice(0,7);
+    if(!ds) return;
+    if(!byMonth[ds]){
+      var y=ds.slice(0,4), m=parseInt(ds.slice(5,7),10);
+      byMonth[ds] = { key:ds, label:(MN[m-1]||'?')+' '+y.slice(2), gross:0, before:0, tax:0, rows:[] };
+    }
+    var t=parseFloat(i.total||0), tx=parseFloat(i.total_tax||0);
+    byMonth[ds].gross += t; byMonth[ds].tax += tx; byMonth[ds].before += (t - tx);
+    byMonth[ds].rows.push(i);
+    _invMap[i.id] = i; // cache for click → detail
+  });
+  var keysAsc  = Object.keys(byMonth).sort();
+  var keysDesc = keysAsc.slice().reverse();
+  window._adInvMonths = byMonth;
+
+  var h = '<div style="padding:0 12px 16px">';
+
+  // ── Summary stat tiles ──
+  h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:6px 0 14px">'
+    + adInvStat('Gross Sales', '$'+fmtCAD(grossAll),  'var(--sub)')
+    + adInvStat('Before Tax',  '$'+fmtCAD(beforeAll), 'var(--green)')
+    + adInvStat('Total Tax',   '$'+fmtCAD(taxAll),    'var(--red)')
+    + '</div>';
+
+  // ── Chart ──
+  if(keysAsc.length) h += adInvChart(keysAsc, byMonth);
+
+  // ── List header ──
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin:18px 0 6px">'
+    + '<div style="font-size:16px;font-weight:800;color:var(--text)">Tax Invoices</div>'
+    + '<button onclick="openCreateInvoiceSheet()" style="padding:7px 14px;border-radius:9px;background:var(--navy,#001f3f);border:none;color:#fff;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">+ New</button>'
+    + '</div>';
+
+  if(!invs.length){
+    return h + '<div style="text-align:center;padding:40px;color:var(--sub)">No invoices yet.<br>Generate one by marking a quote as paid.</div></div>';
+  }
+
+  // ── Grouped list (newest month first) ──
+  var pmL = {stripe:'\uD83D\uDCB3',etransfer:'\uD83C\uDFE6',cash:'\uD83D\uDCB5',cheque:'\uD83D\uDCDD',pending:'\u23F3'};
+  keysDesc.forEach(function(k){
+    var mo = byMonth[k];
+    h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 2px 6px">'
+      + '<div style="font-size:13px;font-weight:800;color:var(--text)">'+mo.label+'</div>'
+      + '<div style="font-size:11px;color:var(--sub);font-weight:600">$'+fmtCAD(mo.gross)+'</div>'
+      + '</div>';
+    h += '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
+    mo.rows.forEach(function(inv, idx){
+      var num    = (inv.invoice_number||'').split('_')[0] || '\u2014';
+      var isPaid = inv.payment_status==='paid';
+      var stC    = isPaid ? 'var(--green)' : (inv.payment_status==='partial' ? 'var(--amber)' : 'var(--sub)');
+      var stBg   = isPaid ? 'var(--greenl)' : (inv.payment_status==='partial' ? 'var(--amberl)' : 'var(--badge)');
+      var dt     = inv.invoice_date ? new Date(inv.invoice_date+'T00:00:00').toLocaleDateString('en-CA',{month:'short',day:'numeric'}) : '';
+      var client = inv.client_business || inv.client_name || '';
+      var pm     = inv.payment_method ? ' \u00B7 '+(pmL[inv.payment_method]||'') : '';
+      h += '<div onclick="adOpenInvoice(\''+inv.id+'\')" style="display:flex;align-items:center;gap:11px;padding:13px 14px;cursor:pointer;'+(idx?'border-top:1px solid var(--border)':'')+'" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">'
+        + '<div style="width:40px;height:40px;border-radius:10px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">\uD83E\uDDFE</div>'
+        + '<div style="flex:1;min-width:0">'
+          + '<div style="font-size:13px;font-weight:700;color:var(--text)">'+num+'</div>'
+          + '<div style="font-size:11px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+client+'</div>'
+          + '<div style="font-size:10px;color:var(--muted);margin-top:1px">'+dt+pm+'</div>'
+        + '</div>'
+        + '<div style="text-align:right;flex-shrink:0">'
+          + '<div style="font-size:14px;font-weight:800;color:var(--text)">$'+fmtCAD(inv.total)+'</div>'
+          + '<div style="display:inline-block;margin-top:3px;padding:2px 8px;border-radius:20px;background:'+stBg+';font-size:9px;font-weight:700;color:'+stC+';text-transform:uppercase">'+(inv.payment_status||'')+'</div>'
+        + '</div>'
+        + '<div style="color:var(--muted);font-size:18px;flex-shrink:0">\u203A</div>'
+        + '</div>';
+    });
+    h += '</div>';
+  });
+
+  return h + '</div>';
+}
+
+function adInvStat(label, val, col){
+  return '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:11px 10px">'
+    + '<div style="display:flex;align-items:center;gap:5px;margin-bottom:4px"><span style="width:8px;height:8px;border-radius:50%;background:'+col+';display:inline-block"></span>'
+    + '<span style="font-size:9.5px;color:var(--sub);font-weight:700;text-transform:uppercase;letter-spacing:.03em">'+label+'</span></div>'
+    + '<div style="font-size:16px;font-weight:800;color:var(--text);letter-spacing:-.02em">'+val+'</div>'
+    + '</div>';
+}
+
+function adInvLeg(col,label){
+  return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--sub);font-weight:600"><span style="width:9px;height:9px;border-radius:2px;background:'+col+'"></span>'+label+'</span>';
+}
+
+function adInvCapHtml(m){
+  return '<span style="font-weight:800;color:var(--text)">'+m.label+'</span>'
+    + ' &nbsp; <span style="color:var(--sub)">Gross</span> $'+fmtCAD(m.gross)
+    + ' &nbsp;\u00B7&nbsp; <span style="color:var(--green)">Before tax</span> $'+fmtCAD(m.before)
+    + ' &nbsp;\u00B7&nbsp; <span style="color:var(--red)">Tax</span> $'+fmtCAD(m.tax);
+}
+
+function adInvChart(keysAsc, byMonth){
+  var maxG = 0;
+  keysAsc.forEach(function(k){ if(byMonth[k].gross>maxG) maxG=byMonth[k].gross; });
+  if(maxG<=0) maxG = 1;
+  var BAR = 120;
+  var sel = keysAsc[keysAsc.length-1];
+
+  var bars = '';
+  keysAsc.forEach(function(k){
+    var m = byMonth[k];
+    var hg = Math.max(2, Math.round(m.gross /maxG*BAR));
+    var hb = Math.max(2, Math.round(m.before/maxG*BAR));
+    var ht = Math.max(2, Math.round(m.tax   /maxG*BAR));
+    var op = (k===sel)?'1':'.55';
+    bars += '<div data-mbar="'+k+'" onclick="adInvShowMonth(\''+k+'\')" style="flex:0 0 auto;display:flex;flex-direction:column;align-items:center;cursor:pointer;opacity:'+op+';transition:opacity .12s;padding:0 2px">'
+      + '<div style="display:flex;align-items:flex-end;gap:3px;height:'+BAR+'px">'
+        + '<div style="width:9px;height:'+hg+'px;background:var(--sub);border-radius:3px 3px 0 0"></div>'
+        + '<div style="width:9px;height:'+hb+'px;background:var(--green);border-radius:3px 3px 0 0"></div>'
+        + '<div style="width:9px;height:'+ht+'px;background:var(--red);border-radius:3px 3px 0 0"></div>'
+      + '</div>'
+      + '<div style="font-size:10px;color:var(--sub);font-weight:600;margin-top:6px;white-space:nowrap">'+m.label+'</div>'
+      + '</div>';
+  });
+
+  return '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px 14px 12px">'
+    + '<div style="font-size:14px;font-weight:800;color:var(--text);margin-bottom:2px">Sales vs Tax</div>'
+    + '<div style="display:flex;gap:14px;margin:8px 0 4px;flex-wrap:wrap">'
+      + adInvLeg('var(--sub)','Gross Sales') + adInvLeg('var(--green)','Before Tax') + adInvLeg('var(--red)','Total Tax')
+    + '</div>'
+    + '<div id="adInvCap" style="font-size:11.5px;color:var(--sub);margin:2px 0 12px;min-height:16px">'+adInvCapHtml(byMonth[sel])+'</div>'
+    + '<div style="display:flex;align-items:flex-end;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px">'+bars+'</div>'
+    + '</div>';
+}
+
+// DOM-touching (not exercised in node build test) ──
+function adInvShowMonth(key){
+  var m=(window._adInvMonths||{})[key]; if(!m) return;
+  var cap=document.getElementById('adInvCap'); if(cap) cap.innerHTML=adInvCapHtml(m);
+  var bars=document.querySelectorAll('[data-mbar]');
+  for(var i=0;i<bars.length;i++){ bars[i].style.opacity=(bars[i].getAttribute('data-mbar')===key)?'1':'.55'; }
+}
+function adOpenInvoice(invId){
+  var inv = _invMap[invId] || (_adminData.invoices||[]).find(function(x){return String(x.id)===String(invId);});
+  if(!inv) return;
+  _invMap[inv.id]=inv; window._invFromAdmin=true; _invMgrLeadId=null;
+  invOpen(); invShowDetail(inv.id);
 }
 
 // ── Mark as Paid ──
