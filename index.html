@@ -10435,8 +10435,10 @@ function _ppLiveHref(cp){
 // Normalize the content object the renderers consume.
 function _ppContent(cp){
   var pp = (cp && cp.placement_preview) || {};
+  var cd = window._clientData || {};
   return {
     biz:   pp.businessName || ADVIUZ_NAME,
+    clientBiz: cd.business_name || cd.name || pp.businessName || ADVIUZ_NAME,
     logo:  pp.logoUrl || ADVIUZ_LOGO,
     url:   pp.displayUrl || (cp.live_url || 'latest-promo.com').replace(/^https?:\/\//,''),
     cta:   pp.cta && pp.cta !== 'No button' ? pp.cta : (pp.cta === 'No button' ? '' : 'Learn more'),
@@ -10673,12 +10675,18 @@ function _ppSkel(n){ var s=''; for(var i=0;i<n;i++){ s+='<div style="height:7px;
 
 // ─── SMS (remarketing) ───
 function _ppSMS(c){
-  var msg = c.smsText || ('Hi {name}, '+(c.fbHead||c.biz)+' — limited-time offer. '+(c.href?c.href.replace(/^https?:\/\//,''):'')+' Reply STOP to opt out.');
+  var msg = c.smsText || ('Hi {name}, '+(c.fbHead||c.clientBiz)+' — limited-time offer. '+(c.href?c.href.replace(/^https?:\/\//,''):'')+' Reply STOP to opt out.');
+  var battery = '<span style="display:inline-flex;gap:4px;align-items:center"><span style="font-size:11px;font-weight:600">5G</span><span style="width:22px;height:11px;border:1px solid #000;border-radius:3px;position:relative;display:inline-block"><span style="position:absolute;top:1px;bottom:1px;left:1px;width:65%;background:#000;border-radius:1px"></span></span></span>';
   return _ppPhoneFrame(
-    '<div style="background:#f5f5f7;min-height:210px;font-family:-apple-system,Helvetica,Arial,sans-serif">'
-    + '<div style="text-align:center;padding:12px 0 9px;font-size:12px;color:#8e8e93;border-bottom:1px solid #e5e5ea">Text Message · now</div>'
-    + '<div style="padding:16px 14px">'
-    +   '<div style="max-width:82%;background:#e9e9eb;color:#000;padding:11px 14px;border-radius:18px;border-bottom-left-radius:5px;font-size:14px;line-height:1.45">'+_ppEsc(msg)+'</div>'
+    '<div style="background:#fff;font-family:-apple-system,Helvetica,Arial,sans-serif;min-height:300px;display:flex;flex-direction:column">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 16px 7px;font-size:13px;font-weight:600;color:#000">9:41'+battery+'</div>'
+    + '<div style="text-align:center;padding:6px 0 12px;border-bottom:1px solid #eee">'
+    +   '<div style="width:48px;height:48px;border-radius:50%;background:#e9e9eb;margin:0 auto 5px;overflow:hidden"><img src="'+_ppEsc(c.logo)+'" style="width:100%;height:100%;object-fit:cover"></div>'
+    +   '<div style="font-size:13px;font-weight:600;color:#000">'+_ppEsc(c.clientBiz||c.biz)+'</div>'
+    + '</div>'
+    + '<div style="flex:1;padding:16px 14px">'
+    +   '<div style="text-align:center;font-size:11px;color:#8e8e93;margin-bottom:13px">Text Message · now</div>'
+    +   '<div style="max-width:84%;background:#e9e9eb;color:#000;padding:11px 14px;border-radius:18px;border-bottom-left-radius:5px;font-size:14px;line-height:1.45">'+_ppEsc(msg)+'</div>'
     + '</div></div>');
 }
 
@@ -10705,7 +10713,7 @@ function _ppReels(c){
     + '<div style="display:flex;justify-content:space-between;padding:12px 14px;font-size:16px;font-weight:700">Reels <span>📷</span></div>'
     + _ppCreative(c,'4/5')
     + '<div style="padding:11px 12px">'
-    +   '<div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">'+_ppLogoCircle(c,28)+'<span style="font-size:13px;font-weight:700">'+_ppEsc(c.biz.toLowerCase().replace(/\s+/g,'_'))+'</span><span style="border:1px solid #fff;border-radius:6px;font-size:11px;padding:2px 9px">Follow</span></div>'
+    +   '<div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">'+_ppLogoCircle(c,28)+'<span style="font-size:13px;font-weight:700">'+_ppEsc(c.biz.toLowerCase().replace(/\s+/g,'_'))+'</span></div>'
     +   '<div onclick="'+open+'" style="background:rgba(40,40,40,.92);border-radius:8px;padding:10px;display:flex;align-items:center;gap:10px;cursor:pointer">'
     +     '<div style="width:34px;height:34px;border-radius:5px;overflow:hidden;flex-shrink:0;background:#222">'+(c.img?'<img src="'+_ppEsc(c.img)+'" style="width:100%;height:100%;object-fit:cover">':'')+'</div>'
     +     '<div style="flex:1;font-size:13px;font-weight:600">'+_ppEsc(_ppTrim(c.fbHead||c.gHead||'Learn more',32))+'</div><span>›</span>'
@@ -10731,16 +10739,25 @@ function _ppThreads(c){
 
 // ─── YouTube (phone-framed) ───
 function _ppYouTubePhone(c){
+  function ic(p){ return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>'; }
+  var cast = ic('<rect x="2" y="4" width="20" height="14" rx="2"/><path d="M2 16a6 6 0 0 1 6 6"/><path d="M2 12a10 10 0 0 1 10 10"/>');
+  var bell = ic('<path d="M6 9a6 6 0 0 1 12 0c0 6 2 8 2 8H4s2-2 2-8"/><path d="M10.5 21a1.8 1.8 0 0 0 3 0"/>');
+  var search = ic('<circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/>');
   return _ppPhoneFrame(
     '<div style="background:#fff;font-family:Roboto,Arial,sans-serif">'
-    + '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px"><span style="font-size:17px;font-weight:700"><span style="color:#f00">▶</span> YouTube</span><span style="color:#555;font-size:14px">📡 &nbsp;🔔 &nbsp;🔍</span></div>'
-    + _ppCreative(c,'16/9')
-    + '<div style="padding:12px 14px">'
-    +   '<div style="font-size:15px;font-weight:500;color:#0f0f0f">'+_ppEsc(c.biz)+'</div>'
-    +   '<div style="font-size:13px;color:#606060;margin:3px 0;line-height:1.35">'+_ppEsc(c.gHead||c.fbHead||'Learn more')+'</div>'
-    +   '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:7px"><span style="background:#fde047;color:#3c4043;font-size:11px;font-weight:700;padding:1px 6px;border-radius:3px">Ad</span>'+_ppCtaBtn(c,'background:#fff;color:#065fd4;border:1px solid #d3d3d3;border-radius:18px;padding:8px 16px;font-size:13px;font-weight:600')+'</div>'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;padding:13px 14px">'
+    +   '<span style="display:flex;align-items:center;gap:6px;font-size:18px;font-weight:700;letter-spacing:-.02em"><span style="background:#f00;color:#fff;border-radius:5px;padding:1px 5px;font-size:13px">▶</span>YouTube</span>'
+    +   '<span style="display:flex;gap:15px;align-items:center">'+cast+bell+search+'</span>'
     + '</div>'
-    + '<div style="height:150px;background:#eceef1;display:flex;align-items:center;justify-content:center;color:#c4c4c4;font-size:40px">▶</div>'
+    + _ppCreative(c,'16/9')
+    + '<div style="padding:13px 14px">'
+    +   '<div style="font-size:15px;font-weight:500;color:#0f0f0f;line-height:1.3">'+_ppEsc(c.clientBiz||c.biz)+'</div>'
+    +   '<div style="font-size:13px;color:#606060;margin:3px 0 8px;line-height:1.35">'+_ppEsc(c.gHead||c.fbHead||'Learn more')+'</div>'
+    +   '<div style="font-size:12px;color:#909090;margin-bottom:10px">'+_ppEsc(c.clientBiz||c.biz)+'</div>'
+    +   '<div style="display:flex;align-items:center;justify-content:space-between"><span style="background:#fcd34d;color:#3c4043;font-size:12px;font-weight:700;padding:2px 8px;border-radius:3px">Ad</span>'+_ppCtaBtn(c,'background:#fff;color:#065fd4;border:1px solid #cfcfcf;border-radius:18px;padding:8px 18px;font-size:13px;font-weight:600')+'</div>'
+    + '</div>'
+    + '<div style="height:160px;background:#e9ebee;display:flex;align-items:center;justify-content:center"><svg width="58" height="42" viewBox="0 0 58 42"><rect width="58" height="42" rx="8" fill="#ffffff" opacity="0.7"/><path d="M24 13l12 8-12 8z" fill="#c4c4c4"/></svg></div>'
+    + '<div style="display:flex;align-items:center;gap:10px;padding:12px 14px"><div style="width:30px;height:30px;border-radius:50%;background:#e9ebee;flex-shrink:0"></div><div style="flex:1">'+_ppSkel(2)+'</div></div>'
     + '</div>');
 }
 
@@ -10757,7 +10774,7 @@ function _ppGmailInbox(c){
   var ourRow = '<div onclick="'+open+'" style="display:flex;gap:11px;padding:11px 12px;border-bottom:1px solid #f1f3f4;background:#fafafb;cursor:pointer">'
     + '<div style="width:34px;height:34px;border-radius:50%;overflow:hidden;flex-shrink:0;background:#fff;border:1px solid #eee"><img src="'+_ppEsc(c.logo)+'" style="width:100%;height:100%;object-fit:contain"></div>'
     + '<div style="flex:1;min-width:0">'
-    +   '<div style="font-size:12px;color:#5f6368"><b style="color:#202124">Sponsored</b> · '+_ppEsc(c.biz)+'</div>'
+    +   '<div style="font-size:12px;color:#5f6368"><b style="color:#202124">Sponsored</b> · '+_ppEsc(c.clientBiz||c.biz)+'</div>'
     +   '<div style="font-size:14px;font-weight:700;color:#202124;line-height:1.3">'+_ppEsc(c.emailSubject||c.fbHead||'Special offer')+'</div>'
     +   (c.img ? '<div style="margin-top:8px;border:1px solid #e8eaed;border-radius:8px;overflow:hidden"><img src="'+_ppEsc(c.img)+'" style="width:100%;display:block"></div>' : (c.emailBody?'<div style="font-size:12px;color:#5f6368;margin-top:3px">'+_ppEsc(_ppTrim(c.emailBody,80))+'</div>':''))
     + '</div>'
@@ -10768,6 +10785,27 @@ function _ppGmailInbox(c){
     + ourRow
     + row('T','#1a73e8','Tata Capital','A smarter way to plan goals','Use our goal calculator…')
     + '</div>';
+}
+
+// Gmail — opened sponsored email
+function _ppGmailOpen(c){
+  return '<div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;overflow:hidden;font-family:Roboto,Arial,sans-serif">'
+    + '<div style="display:flex;align-items:center;gap:11px;padding:12px">'
+    +   '<div style="width:38px;height:38px;border-radius:50%;overflow:hidden;background:#fff;border:1px solid #eee;flex-shrink:0"><img src="'+_ppEsc(c.logo)+'" style="width:100%;height:100%;object-fit:contain"></div>'
+    +   '<div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:700;color:#202124;line-height:1.25">'+_ppEsc(c.emailSubject||c.fbHead||'Special offer')+'</div>'
+    +     '<div style="font-size:12px;color:#5f6368"><b style="color:#202124">Sponsored</b> · '+_ppEsc(c.clientBiz||c.biz)+'</div></div>'
+    + '</div>'
+    + (c.img?'<a href="'+(c.href?_ppEsc(c.href):'#')+'" target="_blank" rel="noopener" style="display:block"><img src="'+_ppEsc(c.img)+'" style="width:100%;display:block"></a>':'')
+    + '<div style="padding:13px">'
+    +   (c.emailBody?'<div style="font-size:14px;color:#3c4043;line-height:1.5;margin-bottom:12px">'+_ppEsc(c.emailBody)+'</div>':'<div style="height:4px"></div>')
+    +   _ppCta2(c,'#1a73e8','Learn more')
+    + '</div></div>';
+}
+
+// Gmail — both states stacked (Closed in inbox + Open expanded)
+function _ppGmailBoth(c){
+  return '<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:700;color:var(--sub);margin:0 2px 6px">Closed · in inbox</div>'+_ppGmailInbox(c)+'</div>'
+    + '<div><div style="font-size:11px;font-weight:700;color:var(--sub);margin:0 2px 6px">Open · expanded</div>'+_ppGmailOpen(c)+'</div>';
 }
 
 // ─── Mobile full-screen interstitial (with creative) ───
@@ -10794,7 +10832,7 @@ function _ppInterstitialText(c){
     '<div style="background:#f7f8fb;min-height:400px;font-family:Arial,sans-serif;padding:26px 22px 20px;display:flex;flex-direction:column">'
     + '<div style="margin-bottom:16px">'+_ppLogoSq(c,52)+'</div>'
     + '<div style="font-size:33px;font-weight:400;color:#3c4043;line-height:1.12;margin-bottom:14px">'+_ppEsc(c.fbHead||c.gHead||c.biz)+'</div>'
-    + '<div style="font-size:13px;color:#5f6368;margin-bottom:8px">'+_ppEsc(c.biz)+'</div>'
+    + '<div style="font-size:13px;color:#5f6368;margin-bottom:8px">'+_ppEsc(c.clientBiz||c.biz)+'</div>'
     + ((c.gDesc||c.fbDesc) ? '<div style="font-size:14px;color:#5f6368;line-height:1.45">'+_ppEsc(c.gDesc||c.fbDesc)+'</div>' : '')
     + '<div style="flex:1;min-height:30px"></div>'
     + '<div style="display:flex;gap:12px;margin-top:24px">'
@@ -10827,7 +10865,7 @@ function _ppNewsLeaderboard(c){
     + '<div style="border:1px solid #e8eaed;border-radius:5px;display:flex;align-items:center;gap:10px;padding:7px 9px;max-width:360px;background:#fff;position:relative">'
     +   '<div style="position:absolute;top:3px;right:5px;color:#9aa0a6;font-size:11px">ⓘ</div>'
     +   '<div style="width:84px;height:52px;border-radius:3px;overflow:hidden;flex-shrink:0;background:#f1f3f4">'+(c.img?'<img src="'+_ppEsc(c.img)+'" style="width:100%;height:100%;object-fit:cover">':'')+'</div>'
-    +   '<div style="flex:1;min-width:0"><div style="font-size:12px;color:#202124;line-height:1.3">'+_ppEsc(_ppTrim(c.fbHead||c.gHead||c.biz,44))+'</div><div style="font-size:11px;color:#5f6368;margin:2px 0"><span style="background:#34a853;color:#fff;font-size:9px;padding:0 3px;border-radius:2px;font-weight:700">Ad</span> '+_ppEsc(c.biz)+'</div>'+_ppCtaBtn(c,'background:#1a73e8;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:10px;font-weight:600')+'</div>'
+    +   '<div style="flex:1;min-width:0"><div style="font-size:12px;color:#202124;line-height:1.3">'+_ppEsc(_ppTrim(c.fbHead||c.gHead||c.biz,44))+'</div><div style="font-size:11px;color:#5f6368;margin:2px 0"><span style="background:#34a853;color:#fff;font-size:9px;padding:0 3px;border-radius:2px;font-weight:700">Ad</span> '+_ppEsc(c.clientBiz||c.biz)+'</div>'+_ppCtaBtn(c,'background:#1a73e8;color:#fff;border:none;border-radius:4px;padding:3px 9px;font-size:10px;font-weight:600')+'</div>'
     + '</div></div>';
   return '<div style="border:2px solid #d7dbe0;border-radius:12px;overflow:hidden;background:#fbfbfc">'
     + '<div style="text-align:center;font-family:Georgia,serif;font-style:italic;font-size:20px;color:#6b7280;padding:12px 0 5px">website</div>'+_ppNav()
@@ -10841,7 +10879,7 @@ function _ppNewsSidebar(c){
   var sideAd = '<div style="border:1px solid #e8eaed;border-radius:5px;background:#fff;padding:10px;position:relative">'
     + '<div style="position:absolute;top:3px;right:5px;color:#9aa0a6;font-size:11px">ⓘ</div>'
     + '<div style="display:flex;gap:8px"><div style="width:30px;height:30px;flex-shrink:0;overflow:hidden;border-radius:4px;border:1px solid #eee"><img src="'+_ppEsc(c.logo)+'" style="width:100%;height:100%;object-fit:contain"></div><div style="font-size:13px;font-weight:700;color:#202124;line-height:1.2">'+_ppEsc(_ppTrim(c.fbHead||c.gHead||c.biz,28))+'</div></div>'
-    + '<div style="font-size:11px;color:#5f6368;margin:7px 0">'+_ppEsc(_ppTrim(c.biz,40))+'</div>'
+    + '<div style="font-size:11px;color:#5f6368;margin:7px 0">'+_ppEsc(_ppTrim(c.clientBiz||c.biz,40))+'</div>'
     + _ppCtaBtn(c,'width:100%;background:#1a73e8;color:#fff;border:none;border-radius:14px;padding:7px;font-size:11px;font-weight:600')
     + '</div>';
   return '<div style="border:2px solid #d7dbe0;border-radius:12px;overflow:hidden;background:#fbfbfc">'
@@ -10860,7 +10898,7 @@ function _ppBanner(c){
     + '<div style="position:absolute;top:6px;right:8px;color:#9aa0a6;font-size:12px">ⓘ</div>'
     + '<div style="width:84px;height:64px;border-radius:5px;overflow:hidden;flex-shrink:0;background:#f1f3f4">'+(c.img?'<img src="'+_ppEsc(c.img)+'" style="width:100%;height:100%;object-fit:cover">':'')+'</div>'
     + '<div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:700;color:#202124;line-height:1.25">'+_ppEsc(_ppTrim(c.fbHead||c.gHead||c.biz,60))+'</div>'
-    +   '<div style="font-size:12px;color:#5f6368;margin-top:6px"><span style="background:#34a853;color:#fff;font-size:10px;padding:0 4px;border-radius:2px;font-weight:700">Ad</span> '+_ppEsc(c.biz)+'</div></div>'
+    +   '<div style="font-size:12px;color:#5f6368;margin-top:6px"><span style="background:#34a853;color:#fff;font-size:10px;padding:0 4px;border-radius:2px;font-weight:700">Ad</span> '+_ppEsc(c.clientBiz||c.biz)+'</div></div>'
     + '</div>';
 }
 
@@ -10874,7 +10912,7 @@ function _adPlacements(c){
     { tab:'instagram', label:'📷 Instagram Reels',           html:_ppReels(c) },
     { tab:'threads',   label:'🧵 Threads Feed',              html:_ppThreads(c) },
     { tab:'youtube',   label:'▶️ YouTube',                   html:_ppYouTubePhone(c) },
-    { tab:'gmail',     label:'📧 Email · Sponsored (Gmail)', html:_ppGmailInbox(c) },
+    { tab:'gmail',     label:'📧 Email · Sponsored (Gmail)', html:_ppGmailBoth(c) },
     { tab:'mobile',    label:'📱 Mobile App · Full-Screen',  html:_ppInterstitialImage(c) },
     { tab:'mobile',    label:'📱 Full-Screen Pop-Up',        html:_ppInterstitialText(c) },
     { tab:'news',      label:'📰 News Site · Mobile',        html:_ppNewsMobile(c) },
@@ -10990,18 +11028,16 @@ function clientCampaignDetailHTML(campId){
     +    '</div>'
     +  '</div>';
 
-  // ── AD PREVIEWS (Meta-Ads-Manager style tabs) ──
-  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin:0 2px 10px">'
-    +    '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub)">Ad Previews</div>';
-  h += '</div>';
-
-  // Reach line — full network (your website's placement list)
-  h += '<div style="font-size:11px;color:var(--sub);margin:0 2px 12px;line-height:1.5">Running across <b style="color:var(--text)">Facebook, Instagram, YouTube, Gmail</b> &amp; the <b style="color:var(--text)">Google Display Network</b> — including CBC, Global News, Financial Post, Toronto Star, National Post &amp; more.</div>';
+  // ── AD PREVIEWS ──
+  h += '<div style="margin:4px 2px 10px">'
+    +    '<div style="font-size:13px;font-weight:800;color:var(--text)">Ad Previews</div>'
+    +    '<div style="font-size:12px;color:var(--sub);margin-top:2px">See exactly how your ad appears to people.</div>'
+    +  '</div>';
 
   // Teaser: one placement shown inline; tap anywhere (or the button) to
-  // open the full mixed scroll of every placement.
-  h += '<div onclick="openAdScroll()" style="cursor:pointer">'+ _ppFacebook(_ppContent(cp)) +'</div>';
-  h += '<button onclick="openAdScroll()" style="width:100%;margin:10px 0 16px;padding:12px;border-radius:11px;background:var(--white);border:1.5px solid var(--border);color:var(--text);font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">See all placements ›</button>';
+  // open the full scroll of every placement.
+  h += '<div onclick="openAdScroll()" style="cursor:pointer;border-radius:12px;overflow:hidden">'+ _ppFacebook(_ppContent(cp)) +'</div>';
+  h += '<button onclick="openAdScroll()" style="width:100%;margin:12px 0 16px;padding:13px;border-radius:11px;background:var(--green);border:none;color:#fff;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer">See all placements ›</button>';
 
   h += '<div style="height:20px"></div>';
   h += '</div>';
