@@ -3887,11 +3887,18 @@ async function refreshLeads() {
   if (isPartnerMode()) {
     var rb=document.getElementById('tbRefresh');
     if(rb){ rb.style.opacity='0.4'; rb.style.pointerEvents='none'; }
-    await loadPartnerLeads();
-    await loadPartnerComms();
+    try {
+      if (curTab === 'dashboard') {
+        // Earnings view → reload commissions + payout requests
+        await loadPartnerComms();
+      } else {
+        // Leads / Follow-ups / Reports / Calls → reload this partner's leads
+        await loadPartnerLeads();
+      }
+    } catch(e) { console.warn('[partner refresh]', e && e.message); }
     if(rb){ rb.style.opacity='1'; rb.style.pointerEvents='auto'; }
     render();
-    showToast('&#x2705; Refreshed');
+    showToast(curTab==='dashboard' ? '&#x2705; Earnings refreshed' : '&#x2705; Leads refreshed');
     return;
   }
   var refBtn = document.getElementById('tbRefresh');
@@ -4253,6 +4260,10 @@ function renderCtrlBar(){
 // hidden on admin management sub-screens (Partners, Commissions, Settings, etc.)
 function _showControlBar(){
   if(curTab!=='dashboard') return true;            // leads/followups/reports/calls → show
+  // The Dashboard tab for partners (earnings) and clients (campaigns) has no
+  // searchable lead list — hide the search/filter bar there.
+  if(typeof isPartnerMode==='function' && isPartnerMode()) return false;
+  if(typeof isClientMode==='function' && isClientMode()) return false;
   // On the dashboard tab: hide for admin management sub-views
   var sub = window._adminDashTab || '';
   if(['affiliates','commissions'].indexOf(sub) !== -1) return false;
@@ -4261,6 +4272,8 @@ function _showControlBar(){
 function renderStats(){
   var box=document.getElementById('statsStrip'); if(!box) return;
   if(typeof isClientMode==='function' && isClientMode()){ box.style.display='none'; box.innerHTML=''; return; }
+  // Partner Dashboard shows earnings, not leads — the lead KPI strip is meaningless there.
+  if(typeof isPartnerMode==='function' && isPartnerMode() && curTab==='dashboard'){ box.style.display='none'; box.innerHTML=''; return; }
   if(!_showControlBar()){ box.style.display='none'; box.innerHTML=''; return; }
   box.style.display='';
   var arr=(leads||[]);
