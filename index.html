@@ -11472,8 +11472,15 @@ function partnerDashHTML() {
     +'</div>';
 
   // ── SMALL Cashout box with Request button ──
+  var hasPending = requested > 0;
   var cashSub, cashBtn;
-  if(available>=MIN_PAYOUT){
+  if(hasPending){
+    cashSub = money(requested)+' withdrawal pending';
+    cashBtn = '<button disabled style="margin-top:10px;width:100%;padding:13px;border:none;border-radius:12px;background:var(--bluel,#eff6ff);color:#2563eb;font-weight:800;font-size:14px;font-family:var(--f)">⏳ Request pending · awaiting payout</button>';
+    if(available>=MIN_PAYOUT){
+      cashBtn += '<button onclick="openConvertCredit('+available+')" style="margin-top:8px;width:100%;padding:13px;border:1px solid var(--green);border-radius:12px;background:var(--white);color:var(--green);font-weight:800;font-size:14px;font-family:var(--f);cursor:pointer">Use '+money(available)+' as credit</button>';
+    }
+  } else if(available>=MIN_PAYOUT){
     cashSub = money(available)+' ready';
     cashBtn = '<div style="display:flex;gap:8px;margin-top:10px">'
       +'<button onclick="openPayoutSheet('+available+')" style="flex:1;padding:13px;border:none;border-radius:12px;background:var(--green);color:#fff;font-weight:800;font-size:14px;font-family:var(--f);cursor:pointer">Request Cashout</button>'
@@ -11696,6 +11703,16 @@ async function submitEtransferPayout(){
 
   try{
     var pid=(window._partnerData||{}).id;
+    // Block if a request is still pending (awaiting admin)
+    var pendRes=await sbFetch('/rest/v1/payout_requests?partner_id=eq.'+pid+'&status=eq.requested&select=id,amount_cad&limit=1');
+    if(pendRes.ok){
+      var pend=await pendRes.json();
+      if(pend && pend.length){
+        showToast('You already have a pending request of $'+(+pend[0].amount_cad||0).toFixed(2)+'. Please wait until it\u2019s processed.');
+        if(btn){ btn.disabled=false; btn.textContent='Request e-Transfer'; }
+        return;
+      }
+    }
     // Daily cap
     var todayStart=new Date(); todayStart.setHours(0,0,0,0);
     var capRes=await sbFetch('/rest/v1/payout_requests?partner_id=eq.'+pid+'&requested_at=gte.'+encodeURIComponent(todayStart.toISOString())+'&select=amount_cad');
