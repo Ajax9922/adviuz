@@ -2987,6 +2987,14 @@ function startSessionTimeoutWatch() {
 ['click','keydown','touchstart','scroll'].forEach(function(ev) {
   document.addEventListener(ev, touchActivity, { passive: true });
 });
+
+// Desktop fix: scrolling the mouse wheel over a number input must scroll the
+// page, NOT increment/decrement the value. Blur the input the instant a wheel
+// event reaches it while focused. Covers every number input app-wide.
+document.addEventListener('wheel', function(e){
+  var el = document.activeElement;
+  if (el && el.type === 'number' && el === e.target) el.blur();
+}, { passive: true });
 var authToken = null;
 var currentUser = null;
 
@@ -9667,6 +9675,32 @@ function openSheet(id){
   if(id==='stageSh')renderStageList();
 }
 function closeSheet(id){document.getElementById(id).classList.remove('open')}
+
+// Prevent sheets/overlays from closing on a DRAG-release. The inline
+// onclick="if(event.target===this)closeSheet(...)" on each backdrop fires
+// whenever a click ENDS on the backdrop — including when you select text in an
+// input and release the mouse outside it. We record where the press started,
+// and swallow the click (capture phase, before the inline handler) unless the
+// press began on that same backdrop. A true click on the backdrop still closes.
+(function(){
+  var _downTarget = null;
+  document.addEventListener('mousedown', function(e){ _downTarget = e.target; }, true);
+  document.addEventListener('touchstart', function(e){ _downTarget = e.target; }, true);
+  document.addEventListener('click', function(e){
+    var t = e.target;
+    // Only police backdrop elements (overlays use class names ending in -ov or 'sheet-ov')
+    var isBackdrop = t.classList && (t.classList.contains('sheet-ov') ||
+                     t.classList.contains('cq-ov') || t.classList.contains('act-sheet-ov') ||
+                     t.classList.contains('ep-ov') || t.classList.contains('menu-ov') ||
+                     t.classList.contains('more-modal-ov'));
+    if (isBackdrop && _downTarget !== t) {
+      // Press started somewhere else (e.g. inside an input) → this is a drag,
+      // not an intentional outside-click. Cancel it.
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }, true);
+})();
 
 // ═══════════════════════════════════════
 // UTILS
@@ -16460,12 +16494,12 @@ document.addEventListener('click', function(ev){
         <label style="font-size:12px;font-weight:700;color:var(--sub);display:block;margin-bottom:5px">Amount to withdraw</label>
         <div style="display:flex;align-items:center;border:1.5px solid var(--border);border-radius:10px;padding:0 12px;margin-bottom:5px;background:var(--white)">
           <span style="font-size:16px;font-weight:800;color:var(--text)">$</span>
-          <input id="poWithdrawAmt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" oninput="poUpdateRemain()" class="finp" style="border:none;background:none;padding:11px 8px;flex:1;font-size:16px;font-weight:700">
+          <input id="poWithdrawAmt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" oninput="poUpdateRemain()" onwheel="this.blur()" class="finp" style="border:none;background:none;padding:11px 8px;flex:1;font-size:16px;font-weight:700">
           <button onclick="poSetMax()" style="border:none;background:var(--greenl,#f0fdf4);color:var(--green);font-weight:800;font-size:12px;border-radius:7px;padding:5px 10px;cursor:pointer;font-family:var(--f)">MAX</button>
         </div>
         <div id="poRemainNote" style="font-size:11px;color:var(--sub);margin-bottom:12px"></div>
         <label style="font-size:12px;font-weight:700;color:var(--sub);display:block;margin-bottom:5px">Send money to email</label>
-        <input id="poEmail" type="email" inputmode="email" placeholder="you@email.com" class="finp" style="width:100%;margin-bottom:12px">
+        <input id="poEmail" type="email" inputmode="email" placeholder="you@email.com" class="finp" style="width:100%;margin-bottom:12px;font-size:16px">
         <button id="poSubmitBtn" onclick="submitEtransferPayout()" style="width:100%;padding:13px;border:none;border-radius:11px;background:var(--green);color:#fff;font-weight:800;font-size:14px;font-family:var(--f);cursor:pointer">Request e-Transfer</button>
       </div>
 
