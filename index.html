@@ -10645,6 +10645,79 @@ function _ppRotateDisplay(i){
   if (body && window._ppActiveTab === 'display') body.innerHTML = _ppDisplayNetwork(_ppContent(cp));
 }
 
+// ══════════════════════════════════════════════════════════════════
+// FULL-SCREEN AD PREVIEW SCROLL — a mixed, endless feed of every
+// placement (Facebook / Instagram + Google Display across publishers /
+// Gmail / YouTube). Opens from the "Preview Ads" button. A sticky
+// filter bar narrows it to one network. Ad images open the live ad.
+// ══════════════════════════════════════════════════════════════════
+var _AD_SCROLL_TABS = [
+  { k:'all',       l:'All'        },
+  { k:'facebook',  l:'Facebook'   },
+  { k:'instagram', l:'Instagram'  },
+  { k:'youtube',   l:'YouTube'    },
+  { k:'gmail',     l:'Gmail'      },
+  { k:'display',   l:'News Sites' }
+];
+function _adScrollCampaign(){
+  return (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(window._clientDashCampId); });
+}
+function openAdScroll(){
+  window._adScrollFilter = 'all';
+  _adScrollRender();
+  openSheet('adScrollSh');
+}
+function _adScrollFilter(k){ window._adScrollFilter = k; _adScrollRender(); }
+function _adScrollRender(){
+  var cp = _adScrollCampaign(); if(!cp) return;
+  var active = window._adScrollFilter || 'all';
+  var fb = document.getElementById('adScrollFilters');
+  if (fb) {
+    fb.innerHTML = _AD_SCROLL_TABS.map(function(t){
+      var on = t.k===active;
+      return '<button onclick="_adScrollFilter(\''+t.k+'\')" style="cursor:pointer;flex-shrink:0;border:none;background:none;font-family:var(--f);font-size:13px;font-weight:700;padding:8px 2px 10px;color:'+(on?'var(--text)':'var(--sub)')+';border-bottom:2.5px solid '+(on?'var(--green)':'transparent')+'">'+t.l+'</button>';
+    }).join('');
+  }
+  var body = document.getElementById('adScrollBody');
+  if (body) { body.innerHTML = _adScrollList(cp, active); body.scrollTop = 0; }
+}
+function _adScrollList(cp, filter){
+  var c = _ppContent(cp);
+  function wrap(label, html){
+    return '<div style="margin-bottom:16px">'
+      + '<div style="font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:0 2px 7px">'+label+'</div>'
+      + html + '</div>';
+  }
+  var want = filter || 'all';
+  if (want === 'all') {
+    // Mixed feed — interleave networks the way a real cross-platform buy looks.
+    var seq = [
+      ['Facebook',                      _ppFacebook(c)],
+      ['Google Display · CBC',          _ppDisplayFrame(c,0)],
+      ['Instagram',                     _ppInstagram(c)],
+      ['Gmail',                         _ppGmail(c)],
+      ['Google Display · Global News',  _ppDisplayFrame(c,1)],
+      ['YouTube',                       _ppYouTube(c)],
+      ['Google Display · Financial Post',_ppDisplayFrame(c,2)],
+      ['Facebook',                      _ppFacebook(c)],
+      ['Google Display · Toronto Star', _ppDisplayFrame(c,3)],
+      ['Instagram',                     _ppInstagram(c)],
+      ['Google Display · National Post',_ppDisplayFrame(c,4)],
+      ['Gmail',                         _ppGmail(c)],
+      ['Google Display · CTV News',     _ppDisplayFrame(c,5)]
+    ];
+    return seq.map(function(s){ return wrap(s[0], s[1]); }).join('');
+  }
+  if (want === 'display') {
+    var out = '';
+    for (var i=0;i<_PP_PUBLISHERS.length;i++){ out += wrap('Google Display · '+_PP_PUBLISHERS[i].name, _ppDisplayFrame(c,i)); }
+    return out;
+  }
+  var single = { facebook:_ppFacebook(c), instagram:_ppInstagram(c), youtube:_ppYouTube(c), gmail:_ppGmail(c) }[want] || '';
+  var label  = { facebook:'Facebook', instagram:'Instagram', youtube:'YouTube', gmail:'Gmail' }[want] || '';
+  return wrap(label, single);
+}
+
 
 function clientCampaignDetailHTML(campId){
   var cp = (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(campId); });
@@ -10671,11 +10744,9 @@ function clientCampaignDetailHTML(campId){
     +    _campToggleSwitch(cp.id, active)
     +  '</div>';
 
-  // ── Action buttons: Preview Ads (in-app) + View Live Ad (new tab) ──
+  // ── Action buttons: Preview Ads (full-screen scroll) + View Live Ad (new tab) ──
   h += '<div style="display:flex;gap:10px;margin-bottom:16px">';
-  if (previewHref) {
-    h += '<button onclick="openClientPreviewEmbed(\''+previewHref+'\')" style="flex:1;padding:12px;border-radius:11px;background:var(--text);color:#fff;border:none;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">🔍 Preview Ads</button>';
-  }
+  h += '<button onclick="openAdScroll()" style="flex:1;padding:12px;border-radius:11px;background:var(--text);color:#fff;border:none;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">🔍 Preview Ads</button>';
   if (liveHref) {
     h += '<button onclick="window.open(\''+liveHref+'\',\'_blank\')" style="flex:1;padding:12px;border-radius:11px;background:var(--white);color:var(--text);border:1.5px solid var(--border);font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">🌐 View Live Ad</button>';
   }
@@ -10715,10 +10786,10 @@ function clientCampaignDetailHTML(campId){
   // Reach line — full network (your website's placement list)
   h += '<div style="font-size:11px;color:var(--sub);margin:0 2px 12px;line-height:1.5">Running across <b style="color:var(--text)">Facebook, Instagram, YouTube, Gmail</b> &amp; the <b style="color:var(--text)">Google Display Network</b> — including CBC, Global News, Financial Post, Toronto Star, National Post &amp; more.</div>';
 
-  // Tabbed preview container
-  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px 14px 16px;margin-bottom:16px">'
-    +    clientPreviewTabsHTML(cp)
-    +  '</div>';
+  // Teaser: one placement shown inline; tap anywhere (or the button) to
+  // open the full mixed scroll of every placement.
+  h += '<div onclick="openAdScroll()" style="cursor:pointer">'+ _ppFacebook(_ppContent(cp)) +'</div>';
+  h += '<button onclick="openAdScroll()" style="width:100%;margin:10px 0 16px;padding:12px;border-radius:11px;background:var(--white);border:1.5px solid var(--border);color:var(--text);font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">See all placements ›</button>';
 
   // ── DELIVERY CONTENT (SMS + Email, admin-authored) ──
   var _c = _ppContent(cp);
@@ -15967,6 +16038,19 @@ document.addEventListener('click', function(ev){
     <div class="sh-body" style="padding:0;flex:1;overflow:hidden;display:flex">
       <iframe id="clientPreviewIframe" style="border:none;width:100%;height:70dvh;background:#fff" src="about:blank"></iframe>
     </div>
+  </div>
+</div>
+
+<!-- ══ AD PREVIEW SCROLL SHEET — mixed full-screen feed of all placements ══ -->
+<div class="sheet-ov" id="adScrollSh" onclick="if(event.target===this)closeSheet('adScrollSh')" style="z-index:788">
+  <div class="sheet" style="max-height:94dvh">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">🔍 Ad Previews</div>
+      <button class="sheet-x" onclick="closeSheet('adScrollSh')">&#x2715;</button>
+    </div>
+    <div id="adScrollFilters" style="display:flex;gap:16px;overflow-x:auto;padding:6px 16px 0;border-bottom:1px solid var(--border);-webkit-overflow-scrolling:touch;flex-shrink:0"></div>
+    <div class="sh-body" id="adScrollBody" style="background:var(--bg)"></div>
   </div>
 </div>
 
