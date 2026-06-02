@@ -130,41 +130,16 @@ var justPaid = new URLSearchParams(window.location.search).get("paid") === "1";
 async function loadQuote(){
   if(!quoteId){ showError("No quote ID","Please use the link from your email."); return; }
   try{
-    var res = await fetch(SB_URL+"/rest/v1/quotes?id=eq."+quoteId+"&select=*",{
-      headers:{"apikey":SB_ANON,"Authorization":"Bearer "+SB_ANON}
+    var res = await fetch(SB_URL+"/rest/v1/rpc/get_quote",{
+      method:"POST",
+      headers:{"apikey":SB_ANON,"Authorization":"Bearer "+SB_ANON,"Content-Type":"application/json"},
+      body:JSON.stringify({p_id:quoteId})
     });
     var data = await res.json();
     if(!data||!data.length){ showError("Quote not found","This link may be expired or invalid."); return; }
     var q = data[0];
-    if(justPaid && q.status!=="paid"){
-      await fetch(SB_URL+"/rest/v1/quotes?id=eq."+quoteId,{
-        method:"PATCH",
-        headers:{"apikey":SB_ANON,"Authorization":"Bearer "+SB_ANON,"Content-Type":"application/json"},
-        body:JSON.stringify({status:"paid",paid_at:new Date().toISOString()})
-      });
-      q.status = "paid";
-    }
-    if(q.status==="sent"){
-      fetch(SB_URL+"/rest/v1/quotes?id=eq."+quoteId,{
-        method:"PATCH",
-        headers:{"apikey":SB_ANON,"Authorization":"Bearer "+SB_ANON,"Content-Type":"application/json"},
-        body:JSON.stringify({status:"viewed",viewed_at:new Date().toISOString()})
-      });
-      // Log to activity timeline
-      if(q.lead_id) {
-        fetch(SB_URL+"/rest/v1/activity_log",{
-          method:"POST",
-          headers:{"apikey":SB_ANON,"Authorization":"Bearer "+SB_ANON,"Content-Type":"application/json"},
-          body:JSON.stringify({
-            lead_id:q.lead_id, client_id:q.client_id||null,
-            type:"quote_viewed", label:"Quote Viewed",
-            body:"👁 Client opened quote "+q.quote_number,
-            meta:{quote_id:quoteId, quote_number:q.quote_number},
-            created_at:new Date().toISOString()
-          })
-        });
-      }
-    }
+    // Optimistic display when returning from Stripe success — the webhook does the real DB update
+    if(justPaid && q.status!=="paid"){ q.status = "paid"; }
     renderQuote(q);
   }catch(e){
     console.error("[loadQuote] Error:", e.message, e.stack);
@@ -401,29 +376,12 @@ window.addEventListener('load',function(){
 
 async function acceptQuote(qid){
   if(!confirm("Accept this quote and pay via e-transfer or bank transfer?\n\nOur team will follow up to confirm your payment."))return;
-  await fetch(SB_URL+"/rest/v1/quotes?id=eq."+qid,{
-    method:"PATCH",
+  await fetch(SB_URL+"/rest/v1/rpc/accept_quote",{
+    method:"POST",
     headers:{"apikey":SB_ANON,"Authorization":"Bearer "+SB_ANON,"Content-Type":"application/json"},
-    body:JSON.stringify({status:"accepted",accepted_at:new Date().toISOString()})
-  });
+    body:JSON.stringify({p_id:qid})
+  }).catch(function(){});
   var _sp=document.getElementById("statusPill"); if(_sp){_sp.textContent="Accepted";_sp.className="status-pill s-accepted";}
-  // Log to activity
-  var qData = await fetch(SB_URL+"/rest/v1/quotes?id=eq."+qid+"&select=lead_id,client_id,quote_number,total",{
-    headers:{"apikey":SB_ANON,"Authorization":"Bearer "+SB_ANON}
-  }).then(function(r){return r.json();}).then(function(d){return d[0];}).catch(function(){return null;});
-  if(qData && qData.lead_id) {
-    fetch(SB_URL+"/rest/v1/activity_log",{
-      method:"POST",
-      headers:{"apikey":SB_ANON,"Authorization":"Bearer "+SB_ANON,"Content-Type":"application/json"},
-      body:JSON.stringify({
-        lead_id:qData.lead_id, client_id:qData.client_id||null,
-        type:"quote_accepted", label:"Quote Accepted",
-        body:"✅ Client accepted quote "+qData.quote_number+" — will pay via e-transfer/bank transfer",
-        meta:{quote_id:qid},
-        created_at:new Date().toISOString()
-      })
-    });
-  }
   alert("Quote accepted!\n\nOur team will be in touch within 24 hours.\n\nE-Transfer to: sales@adviuz.ca\nReference: "+qid.slice(0,8));
 }
 
