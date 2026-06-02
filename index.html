@@ -10135,19 +10135,27 @@ async function loadClientCampaigns() {
     if (!res.ok) { window._clientCampaigns = []; return; }
     var camps = await res.json();
 
-    // 2) Fetch ads referenced by these campaigns (if any) so we can show
-    //    live URL + slug in the design section.
-    var adIds = camps.map(function(c){ return c.ad_id; }).filter(function(x){ return !!x; });
-    var adsById = {};
-    if (adIds.length) {
-      var aRes = await sbFetch('/rest/v1/ads?select=id,live_url,ad_slug,name&id=in.('+adIds.join(',')+')');
+    // 2) Fetch ads for these campaigns so we can show live URL + slug.
+    //    The real schema link is ads.campaign_id -> campaigns.id (what the
+    //    Worker uses); campaigns.ad_id is an optional secondary link. Resolve
+    //    both, preferring the campaign_id match.
+    var campIds = camps.map(function(c){ return c.id; }).filter(function(x){ return !!x; });
+    var adIds   = camps.map(function(c){ return c.ad_id; }).filter(function(x){ return !!x; });
+    var adsByCampaign = {}, adsById = {};
+    async function _fetchAds(filter){
+      var aRes = await sbFetch('/rest/v1/ads?select=id,live_url,ad_slug,name,campaign_id&'+filter);
       if (aRes.ok) {
         var ads = await aRes.json();
-        ads.forEach(function(a){ adsById[a.id] = a; });
+        ads.forEach(function(a){
+          adsById[a.id] = a;
+          if (a.campaign_id && !adsByCampaign[a.campaign_id]) adsByCampaign[a.campaign_id] = a;
+        });
       }
     }
+    if (campIds.length) await _fetchAds('campaign_id=in.('+campIds.join(',')+')');
+    if (adIds.length)   await _fetchAds('id=in.('+adIds.join(',')+')');
     camps.forEach(function(c){
-      var a = adsById[c.ad_id];
+      var a = adsByCampaign[c.id] || adsById[c.ad_id];
       if (a) {
         // Mirror onto the campaign so existing render code keeps working
         c.live_url = c.live_url || a.live_url;
