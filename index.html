@@ -3442,6 +3442,11 @@ async function loadPartnerComms(){
     var res = await sbFetch('/rest/v1/partner_commissions?partner_id=eq.'+window._partnerData.id+'&order=earned_at.desc&limit=50');
     window._partnerComms = res.ok ? await res.json() : [];
   } catch(e){ window._partnerComms = []; }
+  // Payout requests (withdraw events for the statement)
+  try {
+    var pr2 = await sbFetch('/rest/v1/payout_requests?partner_id=eq.'+window._partnerData.id+'&order=requested_at.desc&limit=50');
+    window._partnerPayouts = pr2.ok ? await pr2.json() : [];
+  } catch(e){ window._partnerPayouts = []; }
   // Cache flyer plan tiers for the convert-to-credit preview (views parsed from name)
   if(!window._flyerPlans){
     try {
@@ -11553,35 +11558,11 @@ function partnerDashHTML() {
   h+='<div style="background:var(--bluel);border-radius:14px;padding:13px 15px;margin-bottom:16px;font-size:13px;color:#1e40af;line-height:1.5">'
     +'<b>How you earn:</b> You get <b>10%</b> the first time a client you referred pays, and <b>5%</b> every time they pay again. Your money becomes withdrawable <b>7 days</b> after each payment.</div>';
 
-  // ── Earnings list (friendly) — filtered by the period chosen at the top ──
-  h+='<div style="display:flex;align-items:center;justify-content:space-between;margin:8px 2px 10px">'
-    +'<div style="font-size:15px;font-weight:800;color:var(--text)">Your earnings'+(period!=='all'?' · '+(periodLabels[period]||''):'')+'</div>'
-    +'<button onclick="openStatement()" style="display:flex;align-items:center;gap:5px;padding:7px 12px;border:1px solid var(--border);border-radius:10px;background:var(--white);color:var(--text);font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">📄 Statement</button>'
-  +'</div>';
-  if(!comms.length){
-    h+='<div style="background:var(--white);border:1px dashed var(--border);border-radius:14px;padding:32px 18px;text-align:center;color:var(--sub);font-size:13.5px;line-height:1.5">No earnings yet.<br>When someone you referred pays their first invoice, you\u2019ll see your commission here.</div>';
-  } else {
-    h+='<div style="display:flex;flex-direction:column;gap:10px">';
-    comms.forEach(function(c){
-      var who=(c.leads&&c.leads.name)||c.client_name||c.company||'Your client';
-      var first = c.commission_type!=='recurring';
-      var typ = first ? 'First payment · 10%' : 'Repeat payment · 5%';
-      var st, stCol, stBg;
-      if(c.status==='paid'){ st='Paid to you'; stCol='var(--green)'; stBg='var(--greenl)'; }
-      else if(c.status==='requested'){ st='Withdrawal requested'; stCol='#2563eb'; stBg='var(--bluel)'; }
-      else if(commMature(c)){ st='Ready to withdraw'; stCol='var(--green)'; stBg='var(--greenl)'; }
-      else { st='Unlocks '+matureDate(c); stCol='#b45309'; stBg='var(--amberl)'; }
-      h+='<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px 15px">'
-        +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">'
-        +'<div style="min-width:0"><div style="font-size:15px;font-weight:800;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+who+'</div>'
-        +'<div style="font-size:12px;color:var(--sub);margin-top:2px">'+typ+' · '+fmtD(c.earned_at)+'</div></div>'
-        +'<div style="font-size:20px;font-weight:900;color:var(--green);letter-spacing:-.02em;white-space:nowrap">'+money(c.commission_cad)+'</div>'
-        +'</div>'
-        +'<div style="margin-top:10px"><span style="font-size:11.5px;font-weight:700;padding:4px 11px;border-radius:20px;background:'+stBg+';color:'+stCol+'">'+st+'</span></div>'
-      +'</div>';
-    });
-    h+='</div>';
-  }
+  // ── Statement (bank-style ledger) — single clean view of all money movement ──
+  h+='<div style="font-size:15px;font-weight:800;color:var(--text);margin:8px 2px 10px">Statement</div>';
+  h+='<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden">'
+    + _buildStatement(window._partnerComms||[], window._partnerPayouts||[])
+    + '</div>';
 
   // ── Referral link (HIDDEN until adviuz.ca referral site is live) ──
   // var refUrl = p.ref_url || ('https://adviuz.ca/r/' + (p.ref_code||''));
