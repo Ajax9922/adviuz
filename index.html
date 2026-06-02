@@ -11651,59 +11651,102 @@ function openPayoutSheet(available){
   var el = document.getElementById('poEmail'); if (el) el.value = lastEmail;
   var amtEl = document.getElementById('poAmount');
   if (amtEl) amtEl.textContent = '$'+(window._payoutAvailable).toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2});
+  var wInput = document.getElementById('poWithdrawAmt');
+  if (wInput) { wInput.value = (window._payoutAvailable).toFixed(2); wInput.max = window._payoutAvailable; }
+  poUpdateRemain();
   openSheet('payoutSh');
 }
+function poSetMax(){
+  var w=document.getElementById('poWithdrawAmt');
+  if(w){ w.value=(window._payoutAvailable||0).toFixed(2); poUpdateRemain(); }
+}
+function poUpdateRemain(){
+  var w=document.getElementById('poWithdrawAmt');
+  var note=document.getElementById('poRemainNote');
+  if(!w||!note) return;
+  var amt=Math.max(0, +w.value||0);
+  var avail=window._payoutAvailable||0;
+  var keep=Math.max(0, avail-amt);
+  if(amt>avail){ note.innerHTML='<span style="color:#dc2626">Amount exceeds your available '+'$'+avail.toFixed(2)+'</span>'; }
+  else if(keep>0){ note.textContent='$'+keep.toFixed(2)+' will stay in your balance (usable for views).'; }
+  else { note.textContent='Withdrawing your full balance.'; }
+}
 
-// Submit an e-Transfer payout request
+// Submit an e-Transfer payout request (supports partial amount)
 async function submitEtransferPayout(){
   var HOLD=7, DAY=86400000, nowMs=Date.now();
   function mature(c){ var t=c.earned_at?new Date(c.earned_at).getTime():0; return t ? (nowMs>=t+HOLD*DAY) : true; }
-  var comms=(window._partnerComms||[]).filter(function(c){return c.status==='earned' && mature(c);});
-  if(!comms.length){ showToast('Nothing available yet — commissions release 7 days after payment'); return; }
-  var amt=comms.reduce(function(s,c){return s+(+c.commission_cad||0);},0);
-  var ids=comms.map(function(c){return c.id;}).filter(Boolean);
+  var avail=window._payoutAvailable||0;
 
-  var email=(document.getElementById('poEmail')||{}).value||'';
-  email=email.trim();
+  var want=+(document.getElementById('poWithdrawAmt')||{}).value||0;
+  want=Math.round(want*100)/100;
+  if(want<=0){ showToast('Enter an amount to withdraw'); return; }
+  if(want>avail+0.001){ showToast('Amount exceeds your available $'+avail.toFixed(2)); return; }
+
+  var email=((document.getElementById('poEmail')||{}).value||'').trim();
   if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ showToast('Enter a valid e-Transfer email'); return; }
+
+  // matured 'earned' commissions, smallest first so we pick efficiently
+  var pool=(window._partnerComms||[]).filter(function(c){return c.status==='earned' && mature(c);})
+            .sort(function(a,b){return (+a.commission_cad||0)-(+b.commission_cad||0);});
+  if(!pool.length){ showToast('Nothing available yet'); return; }
 
   var btn=document.getElementById('poSubmitBtn');
   if(btn){ btn.disabled=true; btn.textContent='Requesting…'; }
 
   try{
     var pid=(window._partnerData||{}).id;
-    // Daily cap: sum today's requested amounts for this partner.
+    // Daily cap
     var todayStart=new Date(); todayStart.setHours(0,0,0,0);
     var capRes=await sbFetch('/rest/v1/payout_requests?partner_id=eq.'+pid+'&requested_at=gte.'+encodeURIComponent(todayStart.toISOString())+'&select=amount_cad');
     var usedToday=0;
     if(capRes.ok){ (await capRes.json()).forEach(function(r){ usedToday+=(+r.amount_cad||0); }); }
-    if(usedToday+amt > DAILY_PAYOUT_CAP){
+    if(usedToday+want > DAILY_PAYOUT_CAP){
       var left=Math.max(0, DAILY_PAYOUT_CAP-usedToday);
       showToast('Daily limit is $'+DAILY_PAYOUT_CAP+'. You can still request $'+left.toFixed(2)+' today.');
       if(btn){ btn.disabled=false; btn.textContent='Request e-Transfer'; }
       return;
     }
 
+    // Select commissions to cover `want`; split the last one if needed.
+    var remaining=want, fullIds=[], splitRow=null;
+    for(var i=0;i<pool.length && remaining>0.001;i++){
+      var c=pool[i], v=+c.commission_cad||0;
+      if(v<=remaining+0.001){ fullIds.push(c.id); remaining=Math.round((remaining-v)*100)/100; }
+      else { splitRow={ id:c.id, full:v, take:Math.round(remaining*100)/100 }; remaining=0; }
+    }
+
     try{ localStorage.setItem('adviuz_etransfer_email', email); }catch(e){}
 
-    // 1) Log the payout request
+    // 1) Mark the fully-withdrawn commissions as requested
+    if(fullIds.length){
+      await sbFetch('/rest/v1/partner_commissions?id=in.('+fullIds.join(',')+')',{method:'PATCH',body:JSON.stringify({status:'requested'})});
+    }
+    // 2) Split a commission if partial: shrink original (stays earned), add a new requested row for the taken part
+    if(splitRow){
+      var keep=Math.round((splitRow.full-splitRow.take)*100)/100;
+      await sbFetch('/rest/v1/partner_commissions?id=eq.'+splitRow.id,{method:'PATCH',body:JSON.stringify({commission_cad:keep})});
+      await sbFetch('/rest/v1/partner_commissions',{method:'POST',body:JSON.stringify({
+        partner_id:pid, commission_cad:splitRow.take, status:'requested',
+        earned_at:new Date(nowMs-(HOLD+1)*DAY).toISOString()
+      })});
+    }
+
+    // 3) Log the payout request
     await sbFetch('/rest/v1/payout_requests',{method:'POST',body:JSON.stringify({
-      partner_id:pid, amount_cad:amt, method:'etransfer', etransfer_email:email,
-      fee_cad:0, net_cad:amt, commission_ids:ids, status:'requested',
+      partner_id:pid, amount_cad:want, method:'etransfer', etransfer_email:email,
+      fee_cad:0, net_cad:want, commission_ids:fullIds, status:'requested',
       requested_at:new Date().toISOString()
     })});
-    // 2) Flip commissions to 'requested'
-    if(ids.length){
-      await sbFetch('/rest/v1/partner_commissions?id=in.('+ids.join(',')+')',{method:'PATCH',body:JSON.stringify({status:'requested'})});
-    }
-    (window._partnerComms||[]).forEach(function(c){ if(c.status==='earned') c.status='requested'; });
 
-    // 3) Notify admin (in-app bell + email)
+    // 4) Notify admin
     var pname=(window._partnerData||{}).full_name||(window._partnerData||{}).name||'A partner';
-    notifyAdminPayout(pname, amt, email).catch(function(){});
+    notifyAdminPayout(pname, want, email).catch(function(){});
 
+    // 5) Refresh from DB so the screen reflects saved state
+    await loadPartnerComms();
     closeSheet('payoutSh');
-    showToast('\u2705 e-Transfer of $'+amt.toFixed(2)+' requested');
+    showToast('\u2705 e-Transfer of $'+want.toFixed(2)+' requested');
     render();
   }catch(e){
     showToast('Could not request payout: '+(e.message||'error'));
@@ -16397,6 +16440,13 @@ document.addEventListener('click', function(ev){
           <span style="margin-left:auto;font-size:11px;font-weight:700;color:var(--green);background:var(--white);border:1px solid var(--green);border-radius:99px;padding:2px 9px">No fees</span>
         </div>
         <div style="font-size:12px;color:var(--sub);margin-bottom:12px">Sent to your email. Maximum $3,000 per day.</div>
+        <label style="font-size:12px;font-weight:700;color:var(--sub);display:block;margin-bottom:5px">Amount to withdraw</label>
+        <div style="display:flex;align-items:center;border:1.5px solid var(--border);border-radius:10px;padding:0 12px;margin-bottom:5px;background:var(--white)">
+          <span style="font-size:16px;font-weight:800;color:var(--text)">$</span>
+          <input id="poWithdrawAmt" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" oninput="poUpdateRemain()" class="finp" style="border:none;background:none;padding:11px 8px;flex:1;font-size:16px;font-weight:700">
+          <button onclick="poSetMax()" style="border:none;background:var(--greenl,#f0fdf4);color:var(--green);font-weight:800;font-size:12px;border-radius:7px;padding:5px 10px;cursor:pointer;font-family:var(--f)">MAX</button>
+        </div>
+        <div id="poRemainNote" style="font-size:11px;color:var(--sub);margin-bottom:12px"></div>
         <label style="font-size:12px;font-weight:700;color:var(--sub);display:block;margin-bottom:5px">Send money to email</label>
         <input id="poEmail" type="email" inputmode="email" placeholder="you@email.com" class="finp" style="width:100%;margin-bottom:12px">
         <button id="poSubmitBtn" onclick="submitEtransferPayout()" style="width:100%;padding:13px;border:none;border-radius:11px;background:var(--green);color:#fff;font-weight:800;font-size:14px;font-family:var(--f);cursor:pointer">Request e-Transfer</button>
