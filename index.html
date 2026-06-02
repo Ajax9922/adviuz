@@ -11554,7 +11554,10 @@ function partnerDashHTML() {
     +'<b>How you earn:</b> You get <b>10%</b> the first time a client you referred pays, and <b>5%</b> every time they pay again. Your money becomes withdrawable <b>7 days</b> after each payment.</div>';
 
   // ── Earnings list (friendly) — filtered by the period chosen at the top ──
-  h+='<div style="font-size:15px;font-weight:800;color:var(--text);margin:8px 2px 10px">Your earnings'+(period!=='all'?' · '+(periodLabels[period]||''):'')+'</div>';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;margin:8px 2px 10px">'
+    +'<div style="font-size:15px;font-weight:800;color:var(--text)">Your earnings'+(period!=='all'?' · '+(periodLabels[period]||''):'')+'</div>'
+    +'<button onclick="openStatement()" style="display:flex;align-items:center;gap:5px;padding:7px 12px;border:1px solid var(--border);border-radius:10px;background:var(--white);color:var(--text);font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">📄 Statement</button>'
+  +'</div>';
   if(!comms.length){
     h+='<div style="background:var(--white);border:1px dashed var(--border);border-radius:14px;padding:32px 18px;text-align:center;color:var(--sub);font-size:13.5px;line-height:1.5">No earnings yet.<br>When someone you referred pays their first invoice, you\u2019ll see your commission here.</div>';
   } else {
@@ -11837,6 +11840,86 @@ async function notifyAdminPayout(partnerName, amount, email){
       from_email:'sales@adviuz.com', from_name:'Adviuz Hub', reply_to:'sales@adviuz.com'
     })});
   }catch(e){}
+}
+
+// ═══ ACCOUNT STATEMENT — bank-style ledger ═══
+// Merges commissions (deposits) + payout requests (withdrawals) into one
+// running-balance statement. Balance counts ALL earned commissions the moment
+// they're earned; a withdrawal subtracts the moment it's requested.
+async function openStatement(){
+  openSheet('statementSh');
+  var body=document.getElementById('statementBody');
+  if(body) body.innerHTML='<div style="text-align:center;padding:40px;color:var(--sub);font-size:13px">Loading statement…</div>';
+  var pid=(window._partnerData||{}).id;
+  var comms=[], pays=[];
+  try{
+    var cRes=await sbFetch('/rest/v1/partner_commissions?partner_id=eq.'+pid+'&select=commission_cad,commission_type,client_name,deal_amount,gross_revenue_cad,rate,commission_rate,earned_at,status&order=earned_at.asc');
+    comms=cRes.ok?await cRes.json():[];
+    var pRes=await sbFetch('/rest/v1/payout_requests?partner_id=eq.'+pid+'&select=amount_cad,method,status,requested_at,processed_at&order=requested_at.asc');
+    pays=pRes.ok?await pRes.json():[];
+  }catch(e){}
+  if(body) body.innerHTML=_buildStatement(comms,pays);
+}
+
+function _buildStatement(comms,pays){
+  var money=function(v){return '$'+(+v||0).toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2});};
+  var fmtD=function(s){ if(!s) return ''; var d=new Date(s); return isNaN(d)?'':d.toLocaleDateString('en-CA',{day:'2-digit',month:'short',year:'numeric'}); };
+
+  // Build unified event list
+  var rows=[];
+  comms.forEach(function(c){
+    var who=c.client_name||'Client';
+    var amt=+c.deal_amount||+c.gross_revenue_cad||0;
+    var rate=+c.rate||+c.commission_rate||0;
+    var first=c.commission_type!=='recurring';
+    var desc='Commission earned';
+    var sub=who+(amt?' ($'+amt.toLocaleString('en-CA')+')':'')+' '+(first?'first sale':'recurring sale')+(rate?' '+rate+'%':'');
+    rows.push({ when:c.earned_at, sortT:new Date(c.earned_at||0).getTime(), desc:desc, sub:sub, dep:+c.commission_cad||0, wd:0 });
+  });
+  pays.forEach(function(p){
+    var paid=p.status==='paid';
+    var desc='Cashout '+(paid?'paid':'requested');
+    var sub=(p.method==='etransfer'?'Interac e-Transfer':p.method||'')+(paid&&p.processed_at?' · paid '+fmtD(p.processed_at):' · ⏳ processing');
+    rows.push({ when:p.requested_at, sortT:new Date(p.requested_at||0).getTime(), desc:desc, sub:sub, dep:0, wd:+p.amount_cad||0, processing:!paid });
+  });
+
+  if(!rows.length){
+    return '<div style="text-align:center;padding:40px 24px;color:var(--sub);font-size:13.5px;line-height:1.6">No transactions yet.<br>Your earnings and withdrawals will appear here as a running statement.</div>';
+  }
+
+  // Sort oldest→newest, compute running balance
+  rows.sort(function(a,b){return a.sortT-b.sortT;});
+  var bal=0;
+  rows.forEach(function(r){ bal += r.dep - r.wd; r.bal=bal; });
+
+  var h='';
+  // Header row
+  h+='<div style="display:grid;grid-template-columns:1fr 70px 70px 78px;gap:8px;padding:11px 14px;background:var(--bg);border-bottom:1px solid var(--border);font-size:10px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.04em;position:sticky;top:0">'
+    +'<div>Date / Description</div>'
+    +'<div style="text-align:right">Deposit</div>'
+    +'<div style="text-align:right">Withdraw</div>'
+    +'<div style="text-align:right">Balance</div>'
+  +'</div>';
+  // Rows
+  rows.forEach(function(r){
+    h+='<div style="display:grid;grid-template-columns:1fr 70px 70px 78px;gap:8px;padding:12px 14px;border-bottom:1px solid var(--border);align-items:start">'
+      +'<div style="min-width:0">'
+        +'<div style="font-size:12px;font-weight:700;color:var(--text)">'+fmtD(r.when)+'</div>'
+        +'<div style="font-size:12px;color:var(--text);margin-top:3px">'+r.desc+(r.processing?' <span style="font-size:10px;font-weight:700;color:#2563eb;background:var(--bluel);padding:1px 6px;border-radius:10px">processing</span>':'')+'</div>'
+        +(r.sub?'<div style="font-size:11px;color:var(--sub);margin-top:1px">'+r.sub+'</div>':'')
+      +'</div>'
+      +'<div style="text-align:right;font-size:13px;font-weight:700;color:var(--green)">'+(r.dep?money(r.dep):'—')+'</div>'
+      +'<div style="text-align:right;font-size:13px;font-weight:700;color:#dc2626">'+(r.wd?money(r.wd):'—')+'</div>'
+      +'<div style="text-align:right;font-size:13px;font-weight:800;color:var(--text)">'+money(r.bal)+'</div>'
+    +'</div>';
+  });
+  // Footer summary
+  h+='<div style="padding:14px;background:var(--bg);border-top:2px solid var(--border);display:flex;justify-content:space-between;align-items:center">'
+    +'<span style="font-size:12px;font-weight:700;color:var(--sub)">Current balance</span>'
+    +'<span style="font-size:18px;font-weight:900;color:var(--text)">'+money(bal)+'</span>'
+  +'</div>'
+  +'<div style="padding:10px 14px 18px;font-size:10.5px;color:var(--sub);line-height:1.5;text-align:center">Balance reflects all commissions earned, minus cashouts requested or paid. Withdrawals marked “processing” are awaiting admin payout.</div>';
+  return h;
 }
 
 function openAddLeadSheet() {
@@ -16466,6 +16549,18 @@ document.addEventListener('click', function(ev){
     <div class="sh-body" style="padding:0;flex:1;overflow:hidden;display:flex">
       <iframe id="clientPreviewIframe" style="border:none;width:100%;height:70dvh;background:#fff" src="about:blank"></iframe>
     </div>
+  </div>
+</div>
+
+<!-- ══ ACCOUNT STATEMENT SHEET (bank-style ledger) ══ -->
+<div class="sheet-ov" id="statementSh" onclick="if(event.target===this)closeSheet('statementSh')" style="z-index:791">
+  <div class="sheet" style="max-height:92dvh">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">📄 Account Statement</div>
+      <button class="sheet-x" onclick="closeSheet('statementSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body no-sb" id="statementBody" style="padding:0"></div>
   </div>
 </div>
 
