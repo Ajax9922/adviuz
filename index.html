@@ -11476,7 +11476,7 @@ function partnerDashHTML() {
   if(available>=MIN_PAYOUT){
     cashSub = money(available)+' ready';
     cashBtn = '<div style="display:flex;gap:8px;margin-top:10px">'
-      +'<button onclick="requestPayout()" style="flex:1;padding:13px;border:none;border-radius:12px;background:var(--green);color:#fff;font-weight:800;font-size:14px;font-family:var(--f);cursor:pointer">Request Cashout</button>'
+      +'<button onclick="openPayoutSheet('+available+')" style="flex:1;padding:13px;border:none;border-radius:12px;background:var(--green);color:#fff;font-weight:800;font-size:14px;font-family:var(--f);cursor:pointer">Request Cashout</button>'
       +'<button onclick="openConvertCredit('+available+')" style="flex:1;padding:13px;border:1px solid var(--green);border-radius:12px;background:var(--white);color:var(--green);font-weight:800;font-size:14px;font-family:var(--f);cursor:pointer">Use as credit</button>'
       +'</div>';
   } else if(available>0){
@@ -11641,29 +11641,108 @@ async function doConvertCredit(){
   }
 }
 
-// Request payout for all "earned" commissions
-async function requestPayout(){
+// Open the payout method chooser (e-Transfer now / Stripe coming soon)
+var DAILY_PAYOUT_CAP = 3000;
+function openPayoutSheet(available){
+  window._payoutAvailable = +available || 0;
+  var lastEmail = '';
+  try { lastEmail = localStorage.getItem('adviuz_etransfer_email') || ''; } catch(e){}
+  if (!lastEmail) lastEmail = (window._partnerData && (window._partnerData.email||'')) || '';
+  var el = document.getElementById('poEmail'); if (el) el.value = lastEmail;
+  var amtEl = document.getElementById('poAmount');
+  if (amtEl) amtEl.textContent = '$'+(window._payoutAvailable).toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2});
+  openSheet('payoutSh');
+}
+
+// Submit an e-Transfer payout request
+async function submitEtransferPayout(){
   var HOLD=7, DAY=86400000, nowMs=Date.now();
   function mature(c){ var t=c.earned_at?new Date(c.earned_at).getTime():0; return t ? (nowMs>=t+HOLD*DAY) : true; }
   var comms=(window._partnerComms||[]).filter(function(c){return c.status==='earned' && mature(c);});
   if(!comms.length){ showToast('Nothing available yet — commissions release 7 days after payment'); return; }
   var amt=comms.reduce(function(s,c){return s+(+c.commission_cad||0);},0);
   var ids=comms.map(function(c){return c.id;}).filter(Boolean);
-  if(typeof sbFetch!=='function'){ showToast('Payout requested'); return; }
+
+  var email=(document.getElementById('poEmail')||{}).value||'';
+  email=email.trim();
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ showToast('Enter a valid e-Transfer email'); return; }
+
+  var btn=document.getElementById('poSubmitBtn');
+  if(btn){ btn.disabled=true; btn.textContent='Requesting…'; }
+
   try{
-    // 1. Log a payout request
+    var pid=(window._partnerData||{}).id;
+    // Daily cap: sum today's requested amounts for this partner.
+    var todayStart=new Date(); todayStart.setHours(0,0,0,0);
+    var capRes=await sbFetch('/rest/v1/payout_requests?partner_id=eq.'+pid+'&requested_at=gte.'+encodeURIComponent(todayStart.toISOString())+'&select=amount_cad');
+    var usedToday=0;
+    if(capRes.ok){ (await capRes.json()).forEach(function(r){ usedToday+=(+r.amount_cad||0); }); }
+    if(usedToday+amt > DAILY_PAYOUT_CAP){
+      var left=Math.max(0, DAILY_PAYOUT_CAP-usedToday);
+      showToast('Daily limit is $'+DAILY_PAYOUT_CAP+'. You can still request $'+left.toFixed(2)+' today.');
+      if(btn){ btn.disabled=false; btn.textContent='Request e-Transfer'; }
+      return;
+    }
+
+    try{ localStorage.setItem('adviuz_etransfer_email', email); }catch(e){}
+
+    // 1) Log the payout request
     await sbFetch('/rest/v1/payout_requests',{method:'POST',body:JSON.stringify({
-      partner_id:(window._partnerData||{}).id, amount_cad:amt,
-      commission_ids:ids, status:'requested', requested_at:new Date().toISOString()
-    })}).catch(function(){});
-    // 2. Flip those commissions to 'requested'
+      partner_id:pid, amount_cad:amt, method:'etransfer', etransfer_email:email,
+      fee_cad:0, net_cad:amt, commission_ids:ids, status:'requested',
+      requested_at:new Date().toISOString()
+    })});
+    // 2) Flip commissions to 'requested'
     if(ids.length){
       await sbFetch('/rest/v1/partner_commissions?id=in.('+ids.join(',')+')',{method:'PATCH',body:JSON.stringify({status:'requested'})});
     }
     (window._partnerComms||[]).forEach(function(c){ if(c.status==='earned') c.status='requested'; });
-    showToast('\u2705 Payout of CAD $'+amt.toFixed(2)+' requested');
+
+    // 3) Notify admin (in-app bell + email)
+    var pname=(window._partnerData||{}).full_name||(window._partnerData||{}).name||'A partner';
+    notifyAdminPayout(pname, amt, email).catch(function(){});
+
+    closeSheet('payoutSh');
+    showToast('\u2705 e-Transfer of $'+amt.toFixed(2)+' requested');
     render();
-  }catch(e){ showToast('Could not request payout: '+(e.message||'error')); }
+  }catch(e){
+    showToast('Could not request payout: '+(e.message||'error'));
+    if(btn){ btn.disabled=false; btn.textContent='Request e-Transfer'; }
+  }
+}
+
+// In-app admin notification + email to sales@adviuz.ca
+async function notifyAdminPayout(partnerName, amount, email){
+  var amtStr='$'+(+amount).toFixed(2);
+  // In-app notification (admin bell)
+  try{
+    await sbFetch('/rest/v1/admin_notifications',{method:'POST',body:JSON.stringify({
+      type:'payout_request',
+      title:'💸 Payout request',
+      body:partnerName+' requested '+amtStr+' via e-Transfer to '+email,
+      link:'commissions',
+      is_read:false, created_at:new Date().toISOString()
+    })});
+  }catch(e){}
+  // Email
+  try{
+    await sbFetch('/functions/v1/send-email',{method:'POST',body:JSON.stringify({
+      to:'sales@adviuz.ca',
+      subject:'💸 Payout request: '+partnerName+' — '+amtStr,
+      html:'<div style="font-family:Arial,sans-serif;font-size:14px;color:#111;line-height:1.6">'
+        +'<h2 style="margin:0 0 12px">New payout request</h2>'
+        +'<p><b>Partner:</b> '+partnerName+'</p>'
+        +'<p><b>Amount:</b> '+amtStr+' CAD</p>'
+        +'<p><b>Method:</b> Interac e-Transfer (no fee)</p>'
+        +'<p><b>Send to email:</b> '+email+'</p>'
+        +'<p style="color:#666">Requested '+new Date().toLocaleString('en-CA')+'</p>'
+        +'<p><a href="https://hub.adviuz.ca" style="display:inline-block;background:#00a884;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700">Open Hub</a></p>'
+        +'</div>',
+      text:partnerName+' requested '+amtStr+' via e-Transfer to '+email,
+      type:'transactional',
+      from_email:'sales@adviuz.com', from_name:'Adviuz Hub', reply_to:'sales@adviuz.com'
+    })});
+  }catch(e){}
 }
 
 function openAddLeadSheet() {
@@ -16292,6 +16371,46 @@ document.addEventListener('click', function(ev){
     </div>
     <div class="sh-body" style="padding:0;flex:1;overflow:hidden;display:flex">
       <iframe id="clientPreviewIframe" style="border:none;width:100%;height:70dvh;background:#fff" src="about:blank"></iframe>
+    </div>
+  </div>
+</div>
+
+<!-- ══ PAYOUT METHOD SHEET ══ -->
+<div class="sheet-ov" id="payoutSh" onclick="if(event.target===this)closeSheet('payoutSh')" style="z-index:790">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">💸 Request Cashout</div>
+      <button class="sheet-x" onclick="closeSheet('payoutSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body">
+      <div style="text-align:center;margin-bottom:18px">
+        <div style="font-size:12px;color:var(--sub);font-weight:600">Available to withdraw</div>
+        <div id="poAmount" style="font-size:34px;font-weight:900;color:var(--text);letter-spacing:-.02em">$0.00</div>
+      </div>
+
+      <!-- e-Transfer -->
+      <div style="border:1.5px solid var(--green);border-radius:14px;padding:16px;margin-bottom:12px;background:var(--greenl,#f0fdf4)">
+        <div style="display:flex;align-items:center;gap:9px;margin-bottom:4px">
+          <span style="font-size:18px">🏦</span>
+          <span style="font-size:15px;font-weight:800;color:var(--text)">Interac e-Transfer</span>
+          <span style="margin-left:auto;font-size:11px;font-weight:700;color:var(--green);background:var(--white);border:1px solid var(--green);border-radius:99px;padding:2px 9px">No fees</span>
+        </div>
+        <div style="font-size:12px;color:var(--sub);margin-bottom:12px">Sent to your email. Maximum $3,000 per day.</div>
+        <label style="font-size:12px;font-weight:700;color:var(--sub);display:block;margin-bottom:5px">Send money to email</label>
+        <input id="poEmail" type="email" inputmode="email" placeholder="you@email.com" class="finp" style="width:100%;margin-bottom:12px">
+        <button id="poSubmitBtn" onclick="submitEtransferPayout()" style="width:100%;padding:13px;border:none;border-radius:11px;background:var(--green);color:#fff;font-weight:800;font-size:14px;font-family:var(--f);cursor:pointer">Request e-Transfer</button>
+      </div>
+
+      <!-- Stripe (coming soon) -->
+      <div style="border:1.5px solid var(--border);border-radius:14px;padding:16px;background:var(--bg);opacity:.75">
+        <div style="display:flex;align-items:center;gap:9px;margin-bottom:4px">
+          <span style="font-size:18px">💳</span>
+          <span style="font-size:15px;font-weight:800;color:var(--text)">Stripe / Online</span>
+          <span style="margin-left:auto;font-size:11px;font-weight:700;color:var(--sub);background:var(--white);border:1px solid var(--border);border-radius:99px;padding:2px 9px">Coming soon</span>
+        </div>
+        <div style="font-size:12px;color:var(--sub)">Instant transfer to your card or bank · 3% fee applies.</div>
+      </div>
     </div>
   </div>
 </div>
