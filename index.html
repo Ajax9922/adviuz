@@ -11476,13 +11476,22 @@ function partnerDashHTML() {
   function matMs(c){ var t=c.earned_at?new Date(c.earned_at).getTime():0; return t?t+HOLD_DAYS*DAY:nowMs; }
   function commMature(c){ return nowMs >= matMs(c); }
   function commDaysLeft(c){ return Math.max(1, Math.ceil((matMs(c)-nowMs)/DAY)); }
-  // Withdrawable / on-the-way are computed on ALL commissions (money doesn't disappear when you filter the view)
-  var earnedC   = allComms.filter(function(c){return c.status==='earned';});
-  var available = earnedC.filter(commMature).reduce(function(s,c){return s+(+c.commission_cad||0);},0);
-  var maturing  = earnedC.filter(function(c){return !commMature(c);}).reduce(function(s,c){return s+(+c.commission_cad||0);},0);
-  var nextDays  = earnedC.filter(function(c){return !commMature(c);}).reduce(function(m,c){var d=commDaysLeft(c);return (m===null||d<m)?d:m;}, null);
-  var paid      = allComms.filter(function(c){return c.status==='paid';}).reduce(function(s,c){return s+(+c.commission_cad||0);},0);
-  var requested = allComms.filter(function(c){return c.status==='requested';}).reduce(function(s,c){return s+(+c.commission_cad||0);},0);
+
+  // NEW MODEL: commissions are pure deposits (no 'requested' status on them).
+  // Withdrawals live only in payout_requests and reduce availability.
+  var payouts = window._partnerPayouts || [];
+  var pendingOut = payouts.filter(function(p){return p.status==='requested';}).reduce(function(s,p){return s+(+p.amount_cad||0);},0);
+  var paidOut    = payouts.filter(function(p){return p.status==='paid';}).reduce(function(s,p){return s+(+p.amount_cad||0);},0);
+  var totalOut   = pendingOut + paidOut;
+
+  var maturedTotal = allComms.filter(commMature).reduce(function(s,c){return s+(+c.commission_cad||0);},0);
+  var maturing     = allComms.filter(function(c){return !commMature(c);}).reduce(function(s,c){return s+(+c.commission_cad||0);},0);
+  var nextDays     = allComms.filter(function(c){return !commMature(c);}).reduce(function(m,c){var d=commDaysLeft(c);return (m===null||d<m)?d:m;}, null);
+
+  // Available to cash out = matured commissions, minus everything already taken out.
+  var available = Math.max(0, maturedTotal - totalOut);
+  var requested = pendingOut;          // shown as "withdrawal pending"
+  var paid      = paidOut;             // shown as "paid out"
   var lifetime  = allComms.reduce(function(s,c){return s+(+c.commission_cad||0);},0);
   // Earned within the selected period (for the period summary + list)
   var periodEarned = comms.reduce(function(s,c){return s+(+c.commission_cad||0);},0);
@@ -11560,7 +11569,7 @@ function partnerDashHTML() {
 
   // ── Statement (bank-style ledger) — single clean view of all money movement ──
   h+='<div style="font-size:15px;font-weight:800;color:var(--text);margin:8px 2px 10px">Statement</div>';
-  h+='<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden">'
+  h+='<div id="stmtCard" style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden">'
     + _buildStatement(window._partnerComms||[], window._partnerPayouts||[])
     + '</div>';
 
@@ -11699,8 +11708,7 @@ function poUpdateRemain(){
 
 // Submit an e-Transfer payout request (supports partial amount)
 async function submitEtransferPayout(){
-  var HOLD=7, DAY=86400000, nowMs=Date.now();
-  function mature(c){ var t=c.earned_at?new Date(c.earned_at).getTime():0; return t ? (nowMs>=t+HOLD*DAY) : true; }
+  var DAY=86400000;
   var avail=window._payoutAvailable||0;
 
   var want=+(document.getElementById('poWithdrawAmt')||{}).value||0;
@@ -11710,11 +11718,6 @@ async function submitEtransferPayout(){
 
   var email=((document.getElementById('poEmail')||{}).value||'').trim();
   if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ showToast('Enter a valid e-Transfer email'); return; }
-
-  // matured 'earned' commissions, smallest first so we pick efficiently
-  var pool=(window._partnerComms||[]).filter(function(c){return c.status==='earned' && mature(c);})
-            .sort(function(a,b){return (+a.commission_cad||0)-(+b.commission_cad||0);});
-  if(!pool.length){ showToast('Nothing available yet'); return; }
 
   var btn=document.getElementById('poSubmitBtn');
   if(btn){ btn.disabled=true; btn.textContent='Requesting…'; }
@@ -11743,42 +11746,21 @@ async function submitEtransferPayout(){
       return;
     }
 
-    // Select commissions to cover `want`; split the last one if needed.
-    var remaining=want, fullIds=[], splitRow=null;
-    for(var i=0;i<pool.length && remaining>0.001;i++){
-      var c=pool[i], v=+c.commission_cad||0;
-      if(v<=remaining+0.001){ fullIds.push(c.id); remaining=Math.round((remaining-v)*100)/100; }
-      else { splitRow={ id:c.id, full:v, take:Math.round(remaining*100)/100 }; remaining=0; }
-    }
-
     try{ localStorage.setItem('adviuz_etransfer_email', email); }catch(e){}
 
-    // 1) Mark the fully-withdrawn commissions as requested
-    if(fullIds.length){
-      await sbFetch('/rest/v1/partner_commissions?id=in.('+fullIds.join(',')+')',{method:'PATCH',body:JSON.stringify({status:'requested'})});
-    }
-    // 2) Split a commission if partial: shrink original (stays earned), add a new requested row for the taken part
-    if(splitRow){
-      var keep=Math.round((splitRow.full-splitRow.take)*100)/100;
-      await sbFetch('/rest/v1/partner_commissions?id=eq.'+splitRow.id,{method:'PATCH',body:JSON.stringify({commission_cad:keep})});
-      await sbFetch('/rest/v1/partner_commissions',{method:'POST',body:JSON.stringify({
-        partner_id:pid, commission_cad:splitRow.take, status:'requested',
-        earned_at:new Date(nowMs-(HOLD+1)*DAY).toISOString()
-      })});
-    }
-
-    // 3) Log the payout request
+    // Record the withdrawal ONLY in payout_requests. Commissions are pure
+    // deposits and are never modified — the statement stays correct.
     await sbFetch('/rest/v1/payout_requests',{method:'POST',body:JSON.stringify({
       partner_id:pid, amount_cad:want, method:'etransfer', etransfer_email:email,
-      fee_cad:0, net_cad:want, commission_ids:fullIds, status:'requested',
+      fee_cad:0, net_cad:want, status:'requested',
       requested_at:new Date().toISOString()
     })});
 
-    // 4) Notify admin
+    // Notify admin (in-app bell + email)
     var pname=(window._partnerData||{}).full_name||(window._partnerData||{}).name||'A partner';
     notifyAdminPayout(pname, want, email).catch(function(){});
 
-    // 5) Refresh from DB so the screen reflects saved state
+    // Refresh from DB so the screen reflects saved state
     await loadPartnerComms();
     closeSheet('payoutSh');
     showToast('\u2705 e-Transfer of $'+want.toFixed(2)+' requested');
@@ -11868,21 +11850,62 @@ function _buildStatement(comms,pays){
     return '<div style="text-align:center;padding:40px 24px;color:var(--sub);font-size:13.5px;line-height:1.6">No transactions yet.<br>Your earnings and withdrawals will appear here as a running statement.</div>';
   }
 
-  // Sort oldest→newest, compute running balance
+  // ALWAYS compute the running balance on the full chronological history first,
+  // so filtering the view never distorts the balance column.
   rows.sort(function(a,b){return a.sortT-b.sortT;});
   var bal=0;
   rows.forEach(function(r){ bal += r.dep - r.wd; r.bal=bal; });
+  var currentBalance=bal;
+
+  // ── State (defaults: this month, newest first) ──
+  if(!window._stmtPeriod) window._stmtPeriod='month';
+  if(!window._stmtSort)   window._stmtSort='new';
+  var period=window._stmtPeriod, sort=window._stmtSort;
+
+  // ── Period filter (for display only) ──
+  var now=new Date(), pStart=0, pEnd=Date.now()+86400000;
+  (function(){
+    var d=new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if(period==='month'){ pStart=new Date(now.getFullYear(), now.getMonth(), 1).getTime(); }
+    else if(period==='lmonth'){ pStart=new Date(now.getFullYear(), now.getMonth()-1, 1).getTime(); pEnd=new Date(now.getFullYear(), now.getMonth(), 1).getTime()-1; }
+    else if(period==='3m'){ pStart=new Date(now.getFullYear(), now.getMonth()-3, 1).getTime(); }
+    else if(period==='6m'){ pStart=new Date(now.getFullYear(), now.getMonth()-6, 1).getTime(); }
+    else if(period==='1y'){ pStart=new Date(now.getFullYear()-1, now.getMonth(), 1).getTime(); }
+    else if(period==='all'){ pStart=0; pEnd=Date.now()+86400000; }
+  })();
+  var shown=rows.filter(function(r){ return r.sortT>=pStart && r.sortT<=pEnd; });
+
+  // ── Sort (for display order) ──
+  if(sort==='new')       shown.sort(function(a,b){return b.sortT-a.sortT;});
+  else if(sort==='old')  shown.sort(function(a,b){return a.sortT-b.sortT;});
+  else if(sort==='dep_hi') shown.sort(function(a,b){return b.dep-a.dep;});
+  else if(sort==='dep_lo') shown.sort(function(a,b){return a.dep-b.dep;});
+  else if(sort==='wd_hi')  shown.sort(function(a,b){return b.wd-a.wd;});
+  else if(sort==='wd_lo')  shown.sort(function(a,b){return a.wd-b.wd;});
+
+  var periodLabels={month:'This month',lmonth:'Last month','3m':'Last 3 months','6m':'Last 6 months','1y':'Last year',all:'All time'};
+  var sortLabels={new:'Newest first',old:'Oldest first',dep_hi:'Deposit high→low',dep_lo:'Deposit low→high',wd_hi:'Withdraw high→low',wd_lo:'Withdraw low→high'};
+  function opt(val,cur,map){ return Object.keys(map).map(function(k){return '<option value="'+k+'"'+(k===cur?' selected':'')+'>'+map[k]+'</option>';}).join(''); }
 
   var h='';
+  // ── Controls: period + sort dropdowns ──
+  h+='<div style="display:flex;gap:8px;padding:12px 14px;background:var(--white);border-bottom:1px solid var(--border)">'
+    +'<select onchange="window._stmtPeriod=this.value;_refreshStatement()" style="flex:1;min-width:0;padding:9px 10px;border:1.5px solid var(--border);border-radius:9px;background:var(--bg);font-family:var(--f);font-size:12px;font-weight:600;color:var(--text);-webkit-appearance:none">'+opt(0,period,periodLabels)+'</select>'
+    +'<select onchange="window._stmtSort=this.value;_refreshStatement()" style="flex:1;min-width:0;padding:9px 10px;border:1.5px solid var(--border);border-radius:9px;background:var(--bg);font-family:var(--f);font-size:12px;font-weight:600;color:var(--text);-webkit-appearance:none">'+opt(0,sort,sortLabels)+'</select>'
+  +'</div>';
   // Header row
-  h+='<div style="display:grid;grid-template-columns:1fr 70px 70px 78px;gap:8px;padding:11px 14px;background:var(--bg);border-bottom:1px solid var(--border);font-size:10px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.04em;position:sticky;top:0">'
+  h+='<div style="display:grid;grid-template-columns:1fr 70px 70px 78px;gap:8px;padding:11px 14px;background:var(--bg);border-bottom:1px solid var(--border);font-size:10px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.04em">'
     +'<div>Date / Description</div>'
     +'<div style="text-align:right">Deposit</div>'
     +'<div style="text-align:right">Withdraw</div>'
     +'<div style="text-align:right">Balance</div>'
   +'</div>';
+
+  if(!shown.length){
+    h+='<div style="text-align:center;padding:30px 20px;color:var(--sub);font-size:13px">No transactions in '+(periodLabels[period]||'this period').toLowerCase()+'.</div>';
+  }
   // Rows
-  rows.forEach(function(r){
+  shown.forEach(function(r){
     h+='<div style="display:grid;grid-template-columns:1fr 70px 70px 78px;gap:8px;padding:12px 14px;border-bottom:1px solid var(--border);align-items:start">'
       +'<div style="min-width:0">'
         +'<div style="font-size:12px;font-weight:700;color:var(--text)">'+fmtD(r.when)+'</div>'
@@ -11897,10 +11920,16 @@ function _buildStatement(comms,pays){
   // Footer summary
   h+='<div style="padding:14px;background:var(--bg);border-top:2px solid var(--border);display:flex;justify-content:space-between;align-items:center">'
     +'<span style="font-size:12px;font-weight:700;color:var(--sub)">Current balance</span>'
-    +'<span style="font-size:18px;font-weight:900;color:var(--text)">'+money(bal)+'</span>'
+    +'<span style="font-size:18px;font-weight:900;color:var(--text)">'+money(currentBalance)+'</span>'
   +'</div>'
   +'<div style="padding:10px 14px 18px;font-size:10.5px;color:var(--sub);line-height:1.5;text-align:center">Balance reflects all commissions earned, minus cashouts requested or paid. Withdrawals marked “processing” are awaiting admin payout.</div>';
   return h;
+}
+
+// Re-render just the statement card in place when sort/period changes
+function _refreshStatement(){
+  var card=document.getElementById('stmtCard');
+  if(card) card.innerHTML=_buildStatement(window._partnerComms||[], window._partnerPayouts||[]);
 }
 
 function openAddLeadSheet() {
