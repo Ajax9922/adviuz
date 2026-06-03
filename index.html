@@ -4266,7 +4266,7 @@ function _showControlBar(){
   if(typeof isClientMode==='function' && isClientMode()) return false;
   // On the dashboard tab: hide for admin management sub-views
   var sub = window._adminDashTab || '';
-  if(['affiliates','commissions'].indexOf(sub) !== -1) return false;
+  if(['affiliates','commissions','invoices'].indexOf(sub) !== -1) return false;
   return true;
 }
 function renderStats(){
@@ -15597,6 +15597,8 @@ function invShowDetail(invId) {
   }
   if(inv.pdf_url) {
     fhtml += '<button class="btn" style="width:100%;justify-content:center;padding:14px;background:#f1f5f9;border:1px solid var(--border);color:var(--text)" data-url="'+inv.pdf_url+'" onclick="window.open(this.dataset.url,\'_blank\')">⬇️ Download PDF</button>';
+  } else {
+    fhtml += '<button class="btn" style="width:100%;justify-content:center;padding:14px;background:var(--navy,#001f3f);border:none;color:#fff" data-id="'+inv.id+'" onclick="regenInvoicePdf(this.dataset.id, this)">🔄 Generate PDF</button>';
   }
   fhtml += '<div style="display:flex;gap:8px">'
     +'<button onclick="invEditFromDetail()" class="btn" style="flex:1;justify-content:center;background:#f1f5f9;border:1px solid var(--border);color:var(--text);padding:12px">✏️ Edit</button>'
@@ -15956,6 +15958,32 @@ function closeInvDetail()     { invClose(); }
 function downloadInvPdf(btn)  { window.open(btn.dataset.url,'_blank'); }
 function invEditFromDetail()  { var inv=window._currentInvDetail; if(inv) invShowCreate(inv); }
 
+// Rebuild the PDF for an EXISTING invoice (no new row, no email). Used when an invoice is missing its PDF.
+async function regenInvoicePdf(invId, btn){
+  var inv = _invMap[invId] || (_adminData.invoices||[]).find(function(x){return String(x.id)===String(invId);});
+  if(!inv) return;
+  if(btn){ btn.textContent='⏳ Generating…'; btn.disabled=true; }
+  try {
+    var res = await fetch(SB_FUNC_URL+'/generate-invoice', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken,'apikey':SB_ANON},
+      body: JSON.stringify({ regenerate_invoice_id: invId })
+    });
+    var d = await res.json().catch(function(){return {};});
+    if(!res.ok || d.error) throw new Error(d.error || ('Failed (status '+res.status+')'));
+    if(!d.invoice_url) throw new Error('No PDF returned');
+    inv.pdf_url = d.invoice_url;
+    var a = (_adminData.invoices||[]).find(function(x){return String(x.id)===String(invId);});
+    if(a) a.pdf_url = d.invoice_url;
+    _invMap[invId] = inv;
+    showToast('\u2705 PDF ready');
+    invShowDetail(invId);   // re-render → Download button now appears
+  } catch(e){
+    if(btn){ btn.textContent='\uD83D\uDD04 Generate PDF'; btn.disabled=false; }
+    showToast('\u274C '+e.message);
+  }
+}
+
 async function emailInvoiceManually(invNumber, invId, toEmail, pdfUrl) {
   if(!toEmail) { showToast('\u26a0\ufe0f No email address for this client'); return; }
   showToast('Sending\u2026');
@@ -16236,11 +16264,12 @@ function adInvoicesHTML() {
   var invs = (_adminData.invoices || []).slice();
 
   // ── All-time totals ──
-  var grossAll = 0, beforeAll = 0, taxAll = 0, collected = 0;
+  var grossAll = 0, beforeAll = 0, taxAll = 0, collected = 0, gstAll = 0, pstAll = 0, hstAll = 0;
   invs.forEach(function(i){
     var t  = parseFloat(i.total||0);
     var tx = parseFloat(i.total_tax||0);
     grossAll  += t;  taxAll += tx;  beforeAll += (t - tx);
+    gstAll += parseFloat(i.gst_amount||0); pstAll += parseFloat(i.pst_amount||0); hstAll += parseFloat(i.hst_amount||0);
     if(i.payment_status==='paid') collected += t;
   });
 
@@ -16252,10 +16281,11 @@ function adInvoicesHTML() {
     if(!ds) return;
     if(!byMonth[ds]){
       var y=ds.slice(0,4), m=parseInt(ds.slice(5,7),10);
-      byMonth[ds] = { key:ds, label:(MN[m-1]||'?')+' '+y.slice(2), gross:0, before:0, tax:0, rows:[] };
+      byMonth[ds] = { key:ds, label:(MN[m-1]||'?')+' '+y.slice(2), gross:0, before:0, tax:0, gst:0, pst:0, hst:0, rows:[] };
     }
     var t=parseFloat(i.total||0), tx=parseFloat(i.total_tax||0);
     byMonth[ds].gross += t; byMonth[ds].tax += tx; byMonth[ds].before += (t - tx);
+    byMonth[ds].gst += parseFloat(i.gst_amount||0); byMonth[ds].pst += parseFloat(i.pst_amount||0); byMonth[ds].hst += parseFloat(i.hst_amount||0);
     byMonth[ds].rows.push(i);
     _invMap[i.id] = i; // cache for click → detail
   });
@@ -16266,10 +16296,17 @@ function adInvoicesHTML() {
   var h = '<div style="padding:0 12px 16px">';
 
   // ── Summary stat tiles ──
-  h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:6px 0 14px">'
+  h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:6px 0 8px">'
     + adInvStat('Gross Sales', '$'+fmtCAD(grossAll),  'var(--sub)')
     + adInvStat('Before Tax',  '$'+fmtCAD(beforeAll), 'var(--green)')
     + adInvStat('Total Tax',   '$'+fmtCAD(taxAll),    'var(--red)')
+    + '</div>';
+
+  // ── Tax segregation (GST / PST / HST) ──
+  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:10px 6px;margin:0 0 14px;display:flex">'
+    + adInvTaxBit('GST', gstAll, false)
+    + adInvTaxBit('PST', pstAll, false)
+    + adInvTaxBit('HST', hstAll, true)
     + '</div>';
 
   // ── Chart ──
@@ -16330,6 +16367,13 @@ function adInvStat(label, val, col){
     + '</div>';
 }
 
+function adInvTaxBit(label, val, last){
+  return '<div style="flex:1;text-align:center;'+(last?'':'border-right:1px solid var(--border)')+'">'
+    + '<div style="font-size:9.5px;color:var(--sub);font-weight:700;text-transform:uppercase;letter-spacing:.03em">'+label+'</div>'
+    + '<div style="font-size:14px;font-weight:800;color:var(--text);margin-top:2px">$'+fmtCAD(val)+'</div>'
+    + '</div>';
+}
+
 function adInvLeg(col,label){
   return '<span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:var(--sub);font-weight:600"><span style="width:9px;height:9px;border-radius:2px;background:'+col+'"></span>'+label+'</span>';
 }
@@ -16338,7 +16382,8 @@ function adInvCapHtml(m){
   return '<span style="font-weight:800;color:var(--text)">'+m.label+'</span>'
     + ' &nbsp; <span style="color:var(--sub)">Gross</span> $'+fmtCAD(m.gross)
     + ' &nbsp;\u00B7&nbsp; <span style="color:var(--green)">Before tax</span> $'+fmtCAD(m.before)
-    + ' &nbsp;\u00B7&nbsp; <span style="color:var(--red)">Tax</span> $'+fmtCAD(m.tax);
+    + ' &nbsp;\u00B7&nbsp; <span style="color:var(--red)">Tax</span> $'+fmtCAD(m.tax)
+    + '<br><span style="color:var(--muted);font-size:10.5px">GST $'+fmtCAD(m.gst||0)+' &nbsp;\u00B7&nbsp; PST $'+fmtCAD(m.pst||0)+' &nbsp;\u00B7&nbsp; HST $'+fmtCAD(m.hst||0)+'</span>';
 }
 
 function adInvChart(keysAsc, byMonth){
