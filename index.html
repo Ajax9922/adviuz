@@ -10330,6 +10330,136 @@ function clientDashHTML() {
   return clientCampaignListHTML();
 }
 
+// ══════════════════════════════════════════════════════
+// CLIENT BILLING PAGE — invoices + payment status (read-only, own data)
+// Reuses the invoiceManagerScreen overlay. Data via get_my_invoices RPC
+// (security-definer: returns ONLY the logged-in client's invoices).
+// ══════════════════════════════════════════════════════
+window._clientInvoices   = window._clientInvoices   || null;
+window._clientBillFilter = window._clientBillFilter || 'all';
+
+async function openClientBilling() {
+  invOpen();
+  invSetHeader(
+    '',
+    '\uD83E\uDDFE Billing',
+    '<button onclick="invClose()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--sub);padding:4px">&#x2715;</button>'
+  );
+  var foot = document.getElementById('invMgrFoot'); if (foot) foot.style.display = 'none';
+  var body = document.getElementById('invMgrBody');
+  if (body) body.innerHTML = '<div style="text-align:center;padding:48px 16px;color:var(--sub);font-size:13px">Loading your invoices\u2026</div>';
+  window._clientBillFilter = 'all';
+  try {
+    var res = await sbFetch('/rest/v1/rpc/get_my_invoices', { method:'POST', body: JSON.stringify({}) });
+    var arr = res.ok ? await res.json() : [];
+    window._clientInvoices = Array.isArray(arr) ? arr : [];
+  } catch(e) { window._clientInvoices = []; }
+  if (body) body.innerHTML = clientBillingHTML();
+}
+
+function clientBillSetFilter(f) {
+  window._clientBillFilter = f;
+  var body = document.getElementById('invMgrBody');
+  if (body) body.innerHTML = clientBillingHTML();
+}
+
+function _cInvStatus(inv) {
+  var s = (inv.payment_status || '').toLowerCase();
+  if (s === 'paid')    return { lbl:'Paid',    bg:'#dcfce7', fg:'#15803d' };
+  if (s === 'partial') return { lbl:'Partial', bg:'#fef3c7', fg:'#b45309' };
+  return { lbl:'Unpaid', bg:'#fee2e2', fg:'#b91c1c' };
+}
+
+function _cBillTile(label, amt, color) {
+  return '<div style="flex:1;background:var(--white);border:1px solid var(--border);border-radius:12px;padding:12px 8px;text-align:center">'
+    +   '<div style="font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--sub);margin-bottom:5px">'+label+'</div>'
+    +   '<div style="font-size:15px;font-weight:800;color:'+color+';line-height:1">$'+fmtCAD(amt)+'</div>'
+    + '</div>';
+}
+
+function _cInvCard(inv) {
+  var meta   = _cInvStatus(inv);
+  var dt     = inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : '';
+  var num    = inv.invoice_number || '\u2014';
+  var tot    = '$' + fmtCAD(parseFloat(inv.total) || 0);
+  var hasPdf = !!inv.pdf_url;
+
+  var h = '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:10px">';
+  h += '<div style="display:flex;align-items:flex-start;gap:10px">';
+  h +=   '<div style="flex:1;min-width:0">'
+    +      '<div style="font-size:14px;font-weight:800;color:var(--text)">'+num+'</div>'
+    +      '<div style="font-size:12px;color:var(--sub);margin-top:2px">'+dt+'</div>'
+    +    '</div>';
+  h +=   '<div style="text-align:right">'
+    +      '<div style="font-size:16px;font-weight:800;color:var(--text);line-height:1">'+tot+'</div>'
+    +      '<span style="display:inline-block;margin-top:6px;padding:3px 9px;border-radius:999px;background:'+meta.bg+';color:'+meta.fg+';font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em">'+meta.lbl+'</span>'
+    +    '</div>';
+  h += '</div>';
+  h += '<div style="margin-top:12px">';
+  if (hasPdf) {
+    h += '<button data-url="'+inv.pdf_url+'" onclick="window.open(this.dataset.url,\'_blank\')" style="width:100%;padding:11px;border-radius:10px;background:var(--navy,#001f3f);border:none;color:#fff;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">\u2B07\uFE0F Download PDF</button>';
+  } else {
+    h += '<div style="width:100%;padding:11px;border-radius:10px;background:#f8fafc;border:1px dashed var(--border);color:var(--sub);font-size:12px;font-weight:600;text-align:center">PDF not available yet</div>';
+  }
+  h += '</div>';
+  h += '</div>';
+  return h;
+}
+
+function clientBillingHTML() {
+  var all = window._clientInvoices || [];
+
+  var billed = 0, paid = 0;
+  all.forEach(function(inv){
+    var tot = parseFloat(inv.total) || 0;
+    billed += tot;
+    var ap = (inv.amount_paid != null)
+      ? (parseFloat(inv.amount_paid) || 0)
+      : ((inv.payment_status || '').toLowerCase() === 'paid' ? tot : 0);
+    paid += ap;
+  });
+  var outstanding = Math.max(0, billed - paid);
+
+  var f = window._clientBillFilter || 'all';
+  var rows = all.filter(function(inv){
+    var s = (inv.payment_status || '').toLowerCase();
+    if (f === 'paid')   return s === 'paid';
+    if (f === 'unpaid') return s !== 'paid';
+    return true;
+  });
+
+  var h = '<div style="padding:14px 16px">';
+
+  // Summary tiles
+  h += '<div style="display:flex;gap:8px;margin-bottom:14px">'
+    +   _cBillTile('Total Billed', billed, 'var(--text)')
+    +   _cBillTile('Paid',         paid,   'var(--green)')
+    +   _cBillTile('Outstanding',  outstanding, outstanding > 0 ? 'var(--red,#cc0000)' : 'var(--sub)')
+    + '</div>';
+
+  // Filter pills
+  function pill(key, label){
+    var on = (f === key);
+    return '<button onclick="clientBillSetFilter(\''+key+'\')" style="padding:7px 14px;border-radius:999px;border:1.5px solid '+(on?'var(--text)':'var(--border)')+';background:'+(on?'var(--text)':'var(--white)')+';color:'+(on?'#fff':'var(--sub)')+';font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">'+label+'</button>';
+  }
+  h += '<div style="display:flex;gap:8px;margin-bottom:14px">'+pill('all','All')+pill('paid','Paid')+pill('unpaid','Outstanding')+'</div>';
+
+  // Section header
+  h += '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:4px 2px 10px">Invoices ('+rows.length+')</div>';
+
+  // List
+  if (!rows.length) {
+    h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:32px 16px;text-align:center;color:var(--sub);font-size:13px">'
+      +    (all.length ? 'No invoices match this filter.' : 'No invoices yet. Your bills and paid invoices will appear here.')
+      + '</div>';
+  } else {
+    rows.forEach(function(inv){ h += _cInvCard(inv); });
+  }
+
+  h += '</div>';
+  return h;
+}
+
 function clientCampaignListHTML() {
   var c     = window._clientData || {};
   var camps = window._clientCampaigns || [];
@@ -10351,6 +10481,16 @@ function clientCampaignListHTML() {
     +    '<div style="font-size:34px;font-weight:800;margin-top:6px;letter-spacing:-.02em;line-height:1">'+bal+' <span style="font-size:14px;font-weight:600;color:rgba(255,255,255,.75)">Flyer Views</span></div>'
     +    '<button onclick="openAddBalanceSheet()" data-action="openAddBalanceSheet" style="margin-top:14px;width:100%;padding:13px;border-radius:11px;background:#fff;color:#001f3f;border:none;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer">+ Add Balance</button>'
     +  '</div>';
+
+  // ── Billing & Invoices entry ──
+  h += '<button onclick="openClientBilling()" style="width:100%;display:flex;align-items:center;gap:12px;background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:14px;cursor:pointer;text-align:left;font-family:var(--f)">'
+    +    '<span style="width:38px;height:38px;border-radius:11px;background:var(--greenl,#e7f8f3);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">\uD83E\uDDFE</span>'
+    +    '<span style="flex:1;min-width:0">'
+    +      '<span style="display:block;font-size:14px;font-weight:800;color:var(--text)">Billing &amp; Invoices</span>'
+    +      '<span style="display:block;font-size:12px;color:var(--sub);margin-top:1px">View invoices, payments &amp; download PDFs</span>'
+    +    '</span>'
+    +    '<span style="font-size:18px;color:var(--sub);flex-shrink:0">\u203A</span>'
+    +  '</button>';
 
   // ── Filter row (Name + Status) ──
   var hasFilter = !!(f.name || f.status);
