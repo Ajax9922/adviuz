@@ -1044,8 +1044,9 @@ input[type=number]{-moz-appearance:textfield}
       <button class="tb-btn" id="tbPlusBtn" onclick="openAddLeadSheet()">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </button>
-      <button class="tb-btn" id="tbNotifBtn" onclick="showToast('No new notifications')">
+      <button class="tb-btn" id="tbNotifBtn" onclick="openNotifPanel()" style="position:relative">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/></svg>
+        <span id="notifBadge" style="display:none;position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;padding:0 3px;border-radius:8px;background:#cc0000;color:#fff;font-size:9px;font-weight:800;line-height:16px;text-align:center;box-sizing:border-box"></span>
       </button>
     </div>
   </div>
@@ -4023,6 +4024,7 @@ function mapLead(l, i) {
     location: l.location || '',
     ok: l.sms_consent || false,
     t: timeAgo(l.created_at),
+    created_at: l.created_at || null,
     rawDate: l.created_at ? locDate(l.created_at) : locToday(),
     col: l.color || COLORS[i % COLORS.length],
     partner_id: l.partner_id || null,
@@ -4038,6 +4040,93 @@ function mapLead(l, i) {
 }
 
 var COLORS=['#00a884','#2563eb','#d97706','#7c3aed','#cc0000','#0891b2','#db2777','#667781'];
+
+// ═══════════════════════════════════════════════════════════
+// NOTIFICATIONS — Phase 1: bell + panel (new leads), all roles
+// ═══════════════════════════════════════════════════════════
+function _notifEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function _notifLastSeen(){
+  var v=0;
+  try{
+    var s=localStorage.getItem('adviuz_notif_seen');
+    if(s===null){ v=Date.now(); localStorage.setItem('adviuz_notif_seen',String(v)); }
+    else{ v=parseInt(s,10)||0; }
+  }catch(e){ v=Date.now(); }
+  return v;
+}
+function _notifSetSeen(){try{localStorage.setItem('adviuz_notif_seen',String(Date.now()));}catch(e){}}
+function _notifNewCount(){
+  var seen=_notifLastSeen();
+  return (leads||[]).filter(function(l){
+    var ts=l.created_at?new Date(l.created_at).getTime():0;
+    return ts && ts>seen;
+  }).length;
+}
+function updateNotifBadge(){
+  var n=_notifNewCount();
+  var badge=document.getElementById('notifBadge');
+  if(badge){
+    if(n>0){badge.textContent=n>99?'99+':String(n);badge.style.display='block';}
+    else{badge.style.display='none';}
+  }
+  // Leads-tab count (operator/partner view only — the tab is hidden for clients)
+  var lt=document.querySelector('#tab-leads .tab-lbl');
+  if(lt){
+    var base=window._isPartnerMode?'My Leads':'Leads';
+    lt.textContent=n>0?base+' ('+n+')':base;
+  }
+}
+function ensureNotifSheet(){
+  if(document.getElementById('notifSh'))return;
+  var html=
+    '<div class="sheet-ov" id="notifSh" onclick="if(event.target===this)closeSheet(\'notifSh\')" style="z-index:870">'+
+      '<div class="sheet" style="max-height:80dvh">'+
+        '<div class="sheet-handle"></div>'+
+        '<div class="sheet-head">'+
+          '<div class="sheet-title">Notifications</div>'+
+          '<button class="sheet-x" onclick="closeSheet(\'notifSh\')">&#x2715;</button>'+
+        '</div>'+
+        '<div class="sh-body" id="notifBody" style="padding:10px 14px 22px"></div>'+
+      '</div>'+
+    '</div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+function openNotifPanel(){
+  ensureNotifSheet();
+  var seen=_notifLastSeen();
+  var items=(leads||[]).slice().sort(function(a,b){
+    return (b.created_at?new Date(b.created_at).getTime():0)-(a.created_at?new Date(a.created_at).getTime():0);
+  }).slice(0,25);
+  var body=document.getElementById('notifBody');
+  if(body){
+    if(!items.length){
+      body.innerHTML='<div style="text-align:center;color:var(--sub);padding:42px 0;font-size:14px">No notifications yet</div>';
+    }else{
+      var h='';
+      items.forEach(function(l){
+        var ts=l.created_at?new Date(l.created_at).getTime():0;
+        var isNew=ts && ts>seen;
+        var who=l.company||l.name||'New lead';
+        h+='<button onclick="closeSheet(\'notifSh\');_notifOpenLead()" style="width:100%;display:flex;gap:11px;align-items:flex-start;background:'+(isNew?'var(--greenl,#e7f8f3)':'var(--white)')+';border:1px solid var(--border);border-radius:12px;padding:11px 12px;margin-bottom:8px;text-align:left;cursor:pointer;font-family:var(--f)">'+
+            '<span style="width:34px;height:34px;border-radius:9px;background:#e7f8f3;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">\uD83D\uDC64</span>'+
+            '<span style="flex:1;min-width:0">'+
+              '<span style="display:block;font-size:13px;font-weight:800;color:var(--text)">New lead: '+_notifEsc(who)+(isNew?' <span style="color:#cc0000">\u2022</span>':'')+'</span>'+
+              '<span style="display:block;font-size:12px;color:var(--sub);margin-top:1px">'+_notifEsc(l.stage||'')+' \u00B7 '+_notifEsc(l.t||'')+'</span>'+
+            '</span>'+
+          '</button>';
+      });
+      body.innerHTML=h;
+    }
+  }
+  openSheet('notifSh');
+  _notifSetSeen();
+  updateNotifBadge();
+}
+function _notifOpenLead(){
+  if(window._isClientMode)return;            // clients are dashboard-only
+  var lt=document.getElementById('tab-leads');
+  if(lt)goTab('leads',lt);
+}
 var TYPES={call:'Call',meeting:'Meeting',sms:'SMS',email:'Email',demo:'Demo'};
 var TICONS={call:'📞',meeting:'🤝',sms:'💬',email:'📧',demo:'💻'};
 
@@ -4695,6 +4784,7 @@ function render(){
   var pages={leads:leadsHTML,followups:followupsHTML,reports:reportsHTML,calls:callsHTML,dashboard:window._isPartnerMode?partnerDashHTML:(window._isClientMode?clientDashHTML:adminDashHTML)};
   document.getElementById('content').innerHTML=(pages[curTab]||leadsHTML)();
   if(typeof updateActiveFilterBar==='function') updateActiveFilterBar();
+  if(typeof updateNotifBadge==='function') updateNotifBadge();
   if(typeof renderStats==='function') renderStats();
   // Keep the control bar's filter dot/state fresh, but never rebuild it while
   // the user is typing in the search box (would drop focus).
@@ -10111,8 +10201,8 @@ async function showClientUI() {
   document.getElementById('tbTitle').textContent = c.business_name || c.name || 'My Account';
   document.getElementById('tbSub').textContent   = planLbl;
 
-  // Hide staff-only topbar buttons (clients don't add leads / global search / notifs)
-  ['tbPlusBtn','tbSearch','tbNotifBtn'].forEach(function(id){
+  // Hide staff-only topbar buttons (clients keep the notification bell)
+  ['tbPlusBtn','tbSearch'].forEach(function(id){
     var el = document.getElementById(id);
     if (el) { var btn = el.tagName==='BUTTON'?el:el.closest('button'); if(btn) btn.style.display='none'; }
   });
@@ -10134,19 +10224,19 @@ async function showClientUI() {
     }
   } else { document.getElementById('clientSignOutBtn').style.display=''; }
 
-  // Tab bar: clients see ONLY their dashboard — everything they need is there.
+  // Tab bar: clients get all tabs — each scoped to their own client_id.
   var dashTab = document.getElementById('tab-dashboard');
   if (dashTab) dashTab.style.display = 'flex';
   ['tab-leads','tab-followups','tab-reports','tab-calls'].forEach(function(id){
-    var el = document.getElementById(id); if (el) el.style.display='none';
+    var el = document.getElementById(id); if (el) el.style.display='flex';
   });
 
   window._isClientMode = true;
 
-  // Land on the Dashboard — it's the only tab clients see now.
+  // Land on Leads — clients work/call their leads first; Dashboard is secondary.
   window._leadsLoading = true;
-  var dashBtn = document.getElementById('tab-dashboard');
-  if (dashBtn) goTab('dashboard', dashBtn);
+  var leadsBtn = document.getElementById('tab-leads');
+  if (leadsBtn) goTab('leads', leadsBtn);
 
   await loadClientCampaigns();
   await loadClientLeads();
