@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-04 camp-links-v3</title>
+<title>Adviuz Hub · v2026-06-04 camp-settings-v4</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2894,7 +2894,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-04 camp-links-v3';
+var APP_VERSION = 'v2026-06-04 camp-settings-v4';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -11400,6 +11400,31 @@ function _adScrollList(cp, filter){
 }
 
 
+// Client saves per-campaign forward number + notification emails (secure RPC checks ownership)
+async function saveCampaignContact(){
+  var campId = window._clientDashCampId;
+  if(!campId){ showToast('No campaign selected'); return; }
+  var fwd = (document.getElementById('csFwd')||{value:''}).value.trim();
+  var raw = (document.getElementById('csEmails')||{value:''}).value || '';
+  var emails = raw.split(/[\n,]+/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0,5);
+  var btn = document.getElementById('csSaveBtn');
+  if(btn){ btn.textContent='Saving…'; btn.disabled=true; }
+  try{
+    var res = await sbFetch('/rest/v1/rpc/update_campaign_contact', {
+      method:'POST',
+      body: JSON.stringify({ p_campaign_id: campId, p_forward_to: fwd, p_emails: emails })
+    });
+    if(res.ok){
+      var cp = (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(campId); });
+      if(cp){ cp.forward_to_phone = fwd; cp.notification_emails = emails; }
+      showToast('&#x2705; Settings saved');
+    } else {
+      showToast('Could not save — please try again');
+    }
+  }catch(e){ showToast('Could not save — please try again'); }
+  if(btn){ btn.textContent='Save settings'; btn.disabled=false; }
+}
+
 function clientCampaignDetailHTML(campId){
   var cp = (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(campId); });
   if (!cp) {
@@ -11457,6 +11482,24 @@ function clientCampaignDetailHTML(campId){
     +      '<div style="font-size:24px;font-weight:800;color:var(--text);margin-top:3px;letter-spacing:-.02em;line-height:1">'+(active?'Active':'Paused')+'</div>'
     +      '<div style="font-size:11px;color:var(--sub);margin-top:3px">'+(active?'Ad is active now':'Ad is paused')+'</div>'
     +    '</div>'
+    +  '</div>';
+
+  // ── CALL & EMAIL SETTINGS (per campaign) ──
+  var _tw = cp.twilio_phone || '';
+  var _fwd = cp.forward_to_phone || '';
+  var _emails = cp.notification_emails;
+  if (typeof _emails === 'string') { try { _emails = JSON.parse(_emails); } catch(_e2) { _emails = []; } }
+  _emails = _emails || [];
+  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px">'
+    +    '<div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:2px">📞 Call &amp; Email Settings</div>'
+    +    '<div style="font-size:11px;color:var(--sub);margin-bottom:14px">Where your calls land and who gets notified about new leads.</div>'
+    +    '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Your ad\'s call number</div>'
+    +    '<div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 12px;font-size:14px;font-weight:700;color:'+(_tw?'var(--text)':'var(--sub)')+';margin-bottom:14px">'+(_tw||'Not assigned yet')+'</div>'
+    +    '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Forward calls to</div>'
+    +    '<input class="finp" id="csFwd" type="tel" placeholder="+1 416-555-0100" value="'+_fwd.replace(/"/g,'&quot;')+'" style="margin-bottom:14px">'
+    +    '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Lead notification emails <span style="font-weight:400;text-transform:none">(one per line, up to 5)</span></div>'
+    +    '<textarea class="finp" id="csEmails" rows="3" placeholder="you@business.com" style="margin-bottom:14px;resize:vertical;font-family:var(--f)">'+_emails.join('\n').replace(/</g,'&lt;')+'</textarea>'
+    +    '<button id="csSaveBtn" onclick="saveCampaignContact()" style="width:100%;padding:11px;border-radius:10px;background:var(--green);border:none;color:#fff;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer">Save settings</button>'
     +  '</div>';
 
   // ── AD PREVIEWS ──
