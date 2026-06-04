@@ -2605,14 +2605,13 @@ Dr. Sarah
     </div>
     <div class="sh-body">
 
-      <!-- Name row -->
-      <div class="fg2">
-        <div><label class="flbl">First Name *</label><input class="finp" id="ef-fn" placeholder="John"></div>
-        <div><label class="flbl">Last Name</label><input class="finp" id="ef-ln" placeholder="Smith"></div>
+      <!-- Name (single field) -->
+      <div class="fg"><label class="flbl">Name *</label>
+        <input class="finp" id="ef-name" placeholder="e.g. John Smith">
       </div>
 
-      <!-- Company -->
-      <div class="fg"><label class="flbl">Company / Business Name</label>
+      <!-- Company (hidden when the lead has none) -->
+      <div class="fg" id="ef-company-fg"><label class="flbl">Company / Business Name</label>
         <input class="finp" id="ef-company" placeholder="e.g. Markham Dental Studio">
       </div>
 
@@ -2624,7 +2623,28 @@ Dr. Sarah
         <input class="finp" id="ef-em" placeholder="john@email.com" type="email">
       </div>
       <div class="fg"><label class="flbl">📍 Location</label>
-        <input class="finp" id="ef-loc" placeholder="City, Province / State">
+        <input class="finp" id="ef-loc" placeholder="Start typing a city…" list="ef-cityList" autocomplete="off">
+        <datalist id="ef-cityList">
+          <option value="Toronto, ON"></option><option value="Mississauga, ON"></option>
+          <option value="Brampton, ON"></option><option value="Hamilton, ON"></option>
+          <option value="Markham, ON"></option><option value="Vaughan, ON"></option>
+          <option value="Richmond Hill, ON"></option><option value="Oakville, ON"></option>
+          <option value="Burlington, ON"></option><option value="Oshawa, ON"></option>
+          <option value="Ajax, ON"></option><option value="Pickering, ON"></option>
+          <option value="Whitby, ON"></option><option value="Milton, ON"></option>
+          <option value="Scarborough, ON"></option><option value="Etobicoke, ON"></option>
+          <option value="North York, ON"></option><option value="Ottawa, ON"></option>
+          <option value="London, ON"></option><option value="Kitchener, ON"></option>
+          <option value="Windsor, ON"></option><option value="Barrie, ON"></option>
+          <option value="Guelph, ON"></option><option value="Cambridge, ON"></option>
+          <option value="Waterloo, ON"></option><option value="Kingston, ON"></option>
+          <option value="Calgary, AB"></option><option value="Edmonton, AB"></option>
+          <option value="Vancouver, BC"></option><option value="Surrey, BC"></option>
+          <option value="Burnaby, BC"></option><option value="Winnipeg, MB"></option>
+          <option value="Saskatoon, SK"></option><option value="Regina, SK"></option>
+          <option value="Montreal, QC"></option><option value="Quebec City, QC"></option>
+          <option value="Halifax, NS"></option>
+        </datalist>
       </div>
 
       <!-- Expandable: extra phones/emails -->
@@ -2648,6 +2668,7 @@ Dr. Sarah
       <div class="fg2">
         <div><label class="flbl">Source</label>
           <select class="fsel" id="ef-src">
+            <option value="Adviuz">Adviuz</option>
             <option value="Manual">Manual Entry</option>
             <option>Facebook Ad</option><option>Google Ad</option>
             <option>Organic</option><option>Referral</option>
@@ -7383,11 +7404,11 @@ function openEditLead(id) {
   editLeadId = id;
   var l = leads.find(function(x){return x.id===id});
   if(!l) return;
-  var parts = l.name.split(' ');
-  document.getElementById('ef-fn').value = parts[0] || '';
-  document.getElementById('ef-ln').value = parts.slice(1).join(' ') || '';
+  document.getElementById('ef-name').value = l.name || '';
   var compEl = document.getElementById('ef-company');
+  var compFg = document.getElementById('ef-company-fg');
   if(compEl) compEl.value = l.company || '';
+  if(compFg) compFg.style.display = (l.company && l.company.trim()) ? 'block' : 'none';
   document.getElementById('ef-ph').value  = l.ph  || '';
   document.getElementById('ef-ph2').value = l.ph2 || '';
   document.getElementById('ef-ph3').value = l.ph3 || '';
@@ -7398,12 +7419,34 @@ function openEditLead(id) {
   document.getElementById('ef-em5').value = l.em5 || '';
   var locEl = document.getElementById('ef-loc');
   if(locEl) locEl.value = l.location || '';
-  // Source
+  // Source — locked to "Adviuz" for client-mode (platform) leads; editable for admin/partner
   var srcSel = document.getElementById('ef-src');
-  if(srcSel) { for(var i=0;i<srcSel.options.length;i++){if(srcSel.options[i].value===l.src||srcSel.options[i].text===l.src){srcSel.selectedIndex=i;break}} }
-  // Service
+  if(srcSel) {
+    if (typeof isClientMode==='function' && isClientMode()) {
+      srcSel.value = 'Adviuz';
+      srcSel.disabled = true;
+    } else {
+      srcSel.disabled = false;
+      for(var i=0;i<srcSel.options.length;i++){if(srcSel.options[i].value===l.src||srcSel.options[i].text===l.src){srcSel.selectedIndex=i;break}}
+    }
+  }
+  // Service — clients see THEIR OWN services (built from their leads); Adviuz sales keep the product list
   var svcSel = document.getElementById('ef-svc');
-  if(svcSel) { for(var i=0;i<svcSel.options.length;i++){if(svcSel.options[i].value===l.svc||svcSel.options[i].text===l.svc){svcSel.selectedIndex=i;break}} }
+  if(svcSel) {
+    if (typeof isClientMode==='function' && isClientMode()) {
+      var seen = {}, opts = ['<option value="">Select service…</option>'];
+      (leads||[]).forEach(function(x){
+        var v = (x.svc||'').trim();
+        if(v && !seen[v]){ seen[v]=1; opts.push('<option value="'+v.replace(/"/g,'&quot;')+'">'+v+'</option>'); }
+      });
+      var cur = (l.svc||'').trim();
+      if(cur && !seen[cur]) opts.push('<option value="'+cur.replace(/"/g,'&quot;')+'">'+cur+'</option>');
+      svcSel.innerHTML = opts.join('');
+      svcSel.value = cur;
+    } else {
+      for(var j=0;j<svcSel.options.length;j++){if(svcSel.options[j].value===l.svc||svcSel.options[j].text===l.svc){svcSel.selectedIndex=j;break}}
+    }
+  }
   // Consent
   document.getElementById('ef-sms').checked  = l.ok || false;
   document.getElementById('ef-call').checked = l.ok || false;
@@ -7413,10 +7456,9 @@ function openEditLead(id) {
 }
 
 async function saveEditedLead() {
-  var fn = document.getElementById('ef-fn').value.trim();
-  var ln = document.getElementById('ef-ln').value.trim();
+  var nm = document.getElementById('ef-name').value.trim();
   var ph = document.getElementById('ef-ph').value.trim();
-  if(!fn) { showToast('First name required'); return; }
+  if(!nm) { showToast('Name required'); return; }
   if(!ph) { showToast('Primary phone required'); return; }
 
   var l = leads.find(function(x){return x.id===editLeadId});
@@ -7430,7 +7472,7 @@ async function saveEditedLead() {
   var origPh2 = l.ph2 || '';
   var origPh3 = l.ph3 || '';
 
-  l.name    = (fn+' '+ln).trim();
+  l.name    = nm;
   l.company = (document.getElementById('ef-company')||{value:''}).value.trim();
   l.ph   = ph;
   l.ph2  = document.getElementById('ef-ph2').value.trim();
