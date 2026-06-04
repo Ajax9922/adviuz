@@ -4428,20 +4428,32 @@ function openEditCampaign(btn) {
   window._editCamClientId = cam ? cam.client_id : null;
   if (window._editCamClientId) {
     loadTwilioNumbers();
-    sbAdmin('/rest/v1/client_integrations?client_id=eq.' + window._editCamClientId + '&select=twilio_phone,forward_to_phone&limit=1')
+    // Prefer THIS campaign's own number + forward; fall back to client-level / profile for anything missing.
+    sbAdmin('/rest/v1/campaigns?id=eq.' + window._editCampaignId + '&select=twilio_phone,forward_to_phone&limit=1')
       .then(function(res){ return res.ok ? res.json() : []; })
       .then(function(rows){
-        var row = (rows && rows[0]) || {};
-        window._editCamTwNumber = row.twilio_phone || '';
-        if (window._setTwNumberSelected) window._setTwNumberSelected(window._editCamTwNumber);
-        if (row.forward_to_phone) { setV('ecam-tw-forward', row.forward_to_phone); }
-        else {
-          // No forward saved yet — default to the client's profile phone
-          sbAdmin('/rest/v1/clients?id=eq.' + window._editCamClientId + '&select=phone&limit=1')
-            .then(function(r2){ return r2.ok ? r2.json() : []; })
-            .then(function(cr){ if (cr && cr[0] && cr[0].phone) setV('ecam-tw-forward', cr[0].phone); })
-            .catch(function(){});
-        }
+        var crow = (rows && rows[0]) || {};
+        var campTw  = crow.twilio_phone || '';
+        var campFwd = crow.forward_to_phone || '';
+        if (campTw) { window._editCamTwNumber = campTw; if (window._setTwNumberSelected) window._setTwNumberSelected(campTw); }
+        if (campFwd) { setV('ecam-tw-forward', campFwd); }
+        if (campTw && campFwd) return;
+        sbAdmin('/rest/v1/client_integrations?client_id=eq.' + window._editCamClientId + '&select=twilio_phone,forward_to_phone&limit=1')
+          .then(function(r1){ return r1.ok ? r1.json() : []; })
+          .then(function(irows){
+            var row = (irows && irows[0]) || {};
+            if (!campTw && row.twilio_phone) { window._editCamTwNumber = row.twilio_phone; if (window._setTwNumberSelected) window._setTwNumberSelected(row.twilio_phone); }
+            if (!campFwd) {
+              if (row.forward_to_phone) { setV('ecam-tw-forward', row.forward_to_phone); }
+              else {
+                sbAdmin('/rest/v1/clients?id=eq.' + window._editCamClientId + '&select=phone&limit=1')
+                  .then(function(r2){ return r2.ok ? r2.json() : []; })
+                  .then(function(cr){ if (cr && cr[0] && cr[0].phone) setV('ecam-tw-forward', cr[0].phone); })
+                  .catch(function(){});
+              }
+            }
+          })
+          .catch(function(){});
       })
       .catch(function(){});
   }
@@ -4579,6 +4591,10 @@ async function saveCampaignEdit() {
       }
     } catch(e){}
   }
+
+  // Stage 2: store the number + forward ON the campaign (per-campaign mapping)
+  payload.twilio_phone     = twPhone || null;
+  payload.forward_to_phone = twForward || null;
 
   var r = await sbAdmin('/rest/v1/campaigns?id=eq.' + id, {
     method: 'PATCH',
