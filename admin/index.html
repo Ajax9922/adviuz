@@ -1377,39 +1377,6 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
               <div class="toggle on" onclick="this.classList.toggle('on')"><div class="toggle-thumb"></div></div>
             </div>
           </div>
-          <div class="settings-section">
-            <div class="settings-title">GitHub Deploy</div>
-            <p style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.6;">
-              Paste a <strong>classic</strong> Personal Access Token with <code style="background:var(--surface2);padding:1px 5px;border-radius:4px;">repo</code> scope.<br>
-              Generate one at <a href="https://github.com/settings/tokens/new" target="_blank" style="color:var(--brand)">github.com/settings/tokens/new</a> — choose <em>Tokens (classic)</em>, check ✅ <strong>repo</strong>.
-            </p>
-            <div class="form-group">
-              <label class="fld">Personal Access Token (classic)</label>
-              <input class="fld" id="gh-token-input" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off"
-                oninput="var s=document.getElementById('gh-token-status');if(s)s.style.display='none';">
-            </div>
-            <div id="gh-token-status" style="display:none;font-size:12px;font-weight:600;padding:9px 12px;border-radius:8px;margin-bottom:12px;line-height:1.5;"></div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <button id="gh-test-btn" class="btn-save" style="flex:1;min-width:120px;" onclick="testGhToken()">Test &amp; Save</button>
-              <button class="btn-save" style="flex:0;background:var(--surface2);color:var(--muted);border:1px solid var(--border);" onclick="clearGhToken()">Clear</button>
-            </div>
-          </div>
-          <div class="settings-section">
-            <div class="settings-title">Netlify Deploy</div>
-            <p style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.6;">
-              Required to auto-create per-client Netlify sites.<br>
-              Generate at <a href="https://app.netlify.com/user/applications" target="_blank" style="color:var(--brand)">app.netlify.com/user/applications</a> → Personal access tokens.
-            </p>
-            <div class="form-group">
-              <label class="fld">Netlify Personal Access Token</label>
-              <input class="fld" id="netlify-token-input" type="password" placeholder="nfp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off">
-            </div>
-            <div id="netlify-token-status" style="display:none;font-size:12px;font-weight:600;padding:9px 12px;border-radius:8px;margin-bottom:12px;"></div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <button class="btn-save" style="flex:1;min-width:120px;" onclick="saveNetlifyToken()">Save Token</button>
-              <button class="btn-save" style="flex:0;background:var(--surface2);color:var(--muted);border:1px solid var(--border);" onclick="clearNetlifyToken()">Clear</button>
-            </div>
-          </div>
             <div class="form-group"><label class="fld">View counted webhook URL</label><input class="fld" placeholder="https://your-backend.com/api/view-counted"></div>
             <div class="form-group"><label class="fld">Lead received webhook URL</label><input class="fld" placeholder="https://your-backend.com/api/leads"></div>
             <div class="form-group"><label class="fld">Admin API key</label>
@@ -1953,9 +1920,10 @@ function renderClientRows(clients, leads) {
   var _emails = {};
   (window._allClients || []).forEach(function(c){ if (c.email) _emails[String(c.email).toLowerCase()] = true; });
   var pending = (leads || []).filter(function(l){
-    return l && String(l.stage || '').toLowerCase() === 'won'
-        && l.email
-        && !_emails[String(l.email).toLowerCase()];
+    if (!l || !l.email) return false;
+    var s = String(l.stage || '').toLowerCase();
+    var closed = s.indexOf('deal closed') !== -1 || s.indexOf('won') !== -1;
+    return closed && !_emails[String(l.email).toLowerCase()];
   });
   var pendingHtml = pending.map(function(l){
     var nm = l.name || l.email;
@@ -2039,6 +2007,7 @@ function renderClientRows(clients, leads) {
         '<button class="tbl-btn" onclick="openEditClient(this)" data-id="' + c.id + '">Edit</button>' +
         '<button class="tbl-btn primary" onclick="openTopupForClient(this)" data-id="' + c.id + '" data-bal="' + bal + '">Top-up</button>' +
         '<button class="tbl-btn" onclick="openClientLogs(this.dataset.id)" data-id="' + c.id + '" title="View logs">Logs</button>' +
+        '<button class="tbl-btn danger" onclick="deleteClient(this)" data-id="' + c.id + '">Delete</button>' +
       '</td>' +
     '</tr>';
   }).join('');
@@ -2154,7 +2123,7 @@ function renderCampaignRows(campaigns, clients) {
     if (isLeadsCam) {
       if (status === 'active' && lTarget > 0 && lDone >= lTarget) status = 'completed';
     } else {
-      if (status === 'active' && balance < 200 && budget > 0) status = 'low';
+      if (status === 'active' && budget > 0 && balance < budget * 0.2) status = 'low';
       if (balance === 0 && budget > 0) status = 'completed';
     }
     var statusConfig = {
@@ -5299,6 +5268,29 @@ async function dismissPendingLead(el) {
   await sbAdmin('/rest/v1/leads?id=eq.' + id, { method: 'PATCH', body: JSON.stringify({ stage: 'Lost' }) }).catch(function(){});
   toast('Lead dismissed');
   loadAdminData();
+}
+
+// ── Delete a client (confirm first; removes the client record) ──
+async function deleteClient(el) {
+  var id = (el && el.dataset) ? el.dataset.id : el;
+  var c  = (window._allClients || []).find(function(x){ return x.id === id; });
+  var nm = c ? (c.business_name || c.email || 'this client') : 'this client';
+  if (!window.confirm('Delete ' + nm + '?\n\nThis removes the client record permanently. Their campaigns and leads stay but become unlinked. This cannot be undone.')) return;
+  if (el && el.tagName === 'BUTTON') { el.textContent = 'Deleting…'; el.disabled = true; }
+  try {
+    var r = await sbAdmin('/rest/v1/clients?id=eq.' + id, { method: 'DELETE' });
+    if (!r.ok) {
+      var e = await r.json().catch(function(){ return {}; });
+      toast('Delete failed: ' + (e.message || e.error || 'linked records may be blocking it'));
+      if (el && el.tagName === 'BUTTON') { el.textContent = 'Delete'; el.disabled = false; }
+      return;
+    }
+    toast('🗑️ ' + nm + ' deleted');
+    loadAdminData();
+  } catch (err) {
+    toast('Delete failed: ' + (err && err.message ? err.message : 'try again'));
+    if (el && el.tagName === 'BUTTON') { el.textContent = 'Delete'; el.disabled = false; }
+  }
 }
 
 function exportLeadsCSV() {
