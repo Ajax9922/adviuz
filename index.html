@@ -7434,13 +7434,12 @@ function openEditLead(id) {
   var svcSel = document.getElementById('ef-svc');
   if(svcSel) {
     if (typeof isClientMode==='function' && isClientMode()) {
+      var svcList = (window._clientServices && window._clientServices.length) ? window._clientServices.slice() : [];
+      if(!svcList.length){ (leads||[]).forEach(function(x){ var v=(x.svc||'').trim(); if(v) svcList.push(v); }); }
       var seen = {}, opts = ['<option value="">Select service…</option>'];
-      (leads||[]).forEach(function(x){
-        var v = (x.svc||'').trim();
-        if(v && !seen[v]){ seen[v]=1; opts.push('<option value="'+v.replace(/"/g,'&quot;')+'">'+v+'</option>'); }
-      });
+      svcList.forEach(function(v){ v=(v||'').trim(); var k=v.toLowerCase(); if(v && !seen[k]){ seen[k]=1; opts.push('<option value="'+v.replace(/"/g,'&quot;')+'">'+v+'</option>'); } });
       var cur = (l.svc||'').trim();
-      if(cur && !seen[cur]) opts.push('<option value="'+cur.replace(/"/g,'&quot;')+'">'+cur+'</option>');
+      if(cur && !seen[cur.toLowerCase()]) opts.push('<option value="'+cur.replace(/"/g,'&quot;')+'">'+cur+'</option>');
       svcSel.innerHTML = opts.join('');
       svcSel.value = cur;
     } else {
@@ -10385,6 +10384,19 @@ async function loadClientCampaigns() {
       }
     });
     window._clientCampaigns = camps;
+    // Service options for the lead-edit dropdown — union of this client's ads' saved options
+    try {
+      var sres = await sbFetch('/rest/v1/ads?client_id=eq.'+cid+'&select=service_options');
+      if (sres.ok) {
+        var srows = await sres.json(), sseen = {}, sout = [];
+        (srows||[]).forEach(function(a){
+          var arr = a.service_options;
+          if (typeof arr === 'string') { try { arr = JSON.parse(arr); } catch(_p) { arr = []; } }
+          (arr||[]).forEach(function(v){ v = (''+v).trim(); var k = v.toLowerCase(); if (v && !sseen[k]) { sseen[k]=1; sout.push(v); } });
+        });
+        window._clientServices = sout;
+      }
+    } catch(_e) {}
   } catch(e) {
     console.warn('[loadClientCampaigns]', e.message);
     window._clientCampaigns = [];
