@@ -3139,6 +3139,23 @@ function resetCtaBuilder() {
   updateCtaUI();
 }
 
+// Parse the lead-form dropdown options out of pasted ad HTML (skips placeholders + locations)
+function parseAdServiceOptions(html){
+  try{
+    var doc  = new DOMParser().parseFromString(html||'', 'text/html');
+    var ph   = /^(select|choose|please|--|—|pick|none|n\/a)\b/i;
+    var prov = /^(ontario|alberta|british columbia|quebec|manitoba|saskatchewan|nova scotia|new brunswick|newfoundland( and labrador)?|prince edward island|yukon|nunavut|northwest territories|on|ab|bc|qc|mb|sk|ns|nb|nl|pe|pei|yt|nu|nt|province|state|country|city)$/i;
+    var out = [], seen = {};
+    doc.querySelectorAll('select option').forEach(function(o){
+      var t = (o.textContent||'').replace(/\s+/g,' ').trim();
+      if(!t || ph.test(t) || prov.test(t)) return;
+      var k = t.toLowerCase();
+      if(!seen[k]){ seen[k]=1; out.push(t); }
+    });
+    return out;
+  }catch(e){ return []; }
+}
+
 async function savePastedCode() {
   var name     = (document.getElementById('paste-ad-name')?.value  || '').trim();
   var clientId = document.getElementById('paste-client-sel')?.value || '';
@@ -3159,13 +3176,14 @@ async function savePastedCode() {
   if (!adSlug) adSlug = 'ad-' + Date.now().toString(36);
   // Save RAW html to DB — tracking is injected at deploy time, never stored
   var rawCode = code; // never store tracking in DB
+  var svcOpts = parseAdServiceOptions(rawCode);
   var isEdit = !!window._editingAdId;
   var r;
   if (isEdit) {
     r = await sbAdmin('/rest/v1/ads?id=eq.' + window._editingAdId, {
       method: 'PATCH',
       headers: { 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ business_name:name, client_id:clientId, custom_html:rawCode, ad_slug:adSlug, live_url:liveHost })
+      body: JSON.stringify({ business_name:name, client_id:clientId, custom_html:rawCode, ad_slug:adSlug, live_url:liveHost, service_options:svcOpts })
     });
   } else {
     r = await sbAdmin('/rest/v1/ads', {
@@ -3180,7 +3198,8 @@ async function savePastedCode() {
         logo_letter:   name[0].toUpperCase(),
         brand_color:   '#C8102E',
         status:        'active',
-        cta_config:    JSON.stringify(collectCtaConfig())
+        cta_config:    JSON.stringify(collectCtaConfig()),
+        service_options: svcOpts
       })
     });
   }
