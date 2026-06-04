@@ -3139,19 +3139,56 @@ function resetCtaBuilder() {
   updateCtaUI();
 }
 
-// Parse the lead-form dropdown options out of pasted ad HTML (skips placeholders + locations)
+// Parse the lead-form SERVICE dropdown out of pasted ad HTML.
+// Classifies each <select> by its label/context so location & phone-code dropdowns are ignored.
 function parseAdServiceOptions(html){
   try{
     var doc  = new DOMParser().parseFromString(html||'', 'text/html');
     var ph   = /^(select|choose|please|--|—|pick|none|n\/a)\b/i;
     var prov = /^(ontario|alberta|british columbia|quebec|manitoba|saskatchewan|nova scotia|new brunswick|newfoundland( and labrador)?|prince edward island|yukon|nunavut|northwest territories|on|ab|bc|qc|mb|sk|ns|nb|nl|pe|pei|yt|nu|nt|province|state|country|city)$/i;
-    var out = [], seen = {};
-    doc.querySelectorAll('select option').forEach(function(o){
-      var t = (o.textContent||'').replace(/\s+/g,' ').trim();
-      if(!t || ph.test(t) || prov.test(t)) return;
-      var k = t.toLowerCase();
-      if(!seen[k]){ seen[k]=1; out.push(t); }
+    var dial = /\+\s*\d/;
+    var rService  = /interest|service|looking for|treatment|product|inquir|reason|how can|need help|help you|select (a )?(service|product|treatment)/i;
+    var rLocation = /province|state|city|region|country|location|area|district|postal|zip|where are you/i;
+    var rPhone    = /phone|country code|dial code|mobile|whatsapp|callback/i;
+
+    function ctxFor(sel){
+      var bits=[];
+      ['name','id','aria-label','placeholder','data-name','data-label','data-field'].forEach(function(a){ var v=sel.getAttribute(a); if(v) bits.push(v); });
+      var id=sel.getAttribute('id');
+      if(id){ doc.querySelectorAll('label[for]').forEach(function(L){ if(L.getAttribute('for')===id) bits.push(L.textContent||''); }); }
+      var wrap = sel.closest ? sel.closest('label') : null; if(wrap) bits.push(wrap.textContent||'');
+      var prev=sel.previousElementSibling, hops=0;
+      while(prev && hops<3){ if(/^(label|span|div|p|h[1-6]|strong|b)$/i.test(prev.tagName)){ bits.push(prev.textContent||''); break; } prev=prev.previousElementSibling; hops++; }
+      var first=sel.querySelector('option'); if(first) bits.push(first.textContent||'');
+      return bits.join(' ').replace(/\s+/g,' ').toLowerCase();
+    }
+    function cleanOpts(sel){
+      var out=[];
+      sel.querySelectorAll('option').forEach(function(o){
+        var t=(o.textContent||'').replace(/\s+/g,' ').trim();
+        if(!t || ph.test(t) || prov.test(t) || dial.test(t)) return;
+        out.push(t);
+      });
+      return out;
+    }
+
+    var serviceOpts=[], unknownOpts=[];
+    doc.querySelectorAll('select').forEach(function(sel){
+      var allOpts=[];
+      sel.querySelectorAll('option').forEach(function(o){ var t=(o.textContent||'').trim(); if(t) allOpts.push(t); });
+      var n = allOpts.length || 1;
+      var dialFrac = allOpts.filter(function(t){return dial.test(t);}).length / n;
+      var provFrac = allOpts.filter(function(t){return prov.test(t);}).length / n;
+      var ctx = ctxFor(sel);
+      if (rPhone.test(ctx) || dialFrac >= 0.5) return;                 // phone-code dropdown → ignore
+      if (rService.test(ctx)) { serviceOpts = serviceOpts.concat(cleanOpts(sel)); return; }
+      if (rLocation.test(ctx) || provFrac >= 0.5) return;              // location dropdown → handled by Location field
+      unknownOpts = unknownOpts.concat(cleanOpts(sel));               // no clear label → candidate
     });
+
+    var pick = serviceOpts.length ? serviceOpts : unknownOpts;
+    var seen={}, out=[];
+    pick.forEach(function(t){ var k=t.toLowerCase(); if(!seen[k]){ seen[k]=1; out.push(t); } });
     return out;
   }catch(e){ return []; }
 }
