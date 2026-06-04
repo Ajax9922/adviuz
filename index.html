@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-04 camp-settings-v4</title>
+<title>Adviuz Hub · v2026-06-04 lead-fixes-v5</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2894,7 +2894,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-04 camp-settings-v4';
+var APP_VERSION = 'v2026-06-04 lead-fixes-v5';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -3905,11 +3905,11 @@ async function refreshLeads() {
     if (curTab === 'dashboard') {
       var content = document.getElementById('content');
       if (content) content.innerHTML = clientDashHTML();
-      showToast('&#x2705; Dashboard refreshed');
     } else {
       render();
-      showToast('&#x2705; Refreshed');
     }
+    var _tabName = { dashboard:'Dashboard', leads:'Leads', followups:'Follow-ups', reports:'Reports', calls:'Calls' }[curTab] || 'Page';
+    showToast('&#x2705; ' + _tabName + ' refreshed');
     return;
   }
   if (isPartnerMode()) {
@@ -7575,12 +7575,25 @@ async function deleteLead(id) {
   auditLog('lead_delete', 'leads', id, {lead_id: id});
   if(!confirm('Delete this lead? This cannot be undone.')) return;
   var l = leads.find(function(x){return x.id===id});
+  var ok = true;
   if(l && l.dbId) {
-    await sbFetch('/rest/v1/leads?id=eq.'+l.dbId, {method:'DELETE'}).catch(function(){});
+    try {
+      var res;
+      if (typeof isClientMode==='function' && isClientMode()) {
+        // Clients delete via a secure RPC that verifies ownership + clears call history
+        res = await sbFetch('/rest/v1/rpc/delete_my_lead', { method:'POST', body: JSON.stringify({ p_lead_id: l.dbId }) });
+      } else {
+        res = await sbFetch('/rest/v1/leads?id=eq.'+l.dbId, { method:'DELETE' });
+      }
+      ok = !!(res && res.ok);
+    } catch(e) { ok = false; }
   }
+  if(!ok) { showToast('Could not delete — please try again'); return; }
   leads = leads.filter(function(x){return x.id!==id});
   closeSheet('editLeadSh');
   closeSheet('leadSh');
+  var _ls = document.getElementById('leadScreen');
+  if(_ls) _ls.classList.remove('open');
   showToast('Lead deleted');
   render();
 }
@@ -12357,7 +12370,7 @@ function openAddLeadSheet() {
   // Populate partner dropdown (admin only)
   var partnerRow = document.getElementById('aPartnerRow');
   var partnerSel = document.getElementById('aPartner');
-  if (partnerRow && partnerSel && !isPartnerMode()) {
+  if (partnerRow && partnerSel && !isPartnerMode() && !(typeof isClientMode==='function' && isClientMode())) {
     partnerRow.style.display = 'block';
     partnerSel.innerHTML = '<option value="">— My Lead (no partner) —</option>';
     if (window._allPartners && window._allPartners.length) {
