@@ -3871,18 +3871,24 @@ async function callFn(name, body) {
 
 // ═══ SUPABASE DATA FUNCTIONS ═══
 async function refreshLeads() {
-  // Client on the Dashboard tab → refresh campaigns + view counts (not leads).
-  if (isClientMode() && curTab === 'dashboard') {
+  // Client → always reload ONLY this client's own data, on any tab.
+  if (isClientMode()) {
     var rb0 = document.getElementById('tbRefresh');
     if (rb0) { rb0.style.opacity='0.4'; rb0.style.pointerEvents='none'; }
     try {
       await loadClientCampaigns();
-      await loadClientLeads();   // keeps the per-campaign Leads count fresh
+      await loadClientLeads();   // client_id-scoped → feeds Leads / Follow-ups / Reports
+      await loadCallLog();       // client_id-scoped → feeds Calls
+    } catch(e) { console.warn('[client refresh]', e && e.message); }
+    if (rb0) { rb0.style.opacity='1'; rb0.style.pointerEvents='auto'; }
+    if (curTab === 'dashboard') {
       var content = document.getElementById('content');
       if (content) content.innerHTML = clientDashHTML();
-    } catch(e) { console.warn('[refresh dashboard]', e && e.message); }
-    if (rb0) { rb0.style.opacity='1'; rb0.style.pointerEvents='auto'; }
-    showToast('&#x2705; Dashboard refreshed');
+      showToast('&#x2705; Dashboard refreshed');
+    } else {
+      render();
+      showToast('&#x2705; Refreshed');
+    }
     return;
   }
   if (isPartnerMode()) {
