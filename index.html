@@ -10349,6 +10349,7 @@ async function openClientBilling() {
   var body = document.getElementById('invMgrBody');
   if (body) body.innerHTML = '<div style="text-align:center;padding:48px 16px;color:var(--sub);font-size:13px">Loading your invoices\u2026</div>';
   window._clientBillFilter = 'all';
+  window._cInvOpen = {};
   try {
     var res = await sbFetch('/rest/v1/rpc/get_my_invoices', { method:'POST', body: JSON.stringify({}) });
     var arr = res.ok ? await res.json() : [];
@@ -10359,6 +10360,14 @@ async function openClientBilling() {
 
 function clientBillSetFilter(f) {
   window._clientBillFilter = f;
+  var body = document.getElementById('invMgrBody');
+  if (body) body.innerHTML = clientBillingHTML();
+}
+
+window._cInvOpen = window._cInvOpen || {};
+function cInvToggle(id) {
+  window._cInvOpen = window._cInvOpen || {};
+  if (window._cInvOpen[id]) delete window._cInvOpen[id]; else window._cInvOpen[id] = true;
   var body = document.getElementById('invMgrBody');
   if (body) body.innerHTML = clientBillingHTML();
 }
@@ -10383,9 +10392,13 @@ function _cInvCard(inv) {
   var num    = inv.invoice_number || '\u2014';
   var tot    = '$' + fmtCAD(parseFloat(inv.total) || 0);
   var hasPdf = !!inv.pdf_url;
+  var open   = !!(window._cInvOpen || {})[inv.id];
+  var esc    = function(x){ return String(x==null?'':x).replace(/[&<>]/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;'}[m]; }); };
 
   var h = '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:10px">';
-  h += '<div style="display:flex;align-items:flex-start;gap:10px">';
+
+  // Header — tap to expand
+  h += '<div onclick="cInvToggle(\''+inv.id+'\')" style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">';
   h +=   '<div style="flex:1;min-width:0">'
     +      '<div style="font-size:14px;font-weight:800;color:var(--text)">'+num+'</div>'
     +      '<div style="font-size:12px;color:var(--sub);margin-top:2px">'+dt+'</div>'
@@ -10394,7 +10407,38 @@ function _cInvCard(inv) {
     +      '<div style="font-size:16px;font-weight:800;color:var(--text);line-height:1">'+tot+'</div>'
     +      '<span style="display:inline-block;margin-top:6px;padding:3px 9px;border-radius:999px;background:'+meta.bg+';color:'+meta.fg+';font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em">'+meta.lbl+'</span>'
     +    '</div>';
+  h +=   '<span style="align-self:center;color:var(--sub);font-size:15px;flex-shrink:0;display:inline-block;transform:rotate('+(open?'90':'0')+'deg);transition:transform .15s">\u203A</span>';
   h += '</div>';
+
+  // Expanded detail — line items, tax, payment
+  if (open) {
+    h += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">';
+    var items = Array.isArray(inv.items) ? inv.items : [];
+    if (items.length) {
+      items.forEach(function(it){
+        var qty = parseFloat(it.qty || 1) || 1;
+        var nm  = it.name || it.description || 'Item';
+        var amt = parseFloat(it.total != null ? it.total : (it.amount != null ? it.amount : ((parseFloat(it.unit_price)||0) * qty))) || 0;
+        h += '<div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;color:var(--text);margin-bottom:6px">'
+          +    '<span style="flex:1;min-width:0">'+(qty>1 ? (qty+'\u00D7 ') : '')+esc(nm)+'</span>'
+          +    '<span style="font-weight:600;white-space:nowrap">$'+fmtCAD(amt)+'</span>'
+          +  '</div>';
+      });
+    }
+    var taxN = parseFloat(inv.total_tax) || 0;
+    if (taxN > 0) {
+      h += '<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--sub);margin-top:8px"><span>'+esc(inv.tax_type || 'Tax')+'</span><span>$'+fmtCAD(taxN)+'</span></div>';
+    }
+    h += '<div style="display:flex;justify-content:space-between;font-size:14px;font-weight:800;color:var(--text);margin-top:4px"><span>Total</span><span>'+tot+'</span></div>';
+    if ((inv.payment_status || '').toLowerCase() === 'paid') {
+      var paidDt = inv.paid_at ? new Date(inv.paid_at).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : '';
+      var pm     = (inv.payment_method && inv.payment_method !== 'pending') ? inv.payment_method : '';
+      h += '<div style="margin-top:10px;font-size:12px;color:var(--green);font-weight:700">\u2713 Paid'+(pm ? (' \u00B7 '+esc(pm)) : '')+(paidDt ? (' \u00B7 '+paidDt) : '')+'</div>';
+    }
+    h += '</div>';
+  }
+
+  // Download
   h += '<div style="margin-top:12px">';
   if (hasPdf) {
     h += '<button data-url="'+inv.pdf_url+'" onclick="window.open(this.dataset.url,\'_blank\')" style="width:100%;padding:11px;border-radius:10px;background:var(--navy,#001f3f);border:none;color:#fff;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">\u2B07\uFE0F Download PDF</button>';
@@ -10463,7 +10507,13 @@ function clientBillingHTML() {
 function clientCampaignListHTML() {
   var c     = window._clientData || {};
   var camps = window._clientCampaigns || [];
-  var bal   = (c.view_balance != null ? c.view_balance : 0);
+  // Wallet = remaining across all campaigns + any unallotted views.
+  // (Built this way so future "allot / reallot between campaigns" plugs straight in.)
+  var purchased   = (c.view_balance != null ? Number(c.view_balance) : 0) || 0;
+  var allotted    = camps.reduce(function(s,cp){ return s + (Number(cp.view_budget)||0); }, 0);
+  var inCampaigns = camps.reduce(function(s,cp){ return s + Math.max(0,(Number(cp.view_budget)||0)-(Number(cp.views_used)||0)); }, 0);
+  var unallotted  = Math.max(0, purchased - allotted);
+  var bal         = inCampaigns + unallotted;
   var f     = window._clientCampFilter || { name:'', status:'' };
 
   // Apply filters (in-memory)
@@ -10477,8 +10527,9 @@ function clientCampaignListHTML() {
 
   // ── Account Balance card with + Add Balance button ──
   h += '<div style="background:linear-gradient(135deg,#001f3f,#0c2d4f);border-radius:16px;padding:18px;margin-bottom:14px;color:#fff">'
-    +    '<div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.7);letter-spacing:.07em;text-transform:uppercase">Account Balance</div>'
+    +    '<div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.7);letter-spacing:.07em;text-transform:uppercase">Wallet Balance</div>'
     +    '<div style="font-size:34px;font-weight:800;margin-top:6px;letter-spacing:-.02em;line-height:1">'+bal+' <span style="font-size:14px;font-weight:600;color:rgba(255,255,255,.75)">Flyer Views</span></div>'
+    +    '<div style="font-size:11px;color:rgba(255,255,255,.6);margin-top:5px">'+inCampaigns+' in campaigns \u00B7 '+unallotted+' unallotted</div>'
     +    '<button onclick="openAddBalanceSheet()" data-action="openAddBalanceSheet" style="margin-top:14px;width:100%;padding:13px;border-radius:11px;background:#fff;color:#001f3f;border:none;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer">+ Add Balance</button>'
     +  '</div>';
 
