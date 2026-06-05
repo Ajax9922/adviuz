@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-04 lead-fixes-v7</title>
+<title>Adviuz Hub · v2026-06-04 notif-calls-v9</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2894,7 +2894,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-04 lead-fixes-v7';
+var APP_VERSION = 'v2026-06-04 notif-calls-v9';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -4082,7 +4082,63 @@ function _notifLastSeen(){
   return v;
 }
 function _notifSetSeen(){try{localStorage.setItem('adviuz_notif_seen',String(Date.now()));}catch(e){}}
+// ── In-app notification preferences (saved per device) ──
+function _notifPrefs(){
+  try { return Object.assign({leads:true,calls:true,sms:true,email:true,followups:true}, JSON.parse(localStorage.getItem('adviuz_notif_prefs')||'{}')); }
+  catch(e){ return {leads:true,calls:true,sms:true,email:true,followups:true}; }
+}
+function _notifSetPref(key,val){
+  var p=_notifPrefs(); p[key]=val;
+  try{ localStorage.setItem('adviuz_notif_prefs', JSON.stringify(p)); }catch(e){}
+}
+function ensureNotifSettingsSheet(){
+  if(document.getElementById('notifSettingsSh'))return;
+  var html=
+    '<div class="sheet-ov" id="notifSettingsSh" onclick="if(event.target===this)closeSheet(\'notifSettingsSh\')" style="z-index:880">'+
+      '<div class="sheet" style="max-height:80dvh">'+
+        '<div class="sheet-handle"></div>'+
+        '<div class="sheet-head">'+
+          '<div class="sheet-title">&#128276; Notification Settings</div>'+
+          '<button class="sheet-x" onclick="closeSheet(\'notifSettingsSh\')">&#x2715;</button>'+
+        '</div>'+
+        '<div class="sh-body" id="notifSettingsBody" style="padding:6px 16px 24px"></div>'+
+      '</div>'+
+    '</div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+function renderNotifSettings(){
+  var body=document.getElementById('notifSettingsBody'); if(!body)return;
+  var p=_notifPrefs();
+  var perm=(typeof Notification!=='undefined')?Notification.permission:'default';
+  var pushRow;
+  if(perm==='granted'){
+    pushRow='<div style="display:flex;align-items:center;gap:8px;background:var(--greenl,#e7f8f3);border-radius:10px;padding:12px 14px;font-size:13px;color:var(--text);font-weight:600">&#x2705; Push alerts are on for this device.</div>';
+  } else if(perm==='denied'){
+    pushRow='<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:12px 14px;font-size:13px;color:#9a3412">Push alerts are blocked in your browser. Open this app\'s site settings and allow notifications, then reopen this screen.</div>';
+  } else {
+    pushRow='<button onclick="if(window.adviuzEnablePush)window.adviuzEnablePush();setTimeout(renderNotifSettings,900)" style="width:100%;padding:12px;border-radius:10px;background:var(--green);border:none;color:#fff;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer">Turn on push alerts</button>';
+  }
+  var types=[['leads','New leads'],['calls','New calls'],['sms','New text messages'],['email','New emails'],['followups','Follow-up reminders']];
+  var rows=types.map(function(t){
+    return '<label style="display:flex;align-items:center;justify-content:space-between;padding:14px 2px;border-bottom:1px solid var(--border);cursor:pointer">'+
+      '<span style="font-size:14px;font-weight:600;color:var(--text)">'+t[1]+'</span>'+
+      '<input type="checkbox" '+(p[t[0]]!==false?'checked':'')+' onchange="_notifSetPref(\''+t[0]+'\',this.checked);if(typeof updateNotifBadge===\'function\')updateNotifBadge()" style="width:20px;height:20px;accent-color:var(--green);cursor:pointer">'+
+    '</label>';
+  }).join('');
+  body.innerHTML=
+    '<div style="font-size:12px;color:var(--sub);margin:6px 0 14px">Choose what you want to be alerted about. Saved on this device.</div>'+
+    pushRow+
+    '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin:20px 0 2px">Alert me about</div>'+
+    rows;
+}
+function openNotifSettings(){
+  ensureNotifSettingsSheet();
+  renderNotifSettings();
+  openSheet('notifSettingsSh');
+}
+
 function _notifNewCount(){
+  if(_notifPrefs().leads===false) return 0;
   var seen=_notifLastSeen();
   return (leads||[]).filter(function(l){
     var ts=l.created_at?new Date(l.created_at).getTime():0;
@@ -4111,7 +4167,10 @@ function ensureNotifSheet(){
         '<div class="sheet-handle"></div>'+
         '<div class="sheet-head">'+
           '<div class="sheet-title">Notifications</div>'+
-          '<button class="sheet-x" onclick="closeSheet(\'notifSh\')">&#x2715;</button>'+
+          '<div style="display:flex;gap:4px;align-items:center">'+
+            '<button class="sheet-x" onclick="closeSheet(\'notifSh\');openNotifSettings()" title="Notification settings" style="font-size:18px">&#9881;</button>'+
+            '<button class="sheet-x" onclick="closeSheet(\'notifSh\')">&#x2715;</button>'+
+          '</div>'+
         '</div>'+
         '<div class="sh-body" id="notifBody" style="padding:10px 14px 22px"></div>'+
       '</div>'+
@@ -5884,12 +5943,24 @@ function callsHTML(){
     var init=lead.name.split(' ').map(function(w){return w[0]}).join('').slice(0,2);
     var outCls=c.out==='answered'?'co-ans':c.out==='voicemail'?'co-vm':'co-ms';
     var outTxt=c.out==='answered'?'Answered':c.out==='voicemail'?'Voicemail':'Missed';
-    return'<div class="call-row">'
+    var _ph = (c.ph||'').replace(/[^0-9+]/g,'');
+    var _actions = '';
+    if(_ph || c.rec){
+      _actions = '<div style="display:flex;gap:8px;align-items:center;padding:0 14px 12px">';
+      if(_ph) _actions += '<a href="tel:'+_ph+'" style="display:inline-flex;align-items:center;gap:5px;background:var(--green);color:#fff;text-decoration:none;font-weight:700;font-size:13px;padding:8px 14px;border-radius:9px;flex-shrink:0">&#128222; Call</a>';
+      if(_ph) _actions += '<a href="sms:'+_ph+'" style="display:inline-flex;align-items:center;gap:5px;background:var(--white);border:1.5px solid var(--border);color:var(--text);text-decoration:none;font-weight:700;font-size:13px;padding:8px 14px;border-radius:9px;flex-shrink:0">&#128172; Text</a>';
+      if(c.rec) _actions += '<audio src="'+c.rec+'" preload="none" controls style="flex:1;min-width:0;height:34px;outline:none"></audio>';
+      _actions += '</div>';
+    }
+    return'<div style="border-bottom:1px solid var(--border)">'
+      +'<div class="call-row" style="border-bottom:none">'
       +'<div class="call-av" style="background:'+lead.col+'18;color:'+lead.col+'">'+init+'</div>'
-      +'<div class="call-body"><div class="call-name">'+lead.name+'</div>'
+      +'<div class="call-body"><div class="call-name" onclick="openLead('+c.lid+')" style="cursor:pointer">'+lead.name+'</div>'
       +'<div class="call-meta">'+(c.dir==='in'?'&#x2193; Incoming':'&#x2191; Outgoing')+' &middot; '+c.time+'</div>'
       +'<div style="font-size:12px;color:var(--sub);margin-top:2px">'+c.note+'</div></div>'
-      +'<div class="call-right"><div class="call-dur">'+c.dur+'</div><div class="call-out '+outCls+'">'+outTxt+'</div></div></div>';
+      +'<div class="call-right"><div class="call-dur">'+c.dur+'</div><div class="call-out '+outCls+'">'+outTxt+'</div></div></div>'
+      +_actions
+      +'</div>';
   }).join('');
 
   var noCallsMsg = callRows ? '' : '<div style="text-align:center;padding:32px 16px;color:var(--sub);font-size:13px">No calls yet</div>';
@@ -10465,7 +10536,9 @@ async function loadCallLog() {
         time: dt ? dt.toLocaleString('en-CA',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '',
         note: r.call_note || r.description || '',
         dur:  dur > 0 ? (Math.floor(dur/60)+'m '+(dur%60)+'s') : '—',
-        date: r.created_at || ''
+        date: r.created_at || '',
+        rec:  r.recording_url || '',
+        ph:   lead.ph || ''
       });
     });
     callLog = out;
@@ -11426,16 +11499,17 @@ async function saveCampaignContact(){
   var fwd = (document.getElementById('csFwd')||{value:''}).value.trim();
   var raw = (document.getElementById('csEmails')||{value:''}).value || '';
   var emails = raw.split(/[\n,]+/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0,5);
+  var notify = !(document.getElementById('csNotify')) ? true : !!document.getElementById('csNotify').checked;
   var btn = document.getElementById('csSaveBtn');
   if(btn){ btn.textContent='Saving…'; btn.disabled=true; }
   try{
     var res = await sbFetch('/rest/v1/rpc/update_campaign_contact', {
       method:'POST',
-      body: JSON.stringify({ p_campaign_id: campId, p_forward_to: fwd, p_emails: emails })
+      body: JSON.stringify({ p_campaign_id: campId, p_forward_to: fwd, p_emails: emails, p_notify: notify })
     });
     if(res.ok){
       var cp = (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(campId); });
-      if(cp){ cp.forward_to_phone = fwd; cp.notification_emails = emails; }
+      if(cp){ cp.forward_to_phone = fwd; cp.notification_emails = emails; cp.notify_enabled = notify; }
       showToast('&#x2705; Settings saved');
     } else {
       showToast('Could not save — please try again');
@@ -11509,6 +11583,7 @@ function clientCampaignDetailHTML(campId){
   var _emails = cp.notification_emails;
   if (typeof _emails === 'string') { try { _emails = JSON.parse(_emails); } catch(_e2) { _emails = []; } }
   _emails = _emails || [];
+  var _notify = (cp.notify_enabled !== false);
   h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px">'
     +    '<div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:2px">📞 Call &amp; Email Settings</div>'
     +    '<div style="font-size:11px;color:var(--sub);margin-bottom:14px">Where your calls land and who gets notified about new leads.</div>'
@@ -11518,6 +11593,10 @@ function clientCampaignDetailHTML(campId){
     +    '<input class="finp" id="csFwd" type="tel" placeholder="+1 416-555-0100" value="'+_fwd.replace(/"/g,'&quot;')+'" style="margin-bottom:14px">'
     +    '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Lead notification emails <span style="font-weight:400;text-transform:none">(one per line, up to 5)</span></div>'
     +    '<textarea class="finp" id="csEmails" rows="3" placeholder="you@business.com" style="margin-bottom:14px;resize:vertical;font-family:var(--f)">'+_emails.join('\n').replace(/</g,'&lt;')+'</textarea>'
+    +    '<label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0 16px;cursor:pointer">'
+    +      '<span style="font-size:13px;font-weight:700;color:var(--text)">Email me about new leads</span>'
+    +      '<input type="checkbox" id="csNotify" '+(_notify?'checked':'')+' style="width:20px;height:20px;cursor:pointer;accent-color:var(--green)">'
+    +    '</label>'
     +    '<button id="csSaveBtn" onclick="saveCampaignContact()" style="width:100%;padding:11px;border-radius:10px;background:var(--green);border:none;color:#fff;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer">Save settings</button>'
     +  '</div>';
 
