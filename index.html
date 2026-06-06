@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-04 dualrole-v5</title>
+<title>Adviuz Hub · v2026-06-06 viewasclient-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2894,7 +2894,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-04 dualrole-v5';
+var APP_VERSION = 'v2026-06-06 viewasclient-v1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -3387,6 +3387,51 @@ function exitPartnerView() {
   if (tb) tb.style.paddingTop = '';
   render();
   showToast('Back to admin view');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// OPERATOR "VIEW AS CLIENT" — mirror mode
+// Opens any client's account exactly as the client sees it. The operator
+// stays signed in as themselves; staff read-access loads the chosen
+// client's data. Exit reloads back to a clean operator session.
+// ═══════════════════════════════════════════════════════════════
+async function adminViewAsClient(clientId) {
+  var list = (window._adminData && _adminData.clients) ? _adminData.clients : [];
+  var c = list.find(function(x){ return x.id === clientId; });
+  if (!c) { showToast('Client not found'); return; }
+
+  // Become this client for the data layer (all client loaders scope by _clientId)
+  window._viewingAsClient = { id: c.id, name: c.business_name || c.name || 'Client' };
+  window._clientData = c;
+  window._clientId   = c.id;
+  window._staffRole  = 'client';   // make the view render exactly like the client's
+
+  // Orange "Viewing as…" banner with Exit (mirrors view-as-partner)
+  var banner = document.getElementById('viewingAsBanner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'viewingAsBanner';
+    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999;background:#d97706;color:#fff;padding:8px 16px;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:space-between;gap:10px';
+    document.body.appendChild(banner);
+  }
+  banner.innerHTML = '<span>\uD83D\uDC41 Viewing as ' + window._viewingAsClient.name + '</span>'
+    + '<button onclick="exitClientView()" style="padding:4px 12px;border-radius:6px;background:rgba(0,0,0,.2);border:none;color:#fff;font-family:var(--f);font-size:11px;font-weight:700;cursor:pointer">Exit</button>';
+  banner.style.display = 'flex';
+  var tb = document.querySelector('.topbar');
+  if (tb) tb.style.paddingTop = 'calc(env(safe-area-inset-top,0px) + 44px)';
+
+  showToast('Opening ' + window._viewingAsClient.name + '\u2026');
+  await showClientUI();   // renders the client dashboard / tabs / billing for _clientId
+
+  // The orange Exit banner is the way back — hide the client Sign-Out button
+  // so the operator can't accidentally log themselves out.
+  var so = document.getElementById('clientSignOutBtn');
+  if (so) so.style.display = 'none';
+}
+
+function exitClientView() {
+  window._viewingAsClient = null;
+  location.reload();   // clean return to the operator session (no leftover state)
 }
 
 async function showPartnerDashboard() {
@@ -10660,8 +10705,15 @@ async function openClientBilling() {
   window._clientBillFilter = 'all';
   window._cInvOpen = {};
   try {
-    var res = await sbFetch('/rest/v1/rpc/get_my_invoices', { method:'POST', body: JSON.stringify({}) });
-    var arr = res.ok ? await res.json() : [];
+    var arr;
+    if (window._viewingAsClient && window._clientId) {
+      // Operator mirror mode: load the viewed client's invoices directly by id
+      var rInv = await sbFetch('/rest/v1/invoices?client_id=eq.'+window._clientId+'&order=invoice_date.desc');
+      arr = rInv.ok ? await rInv.json() : [];
+    } else {
+      var res = await sbFetch('/rest/v1/rpc/get_my_invoices', { method:'POST', body: JSON.stringify({}) });
+      arr = res.ok ? await res.json() : [];
+    }
     window._clientInvoices = Array.isArray(arr) ? arr : [];
   } catch(e) { window._clientInvoices = []; }
   if (body) body.innerHTML = clientBillingHTML();
@@ -13190,7 +13242,9 @@ function adClientsHTML() {
   cl.forEach(function(c, i) {
     var col = COLS[c.business_name.charCodeAt(0)%COLS.length];
     var cL = _adminData.allLeads.filter(function(l){return l.client_id===c.id;}).length;
-    h += adRow(c.business_name.charAt(0).toUpperCase(), col, c.business_name, c.email, cL+' leads', c.status==='active'?'Active':'Inactive', c.status==='active'?'var(--green)':'var(--amber)', i>0);
+    h += '<div onclick="adminViewAsClient(\''+c.id+'\')" style="cursor:pointer" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">'
+      + adRow(c.business_name.charAt(0).toUpperCase(), col, c.business_name, c.email, cL+' leads', c.status==='active'?'Active':'Inactive', c.status==='active'?'var(--green)':'var(--amber)', i>0)
+      + '</div>';
   });
   return h+'</div></div>';
 }
