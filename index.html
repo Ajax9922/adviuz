@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-04 notif-calls-v13</title>
+<title>Adviuz Hub · v2026-06-04 dualrole-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2894,7 +2894,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-04 notif-calls-v13';
+var APP_VERSION = 'v2026-06-04 dualrole-v1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -3229,7 +3229,7 @@ async function applyRoleGate(user){
     var pArr = pRes.ok ? await pRes.json() : [];
     if(pArr.length){ isPartner=true; window._partnerData=pArr[0]; }
   }
-  if(!isStaff && !isPartner && !isTelecaller){
+  if(!isStaff && !isTelecaller){
     var cRes = await sbFetch('/rest/v1/clients?select=*&auth_user_id=eq.'+user.id+'&limit=1');
     var cArr = cRes.ok ? await cRes.json() : [];
     if(cArr.length){ isClient=true; window._clientData=cArr[0]; window._clientId=cArr[0].id; }
@@ -3253,11 +3253,64 @@ async function applyRoleGate(user){
     authToken=null; currentUser=null;
     throw new Error('Access denied \u2014 not an authorised user. Contact relations@adviuz.com');
   }
-  window._staffRole = isPartner ? 'sales_partner'
-                    : isTelecaller ? 'telecaller'
-                    : isClient ? 'client'
-                    : (m.role || 'super_admin');
+  window._authUserId = user.id;
+  window._isDualRole = (isPartner && isClient);
+  if(window._isDualRole){
+    var _ar = 'partner';
+    try{ var _s = localStorage.getItem('adviuz_active_role_'+user.id); if(_s==='client') _ar='client'; }catch(e){}
+    window._activeRole = _ar;
+    window._staffRole  = (_ar==='client') ? 'client' : 'sales_partner';
+  } else {
+    window._activeRole = isPartner ? 'partner' : (isClient ? 'client' : null);
+    window._staffRole  = isPartner ? 'sales_partner'
+                       : isTelecaller ? 'telecaller'
+                       : isClient ? 'client'
+                       : (m.role || 'super_admin');
+  }
   return window._staffRole;
+}
+
+// ── DUAL-ROLE (client + partner) view switcher ─────────────
+// Only ever shown to a user who is BOTH a sales_partner AND a client.
+function ensureRoleSwitcher(){
+  if(!window._isDualRole) return;
+  var tbRight = document.querySelector('.tb-right');
+  if(!tbRight) return;
+  var btn = document.getElementById('roleSwitchBtn');
+  if(!btn){
+    btn = document.createElement('button');
+    btn.id = 'roleSwitchBtn';
+    btn.style.cssText = 'padding:6px 12px;border-radius:20px;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);color:#fff;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap';
+    tbRight.insertBefore(btn, tbRight.firstChild);   // keep it first / prominent
+  }
+  var other = (window._activeRole==='client') ? 'partner' : 'client';
+  btn.textContent = (other==='client') ? '\u21c4 Client view' : '\u21c4 Partner view';
+  btn.onclick = function(){ switchRole(other); };
+  btn.style.display = '';
+}
+
+function switchRole(role){
+  if(!window._isDualRole) return;
+  if(role===window._activeRole) return;
+  var uid = window._authUserId || (currentUser && currentUser.id);
+  try{ if(uid) localStorage.setItem('adviuz_active_role_'+uid, role); }catch(e){}
+  window._activeRole = role;
+  window._staffRole  = (role==='client') ? 'client' : 'sales_partner';
+  // reset view-mode flags so the target dashboard/render is correct
+  window._isPartnerMode = false;
+  window._isClientMode  = false;
+  // reset topbar: show all buttons; hide both sign-out buttons (the target UI re-hides / re-adds what it needs)
+  ['tbPlusBtn','tbSearch','tbNotifBtn'].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el){ var b = (el.tagName==='BUTTON') ? el : el.closest('button'); if(b) b.style.display=''; }
+  });
+  var menuBtn = document.querySelector('.tb-menu'); if(menuBtn) menuBtn.style.display='';
+  ['partnerSignOutBtn','clientSignOutBtn'].forEach(function(id){ var b=document.getElementById(id); if(b) b.style.display='none'; });
+  // fresh data slate, then bring up the target view
+  leads = []; nxtId = 1;
+  var done = (role==='client') ? showClientUI() : showPartnerUI();
+  Promise.resolve(done).then(function(){ ensureRoleSwitcher(); });
+  showToast('Switched to ' + (role==='client' ? 'Client' : 'Partner') + ' view');
 }
 
 async function verifyPartnerOTP() {
@@ -3754,8 +3807,10 @@ function onLoginSuccess() {
   syncStageSelects();
   if (window._staffRole === 'sales_partner') {
     showPartnerUI();
+    if (window._isDualRole) ensureRoleSwitcher();
   } else if (window._staffRole === 'client') {
     showClientUI();
+    if (window._isDualRole) ensureRoleSwitcher();
     return; // client UI owns its own load + render
   } else if (window._staffRole === 'telecaller') {
     showClientUI().then(function(){ applyTelecallerRestrictions(); });
@@ -9984,24 +10039,10 @@ sessionStorage.removeItem('adviuz_session');
   try {
     var loggedIn = await refreshSession();
     if (loggedIn) {
+      // Re-run the role gate so role data (incl. dual client+partner) is fresh on reload
+      try { if (currentUser && currentUser.id) await applyRoleGate(currentUser); }
+      catch(ge){ console.warn('[INIT] role gate on restore:', ge.message); }
       window._staffRole = window._staffRole || 'super_admin';
-      if (window._staffRole === 'sales_partner') {
-        // Re-fetch partner data
-        if (!window._partnerData && window.currentUser) {
-          var pRes = await sbFetch('/rest/v1/sales_partners?user_id=eq.'+window.currentUser.id+'&limit=1');
-          var pArr = pRes.ok ? await pRes.json() : [];
-          if (pArr.length) window._partnerData = pArr[0];
-          if (!pArr.length) {
-            // Try by email
-            var pRes2 = await sbFetch('/rest/v1/sales_partners?email=eq.'+encodeURIComponent(window.currentUser.email)+'&limit=1');
-            var pArr2 = pRes2.ok ? await pRes2.json() : [];
-            if (pArr2.length) window._partnerData = pArr2[0];
-          }
-        }
-        showPartnerUI();
-      } else {
-        showAdminUI();
-      }
       onLoginSuccess();
     }
   } catch(e) {
