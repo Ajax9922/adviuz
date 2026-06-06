@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-04 dualrole-v2</title>
+<title>Adviuz Hub · v2026-06-04 dualrole-v3</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2894,7 +2894,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-04 dualrole-v2';
+var APP_VERSION = 'v2026-06-04 dualrole-v3';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -3975,8 +3975,9 @@ async function refreshLeads() {
         // Earnings view → reload commissions + payout requests
         await loadPartnerComms();
       } else {
-        // Leads / Follow-ups / Reports / Calls → reload this partner's leads
+        // Leads / Follow-ups / Reports / Calls → reload this partner's leads + calls
         await loadPartnerLeads();
+        await loadCallLog();
       }
     } catch(e) { console.warn('[partner refresh]', e && e.message); }
     if(rb){ rb.style.opacity='1'; rb.style.pointerEvents='auto'; }
@@ -10224,7 +10225,7 @@ async function showPartnerUI() {
   document.getElementById('tbSub').textContent   = partnerGetRate(p.active_client_count||0) + ' commission · ' + (p.ref_code||'');
 
   // Hide admin-only topbar buttons (keep Refresh — partners can refresh too)
-  var ids = ['tbPlusBtn','tbSearch','tbNotifBtn'];
+  var ids = ['tbPlusBtn','tbSearch'];
   ids.forEach(function(id){
     var el = document.getElementById(id);
     if (el) {
@@ -10271,6 +10272,7 @@ async function showPartnerUI() {
 
   await loadPartnerLeads();
   await loadPartnerComms();
+  await loadCallLog();
   render();
 }
 
@@ -10567,13 +10569,22 @@ async function loadClientLeads() {
 // Must run AFTER leads are loaded so each call maps to its in-memory lead.
 async function loadCallLog() {
   try {
-    var cid = window._clientId;
-    if (!cid) { callLog = []; return; }
     var byDbId = {};
     (leads || []).forEach(function(l){ if (l.dbId) byDbId[l.dbId] = l; });
-    var res = await sbFetch('/rest/v1/lead_activity?activity_type=eq.call&client_id=eq.'+cid
-      + '&select=lead_id,description,direction,duration_seconds,recording_url,call_note,created_at,call_sid'
-      + '&order=created_at.desc&limit=300');
+    var _sel = '&select=lead_id,description,direction,duration_seconds,recording_url,call_note,created_at,call_sid'
+             + '&order=created_at.desc&limit=300';
+    var url;
+    if (typeof isPartnerMode==='function' && isPartnerMode()) {
+      // Partner → calls for THIS partner's own leads (scoped by lead id, not client_id)
+      var _ids = Object.keys(byDbId);
+      if (!_ids.length) { callLog = []; return; }
+      url = '/rest/v1/lead_activity?activity_type=eq.call&lead_id=in.('+_ids.join(',')+')'+_sel;
+    } else {
+      var cid = window._clientId;
+      if (!cid) { callLog = []; return; }
+      url = '/rest/v1/lead_activity?activity_type=eq.call&client_id=eq.'+cid+_sel;
+    }
+    var res = await sbFetch(url);
     if (!res.ok) { callLog = []; return; }
     var rows = await res.json();
     var out = [];
