@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-06 ai-callsum-v2</title>
+<title>Adviuz Hub · v2026-06-06 followup-5a-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1193,6 +1193,9 @@ input[type=number]{-moz-appearance:textfield}
       </div>
       <div class="menu-item" onclick="closeMenu();adminShowTab('allleads')">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>All Leads
+      </div>
+      <div class="menu-item" onclick="closeMenu();openFollowupSettings()">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>AI Follow-ups
       </div>
       <div class="menu-item" onclick="closeMenu();openPartnersManager()">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>Partners
@@ -2388,6 +2391,22 @@ input[type=number]{-moz-appearance:textfield}
     </div>
   </div>
 </div>
+<!-- ═══ AI FOLLOW-UP AUTOMATION SETTINGS ═══ -->
+<div class="sheet-ov" id="followupSh" onclick="if(event.target===this)closeSheet('followupSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title">AI Follow-ups</div><button class="sheet-x" onclick="closeSheet('followupSh')">&#x2715;</button></div>
+    <div class="sh-body">
+      <div style="font-size:13px;color:var(--sub);margin-bottom:14px;line-height:1.6">When a lead goes quiet, the AI prepares a follow-up message for you to review and send. For each stage, set how many days to wait before each touch (comma-separated, e.g. <b>1, 3, 7</b>), and switch off any stage you don't want followed up.</div>
+      <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--white);border:1px solid var(--border);border-radius:12px;padding:13px 14px;margin-bottom:14px;cursor:pointer">
+        <div><div style="font-size:14px;font-weight:800;color:var(--text)">Automation enabled</div><div style="font-size:11px;color:var(--sub);margin-top:2px">Master switch for all stages</div></div>
+        <input type="checkbox" id="fuMaster" style="width:22px;height:22px;cursor:pointer;accent-color:var(--green)">
+      </label>
+      <div id="fuStageList" style="background:var(--white);border-radius:12px;border:1px solid var(--border);overflow:hidden;margin-bottom:8px"></div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:14px;line-height:1.5">Days are counted from the lead's last activity. A sequence stops on its own if the lead replies. Every message waits for your one-tap approval before sending.</div>
+      <button id="fuSaveBtn" class="btn btn-primary" onclick="saveFollowupRules()" style="width:100%;justify-content:center">Save automation rules</button>
+    </div>
+  </div>
+</div>
 <!-- Bulk AI -->
 <div class="sheet-ov" id="bulkAiSh" onclick="if(event.target===this)closeSheet('bulkAiSh')">
   <div class="sheet"><div class="sheet-handle"></div>
@@ -2894,7 +2913,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-06 ai-callsum-v2';
+var APP_VERSION = 'v2026-06-06 followup-5a-v1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -11674,6 +11693,103 @@ async function saveCampaignContact(){
     }
   }catch(e){ showToast('Could not save — please try again'); }
   if(btn){ btn.textContent='Save settings'; btn.disabled=false; }
+}
+
+// ═══════════════════════════════════════════════════════
+// AI FOLLOW-UP AUTOMATION — settings (5A)
+// Stores a global per-stage follow-up playbook in app_settings.value
+// under key 'followup_rules'. The daily scheduler (5B) reads this.
+// ═══════════════════════════════════════════════════════
+var FOLLOWUP_DEFAULTS = {
+  enabled: true,
+  stages: {
+    '1':  { on:true,  days:[1,3,7] },
+    '2':  { on:true,  days:[1,3]   },
+    '3':  { on:true,  days:[1]     },
+    '4':  { on:true,  days:[1]     },
+    '5':  { on:true,  days:[1]     },
+    '6':  { on:true,  days:[1,4]   },
+    '7':  { on:true,  days:[2,5]   },
+    '8':  { on:true,  days:[2,5]   },
+    '9':  { on:false, days:[]      },
+    '10': { on:false, days:[]      },
+    '11': { on:true,  days:[14,30] },
+    '12': { on:false, days:[]      },
+    '13': { on:false, days:[]      },
+    '14': { on:false, days:[]      },
+    '15': { on:false, days:[]      }
+  }
+};
+
+async function openFollowupSettings(){
+  openSheet('followupSh');
+  var listEl = document.getElementById('fuStageList');
+  if(listEl) listEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--sub);font-size:13px">Loading…</div>';
+  var rules = JSON.parse(JSON.stringify(FOLLOWUP_DEFAULTS));
+  try {
+    var res = await sbFetch('/rest/v1/app_settings?key=eq.followup_rules&select=value');
+    if(res.ok){
+      var rows = await res.json();
+      if(rows && rows[0] && rows[0].value && rows[0].value.stages){ rules = rows[0].value; }
+    }
+  } catch(e){ /* fall back to defaults */ }
+  window._fuRules = rules;
+  var master = document.getElementById('fuMaster');
+  if(master) master.checked = rules.enabled !== false;
+  renderFollowupRows(rules);
+}
+
+function renderFollowupRows(rules){
+  var listEl = document.getElementById('fuStageList');
+  if(!listEl) return;
+  var h = '';
+  STAGES.forEach(function(s){
+    var num = (s.name.match(/^\s*(\d+)/)||[])[1] || '';
+    if(!num) return;
+    var r = (rules.stages && rules.stages[num]) || { on:false, days:[] };
+    var daysStr = (r.days||[]).join(', ');
+    h += '<div style="display:flex;align-items:center;gap:10px;padding:11px 12px;border-bottom:1px solid var(--border)">'
+      +   '<span style="width:9px;height:9px;border-radius:50%;background:'+s.color+';flex-shrink:0"></span>'
+      +   '<div style="flex:1;min-width:0">'
+      +     '<div style="font-size:13px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+s.name+'</div>'
+      +     '<input class="finp fu-days" data-stg="'+num+'" value="'+daysStr+'" placeholder="e.g. 1, 3, 7" '+(r.on?'':'disabled ')+'style="margin-top:5px;padding:7px 9px;font-size:12px'+(r.on?'':';opacity:.4')+'">'
+      +   '</div>'
+      +   '<input type="checkbox" class="fu-on" data-stg="'+num+'" '+(r.on?'checked':'')+' onchange="fuToggleRow(this)" style="width:20px;height:20px;cursor:pointer;accent-color:var(--green);flex-shrink:0">'
+      + '</div>';
+  });
+  listEl.innerHTML = h;
+}
+
+function fuToggleRow(cb){
+  var inp = document.querySelector('.fu-days[data-stg="'+cb.getAttribute('data-stg')+'"]');
+  if(inp){ inp.disabled = !cb.checked; inp.style.opacity = cb.checked ? '' : '.4'; }
+}
+
+async function saveFollowupRules(){
+  var enabled = !document.getElementById('fuMaster') ? true : !!document.getElementById('fuMaster').checked;
+  var stages = {};
+  document.querySelectorAll('.fu-on').forEach(function(cb){
+    var num = cb.getAttribute('data-stg');
+    var inp = document.querySelector('.fu-days[data-stg="'+num+'"]');
+    var days = ((inp && inp.value) || '').split(/[,\s]+/)
+      .map(function(x){ return parseInt(x,10); })
+      .filter(function(n){ return !isNaN(n) && n>0; })
+      .slice(0,6);
+    stages[num] = { on: !!cb.checked, days: days };
+  });
+  var value = { enabled: enabled, stages: stages };
+  var btn = document.getElementById('fuSaveBtn');
+  if(btn){ btn.textContent='Saving…'; btn.disabled=true; }
+  try {
+    var res = await sbFetch('/rest/v1/app_settings', {
+      method:'POST',
+      headers:{ Prefer:'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ key:'followup_rules', value:value, updated_at:new Date().toISOString() })
+    });
+    if(res.ok){ window._fuRules = value; showToast('&#x2705; Follow-up rules saved'); closeSheet('followupSh'); }
+    else { showToast('Could not save — please try again'); }
+  } catch(e){ showToast('Could not save — please try again'); }
+  if(btn){ btn.textContent='Save automation rules'; btn.disabled=false; }
 }
 
 function clientCampaignDetailHTML(campId){
