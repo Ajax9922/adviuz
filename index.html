@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-06 tz-foundation-v1</title>
+<title>Adviuz Hub · v2026-06-06 appt-set-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2437,6 +2437,21 @@ input[type=number]{-moz-appearance:textfield}
     </div>
   </div>
 </div>
+<!-- ═══ SET APPOINTMENT (date + time, in the lead's timezone) ═══ -->
+<div class="sheet-ov" id="apptSh" onclick="if(event.target===this)closeSheet('apptSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title">Set Appointment</div><button class="sheet-x" onclick="closeSheet('apptSh')">&#x2715;</button></div>
+    <div class="sh-body">
+      <div id="apptTzNote" style="font-size:12px;color:var(--sub);margin-bottom:14px;line-height:1.6">Pick the date and time in the lead's local time.</div>
+      <div class="flbl" style="margin-bottom:6px">Date</div>
+      <input class="finp" type="date" id="apptDate" style="margin-bottom:14px">
+      <div class="flbl" style="margin-bottom:6px">Time</div>
+      <input class="finp" type="time" id="apptTime" style="margin-bottom:18px">
+      <button id="apptSaveBtn" class="btn btn-primary" onclick="saveAppt()" style="width:100%;justify-content:center;margin-bottom:8px">Save appointment</button>
+      <button onclick="clearAppt()" class="btn btn-ghost" style="width:100%;justify-content:center">Clear appointment</button>
+    </div>
+  </div>
+</div>
 <!-- Bulk AI -->
 <div class="sheet-ov" id="bulkAiSh" onclick="if(event.target===this)closeSheet('bulkAiSh')">
   <div class="sheet"><div class="sheet-handle"></div>
@@ -2943,7 +2958,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-06 tz-foundation-v1';
+var APP_VERSION = 'v2026-06-06 appt-set-v1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -4227,6 +4242,8 @@ function mapLead(l, i) {
     col: l.color || COLORS[i % COLORS.length],
     partner_id: l.partner_id || null,
     meeting_date: l.meeting_date || null,
+    appointment_at: l.appointment_at || null,
+    timezone: l.timezone || null,
     deal_value:   (l.deal_value != null ? Number(l.deal_value) : null),
     // Campaign linkage — REQUIRED for the campaign dashboard lead counts and
     // the campaign filter chip. Without these the count is always 0 because
@@ -6607,6 +6624,13 @@ function renderLeadScreen(id) {
   if(l.svc) h += ldInfoRow('🛠','Product',l.svc);
   // Date of Inquiry
   h += ldInfoRow('📅','Inquiry Date',l.t||'—');
+  // Appointment (future) — shown in the LEAD's local time
+  var _leadTz = l.timezone || tzFromPhone(l.ph) || 'America/Toronto';
+  var _apptHtml = l.appointment_at
+    ? '<span style="font-weight:600;color:var(--text)">'+fmtApptLocal(l.appointment_at,_leadTz)+'</span>'
+      + ' <span onclick="openApptSheet('+l.id+')" style="color:var(--blue);font-size:12px;cursor:pointer;font-weight:600;margin-left:6px">Change</span>'
+    : '<span onclick="openApptSheet('+l.id+')" style="color:var(--green);font-weight:600;cursor:pointer">+ Set appointment</span>';
+  h += ldInfoRow('🗓','Appointment', _apptHtml);
   // Last Event
   h += ldInfoRow('⚡','Last Event', lastAct ? lastAct.label+' · '+lastAct.time : 'No activity yet');
 
@@ -11927,6 +11951,82 @@ function leadLocalTimeLabel(ph){
   var tz=tzFromPhone(ph); if(!tz) return '';
   try { return new Intl.DateTimeFormat('en-CA',{timeZone:tz,hour:'numeric',minute:'2-digit',hour12:true}).format(new Date())+' '+tzShortLabel(tz); }
   catch(e){ return ''; }
+}
+
+// ── Appointment timezone conversion (wall-clock in a tz <-> absolute UTC) ──
+function tzOffsetMinutes(tz, date){
+  try{
+    var p = new Intl.DateTimeFormat('en-US',{timeZone:tz,hourCycle:'h23',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})
+      .formatToParts(date).reduce(function(a,x){a[x.type]=x.value;return a;},{});
+    var asUTC = Date.UTC(+p.year, p.month-1, +p.day, +p.hour, +p.minute, +p.second);
+    return Math.round((asUTC - date.getTime())/60000);
+  }catch(e){ return 0; }
+}
+function zonedToUtcISO(dateStr, timeStr, tz){
+  var guess = new Date(dateStr+'T'+timeStr+':00Z').getTime();
+  var off = tzOffsetMinutes(tz, new Date(guess));
+  var inst = guess - off*60000;
+  var off2 = tzOffsetMinutes(tz, new Date(inst));
+  if(off2 !== off) inst = guess - off2*60000;
+  return new Date(inst).toISOString();
+}
+function isoToZonedParts(iso, tz){
+  try{
+    var p = new Intl.DateTimeFormat('en-CA',{timeZone:tz,hourCycle:'h23',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})
+      .formatToParts(new Date(iso)).reduce(function(a,x){a[x.type]=x.value;return a;},{});
+    return { date:p.year+'-'+p.month+'-'+p.day, time:p.hour+':'+p.minute };
+  }catch(e){ return {date:'',time:''}; }
+}
+function fmtApptLocal(iso, tz){
+  try{ return new Intl.DateTimeFormat('en-CA',{timeZone:tz,weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}).format(new Date(iso))+' '+tzShortLabel(tz); }
+  catch(e){ return iso; }
+}
+
+function openApptSheet(leadId){
+  var l = leads.find(function(x){ return x.id===leadId; });
+  if(!l){ return; }
+  window._apptLeadId = leadId;
+  var tz = l.timezone || tzFromPhone(l.ph) || 'America/Toronto';
+  window._apptTz = tz;
+  var note = document.getElementById('apptTzNote');
+  if(note) note.innerHTML = 'Pick the date and time in the lead\'s local time — <b>'+tzShortLabel(tz)+'</b>. We\'ll remind them on their own clock, wherever they are.';
+  var dEl=document.getElementById('apptDate'), tEl=document.getElementById('apptTime');
+  if(l.appointment_at){ var z=isoToZonedParts(l.appointment_at, tz); if(dEl)dEl.value=z.date; if(tEl)tEl.value=z.time; }
+  else { if(dEl)dEl.value=''; if(tEl)tEl.value=''; }
+  openSheet('apptSh');
+}
+
+async function saveAppt(){
+  var leadId = window._apptLeadId;
+  var l = leads.find(function(x){ return x.id===leadId; });
+  if(!l){ closeSheet('apptSh'); return; }
+  var d=(document.getElementById('apptDate')||{}).value, t=(document.getElementById('apptTime')||{}).value;
+  if(!d || !t){ showToast('Please pick a date and time'); return; }
+  var tz = window._apptTz || l.timezone || tzFromPhone(l.ph) || 'America/Toronto';
+  var iso = zonedToUtcISO(d, t, tz);
+  var btn=document.getElementById('apptSaveBtn'); if(btn){ btn.textContent='Saving…'; btn.disabled=true; }
+  try{
+    var res = await sbFetch('/rest/v1/leads?id=eq.'+l.dbId, { method:'PATCH', body: JSON.stringify({ appointment_at: iso, updated_at:new Date().toISOString() }) });
+    if(!res.ok) throw new Error('save failed');
+    l.appointment_at = iso;
+    showToast('&#x2705; Appointment set for '+fmtApptLocal(iso,tz));
+    closeSheet('apptSh');
+    if(curLid===l.id) renderLeadScreen(l.id);
+  }catch(e){ showToast('Could not save — try again'); }
+  if(btn){ btn.textContent='Save appointment'; btn.disabled=false; }
+}
+
+async function clearAppt(){
+  var leadId = window._apptLeadId;
+  var l = leads.find(function(x){ return x.id===leadId; });
+  if(!l){ closeSheet('apptSh'); return; }
+  try{
+    await sbFetch('/rest/v1/leads?id=eq.'+l.dbId, { method:'PATCH', body: JSON.stringify({ appointment_at: null, updated_at:new Date().toISOString() }) });
+    l.appointment_at = null;
+    showToast('Appointment cleared');
+    closeSheet('apptSh');
+    if(curLid===l.id) renderLeadScreen(l.id);
+  }catch(e){ showToast('Could not clear — try again'); }
 }
 
 async function fqSend(id, btn){
