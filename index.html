@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-06 leadscope-v1</title>
+<title>Adviuz Hub · v2026-06-06 reminders-view-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2894,7 +2894,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-06 leadscope-v1';
+var APP_VERSION = 'v2026-06-06 reminders-view-v1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -14356,6 +14356,7 @@ async function openLeadQuotes(lid) {
           +'</div>'
           +'<div style="font-size:18px;color:var(--sub)">&#x276F;</div>'
           +'</div>';
+        html += _quoteRemindersHTML(q);
       });
     }
     if(body) body.innerHTML = html;
@@ -14367,6 +14368,87 @@ async function openLeadQuotes(lid) {
 function closeQuotesList() {
   var el = document.getElementById('quotesListScreen');
   if(el) el.classList.remove('open');
+}
+
+// Build the "Reminder Emails" panel for one quote. Reminders aren't stored as
+// rows — they're computed by the daily process-reminders job from the quote's
+// own dates + the three reminder_*_sent flags, so we compute the same schedule
+// here. Reminders run only while a quote is Sent or Viewed (and not stopped).
+function _quoteRemindersHTML(q){
+  var fmtD  = function(d){ return d.toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}); };
+  var today = new Date(); today.setHours(0,0,0,0);
+  var num   = q.quote_number || 'quote';
+  function plusDays(base, n){ var d = new Date(base); d.setDate(d.getDate()+n); d.setHours(0,0,0,0); return d; }
+
+  var sentBase = new Date(q.sent_at || q.created_at);
+  var expiry   = q.valid_until ? new Date(q.valid_until) : null;
+
+  var rems = [{
+    label:'Check-in', date:plusDays(sentBase,2), sent:!!q.reminder_1_sent,
+    subject:'Quick follow-up on your quote — '+num,
+    body:'Just checking in to make sure you received the quote and answer any questions.'
+  }];
+  if(expiry){
+    rems.push({ label:'Expiry nudge', date:plusDays(expiry,-2), sent:!!q.reminder_2_sent,
+      subject:'Your quote expires in 2 days — '+num,
+      body:'A reminder that the quote expires in 2 days — accept now to lock in the pricing.' });
+    rems.push({ label:'Final notice', date:plusDays(expiry,0), sent:!!q.reminder_3_sent,
+      subject:'Last day — quote expires today — '+num,
+      body:'Today is the last day to accept the quote; pricing may change afterward.' });
+  }
+
+  var active = (q.status==='sent' || q.status==='viewed') && !q.reminders_off;
+  var headNote = '';
+  if(q.reminders_off)
+    headNote = '<div style="font-size:12px;color:var(--sub);padding:2px 0 8px">&#x26D4; Reminders stopped for this quote.</div>';
+  else if(!active)
+    headNote = '<div style="font-size:12px;color:var(--sub);padding:2px 0 8px">No reminders — this quote is '+q.status+'. Reminders only run while a quote is Sent or Viewed.</div>';
+
+  var rowsHtml = rems.map(function(r){
+    var status, col, bg;
+    if(r.sent){ status='Sent'; col='#059669'; bg='#ecfdf5'; }
+    else if(!active){ status='—'; col='var(--sub)'; bg='var(--bg)'; }
+    else if(r.date.getTime() >= today.getTime()){ status='Scheduled'; col='#2563eb'; bg='#eff6ff'; }
+    else { status='Missed'; col='#9ca3af'; bg='var(--bg)'; }
+    var when = fmtD(r.date) + ' &middot; 9:00 AM CT';
+    return '<div style="padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;background:var(--white)">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">'
+        + '<div style="font-size:13px;font-weight:700;color:var(--text)">'+r.label+'</div>'
+        + '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:'+col+';background:'+bg+';padding:3px 8px;border-radius:999px">'+status+'</div>'
+      + '</div>'
+      + '<div style="font-size:11px;color:var(--sub);margin-bottom:6px">&#x1F4C5; '+when+'</div>'
+      + '<div style="font-size:12px;font-weight:600;color:var(--text)">'+r.subject+'</div>'
+      + '<div style="font-size:12px;color:var(--sub);margin-top:2px;line-height:1.5">'+r.body+'</div>'
+    + '</div>';
+  }).join('');
+
+  var hasUpcoming = active && rems.some(function(r){ return !r.sent && r.date.getTime() >= today.getTime(); });
+  var cancelBtn = hasUpcoming
+    ? '<button onclick="event.stopPropagation();cancelQuoteReminders(\''+q.id+'\')" style="width:100%;padding:10px;border-radius:9px;border:1px solid #fecaca;background:#fff;color:#dc2626;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">Stop upcoming reminders</button>'
+    : '';
+
+  return '<div style="padding:10px 20px 16px;background:var(--bg);border-bottom:1px solid var(--border)">'
+    + '<div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);margin-bottom:8px">Reminder Emails</div>'
+    + headNote + rowsHtml + cancelBtn
+  + '</div>';
+}
+
+// Stop all upcoming reminders for a quote by flagging it. The daily job skips
+// any quote with reminders_off = true. (Requires the reminders_off column +
+// the one-line guard in process-reminders — see deploy notes.)
+async function cancelQuoteReminders(quoteId){
+  if(!confirm('Stop all upcoming reminders for this quote?\n\nAlready-sent reminders are not affected.')) return;
+  try{
+    var r = await sbFetch('/rest/v1/quotes?id=eq.'+quoteId, {
+      method:'PATCH', body: JSON.stringify({ reminders_off: true })
+    });
+    if(!r.ok){ var t = await r.text(); throw new Error(t); }
+    showToast('Reminders stopped for this quote');
+    if(window._quotesListLid) openQuotesList(window._quotesListLid);
+  }catch(e){
+    console.warn('[cancelQuoteReminders]', e.message);
+    showToast('Could not stop reminders — the reminders_off step may not be applied yet');
+  }
 }
 
 function newQuoteFromList() {
