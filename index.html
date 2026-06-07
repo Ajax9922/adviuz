@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-06 ai-callsum-v1</title>
+<title>Adviuz Hub · v2026-06-06 ai-callsum-v2</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2894,7 +2894,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-06 ai-callsum-v1';
+var APP_VERSION = 'v2026-06-06 ai-callsum-v2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -8682,17 +8682,19 @@ async function generateCallSummary(lead, durationSec) {
     var summary = (data.summary || '').trim();
     if (!summary) return;
 
-    if (!leadAct[lead.id]) leadAct[lead.id] = [];
-    leadAct[lead.id].unshift({ type: 'note', label: '🤖 AI Call Summary', time: 'Just now', body: summary, rec: false });
-    logActivity({
+    // Persist to the DB only (skipLocal), then reload activity from the DB so the
+    // note appears exactly once. Previously it was inserted locally AND by
+    // logActivity AND re-read by the recording poll → duplicate notes.
+    await logActivity({
       lead_id:    lead.id,
       db_lead_id: lead.dbId,
       client_id:  window._clientId,
       type:       'note',
       label:      '🤖 AI Call Summary',
-      body:       summary
+      body:       summary,
+      skipLocal:  true
     });
-    if (curLid === lead.id) renderLeadScreen(lead.id);
+    loadLeadActivity(lead.id, lead.dbId);
     showToast('✅ Call summary generated');
   } catch(e) {
     console.warn('[callSummary]', e.message);
@@ -9129,8 +9131,10 @@ var ACTIVITY_ICONS = {
 
 async function logActivity(opts) {
   var lid = opts.lead_id;
-  // Update local timeline immediately
-  if(lid) {
+  // Update local timeline immediately. Callers can pass skipLocal:true to
+  // persist to the DB only — used where a reload will bring the row back in,
+  // so the same entry never shows twice.
+  if(lid && !opts.skipLocal) {
     if(!leadAct[lid]) leadAct[lid] = [];
     var icon = ACTIVITY_ICONS[opts.type]||'•';
     leadAct[lid].unshift({
