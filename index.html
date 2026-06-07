@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-06 reports-match-v1</title>
+<title>Adviuz Hub · v2026-06-06 reports-drill-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2894,7 +2894,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-06 reports-match-v1';
+var APP_VERSION = 'v2026-06-06 reports-drill-v1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -5894,6 +5894,25 @@ function rptApplyAndClose(){
   closeSheet('rptFilterSh'); render();
 }
 
+// Tap a report row → jump to the Leads tab, filtered to that stage / bucket.
+// `spec` is a pipe-separated list of exact STAGE names ('' = all leads).
+// Shared by clients, partners and operator since they all use this report.
+function rptDrill(spec){
+  var stages = (spec||'').split('|').filter(Boolean);
+  window._advFilters = window._advFilters || {stages:[],execs:[],locations:[],partners:[],sources:[],services:[],clients:[]};
+  window._advFilters.stages = stages;
+  var lb = document.getElementById('tab-leads');
+  if (lb) goTab('leads', lb); else { curTab='leads'; render(); }
+  // Operator only: goTab clears the partner filter (which by default hides
+  // partner-attributed leads), so re-include everyone to match the report count.
+  var isClient = (typeof isClientMode==='function') && isClientMode();
+  if (!window._isPartnerMode && !isClient){
+    if (window._allPartners) window._allPartners.forEach(function(p){ schPartners.add(String(p.id)); });
+    schPartners.add('__none__');
+    render();
+  }
+}
+
 function clientReportsHTML(){
   var ls = rptApplyFilters(leads || []);
   var tot = ls.length;
@@ -5970,18 +5989,20 @@ function clientReportsHTML(){
 
   // ── PIPELINE STATUS (where every lead currently sits) ──
   h += '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:6px 2px 8px">Pipeline Status</div>';
+  var _exclProc = ['9. Deal Closed','10. Not Interested','12. Lost','15. Looking for Job'];
+  var inProcessStages = STAGES.map(function(s){return s.name;}).filter(function(n){return _exclProc.indexOf(n)===-1;}).join('|');
   var pipelineRows = [
-    {label:'Total Leads',       n:tot,           pct:'100.00%', col:'var(--text)'},
-    {label:'Deal in Process',   n:inProcess,     pct:pct(inProcess),    col:'#2563eb'},
-    {label:'Deal Disqualified', n:disqualified,  pct:pct(disqualified), col:'#cc0000'}
+    {label:'Total Leads',       n:tot,           pct:'100.00%', col:'var(--text)', drill:''},
+    {label:'Deal in Process',   n:inProcess,     pct:pct(inProcess),    col:'#2563eb', drill:inProcessStages},
+    {label:'Deal Disqualified', n:disqualified,  pct:pct(disqualified), col:'#cc0000', drill:'10. Not Interested|12. Lost|15. Looking for Job'}
   ];
   h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:18px">';
   h += '<div style="display:grid;grid-template-columns:1fr 80px 90px;padding:12px 14px;background:var(--bg);font-size:10px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.07em">'
     +  '<div>Description</div><div style="text-align:right">Total</div><div style="text-align:right">Ratio</div>'
     +  '</div>';
   pipelineRows.forEach(function(r, i){
-    h += '<div style="display:grid;grid-template-columns:1fr 80px 90px;padding:14px;align-items:center;'+(i?'border-top:1px solid var(--border)':'')+'">'
-      +    '<div style="font-size:14px;color:'+r.col+';font-weight:'+(i===0?'700':'500')+'">'+r.label+'</div>'
+    h += '<div onclick="rptDrill(\''+r.drill+'\')" style="display:grid;grid-template-columns:1fr 80px 90px;padding:14px;align-items:center;cursor:pointer;'+(i?'border-top:1px solid var(--border)':'')+'">'
+      +    '<div style="font-size:14px;color:'+r.col+';font-weight:'+(i===0?'700':'500')+';display:flex;align-items:center">'+r.label+'<span style="margin-left:auto;color:var(--sub);opacity:.45;font-size:15px">&rsaquo;</span></div>'
       +    '<div style="font-size:15px;color:var(--text);font-weight:700;text-align:right">'+r.n+'</div>'
       +    '<div style="font-size:13px;color:var(--sub);text-align:right">'+r.pct+'</div>'
       +  '</div>';
@@ -5991,17 +6012,17 @@ function clientReportsHTML(){
   // ── MILESTONES (key progress moments) ──
   h += '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:6px 2px 8px">Milestones</div>';
   var milestoneRows = [
-    {label:'Meeting Done',    n:meetingDone,    pct:pct(meetingDone),    col:'#16a34a', icon:'🤝'},
-    {label:'Deals Closed',    n:dealsClosed,    pct:pct(dealsClosed),    col:'#15803d', icon:'🎉'},
-    {label:'Future Prospect', n:futureProspect, pct:pct(futureProspect), col:'#6366f1', icon:'🔮'}
+    {label:'Meeting Done',    n:meetingDone,    pct:pct(meetingDone),    col:'#16a34a', icon:'🤝', drill:'6. Meeting Done'},
+    {label:'Deals Closed',    n:dealsClosed,    pct:pct(dealsClosed),    col:'#15803d', icon:'🎉', drill:'9. Deal Closed'},
+    {label:'Future Prospect', n:futureProspect, pct:pct(futureProspect), col:'#6366f1', icon:'🔮', drill:'11. Future Prospect'}
   ];
   h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:24px">';
   h += '<div style="display:grid;grid-template-columns:1fr 80px 90px;padding:12px 14px;background:var(--bg);font-size:10px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.07em">'
     +  '<div>Description</div><div style="text-align:right">Total</div><div style="text-align:right">Ratio</div>'
     +  '</div>';
   milestoneRows.forEach(function(r, i){
-    h += '<div style="display:grid;grid-template-columns:1fr 80px 90px;padding:14px;align-items:center;'+(i?'border-top:1px solid var(--border)':'')+'">'
-      +    '<div style="font-size:14px;color:var(--text);font-weight:500;display:flex;align-items:center;gap:8px"><span style="font-size:15px">'+r.icon+'</span>'+r.label+'</div>'
+    h += '<div onclick="rptDrill(\''+r.drill+'\')" style="display:grid;grid-template-columns:1fr 80px 90px;padding:14px;align-items:center;cursor:pointer;'+(i?'border-top:1px solid var(--border)':'')+'">'
+      +    '<div style="font-size:14px;color:var(--text);font-weight:500;display:flex;align-items:center;gap:8px"><span style="font-size:15px">'+r.icon+'</span>'+r.label+'<span style="margin-left:auto;color:var(--sub);opacity:.45;font-size:15px">&rsaquo;</span></div>'
       +    '<div style="font-size:15px;color:'+r.col+';font-weight:800;text-align:right">'+r.n+'</div>'
       +    '<div style="font-size:13px;color:var(--sub);text-align:right">'+r.pct+'</div>'
       +  '</div>';
@@ -6017,10 +6038,11 @@ function clientReportsHTML(){
     +  '</div>';
   STAGES.forEach(function(s, i){
     var n = ls.filter(function(l){ return l.stage === s.name; }).length;
-    h += '<div style="display:grid;grid-template-columns:1fr 80px;padding:13px 14px;align-items:center;'+(i?'border-top:1px solid var(--border)':'')+'">'
+    h += '<div onclick="rptDrill(\''+s.name+'\')" style="display:grid;grid-template-columns:1fr 80px;padding:13px 14px;align-items:center;cursor:pointer;'+(i?'border-top:1px solid var(--border)':'')+'">'
       +    '<div style="font-size:14px;color:var(--text);display:flex;align-items:center;gap:8px">'
       +      '<span style="width:8px;height:8px;border-radius:50%;background:'+s.color+';flex-shrink:0"></span>'
       +      s.name
+      +      '<span style="margin-left:auto;color:var(--sub);opacity:.45;font-size:15px">&rsaquo;</span>'
       +    '</div>'
       +    '<div style="font-size:14px;color:var(--text);font-weight:700;text-align:right">'+n+'</div>'
       +  '</div>';
