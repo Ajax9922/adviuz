@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-06 reports-drill-v1</title>
+<title>Adviuz Hub · v2026-06-06 leadscope-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2894,7 +2894,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-06 reports-drill-v1';
+var APP_VERSION = 'v2026-06-06 leadscope-v1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -4069,16 +4069,36 @@ async function loadLeadsFromDB() {
         console.log('[Adviuz] Client:', window._clientName, window._clientId, '| Role:', window._clientRole);
       }
     }
-    // SECURITY: if no client linked, return empty — never expose other orgs' leads
-    if(!window._clientId) {
+    // Detect operator (anything that isn't a client / partner / telecaller).
+    var _r = window._staffRole || '';
+    var isOperator = (_r !== 'client' && _r !== 'sales_partner' && _r !== 'telecaller');
+
+    // SECURITY: non-operators with no client linked → empty (never expose other orgs' leads)
+    if(!isOperator && !window._clientId) {
       console.warn('[Adviuz] No client linked — empty state');
       DB_READY = true;
       return [];
     }
-    // Load leads scoped to this client
-    var cFilter = '&client_id=eq.'+window._clientId;
+    // Scope the lead fetch.
+    //  • Client / partner / telecaller → only their own account's leads.
+    //  • Operator → the whole Adviuz SALES pipeline: any lead whose service is an
+    //    Adviuz product (Digital Flyers / AI Sales Engine / Both) wherever it now
+    //    lives, plus anything tied to the Adviuz account. (Won deals get re-linked
+    //    to the customer's own client record, so a plain client_id scope hides them;
+    //    the product-service marker catches them. Partner leads are merged below.)
+    var cFilter, _limit;
+    if (isOperator) {
+      var svcOr = 'service.ilike.Digital%20Flyers,service.ilike.AI%20Sales%20Engine,service.ilike.Both';
+      cFilter = window._clientId
+        ? '&or=(client_id.eq.'+window._clientId+','+svcOr+')'
+        : '&or=('+svcOr+')';
+      _limit = 1000;
+    } else {
+      cFilter = '&client_id=eq.'+window._clientId;
+      _limit = 500;
+    }
     // (Telecaller visibility is applied after fetch, by their lead filter)
-    var res = await sbFetch('/rest/v1/leads?select=*'+cFilter+'&order=created_at.desc&limit=500');
+    var res = await sbFetch('/rest/v1/leads?select=*'+cFilter+'&order=created_at.desc&limit='+_limit);
     if (!res.ok) {
       var err = await res.json().catch(function(){return{}});
       console.error('[Adviuz] Load leads error:', err);
