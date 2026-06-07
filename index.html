@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-06 followup-5a-v1</title>
+<title>Adviuz Hub · v2026-06-06 followup-5c-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1196,6 +1196,9 @@ input[type=number]{-moz-appearance:textfield}
       </div>
       <div class="menu-item" onclick="closeMenu();openFollowupSettings()">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>AI Follow-ups
+      </div>
+      <div class="menu-item" onclick="closeMenu();openFollowupQueue()">
+        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>Review Follow-ups
       </div>
       <div class="menu-item" onclick="closeMenu();openPartnersManager()">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>Partners
@@ -2407,6 +2410,16 @@ input[type=number]{-moz-appearance:textfield}
     </div>
   </div>
 </div>
+<!-- ═══ FOLLOW-UP REVIEW QUEUE (5C) ═══ -->
+<div class="sheet-ov" id="fqSh" onclick="if(event.target===this)closeSheet('fqSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title">Follow-ups to Review <span id="fqCount" style="color:var(--sub);font-weight:600"></span></div><button class="sheet-x" onclick="closeSheet('fqSh')">&#x2715;</button></div>
+    <div class="sh-body">
+      <div style="font-size:12px;color:var(--sub);margin-bottom:12px;line-height:1.6">These drafts are waiting for you. Edit the wording if you like, then <b>Send</b> — or <b>Skip</b> to discard. Nothing sends until you tap Send and confirm.</div>
+      <div id="fqList"></div>
+    </div>
+  </div>
+</div>
 <!-- Bulk AI -->
 <div class="sheet-ov" id="bulkAiSh" onclick="if(event.target===this)closeSheet('bulkAiSh')">
   <div class="sheet"><div class="sheet-handle"></div>
@@ -2913,7 +2926,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-06 followup-5a-v1';
+var APP_VERSION = 'v2026-06-06 followup-5c-v1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -11790,6 +11803,95 @@ async function saveFollowupRules(){
     else { showToast('Could not save — please try again'); }
   } catch(e){ showToast('Could not save — please try again'); }
   if(btn){ btn.textContent='Save automation rules'; btn.disabled=false; }
+}
+
+// ═══════════════════════════════════════════════════════
+// AI FOLLOW-UP REVIEW QUEUE (5C)
+// Shows pending drafts from followup_queue. Skip = discard;
+// Send = (two-tap confirm) → twilio-sms, then mark sent. Nothing
+// sends without an explicit confirmed tap.
+// ═══════════════════════════════════════════════════════
+async function openFollowupQueue(){
+  openSheet('fqSh');
+  var list = document.getElementById('fqList');
+  if(list) list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--sub);font-size:13px">Loading…</div>';
+  try {
+    var res = await sbFetch('/rest/v1/followup_queue?status=eq.pending&select=*&order=created_at.asc&limit=200');
+    var rows = res.ok ? await res.json() : [];
+    window._fqRows = rows;
+    renderFqList(rows);
+  } catch(e){
+    if(list) list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--sub);font-size:13px">Could not load — try again.</div>';
+  }
+}
+
+function renderFqList(rows){
+  var list = document.getElementById('fqList');
+  var cnt = document.getElementById('fqCount');
+  if(cnt) cnt.textContent = rows.length ? '('+rows.length+')' : '';
+  if(!list) return;
+  if(!rows.length){
+    list.innerHTML = '<div style="padding:30px 12px;text-align:center;color:var(--sub);font-size:13px">&#x1F389; All caught up — no follow-ups waiting.</div>';
+    return;
+  }
+  list.innerHTML = rows.map(function(q){
+    var c = stgColor(q.stage||'');
+    var safeDraft = (q.draft||'').replace(/</g,'&lt;');
+    return '<div class="fq-item" data-id="'+q.id+'" style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:13px;margin-bottom:12px">'
+      + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">'
+      +   '<span style="font-size:14px;font-weight:800;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(q.lead_name||'Lead')+'</span>'
+      +   '<span style="font-size:10px;font-weight:700;color:'+c+';background:'+c+'18;padding:3px 8px;border-radius:20px;white-space:nowrap">'+(q.stage||'')+'</span>'
+      + '</div>'
+      + '<div style="font-size:11px;color:var(--sub);margin-bottom:8px">'+(q.due_reason||'')+' &middot; '+(q.to_phone||'no number')+'</div>'
+      + '<textarea class="finp fq-draft" data-id="'+q.id+'" style="width:100%;min-height:80px;font-size:13px;font-family:var(--f);resize:vertical;margin-bottom:9px">'+safeDraft+'</textarea>'
+      + '<div style="display:flex;gap:8px">'
+      +   '<button onclick="fqSkip(\''+q.id+'\')" class="btn btn-ghost" style="flex:1;justify-content:center">Skip</button>'
+      +   '<button onclick="fqSend(\''+q.id+'\',this)" class="btn btn-primary" data-armed="0" style="flex:2;justify-content:center">Send &#x27A4;</button>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+function fqSkip(id){
+  sbFetch('/rest/v1/followup_queue?id=eq.'+id, { method:'PATCH', body: JSON.stringify({ status:'skipped', updated_at:new Date().toISOString() }) })
+    .then(function(){ fqRemove(id); showToast('Skipped'); })
+    .catch(function(){ showToast('Could not skip — try again'); });
+}
+
+async function fqSend(id, btn){
+  // First tap arms; second tap (within 4s) actually sends. Prevents accidents.
+  if(btn && btn.getAttribute('data-armed') !== '1'){
+    btn.setAttribute('data-armed','1');
+    btn.textContent = 'Tap again to send';
+    btn.style.background = 'var(--red)';
+    setTimeout(function(){ if(btn && btn.getAttribute('data-armed')==='1'){ btn.setAttribute('data-armed','0'); btn.innerHTML='Send &#x27A4;'; btn.style.background=''; } }, 4000);
+    return;
+  }
+  var ta  = document.querySelector('.fq-draft[data-id="'+id+'"]');
+  var msg = (ta && ta.value || '').trim();
+  var row = (window._fqRows||[]).find(function(x){ return String(x.id)===String(id); });
+  if(!msg || !row){ showToast('Nothing to send'); return; }
+  if(!row.to_phone){ showToast('No phone number for this lead'); return; }
+  if(btn){ btn.textContent='Sending…'; btn.disabled=true; btn.style.background=''; }
+  try {
+    var res = await sbFetch('/functions/v1/twilio-sms', {
+      method:'POST',
+      body: JSON.stringify({ to: row.to_phone, message: msg, lead_id: row.lead_id||'', client_id: row.client_id || window._clientId || '' })
+    });
+    var data = await res.json().catch(function(){ return {}; });
+    if(!res.ok || data.error) throw new Error(data.error || 'SMS failed');
+    await sbFetch('/rest/v1/followup_queue?id=eq.'+id, { method:'PATCH', body: JSON.stringify({ status:'sent', updated_at:new Date().toISOString() }) });
+    fqRemove(id);
+    showToast('&#x2705; Sent to '+(row.lead_name||'lead'));
+  } catch(e){
+    showToast('&#x274C; '+e.message);
+    if(btn){ btn.innerHTML='Send &#x27A4;'; btn.disabled=false; btn.setAttribute('data-armed','0'); btn.style.background=''; }
+  }
+}
+
+function fqRemove(id){
+  window._fqRows = (window._fqRows||[]).filter(function(x){ return String(x.id)!==String(id); });
+  renderFqList(window._fqRows);
 }
 
 function clientCampaignDetailHTML(campId){
