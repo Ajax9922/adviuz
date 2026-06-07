@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-06 reminders-ui-v2</title>
+<title>Adviuz Hub · v2026-06-06 ai-sms-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2894,7 +2894,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-06 reminders-ui-v2';
+var APP_VERSION = 'v2026-06-06 ai-sms-v1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -6414,27 +6414,24 @@ async function generateAiSms(){
   var ta = document.getElementById('smsAiText');
   var l = window._smsLead || leads.find(function(x){return x.id===curLid}) || {};
   var acts = (leadAct[l.id]||[]).slice(0,5).map(function(a){return a.label+': '+a.body}).join('. ');
+  var ctx = 'Interested in: '+(l.svc||'our services')+'. Recent activity: '+(acts||'No recent activity');
   status.textContent = '✨ Generating personalized SMS...';
   ta.value = '';
   ta.disabled = true;
   try {
-    var res = await fetch('https://api.anthropic.com/v1/messages', {
+    // Calls the secure ai-draft-sms edge function (key lives on Supabase, never in the browser).
+    var res = await sbFetch('/functions/v1/ai-draft-sms', {
       method:'POST',
-      headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
-        model:'claude-sonnet-4-20250514', max_tokens:200,
-        messages:[{role:'user',content:
-          'Write a short, friendly SMS (under 160 chars) for a sales rep to send to a lead.\n'
-          +'Lead name: '+(l.name||'the lead')+'\n'
-          +'Service interested in: '+(l.svc||'our services')+'\n'
-          +'Current stage: '+(l.stage||'Fresh Lead')+'\n'
-          +'Recent activity: '+(acts||'No recent activity')+'\n'
-          +'Write ONLY the SMS text, no quotes, no explanation.'
-        }]
+        name:     l.name  || '',
+        business: window._clientName || '',
+        stage:    l.stage || 'Fresh Lead',
+        context:  ctx
       })
     });
     var data = await res.json();
-    var text = (data.content||[]).map(function(c){return c.text||''}).join('').trim();
+    if(!res.ok || data.error) throw new Error(data.error || 'AI request failed');
+    var text = (data.draft||'').trim();
     ta.value = text || 'Could not generate — please write a custom message.';
     status.textContent = '✅ AI SMS ready — review and send';
   } catch(e) {
