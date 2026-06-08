@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-08 stage3d-v2</title>
+<title>Adviuz Hub · v2026-06-08 stage3d-v4</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3017,7 +3017,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-08 stage3d-v2';
+var APP_VERSION = 'v2026-06-08 stage3d-v4';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -12087,11 +12087,12 @@ async function saveAppt(){
   try{
     var _sn = parseInt((String(l.stage||'').match(/^(\d+)/)||[])[1]||'0',10);
     var _bump = (isNaN(_sn) || _sn < 5);
-    var _patch = { appointment_at: iso, updated_at:new Date().toISOString() };
+    var _patch = { appointment_at: iso, updated_at:new Date().toISOString(), meeting_outcome:null, visit_locked_at:null, meeting_prompt_sent_at:null };
     if(_bump){ _patch.stage='5. Meeting Booked'; _patch.stage_code='meeting_booked'; _patch.stage_changed_at=new Date().toISOString(); }
     var res = await sbFetch('/rest/v1/leads?id=eq.'+l.dbId, { method:'PATCH', body: JSON.stringify(_patch) });
     if(!res.ok) throw new Error('save failed');
     l.appointment_at = iso;
+    l.meeting_outcome = null; l.visit_locked_at = null;
     if(_bump){ l.stage='5. Meeting Booked'; l.stage_code='meeting_booked'; }
     try{ sbFetch('/functions/v1/appt-confirm', { method:'POST', body: JSON.stringify({ lead_id: l.dbId }) }); }catch(_e){}
     showToast('&#x2705; Appointment set'+(_bump?' &middot; stage \u2192 Meeting Booked':'')+' for '+fmtApptLocal(iso,tz));
@@ -12202,7 +12203,7 @@ async function saveMeetingReview(){
     l.meeting_outcome=_mrOutcome;
     if(patch.stage){ l.stage=patch.stage; l.stage_code=patch.stage_code; }
     if(patch.visit_locked_at) l.visit_locked_at=patch.visit_locked_at;
-    if(noteTxt){ try{ await sbFetch('/rest/v1/activity_log', { method:'POST', body: JSON.stringify({ lead_id:l.dbId, type:'note', label:'Meeting review', body:noteTxt.slice(0,500) }) }); }catch(e){} }
+    if(noteTxt){ try{ await logActivity({ lead_id:l.dbId, client_id:window._clientId||null, type:'note', label:'Meeting review', body:noteTxt }); }catch(e){} }
     var nx=(document.getElementById('mrNext')||{}).value;
     if(_mrOutcome==='done' && nx){ tasks.push({id:nxtTid++, lid:l.id, type:'call', date:nx, time:'10:00', note:'Follow-up after meeting', done:false}); }
     showToast(_mrOutcome==='done'?'Visit recorded':'Saved');
@@ -19051,11 +19052,26 @@ document.addEventListener('click', function(ev){
 <script>
 /* ── App always opens on the Leads list — never auto-open a lead on launch/reopen ── */
 (function () {
-  // Clear any leftover ?lead= deep-link param so a restored URL can't hijack the open tab.
+  // Honour a ?review=<leadDbId> deep link (tapped meeting-review push), then
+  // clear it. Also clear any leftover ?lead= so a restored URL can't hijack the tab.
   try {
-    var hasLead = new URLSearchParams(window.location.search).get('lead')
-               || /lead=/.test(window.location.hash || '');
-    if (hasLead) history.replaceState(null, '', window.location.pathname);
+    var sp = new URLSearchParams(window.location.search);
+    var rv = sp.get('review');
+    if (rv) {
+      window._pendingReview = rv;
+      var _tries = 0;
+      var _iv = setInterval(function () {
+        _tries++;
+        if (typeof leads !== 'undefined' && leads && leads.length && typeof openMeetingReview === 'function') {
+          var L = leads.find(function (x) { return x.dbId === window._pendingReview; });
+          if (L) openMeetingReview(L.id);
+          window._pendingReview = null; clearInterval(_iv);
+        }
+        if (_tries > 30) clearInterval(_iv);
+      }, 800);
+    }
+    var hasLead = sp.get('lead') || /lead=/.test(window.location.hash || '');
+    if (hasLead || rv) history.replaceState(null, '', window.location.pathname);
   } catch (e) {}
 })();
 </script>
