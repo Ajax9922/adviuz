@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-08 push-fix-v1</title>
+<title>Adviuz Hub · v2026-06-08 push-fix-v2</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3077,7 +3077,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-08 push-fix-v1';
+var APP_VERSION = 'v2026-06-08 push-fix-v2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -4421,7 +4421,8 @@ function renderNotifSettings(){
   var perm=(typeof Notification!=='undefined')?Notification.permission:'default';
   var pushRow;
   if(perm==='granted'){
-    pushRow='<div style="display:flex;align-items:center;gap:8px;background:var(--greenl,#e7f8f3);border-radius:10px;padding:12px 14px;font-size:13px;color:var(--text);font-weight:600">&#x2705; Push alerts are on for this device.</div>';
+    pushRow='<div style="display:flex;align-items:center;gap:8px;background:var(--greenl,#e7f8f3);border-radius:10px;padding:12px 14px;font-size:13px;color:var(--text);font-weight:600">&#x2705; Push alerts are on for this device.</div>'+
+      '<button onclick="sendTestPush()" style="width:100%;margin-top:10px;padding:11px;border-radius:10px;background:var(--surface,#11202a);border:1px solid var(--border);color:var(--text);font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">Send a test alert to this device</button>';
   } else if(perm==='denied'){
     pushRow='<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:12px 14px;font-size:13px;color:#9a3412">Push alerts are blocked in your browser. Open this app\'s site settings and allow notifications, then reopen this screen.</div>';
   } else {
@@ -4439,6 +4440,33 @@ function renderNotifSettings(){
     pushRow+
     '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin:20px 0 2px">Alert me about</div>'+
     rows;
+}
+async function sendTestPush(){
+  try{
+    if(!currentUser){ if(window.showToast)showToast('Not signed in'); return; }
+    if(window.showToast)showToast('Sending test alert\u2026');
+    var res = await sbFetch('/functions/v1/send-push', {
+      method:'POST',
+      body: JSON.stringify({
+        user_id:   currentUser.id,
+        client_id: window._clientId || null,
+        title:     '\uD83D\uDD14 Adviuz test alert',
+        body:      'If you can see this, push notifications are working on this device.',
+        url:       '/',
+        tag:       'adviuz-test'
+      })
+    });
+    var txt=''; try{ txt=await res.text(); }catch(e){}
+    if(res && res.ok){
+      var info='';
+      try{ var j=JSON.parse(txt); info=' (sent '+(j.sent!=null?j.sent:'?')+' of '+(j.total!=null?j.total:'?')+')'; }catch(e){}
+      if(window.showToast)showToast('\u2705 Test alert sent'+info+'. Watch for the notification.');
+    } else {
+      if(window.showToast)showToast('\u26A0\uFE0F Test failed ('+(res?res.status:'?')+'): '+(txt||'').slice(0,120));
+    }
+  }catch(e){
+    if(window.showToast)showToast('\u26A0\uFE0F Test error: '+(e&&e.message?e.message:e));
+  }
 }
 function openNotifSettings(){
   ensureNotifSettingsSheet();
