@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-08 stage3-v1</title>
+<title>Adviuz Hub · v2026-06-08 stage3-v2</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2987,7 +2987,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-08 stage3-v1';
+var APP_VERSION = 'v2026-06-08 stage3-v2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -5645,8 +5645,15 @@ function followupsHTML(){
     +taskListHTML();
 }
 
+function apptTaskItems(){
+  return leads.filter(function(l){ return l.appointment_at; }).map(function(l){
+    var tz = l.timezone || (typeof tzFromPhone==='function' ? tzFromPhone(l.ph) : '') || 'America/Toronto';
+    var z = isoToZonedParts(l.appointment_at, tz);
+    return { _appt:true, lid:l.id, type:'meeting', date:z.date, time:z.time, note:'', done:false };
+  });
+}
 function taskListHTML(){
-  var f=tasks.filter(function(t){
+  var f=tasks.concat(apptTaskItems()).filter(function(t){
     if(t.done)return false;
     if(fuSeg==='today')return t.date===TOD;
     if(fuSeg==='past')return t.date<TOD;
@@ -5683,13 +5690,13 @@ function taskListHTML(){
         +'<div class="task-dot" style="background:'+dc+'"></div>'
         +'<div class="task-body">'
         +'<div class="task-name">'+lead.name+'</div>'
-        +'<div class="task-meta">'+TICONS[t.type]+' '+TYPES[t.type]+(fuSeg==='future'?' &middot; '+fmtDate(t.date):fuSeg==='past'?' &middot; <span style=color:var(--red)>Overdue</span>':'')+'</div>'
+        +'<div class="task-meta">'+(t._appt?'&#128197; Appointment':(TICONS[t.type]+' '+TYPES[t.type]))+(fuSeg==='future'?' &middot; '+fmtDate(t.date):fuSeg==='past'?' &middot; <span style=color:var(--red)>Overdue</span>':'')+'</div>'
         +'<div class="task-note">'+t.note+'</div>'
         +'</div>'
         +'<div class="task-right">'
         +'<div class="task-time">'+h12+':'+mm+' '+ap+'</div>'
         +'<div style="display:flex;gap:5px;margin-top:6px;justify-content:flex-end">'
-        +'<button class="done-btn" onclick="event.stopPropagation();markDone('+t.id+')">Done</button>'
+        +(t._appt?'<button class="done-btn" onclick="event.stopPropagation();openApptSheet('+lead.id+')">Edit</button>':'<button class="done-btn" onclick="event.stopPropagation();markDone('+t.id+')">Done</button>')
         +'<button class="done-btn" onclick="event.stopPropagation();doCall('+lead.id+')" style="background:#ffe0e0;color:var(--red)">Call</button>'
         +'</div></div></div>';
     }).join('')+'</div><div style="height:8px"></div>';
@@ -12124,7 +12131,7 @@ async function saveClientReminders(){
   try {
     var res = await sbFetch('/rest/v1/rpc/save_my_appt_reminders', { method:'POST', body: JSON.stringify({ p_client_id: window._clientId, p_rules: rules }) });
     if(res.ok){ showToast('&#x2705; Reminder settings saved'); closeSheet('crSh'); }
-    else { showToast('Could not save — please try again'); }
+    else { var er = await res.json().catch(function(){return{};}); showToast('Save failed: ' + (er.message || er.hint || ('HTTP '+res.status))); }
   } catch(e){ showToast('Could not save — please try again'); }
   if(btn){ btn.textContent='Save reminder settings'; btn.disabled=false; }
 }
