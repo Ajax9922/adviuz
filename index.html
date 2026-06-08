@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-08 install-ux-v2</title>
+<title>Adviuz Hub · v2026-06-08 push-fix-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3077,7 +3077,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-08 install-ux-v2';
+var APP_VERSION = 'v2026-06-08 push-fix-v1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -19154,23 +19154,47 @@ document.addEventListener('click', function(ev){
   }
   async function saveSubscription(sub) {
     var j = sub.toJSON();
-    if (!j || !j.keys || !currentUser) return;
-    await sbFetch('/rest/v1/push_subscriptions?on_conflict=endpoint', {
-      method: 'POST',
-      headers: { Prefer: 'resolution=merge-duplicates' },
-      body: JSON.stringify({
-        user_id:    currentUser.id,
-        client_id:  window._clientId || null,
-        endpoint:   sub.endpoint,
-        p256dh:     j.keys.p256dh,
-        auth:       j.keys.auth,
-        user_agent: (navigator.userAgent || '').slice(0, 200)
-      })
-    });
+    if (!j || !j.keys) { console.warn('[push] no keys in subscription'); if (window.showToast) showToast('\u26A0\uFE0F Push: browser returned no key'); return false; }
+    if (!currentUser)  { console.warn('[push] no currentUser');          if (window.showToast) showToast('\u26A0\uFE0F Push: not signed in yet');       return false; }
+    var res;
+    try {
+      res = await sbFetch('/rest/v1/push_subscriptions?on_conflict=endpoint', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify({
+          user_id:    currentUser.id,
+          client_id:  window._clientId || null,
+          endpoint:   sub.endpoint,
+          p256dh:     j.keys.p256dh,
+          auth:       j.keys.auth,
+          user_agent: (navigator.userAgent || '').slice(0, 200)
+        })
+      });
+    } catch (e) {
+      console.warn('[push] save network error', e);
+      if (window.showToast) showToast('\u26A0\uFE0F Push save error: ' + (e && e.message ? e.message : e));
+      return false;
+    }
+    if (!res || !res.ok) {
+      var body = '';
+      try { body = await res.text(); } catch (e) {}
+      console.warn('[push] save rejected', res && res.status, body);
+      if (window.showToast) showToast('\u26A0\uFE0F Push save rejected (' + (res ? res.status : '?') + '): ' + (body || '').slice(0, 140));
+      return false;
+    }
+    console.log('[push] subscription saved OK', (sub.endpoint || '').slice(0, 60));
+    return true;
   }
   async function subscribeAndSave() {
-    var reg = await navigator.serviceWorker.register('/sw.js');
-    await navigator.serviceWorker.ready;
+    var reg;
+    try {
+      reg = await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.ready;
+    } catch (e) {
+      console.warn('[push] sw register failed', e);
+      if (window.showToast) showToast('\u26A0\uFE0F Push: service worker (sw.js) failed to load');
+      return false;
+    }
     var sub = await reg.pushManager.getSubscription();
     if (!sub) {
       sub = await reg.pushManager.subscribe({
@@ -19178,8 +19202,7 @@ document.addEventListener('click', function(ev){
         applicationServerKey: urlB64ToUint8(VAPID_PUBLIC)
       });
     }
-    await saveSubscription(sub);
-    return sub;
+    return await saveSubscription(sub);
   }
 
   window.adviuzEnablePush = async function () {
@@ -19187,9 +19210,9 @@ document.addEventListener('click', function(ev){
     try {
       var perm = await Notification.requestPermission();
       if (perm !== 'granted') { if (window.showToast) showToast('Notifications were not allowed'); return; }
-      await subscribeAndSave();
-      if (window.showToast) showToast('🔔 Notifications enabled');
-      hidePill();
+      var ok = await subscribeAndSave();
+      if (ok) { if (window.showToast) showToast('\uD83D\uDD14 Notifications enabled'); hidePill(); }
+      // if !ok, subscribeAndSave/saveSubscription already showed the exact reason
     } catch (e) {
       if (window.showToast) showToast('Could not enable notifications');
       console.warn('[push] enable error', e);
@@ -19220,7 +19243,9 @@ document.addEventListener('click', function(ev){
     if (loggedIn) {
       clearInterval(timer);
       if (Notification.permission === 'granted') {
-        subscribeAndSave().catch(function () {});   // keep this device registered, silently
+        subscribeAndSave().then(function (ok) {
+          if (!ok) showPill();            // background save failed — surface a button + the reason was toasted
+        }).catch(function (e) { console.warn('[push] auto-register failed', e); showPill(); });
       } else if (Notification.permission === 'default') {
         showPill();                                  // offer the opt-in button
       }
