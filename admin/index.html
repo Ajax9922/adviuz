@@ -629,7 +629,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-05-27 worker-deploy-v2</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-08 fb-map-v1</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -4283,6 +4283,51 @@ async function loadTwilioNumbers(force){
   }
 }
 // ── EDIT CAMPAIGN ──
+// ── Linked Facebook campaigns mapping (campaign_fb_map) ──────────────────
+async function loadFbMap(campId){
+  var box=document.getElementById('ecam-fbmap-list'); if(!box) return;
+  try{
+    var r=await sbAdmin('/rest/v1/campaign_fb_map?select=fb_campaign_id,label&campaign_id=eq.'+encodeURIComponent(campId)+'&order=created_at.asc');
+    var rows=r.ok?await r.json():[];
+    renderFbMap(rows||[]);
+  }catch(e){ box.innerHTML='<div style="font-size:12px;color:var(--danger)">Could not load mappings</div>'; }
+}
+function renderFbMap(rows){
+  var box=document.getElementById('ecam-fbmap-list'); if(!box) return;
+  if(!rows.length){ box.innerHTML='<div style="font-size:12px;color:var(--muted)">No Facebook campaigns linked yet.</div>'; return; }
+  box.innerHTML=rows.map(function(m){
+    var id=String(m.fb_campaign_id||'').replace(/[^0-9]/g,'');
+    var lbl=m.label?' <span style="color:var(--muted)">\u2014 '+sanitize(m.label)+'</span>':'';
+    return '<div style="display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:7px 10px">'
+      + '<span style="flex:1;font-size:13px;font-family:monospace;color:var(--text)">'+sanitize(id)+lbl+'</span>'
+      + '<button type="button" onclick="removeFbMap(\''+id+'\')" style="border:none;background:none;color:var(--danger);font-size:18px;cursor:pointer;line-height:1" title="Remove">\u00d7</button>'
+      + '</div>';
+  }).join('');
+}
+async function addFbMap(){
+  var inp=document.getElementById('ecam-fbmap-input'); if(!inp) return;
+  var fbId=(inp.value||'').replace(/[^0-9]/g,'');   // Facebook campaign IDs are numeric
+  if(!fbId){ toast('Enter a Facebook campaign ID (numbers only)'); return; }
+  var campId=window._editCampaignId;
+  try{
+    var r=await sbAdmin('/rest/v1/campaign_fb_map?on_conflict=fb_campaign_id',{
+      method:'POST',
+      headers:{'Prefer':'resolution=merge-duplicates,return=minimal'},
+      body:JSON.stringify({ fb_campaign_id:fbId, campaign_id:campId, platform:'facebook' })
+    });
+    if(r.ok){ inp.value=''; toast('Facebook campaign linked'); loadFbMap(campId); }
+    else { toast('Could not link ('+r.status+')'); }
+  }catch(e){ toast('Error linking campaign'); }
+}
+async function removeFbMap(fbId){
+  var campId=window._editCampaignId;
+  try{
+    var r=await sbAdmin('/rest/v1/campaign_fb_map?fb_campaign_id=eq.'+encodeURIComponent(fbId),{ method:'DELETE' });
+    if(r.ok||r.status===204){ toast('Unlinked'); loadFbMap(campId); }
+    else { toast('Could not remove ('+r.status+')'); }
+  }catch(e){ toast('Error removing'); }
+}
+
 function openEditCampaign(btn) {
   window._editCampaignId = btn.dataset.id;
   var modal = '<div class="modal-overlay open" id="editCampaignModal" onclick="if(event.target===this)this.remove()">'
@@ -4305,6 +4350,16 @@ function openEditCampaign(btn) {
     + '<option value="paused"' + (btn.dataset.status==='paused' ? ' selected' : '') + '>Paused</option>'
     + '<option value="completed"' + (btn.dataset.status==='completed' ? ' selected' : '') + '>Completed</option>'
     + '</select></div>'
+    // ── Linked Facebook campaigns (many FB campaigns roll into this Adviuz campaign) ──
+    + '<div style="margin-top:6px;padding-top:14px;border-top:1px solid var(--border)">'
+    + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">\uD83D\uDCD8 Linked Facebook campaigns</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Add the Facebook <b>campaign ID</b> of each FB campaign whose impressions should roll into this Adviuz campaign. They are summed automatically by the hourly sync.</div>'
+    + '<div id="ecam-fbmap-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px"><div style="font-size:12px;color:var(--muted)">Loading\u2026</div></div>'
+    + '<div style="display:flex;gap:8px">'
+    +   '<input class="fld" id="ecam-fbmap-input" placeholder="e.g. 120208123456789" style="flex:1" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addFbMap();}">'
+    +   '<button type="button" class="tbl-btn primary" onclick="addFbMap()">Add</button>'
+    + '</div>'
+    + '</div>'
     // ── Ad Preview content (shown to client on their campaign dashboard) ──
     + '<div style="margin-top:6px;padding-top:14px;border-top:1px solid var(--border)">'
     + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">📱 Client Ad Preview</div>'
@@ -4399,6 +4454,7 @@ function openEditCampaign(btn) {
     + '<button class="btn-save" onclick="saveCampaignEdit()">Save changes</button>'
     + '</div></div></div>';
   document.body.insertAdjacentHTML('beforeend', modal);
+  loadFbMap(window._editCampaignId);
 
   // ── Prefill Ad Preview fields from existing placement_preview ──
   var cam = (window._allCampaigns || []).find(function(c){ return String(c.id) === String(btn.dataset.id); });
