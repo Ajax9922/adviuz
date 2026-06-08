@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-08 push-fix-v3</title>
+<title>Adviuz Hub · v2026-06-08 followups-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3077,7 +3077,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-08 push-fix-v3';
+var APP_VERSION = 'v2026-06-08 followups-v1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -4695,6 +4695,13 @@ var TAB_CFG={
 
 function goTab(tab,btn){
   curTab=tab;
+  // When the Follow-ups tab opens, refresh from the database so saved
+  // follow-ups (incl. ones made on other devices) show, then re-render.
+  if(tab==='followups' && typeof loadFollowups==='function'){
+    loadFollowups().then(function(){
+      if(curTab==='followups'){ var ct=document.getElementById('content'); if(ct) ct.innerHTML=followupsHTML(); }
+    }).catch(function(){});
+  }
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active')});
   btn.classList.add('active');
   // When the client taps Dashboard, always start at the campaigns list view —
@@ -5828,8 +5835,72 @@ function taskListHTML(){
 
 function markDone(id){
   var t=tasks.find(function(x){return x.id===id});
-  if(t){t.done=true;showToast('Marked done');document.getElementById('content').innerHTML=followupsHTML()}
+  if(!t) return;
+  t.done=true;
+  if(t.dbId){ sbFetch('/rest/v1/followups?id=eq.'+t.dbId,{method:'PATCH',body:JSON.stringify({done:true})}).catch(function(){}); }
+  showToast('Marked done');
+  document.getElementById('content').innerHTML=followupsHTML();
 }
+
+// ── Follow-up persistence (saved to the `followups` table so reminders can fire) ──
+function _fuLeadFor(lid){ return leads.find(function(x){return x.id===lid;}) || null; }
+// Exact moment the follow-up is due, from the wall-clock time picked in the
+// scheduler's own timezone. The browser reads 'YYYY-MM-DDTHH:MM' as local time,
+// so this is the correct absolute instant for THAT client's timezone.
+function _fuDueIso(date, time){
+  try{ var d=new Date(date+'T'+(time||'00:00')); return isNaN(d.getTime())?null:d.toISOString(); }
+  catch(e){ return null; }
+}
+async function persistFollowup(t){
+  try{
+    var dueIso=_fuDueIso(t.date,t.time);
+    if(!dueIso) return;                       // no valid time → nothing to remind about
+    var L=_fuLeadFor(t.lid);
+    var tz=''; try{ tz=Intl.DateTimeFormat().resolvedOptions().timeZone||''; }catch(e){}
+    var body={
+      lead_id:    (L&&L.dbId)||null,
+      client_id:  window._clientId||(L&&L.client_id)||null,
+      partner_id: (window._isPartnerMode&&window._partnerData)?window._partnerData.id:null,
+      lead_name:  (L&&L.name)||'',
+      lead_phone: (L&&(L.ph||L.phone))||'',
+      type:       t.type||'call',
+      due_at:     dueIso,
+      note:       t.note||'',
+      tz:         tz,
+      done:       !!t.done
+    };
+    var res=await sbFetch('/rest/v1/followups',{method:'POST',headers:{'Prefer':'return=representation'},body:JSON.stringify(body)});
+    if(res&&res.ok){ var rows=await res.json().catch(function(){return[];}); if(rows&&rows[0]) t.dbId=rows[0].id; }
+    else if(res){ console.warn('[followup] save failed',res.status); }
+  }catch(e){ console.warn('[followup] save error',e&&e.message); }
+}
+// One entry point for creating a follow-up: assigns a local id, shows it in the
+// UI immediately, and saves it to the database (fire-and-forget).
+function addTask(t){
+  t.id=nxtTid++;
+  if(typeof t.done==='undefined') t.done=false;
+  tasks.push(t);
+  persistFollowup(t);
+  return t;
+}
+// Load saved open follow-ups from the DB and merge into the in-memory list so
+// they survive a refresh. Converts the stored instant back to local wall-clock.
+async function loadFollowups(){
+  try{
+    var res=await sbFetch('/rest/v1/followups?done=eq.false&order=due_at.asc&limit=500');
+    if(!res||!res.ok) return;
+    var rows=await res.json().catch(function(){return[];});
+    tasks=tasks.filter(function(t){ return !t.dbId; });   // drop old DB-backed, re-add fresh
+    (rows||[]).forEach(function(r){
+      var L=leads.find(function(x){ return String(x.dbId)===String(r.lead_id); });
+      var d=new Date(r.due_at);
+      var date=isNaN(d.getTime())?'':(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'));
+      var time=isNaN(d.getTime())?'':(String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'));
+      tasks.push({ id:nxtTid++, dbId:r.id, lid:L?L.id:null, lead_name:r.lead_name||'', type:r.type||'call', date:date, time:time, note:r.note||'', done:!!r.done });
+    });
+  }catch(e){ console.warn('[followup] load error',e&&e.message); }
+}
+window.loadFollowups=loadFollowups;
 
 // ═══════════════════════════════════════
 // REPORTS TAB
@@ -7199,7 +7270,7 @@ function lsQuickSaveFu(lid){
   setTimeout(function(){ if (window._lsFuLast === key) window._lsFuLast = null; }, 60000);
 
   var parts = dtEl.value.split('T');
-  tasks.push({id:nxtTid++,lid:lid,type:'call',date:parts[0],time:parts[1]||'10:00',note:'',done:false});
+  addTask({lid:lid,type:'call',date:parts[0],time:parts[1]||'10:00',note:'',done:false});
   if(!leadAct[lid])leadAct[lid]=[];
   leadAct[lid].unshift({type:'fu',label:'Follow-up scheduled',time:'Just now',body:'📅 Follow-up on '+fmtDate(parts[0])+' at '+fmtTime(parts[1]||'10:00'),rec:false});
   showToast('✅ Follow-up scheduled for '+fmtDate(parts[0]));
@@ -7239,7 +7310,7 @@ function lsScheduleMeeting(lid, type){
   var parts = dt.split('T');
   var date = parts[0]||new Date().toISOString().slice(0,10);
   var time = parts[1]||'10:00';
-  tasks.push({id:nxtTid++,lid:lid,type:'meeting',date:date,time:time,note:type==='video'?'Video call':'In-person meeting',done:false});
+  addTask({lid:lid,type:'meeting',date:date,time:time,note:type==='video'?'Video call':'In-person meeting',done:false});
   if(!leadAct[lid])leadAct[lid]=[];
   leadAct[lid].unshift({type:'fu',label:'Meeting scheduled',time:'Just now',body:'🤝 '+(type==='video'?'Video call':'In-person meeting')+' on '+fmtDate(date)+' at '+fmtTime(time),rec:false});
   showToast('🤝 Meeting scheduled for '+fmtDate(date));
@@ -7348,7 +7419,7 @@ function lsSaveFu(lid){
   var dtParts=dtEl.value.split('T');
   var dt=dtParts[0];
   var tm=dtParts[1]||'10:00';
-  tasks.push({id:nxtTid++,lid:lid,type:lsFuType,date:dt,time:tm,note:note,done:false});
+  addTask({lid:lid,type:lsFuType,date:dt,time:tm,note:note,done:false});
   if(!leadAct[lid])leadAct[lid]=[];
   leadAct[lid].unshift({type:'fu',label:'Follow-up scheduled',time:'Just now',body:TICONS[lsFuType]+' '+TYPES[lsFuType]+' on '+fmtDate(dt)+' at '+fmtTime(tm)+(note?' — '+note:''),rec:false});
   var n=document.getElementById('lsFuNote');if(n)n.value='';
@@ -7781,7 +7852,7 @@ function saveFuFromDetail(lid){
   var tp=te?te.value:'call';
   var no=document.getElementById('ldFuNote').value;
   if(!dt||!tm){showToast('Pick date and time');return}
-  tasks.push({id:nxtTid++,lid:lid,type:tp,date:dt,time:tm,note:no,done:false});
+  addTask({lid:lid,type:tp,date:dt,time:tm,note:no,done:false});
   if(!leadAct[lid])leadAct[lid]=[];
   leadAct[lid].unshift({type:'fu',label:'Follow-up scheduled',time:'Just now',body:TICONS[tp]+' '+TYPES[tp]+' on '+fmtDate(dt)+' at '+fmtTime(tm)+(no?' — '+no:''),rec:false});
   var t=document.getElementById('actThread');if(t)t.innerHTML=getActThread(lid);
@@ -8366,7 +8437,7 @@ function saveFu(){
   var dt=document.getElementById('fuDate').value;var tm=document.getElementById('fuTime').value;
   var tp=document.getElementById('fuType').value;var no=document.getElementById('fuNote').value;
   if(!dt||!tm){showToast('Pick date and time');return}
-  tasks.push({id:nxtTid++,lid:fuLid,type:tp,date:dt,time:tm,note:no,done:false});
+  addTask({lid:fuLid,type:tp,date:dt,time:tm,note:no,done:false});
   var l=leads.find(function(x){return x.id===fuLid});if(l&&l.stage==='New')l.stage='Follow-up';
   closeSheet('fuSh');showToast('Follow-up scheduled for '+fmtDate(dt));
 }
@@ -12293,7 +12364,7 @@ async function saveMeetingReview(){
     if(patch.visit_locked_at) l.visit_locked_at=patch.visit_locked_at;
     if(noteTxt){ try{ await logActivity({ lead_id:l.dbId, client_id:window._clientId||null, type:'note', label:'Meeting review', body:noteTxt }); }catch(e){} }
     var nx=(document.getElementById('mrNext')||{}).value;
-    if(_mrOutcome==='done' && nx){ tasks.push({id:nxtTid++, lid:l.id, type:'call', date:nx, time:'10:00', note:'Follow-up after meeting', done:false}); }
+    if(_mrOutcome==='done' && nx){ addTask({ lid:l.id, type:'call', date:nx, time:'10:00', note:'Follow-up after meeting', done:false}); }
     showToast(_mrOutcome==='done'?'Visit recorded':'Saved');
     closeSheet('mrSh');
     if(curLid===l.id) renderLeadScreen(l.id);
@@ -15937,8 +16008,8 @@ async function startInstantMeeting(lid) {
     // Add to tasks so it shows in Follow-ups tab
     var todayStr = now.toISOString().slice(0,10);
     var timeStr  = now.toTimeString().slice(0,5);
-    tasks.unshift({
-      id: nxtTid++, lid: lid, type: 'meeting',
+    addTask({
+      lid: lid, type: 'meeting',
       note: '⚡ Instant Meeting — ' + (meetLink || 'Meet link pending'),
       date: todayStr, time: timeStr, done: false
     });
