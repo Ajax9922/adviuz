@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-08 stage3c-v1</title>
+<title>Adviuz Hub · v2026-06-08 stage3d-v2</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2487,6 +2487,30 @@ input[type=number]{-moz-appearance:textfield}
     </div>
   </div>
 </div>
+<!-- ═══ POST-MEETING REVIEW (Stage 3D) ═══ -->
+<div class="sheet-ov" id="mrSh" onclick="if(event.target===this)closeSheet('mrSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title">Meeting review</div><button class="sheet-x" onclick="closeSheet('mrSh')">&#x2715;</button></div>
+    <div class="sh-body">
+      <div id="mrQ" style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:14px"></div>
+      <div id="mrChoices" style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="mrPick('done')">&#9989; Yes, it happened</button>
+        <button class="btn btn-ghost" style="width:100%;justify-content:center" onclick="mrPick('no_show')">&#128683; No-show</button>
+        <button class="btn btn-ghost" style="width:100%;justify-content:center" onclick="mrPick('rescheduled')">&#128197; Reschedule</button>
+      </div>
+      <div id="mrForm" style="display:none">
+        <div style="font-size:13px;color:var(--green);font-weight:700;margin:6px 0 14px">&#9989; Visit recorded. A few details:</div>
+        <div class="flbl">Notes</div>
+        <textarea class="finp" id="mrNotes" rows="3" style="width:100%;margin-bottom:12px;resize:vertical" placeholder="How did it go?"></textarea>
+        <div class="flbl">Stage</div>
+        <select class="finp" id="mrStage" style="width:100%;margin-bottom:12px"></select>
+        <div class="flbl">Next follow-up (optional)</div>
+        <input class="finp" id="mrNext" type="date" style="width:100%;margin-bottom:16px">
+        <button id="mrSaveBtn" class="btn btn-primary" style="width:100%;justify-content:center" onclick="saveMeetingReview()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
 <!-- Bulk AI -->
 <div class="sheet-ov" id="bulkAiSh" onclick="if(event.target===this)closeSheet('bulkAiSh')">
   <div class="sheet"><div class="sheet-handle"></div>
@@ -2993,7 +3017,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-08 stage3c-v1';
+var APP_VERSION = 'v2026-06-08 stage3d-v2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -4279,6 +4303,8 @@ function mapLead(l, i) {
     meeting_date: l.meeting_date || null,
     appointment_at: l.appointment_at || null,
     timezone: l.timezone || null,
+    meeting_outcome: l.meeting_outcome || null,
+    visit_locked_at: l.visit_locked_at || null,
     deal_value:   (l.deal_value != null ? Number(l.deal_value) : null),
     // Campaign linkage — REQUIRED for the campaign dashboard lead counts and
     // the campaign filter chip. Without these the count is always 0 because
@@ -5652,7 +5678,7 @@ function followupsHTML(){
 }
 
 function apptTaskItems(){
-  return leads.filter(function(l){ return l.appointment_at; }).map(function(l){
+  return leads.filter(function(l){ return l.appointment_at && !l.meeting_outcome; }).map(function(l){
     var tz = l.timezone || (typeof tzFromPhone==='function' ? tzFromPhone(l.ph) : '') || 'America/Toronto';
     var z = isoToZonedParts(l.appointment_at, tz);
     return { _appt:true, lid:l.id, type:'meeting', date:z.date, time:z.time, note:'', done:false };
@@ -5702,7 +5728,11 @@ function taskListHTML(){
         +'<div class="task-right">'
         +'<div class="task-time">'+h12+':'+mm+' '+ap+'</div>'
         +'<div style="display:flex;gap:5px;margin-top:6px;justify-content:flex-end">'
-        +(t._appt?'<button class="done-btn" onclick="event.stopPropagation();openApptSheet('+lead.id+')">Edit</button>':'<button class="done-btn" onclick="event.stopPropagation();markDone('+t.id+')">Done</button>')
+        +(t._appt
+           ? (fuSeg==='past'
+               ? '<button class="done-btn" onclick="event.stopPropagation();openMeetingReview('+lead.id+')">Review</button>'
+               : '<button class="done-btn" onclick="event.stopPropagation();openApptSheet('+lead.id+')">Edit</button>')
+           : '<button class="done-btn" onclick="event.stopPropagation();markDone('+t.id+')">Done</button>')
         +'<button class="done-btn" onclick="event.stopPropagation();doCall('+lead.id+')" style="background:#ffe0e0;color:var(--red)">Call</button>'
         +'</div></div></div>';
     }).join('')+'</div><div style="height:8px"></div>';
@@ -12129,6 +12159,59 @@ function crAddBefore(){ var el=document.getElementById('crSchedList'); if(el) el
 function crAddDayOf(){ var el=document.getElementById('crSchedList'); if(el) el.insertAdjacentHTML('beforeend', _crRow('dayOf','08:00')); }
 function crRemove(btn){ var r=btn.closest('.cr-row'); if(r) r.remove(); }
 
+// ── Post-meeting review (Stage 3D) ──
+var _mrLid = null, _mrOutcome = null;
+function openMeetingReview(lid){
+  var l = leads.find(function(x){return x.id===lid;}); if(!l) return;
+  _mrLid = lid; _mrOutcome = null;
+  var q=document.getElementById('mrQ'); if(q) q.textContent = 'Did your meeting with ' + (l.name||'this lead') + ' happen?';
+  var ch=document.getElementById('mrChoices'); if(ch) ch.style.display='flex';
+  var fm=document.getElementById('mrForm'); if(fm) fm.style.display='none';
+  var sel=document.getElementById('mrStage');
+  if(sel){ sel.innerHTML = STAGES.map(function(s){ return '<option value="'+s.name+'"'+(s.name==='6. Meeting Done'?' selected':'')+'>'+s.name+'</option>'; }).join(''); }
+  var nt=document.getElementById('mrNotes'); if(nt) nt.value='';
+  var nx=document.getElementById('mrNext'); if(nx) nx.value='';
+  openSheet('mrSh');
+}
+function mrPick(outcome){
+  _mrOutcome = outcome;
+  if(outcome==='rescheduled'){ closeSheet('mrSh'); if(_mrLid) openApptSheet(_mrLid); return; }
+  if(outcome==='no_show'){ saveMeetingReview(); return; }
+  var ch=document.getElementById('mrChoices'); if(ch) ch.style.display='none';
+  var fm=document.getElementById('mrForm'); if(fm) fm.style.display='block';
+}
+async function saveMeetingReview(){
+  var l = leads.find(function(x){return x.id===_mrLid;}); if(!l){ closeSheet('mrSh'); return; }
+  var now = new Date().toISOString();
+  var patch = { meeting_outcome:_mrOutcome, updated_at:now };
+  var noteTxt = '';
+  if(_mrOutcome==='done'){
+    var st = (document.getElementById('mrStage')||{}).value || '6. Meeting Done';
+    patch.stage = st;
+    patch.stage_code = st.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+    patch.stage_changed_at = now;
+    patch.visit_locked_at = now;
+    noteTxt = (document.getElementById('mrNotes')||{}).value || '';
+  } else if(_mrOutcome==='no_show'){
+    noteTxt = 'Marked no-show';
+  }
+  var btn=document.getElementById('mrSaveBtn'); if(btn){ btn.textContent='Saving…'; btn.disabled=true; }
+  try{
+    var res = await sbFetch('/rest/v1/leads?id=eq.'+l.dbId, { method:'PATCH', body: JSON.stringify(patch) });
+    if(!res.ok) throw new Error('save failed');
+    l.meeting_outcome=_mrOutcome;
+    if(patch.stage){ l.stage=patch.stage; l.stage_code=patch.stage_code; }
+    if(patch.visit_locked_at) l.visit_locked_at=patch.visit_locked_at;
+    if(noteTxt){ try{ await sbFetch('/rest/v1/activity_log', { method:'POST', body: JSON.stringify({ lead_id:l.dbId, type:'note', label:'Meeting review', body:noteTxt.slice(0,500) }) }); }catch(e){} }
+    var nx=(document.getElementById('mrNext')||{}).value;
+    if(_mrOutcome==='done' && nx){ tasks.push({id:nxtTid++, lid:l.id, type:'call', date:nx, time:'10:00', note:'Follow-up after meeting', done:false}); }
+    showToast(_mrOutcome==='done'?'Visit recorded':'Saved');
+    closeSheet('mrSh');
+    if(curLid===l.id) renderLeadScreen(l.id);
+    else if(curTab==='followups'){ var c=document.getElementById('content'); if(c) c.innerHTML=followupsHTML(); }
+  }catch(e){ showToast('Could not save — try again'); }
+  if(btn){ btn.textContent='Save'; btn.disabled=false; }
+}
 async function saveClientReminders(){
   var schedule = [];
   document.querySelectorAll('#crSchedList .cr-row').forEach(function(row){
