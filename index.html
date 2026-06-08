@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-08 push-fix-v2</title>
+<title>Adviuz Hub · v2026-06-08 push-fix-v3</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3077,7 +3077,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-08 push-fix-v2';
+var APP_VERSION = 'v2026-06-08 push-fix-v3';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -19138,28 +19138,66 @@ document.addEventListener('click', function(ev){
 </script>
 
 <script>
-/* ── App always opens on the Leads list — never auto-open a lead on launch/reopen ── */
+/* ── Deep links from tapped notifications: open the lead / review, then clear ── */
 (function () {
-  // Honour a ?review=<leadDbId> deep link (tapped meeting-review push), then
-  // clear it. Also clear any leftover ?lead= so a restored URL can't hijack the tab.
+  // Open a lead by its DB id once the leads list has loaded.
+  window.openLeadByDbId = function (dbid) {
+    if (!dbid) return;
+    var tries = 0;
+    var iv = setInterval(function () {
+      tries++;
+      if (typeof leads !== 'undefined' && leads && leads.length && typeof openLead === 'function') {
+        var L = leads.find(function (x) { return String(x.dbId) === String(dbid) || String(x.id) === String(dbid); });
+        if (L) { try { openLead(L.id); } catch (e) {} clearInterval(iv); return; }
+      }
+      if (tries > 40) clearInterval(iv);
+    }, 600);
+  };
+  // Open the post-meeting review by lead DB id.
+  window.openReviewByDbId = function (dbid) {
+    if (!dbid) return;
+    var tries = 0;
+    var iv = setInterval(function () {
+      tries++;
+      if (typeof leads !== 'undefined' && leads && leads.length && typeof openMeetingReview === 'function') {
+        var L = leads.find(function (x) { return String(x.dbId) === String(dbid); });
+        if (L) { try { openMeetingReview(L.id); } catch (e) {} clearInterval(iv); return; }
+      }
+      if (tries > 40) clearInterval(iv);
+    }, 600);
+  };
+  // Route any /?lead= or /?review= URL (used on launch and by SW messages).
+  window.adviuzRouteUrl = function (url) {
+    try {
+      var qs = (url || '').split('?')[1] || '';
+      var p = new URLSearchParams(qs);
+      var ld = p.get('lead'); var rv = p.get('review');
+      if (ld) window.openLeadByDbId(ld);
+      if (rv) window.openReviewByDbId(rv);
+    } catch (e) {}
+  };
+
+  // On launch (notification opened the app fresh): honour the params, then strip
+  // them so a normal refresh still lands on the Leads list.
   try {
     var sp = new URLSearchParams(window.location.search);
     var rv = sp.get('review');
-    if (rv) {
-      window._pendingReview = rv;
-      var _tries = 0;
-      var _iv = setInterval(function () {
-        _tries++;
-        if (typeof leads !== 'undefined' && leads && leads.length && typeof openMeetingReview === 'function') {
-          var L = leads.find(function (x) { return x.dbId === window._pendingReview; });
-          if (L) openMeetingReview(L.id);
-          window._pendingReview = null; clearInterval(_iv);
-        }
-        if (_tries > 30) clearInterval(_iv);
-      }, 800);
+    var ld = sp.get('lead');
+    if (rv) window.openReviewByDbId(rv);
+    if (ld) window.openLeadByDbId(ld);
+    if (ld || rv) history.replaceState(null, '', window.location.pathname);
+  } catch (e) {}
+
+  // When the app is ALREADY open and a notification is tapped, the service worker
+  // posts the target URL here so we route to it without a reload.
+  try {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', function (ev) {
+        var d = ev && ev.data;
+        var url = (d && (d.url || d.href)) || (typeof d === 'string' ? d : '');
+        if (url) window.adviuzRouteUrl(url);
+      });
     }
-    var hasLead = sp.get('lead') || /lead=/.test(window.location.hash || '');
-    if (hasLead || rv) history.replaceState(null, '', window.location.pathname);
   } catch (e) {}
 })();
 </script>
