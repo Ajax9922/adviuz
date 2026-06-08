@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-08 followups-v1</title>
+<title>Adviuz Hub · v2026-06-08 fb-exposure-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3077,7 +3077,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-08 followups-v1';
+var APP_VERSION = 'v2026-06-08 fb-exposure-v1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -10919,6 +10919,22 @@ async function loadClientCampaigns() {
         c.ad       = a;
       }
     });
+    // 2b) Impressions (Facebook/Google) → attach totals so "Total Exposure"
+    //     shows real reach instead of flyer views.
+    if (campIds.length) {
+      try {
+        var impRes = await sbFetch('/rest/v1/impressions?select=campaign_id,platform,impressions&campaign_id=in.('+campIds.join(',')+')');
+        if (impRes.ok) {
+          var imps = await impRes.json();
+          camps.forEach(function(c){
+            var ci = (imps||[]).filter(function(i){ return i.campaign_id === c.id; });
+            c.fb_impressions     = ci.filter(function(i){ return i.platform==='facebook'; }).reduce(function(s,i){ return s+(i.impressions||0); }, 0);
+            c.google_impressions = ci.filter(function(i){ return i.platform==='google';   }).reduce(function(s,i){ return s+(i.impressions||0); }, 0);
+            c.total_exposure     = c.fb_impressions + c.google_impressions;
+          });
+        }
+      } catch(_imp) {}
+    }
     window._clientCampaigns = camps;
     // Service options for the lead-edit dropdown — union of this client's ads' saved options
     try {
@@ -11309,10 +11325,10 @@ function _clientCampCard(cp) {
   var viewsUsed  = Number(cp.views_used)||0;
   var remaining  = Math.max(0, viewBudget - viewsUsed);
   var pctUsed    = viewBudget>0 ? Math.min(100, Math.round(viewsUsed/viewBudget*100)) : 0;
-  // Total exposure = sum of impressions for this campaign (loaded separately).
-  // Falls back to a derived value if not yet loaded (~5× views_used).
-  var totalExposure = Number(cp.total_exposure)|0;
-  if (!totalExposure) totalExposure = viewsUsed;   // no fake multiplier — real reach comes from linked FB/Google impressions
+  // Total exposure = real Facebook + Google impressions for this campaign.
+  // Falls back to flyer views only if no impressions have synced yet.
+  var totalImpr     = (Number(cp.fb_impressions)||0) + (Number(cp.google_impressions)||0);
+  var totalExposure = totalImpr || (Number(cp.total_exposure)||0) || viewsUsed;
 
   var campLeads  = (leads||[]).filter(function(l){ return gfCampaignId(l)===String(cp.id||''); }).length;
 
@@ -12477,8 +12493,8 @@ function clientCampaignDetailHTML(campId){
   var viewBudget = Number(cp.view_budget)||0;
   var viewsUsed  = Number(cp.views_used)||0;
   var remaining  = Math.max(0, viewBudget - viewsUsed);
-  var totalExposure = Number(cp.total_exposure)|0;
-  if (!totalExposure) totalExposure = viewsUsed;   // no fake multiplier — real reach comes from linked FB/Google impressions
+  var totalImpr     = (Number(cp.fb_impressions)||0) + (Number(cp.google_impressions)||0);
+  var totalExposure = totalImpr || (Number(cp.total_exposure)||0) || viewsUsed;
   var campLeads  = (leads||[]).filter(function(l){ return gfCampaignId(l)===String(cp.id||''); }).length;
   var liveHref   = _ppLiveHref(cp);
   var previewHref= liveHref ? (liveHref.replace(/\/+$/,'') + '/preview') : '';
