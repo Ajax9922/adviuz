@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-08 stage3-v4</title>
+<title>Adviuz Hub · v2026-06-08 stage3c-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2477,6 +2477,12 @@ input[type=number]{-moz-appearance:textfield}
         <input class="finp" id="crQEnd" type="number" min="0" max="23" value="21" style="width:60px;text-align:center">
         <span style="font-size:11px;color:var(--sub)">(24-hour, customer's time)</span>
       </div>
+      <div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Message wording</div>
+      <div style="font-size:11px;color:var(--sub);margin-bottom:8px;line-height:1.5">Use <b>{name}</b> for the customer's first name and <b>{when}</b> for the date &amp; time. "Reply STOP" is added automatically.</div>
+      <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px">Confirmation (texted when booked)</div>
+      <textarea class="finp" id="crConfirm" rows="3" style="width:100%;margin-bottom:12px;resize:vertical"></textarea>
+      <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px">Reminder</div>
+      <textarea class="finp" id="crReminder" rows="3" style="width:100%;margin-bottom:18px;resize:vertical"></textarea>
       <button id="crSaveBtn" class="btn btn-primary" onclick="saveClientReminders()" style="width:100%;justify-content:center">Save reminder settings</button>
     </div>
   </div>
@@ -2987,7 +2993,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-08 stage3-v4';
+var APP_VERSION = 'v2026-06-08 stage3c-v1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -12057,6 +12063,7 @@ async function saveAppt(){
     if(!res.ok) throw new Error('save failed');
     l.appointment_at = iso;
     if(_bump){ l.stage='5. Meeting Booked'; l.stage_code='meeting_booked'; }
+    try{ sbFetch('/functions/v1/appt-confirm', { method:'POST', body: JSON.stringify({ lead_id: l.dbId }) }); }catch(_e){}
     showToast('&#x2705; Appointment set'+(_bump?' &middot; stage \u2192 Meeting Booked':'')+' for '+fmtApptLocal(iso,tz));
     closeSheet('apptSh');
     if(curLid===l.id) renderLeadScreen(l.id);
@@ -12079,7 +12086,9 @@ async function clearAppt(){
 
 // ── Client appointment-reminder settings (Stage 3) ──
 var APPT_REMINDER_DEFAULT = { enabled:true, auto_send:true, quiet_start:8, quiet_end:21,
-  schedule:[ {type:'before',minutes:1440}, {type:'dayOf',time:'08:00'}, {type:'before',minutes:60} ] };
+  schedule:[ {type:'before',minutes:1440}, {type:'dayOf',time:'08:00'}, {type:'before',minutes:60} ],
+  confirm_msg:'Hi {name}, your appointment is booked for {when}. See you then!',
+  reminder_msg:'Hi {name}, friendly reminder: your appointment is on {when}. Looking forward to it!' };
 
 async function openClientReminders(){
   openSheet('crSh');
@@ -12092,6 +12101,8 @@ async function openClientReminders(){
   var qs=document.getElementById('crQStart'); if(qs) qs.value = (cfg.quiet_start!=null?cfg.quiet_start:8);
   var qe=document.getElementById('crQEnd');   if(qe) qe.value = (cfg.quiet_end!=null?cfg.quiet_end:21);
   renderCrRows(Array.isArray(cfg.schedule)&&cfg.schedule.length ? cfg.schedule : APPT_REMINDER_DEFAULT.schedule);
+  var cf=document.getElementById('crConfirm');  if(cf) cf.value = cfg.confirm_msg  || APPT_REMINDER_DEFAULT.confirm_msg;
+  var rm=document.getElementById('crReminder'); if(rm) rm.value = cfg.reminder_msg || APPT_REMINDER_DEFAULT.reminder_msg;
 }
 
 function _crRow(type, val){
@@ -12131,7 +12142,9 @@ async function saveClientReminders(){
   });
   var qs=parseInt((document.getElementById('crQStart')||{}).value,10); if(isNaN(qs))qs=8;
   var qe=parseInt((document.getElementById('crQEnd')||{}).value,10); if(isNaN(qe))qe=21;
-  var rules = { enabled:true, auto_send: !!(document.getElementById('crAuto')||{}).checked, quiet_start:qs, quiet_end:qe, schedule:schedule };
+  var rules = { enabled:true, auto_send: !!(document.getElementById('crAuto')||{}).checked, quiet_start:qs, quiet_end:qe, schedule:schedule,
+    confirm_msg:  (document.getElementById('crConfirm')||{}).value  || APPT_REMINDER_DEFAULT.confirm_msg,
+    reminder_msg: (document.getElementById('crReminder')||{}).value || APPT_REMINDER_DEFAULT.reminder_msg };
   var btn=document.getElementById('crSaveBtn'); if(btn){ btn.textContent='Saving…'; btn.disabled=true; }
   try {
     var res = await sbFetch('/rest/v1/rpc/save_my_appt_reminders', { method:'POST', body: JSON.stringify({ p_client_id: window._clientId, p_rules: rules }) });
