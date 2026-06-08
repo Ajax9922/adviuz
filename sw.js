@@ -1,14 +1,11 @@
 /* Adviuz Hub — Service Worker (push notifications) */
-const SW_VERSION = 'adviuz-sw-v2';
-
+const SW_VERSION = 'adviuz-sw-v3';
 self.addEventListener('install', function () { self.skipWaiting(); });
 self.addEventListener('activate', function (e) { e.waitUntil(self.clients.claim()); });
-
 self.addEventListener('push', function (event) {
   var data = {};
   try { data = event.data ? event.data.json() : {}; }
   catch (e) { data = { body: (event.data && event.data.text && event.data.text()) || '' }; }
-
   var title = data.title || 'Adviuz Hub';
   var options = {
     body:    data.body || 'You have a new message',
@@ -23,7 +20,6 @@ self.addEventListener('push', function (event) {
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });
-
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
   var url = (event.notification.data && event.notification.data.url) || '/';
@@ -32,11 +28,16 @@ self.addEventListener('notificationclick', function (event) {
       for (var i = 0; i < list.length; i++) {
         var c = list[i];
         if ('focus' in c) {
-          c.focus();
+          // Tell the already-open app where to go. This is the reliable path on
+          // iOS PWAs, where client.navigate() is flaky/unsupported. The app's
+          // service-worker message listener routes to the lead/review.
+          try { c.postMessage({ url: url }); } catch (e) {}
+          // Fallback for browsers that DO support navigate().
           if ('navigate' in c && url && url !== '/') { try { c.navigate(url); } catch (e) {} }
-          return;
+          return c.focus();
         }
       }
+      // App not open — launch it at the target URL; the app reads ?lead=/?review= on load.
       if (self.clients.openWindow) return self.clients.openWindow(url);
     })
   );
