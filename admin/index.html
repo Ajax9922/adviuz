@@ -629,7 +629,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-08 manual-impr-v1</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-08 connect-sms-v1</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -4255,6 +4255,30 @@ function openPreviewInTab() {
 }
 // ── TWILIO: load account numbers into the campaign-edit dropdown ──
 window._twNumberCache = null;
+// Wire BOTH the inbound call webhook and the inbound SMS webhook for the selected
+// Twilio number, so calls forward correctly and texts land in the chat thread.
+async function _ecamConnectWebhooks(){
+  var sel   = document.getElementById('ecam-tw-number');
+  var phone = sel ? (sel.value || '') : '';
+  if(!phone){ toast('Pick a Twilio number first'); return; }
+  var btn = document.getElementById('ecam-connect-tw');
+  if(btn){ btn.disabled = true; btn.textContent = 'Connecting\u2026'; }
+  var okCall = false, okSms = false;
+  try {
+    var v = await sbAdmin('/functions/v1/twilio-voice?action=set-inbound-webhook', { method:'POST', body: JSON.stringify({ phone: phone }) });
+    okCall = v.ok;
+  } catch(e){}
+  try {
+    var s = await sbAdmin('/functions/v1/twilio-voice?action=set-messaging-webhook', { method:'POST', body: JSON.stringify({ phone: phone }) });
+    okSms = s.ok;
+  } catch(e){}
+  if(okCall && okSms)      toast('\u2705 ' + phone + ' connected for calls & texts');
+  else if(okSms && !okCall) toast('Texts connected; call wiring failed \u2014 check Twilio config');
+  else if(okCall && !okSms) toast('Calls connected; text wiring failed \u2014 check Twilio config');
+  else                      toast('Connect failed \u2014 check Twilio config');
+  if(btn){ btn.disabled = false; btn.innerHTML = '\ud83d\udd17 Connect calls &amp; texts for this number'; }
+}
+
 async function loadTwilioNumbers(force){
   var sel = document.getElementById('ecam-tw-number');
   if (!sel) return;
@@ -4475,6 +4499,8 @@ function openEditCampaign(btn) {
     +   '<input class="fld" id="ecam-tw-forward" placeholder="+1xxxxxxxxxx">'
     +   '<div style="font-size:10px;color:var(--muted);margin-top:4px">Inbound calls to the number above ring this phone. Defaults to the client&apos;s profile number.</div>'
     + '</div>'
+    + '<button type="button" id="ecam-connect-tw" onclick="_ecamConnectWebhooks()" style="width:100%;margin-top:2px;padding:10px;border:none;border-radius:8px;background:var(--brand);color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">&#128279; Connect calls &amp; texts for this number</button>'
+    + '<div style="font-size:10px;color:var(--muted);margin-top:6px">Points this number&apos;s inbound calls and texts at Adviuz, so replies show in the chat thread and the generic Twilio auto-reply stops. This also happens automatically when you Save.</div>'
     + '</div>'
     + '</div>'
     + '<div class="modal-foot">'
@@ -4671,8 +4697,15 @@ async function saveCampaignEdit() {
           var wr = await sbAdmin('/functions/v1/twilio-voice?action=set-inbound-webhook', {
             method: 'POST', body: JSON.stringify({ phone: twPhone })
           });
-          if (!wr.ok) toast('Number saved, but auto-wiring its webhook failed — set it manually in Twilio.');
-        } catch(e){ toast('Number saved, but auto-wiring its webhook failed — set it manually in Twilio.'); }
+          if (!wr.ok) toast('Number saved, but auto-wiring its call webhook failed — set it manually in Twilio.');
+        } catch(e){ toast('Number saved, but auto-wiring its call webhook failed — set it manually in Twilio.'); }
+        // Also point its inbound SMS webhook at us so replies are captured into the chat.
+        try {
+          var sr = await sbAdmin('/functions/v1/twilio-voice?action=set-messaging-webhook', {
+            method: 'POST', body: JSON.stringify({ phone: twPhone })
+          });
+          if (!sr.ok) toast('Number saved, but auto-wiring its SMS webhook failed — set it manually in Twilio.');
+        } catch(e){ toast('Number saved, but auto-wiring its SMS webhook failed — set it manually in Twilio.'); }
       }
     } catch(e){}
   }
