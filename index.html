@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-08 sms-deeplink-v9</title>
+<title>Adviuz Hub · v2026-06-08 client-settings-v10</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3108,7 +3108,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-08 sms-deeplink-v9';
+var APP_VERSION = 'v2026-06-08 client-settings-v10';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -12282,13 +12282,60 @@ function _adScrollList(cp, filter){
 }
 
 
+// ── Email-chip helpers for the campaign settings (tags with an × to remove) ──
+window.csRenderEmailChips = function(){
+  var list = document.getElementById('csChipList'); if(!list) return;
+  var arr = window._csEmailChips || [];
+  list.innerHTML = arr.map(function(em,i){
+    return '<span style="display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:4px 6px 4px 11px;font-size:13px;color:var(--text)">'
+      + String(em).replace(/</g,'&lt;').replace(/"/g,'&quot;')
+      + '<button type="button" onclick="csRemoveEmailChip('+i+')" style="border:none;background:rgba(0,0,0,.08);color:var(--sub);border-radius:50%;width:18px;height:18px;line-height:1;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center">&times;</button></span>';
+  }).join('');
+};
+window.csAddEmailChip = function(val){
+  val = (val||'').trim().replace(/[,;]+$/,'');
+  if(!val) return false;
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)){ if(window.showToast) showToast('Enter a valid email'); return false; }
+  window._csEmailChips = window._csEmailChips || [];
+  if(window._csEmailChips.indexOf(val) >= 0) return true; // already added
+  if(window._csEmailChips.length >= 5){ if(window.showToast) showToast('Up to 5 emails'); return false; }
+  window._csEmailChips.push(val); csRenderEmailChips(); return true;
+};
+window.csRemoveEmailChip = function(i){
+  if(!window._csEmailChips) return;
+  window._csEmailChips.splice(i,1); csRenderEmailChips();
+};
+window.csEmailKey = function(e){
+  if(e.key==='Enter' || e.key===',' || e.key===';'){
+    e.preventDefault();
+    if(csAddEmailChip(e.target.value)) e.target.value='';
+  } else if(e.key==='Backspace' && !e.target.value && window._csEmailChips && window._csEmailChips.length){
+    csRemoveEmailChip(window._csEmailChips.length-1);
+  }
+};
+window.csEmailBlur = function(){
+  var inp = document.getElementById('csEmailInput');
+  if(inp && inp.value.trim() && csAddEmailChip(inp.value)) inp.value='';
+};
+
 // Client saves per-campaign forward number + notification emails (secure RPC checks ownership)
 async function saveCampaignContact(){
   var campId = window._clientDashCampId;
   if(!campId){ showToast('No campaign selected'); return; }
   var fwd = (document.getElementById('csFwd')||{value:''}).value.trim();
-  var raw = (document.getElementById('csEmails')||{value:''}).value || '';
-  var emails = raw.split(/[\n,]+/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0,5);
+  // Emails come from the chip field (window._csEmailChips). Include anything still
+  // typed in the box that wasn't turned into a chip yet. Fall back to the old
+  // textarea if present (older cached builds).
+  var emails;
+  if (Array.isArray(window._csEmailChips)) {
+    emails = window._csEmailChips.slice();
+    var pend = (document.getElementById('csEmailInput')||{value:''}).value.trim();
+    if (pend && emails.indexOf(pend) < 0) emails.push(pend);
+  } else {
+    var raw = (document.getElementById('csEmails')||{value:''}).value || '';
+    emails = raw.split(/[\n,]+/).map(function(s){ return s.trim(); }).filter(Boolean);
+  }
+  emails = emails.filter(Boolean).slice(0,5);
   var notify = !(document.getElementById('csNotify')) ? true : !!document.getElementById('csNotify').checked;
   var btn = document.getElementById('csSaveBtn');
   if(btn){ btn.textContent='Saving…'; btn.disabled=true; }
@@ -12302,9 +12349,10 @@ async function saveCampaignContact(){
       if(cp){ cp.forward_to_phone = fwd; cp.notification_emails = emails; cp.notify_enabled = notify; }
       showToast('&#x2705; Settings saved');
     } else {
-      showToast('Could not save — please try again');
+      var _et=''; try{ _et = await res.text(); }catch(_e){}
+      showToast('Could not save: ' + (_et ? _et.slice(0,150) : ('HTTP '+res.status)));
     }
-  }catch(e){ showToast('Could not save — please try again'); }
+  }catch(e){ showToast('Could not save: ' + ((e&&e.message)||e||'network error')); }
   if(btn){ btn.textContent='Save settings'; btn.disabled=false; }
 }
 
@@ -12832,10 +12880,8 @@ function clientCampaignDetailHTML(campId){
     +    _campToggleSwitch(cp.id, active)
     +  '</div>';
 
-  // Preview the ad design WITHOUT counting a 25s view (opens /preview).
-  if (previewHref) {
-    h += '<button onclick="window.open(\''+previewHref+'\',\'_blank\')" style="width:100%;margin-bottom:16px;padding:11px;border-radius:10px;background:var(--white);border:1.5px solid var(--border);color:var(--text);font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px">🔍 Preview ad (no view counted)</button>';
-  }
+  // (Preview button removed — the eye icon previews, and tapping a placement
+  //  mock-up below opens the real ad.)
 
   // ─── Stat cards per IMAGE 2 LAYOUT ───
   // Full-width: Total Exposure
@@ -12870,6 +12916,13 @@ function clientCampaignDetailHTML(campId){
   if (typeof _emails === 'string') { try { _emails = JSON.parse(_emails); } catch(_e2) { _emails = []; } }
   _emails = _emails || [];
   var _notify = (cp.notify_enabled !== false);
+  // Email chips: tags with an × (like a To/Cc field) instead of a plain box.
+  window._csEmailChips = (_emails||[]).slice();
+  var _emailPills = (_emails||[]).map(function(em,i){
+    return '<span style="display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:4px 6px 4px 11px;font-size:13px;color:var(--text)">'
+      + String(em).replace(/</g,'&lt;').replace(/"/g,'&quot;')
+      + '<button type="button" onclick="csRemoveEmailChip('+i+')" style="border:none;background:rgba(0,0,0,.08);color:var(--sub);border-radius:50%;width:18px;height:18px;line-height:1;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center">&times;</button></span>';
+  }).join('');
   h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px">'
     +    '<div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:2px">📞 Call &amp; Email Settings</div>'
     +    '<div style="font-size:11px;color:var(--sub);margin-bottom:14px">Where your calls land and who gets notified about new leads.</div>'
@@ -12877,8 +12930,11 @@ function clientCampaignDetailHTML(campId){
     +    '<div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 12px;font-size:14px;font-weight:700;color:'+(_tw?'var(--text)':'var(--sub)')+';margin-bottom:14px">'+(_tw||'Not assigned yet')+'</div>'
     +    '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Forward calls to</div>'
     +    '<input class="finp" id="csFwd" type="tel" placeholder="+1 416-555-0100" value="'+_fwd.replace(/"/g,'&quot;')+'" style="margin-bottom:14px">'
-    +    '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Lead notification emails <span style="font-weight:400;text-transform:none">(one per line, up to 5)</span></div>'
-    +    '<textarea class="finp" id="csEmails" rows="3" placeholder="you@business.com" style="margin-bottom:14px;resize:vertical;font-family:var(--f)">'+_emails.join('\n').replace(/</g,'&lt;')+'</textarea>'
+    +    '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Lead notification emails <span style="font-weight:400;text-transform:none">(up to 5 — type and press Enter)</span></div>'
+    +    '<div id="csEmailWrap" onclick="var i=document.getElementById(\'csEmailInput\');if(i)i.focus()" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;border:1px solid var(--border);border-radius:10px;padding:8px;background:var(--white);margin-bottom:14px;min-height:44px;cursor:text">'
+    +      '<span id="csChipList">'+_emailPills+'</span>'
+    +      '<input id="csEmailInput" type="email" inputmode="email" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Add email, press Enter" onkeydown="csEmailKey(event)" onblur="csEmailBlur()" style="border:none;outline:none;background:transparent;font-family:var(--f);font-size:13px;flex:1;min-width:130px;padding:4px 2px;color:var(--text)">'
+    +    '</div>'
     +    '<label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0 16px;cursor:pointer">'
     +      '<span style="font-size:13px;font-weight:700;color:var(--text)">Email me about new leads</span>'
     +      '<input type="checkbox" id="csNotify" '+(_notify?'checked':'')+' style="width:20px;height:20px;cursor:pointer;accent-color:var(--green)">'
