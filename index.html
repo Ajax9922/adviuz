@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-08 leadscreen-v2</title>
+<title>Adviuz Hub · v2026-06-08 leadscreen-v3</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3103,7 +3103,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-08 leadscreen-v2';
+var APP_VERSION = 'v2026-06-08 leadscreen-v3';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7154,9 +7154,9 @@ function renderLeadScreen(id) {
   h += '</div>'; // end info card
   h += '<div style="height:4px;background:var(--bg)"></div>';
 
-  // ══ SECTION 2 — MESSAGE & CALL (moved up to just under the lead info) ══
+  // ══ SECTION 2 — COMMUNICATION & CALL (moved up to just under the lead info) ══
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
-  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Message</div>';
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Communication</div>';
   h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">';
   h += ldCallBtn('📧','Email','#dbeafe','#2563eb', 'lsDoEmail()','email');
   h += ldCallBtn('💬','SMS','#d1fae5','var(--green)','openSmsSheet()');
@@ -7164,31 +7164,51 @@ function renderLeadScreen(id) {
   h += '</div>';
   h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Call</div>';
   h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">';
-  h += ldCallBtn('📞','Dialer','#ffe0e0','var(--red)','lsDialer()');
+  if (typeof isClientMode === 'function' && isClientMode()) {
+    h += ldCallBtn('🗓','Appointment','#ede9fe','#7c3aed','openApptSheet('+l.id+')');
+  } else {
+    h += ldCallBtn('🤝','Meeting','#ede9fe','#7c3aed','openMeetingScreen('+l.id+')','meeting');
+  }
   h += ldCallBtn('🤖','AI Call','linear-gradient(135deg,#ede9fe,#dbeafe)','#6366f1', 'lsDoAiCall()','ai_call');
   h += ldCallBtn('📣','IVR Call','#ede9fe','#7c3aed','lsDoIvrCall()');
   h += '</div></div>';
   h += '<div style="height:4px;background:var(--bg)"></div>';
 
-  // ══ STAGE + FOLLOW-UP — two stacked rows (Sales Stage, then Follow-up date) ══
-  h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
-  // Row 1: Sales Stage (full width)
-  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px">Sales Stage</div>';
-  h += '<select class="ld-stage-sel" id="lsStageSelect" onchange="lsSetStage(this.value)" style="border-color:'+stgC+';color:'+stgC+';width:100%">';
+  // ══ STAGE + FOLLOW-UP ══
+  // Touch devices: one clean line (Stage | Follow-up date), NO Save button — the
+  //   native picker's blue tick (onblur) sets the follow-up.
+  // Mouse devices (desktop): stacked rows WITH a Save button (no blue tick there).
+  var _coarse = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) ||
+                (window.matchMedia && window.matchMedia('(pointer:coarse)').matches);
   var matchedStage = matchStageName(l.stage);
+  var _stageOpts = '';
   STAGES.forEach(function(s){
-    h += '<option value="'+s.name+'"'+(s.name===matchedStage?' selected':'')+'>'+s.name+'</option>';
+    _stageOpts += '<option value="'+s.name+'"'+(s.name===matchedStage?' selected':'')+'>'+s.name+'</option>';
   });
-  h += '</select>';
-  // Row 2: Follow-up date (full width). On mobile the follow-up is set when the
-  // picker is CLOSED (blue tick / Done) via onblur — not on each date tap. Desktop
-  // uses the Save button. The save itself is debounced so it can't double-book.
-  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin:16px 0 8px">Follow-up Date</div>';
-  h += '<div style="display:flex;gap:8px">';
-  h += '<input type="datetime-local" id="lsFuDatetime" value="'+dtDef+'" onblur="lsFuBlur('+l.id+')" style="flex:1;min-width:0;border:1.5px solid var(--border);border-radius:9px;padding:10px 12px;font-family:var(--f);font-size:14px;color:var(--text);outline:none;background:var(--white);box-sizing:border-box">';
-  h += '<button onclick="lsQuickSaveFu('+l.id+')" style="flex-shrink:0;padding:10px 18px;border-radius:9px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">Save</button>';
-  h += '</div>';
-  // Pending follow-ups (full width, below)
+  h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
+  if (_coarse) {
+    // ── Mobile: one line, no Save ──
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:end">';
+    h += '<div style="min-width:0">';
+    h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px">Sales Stage</div>';
+    h += '<select class="ld-stage-sel" id="lsStageSelect" onchange="lsSetStage(this.value)" style="border-color:'+stgC+';color:'+stgC+';width:100%">'+_stageOpts+'</select>';
+    h += '</div>';
+    h += '<div style="min-width:0">';
+    h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px">Follow-up Date</div>';
+    h += '<input type="datetime-local" id="lsFuDatetime" value="'+dtDef+'" onblur="lsFuBlur('+l.id+')" style="width:100%;border:1.5px solid var(--border);border-radius:9px;padding:10px 12px;font-family:var(--f);font-size:13px;color:var(--text);outline:none;background:var(--white);min-width:0;box-sizing:border-box">';
+    h += '</div>';
+    h += '</div>';
+  } else {
+    // ── Desktop: stacked rows with Save ──
+    h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px">Sales Stage</div>';
+    h += '<select class="ld-stage-sel" id="lsStageSelect" onchange="lsSetStage(this.value)" style="border-color:'+stgC+';color:'+stgC+';width:100%">'+_stageOpts+'</select>';
+    h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin:16px 0 8px">Follow-up Date</div>';
+    h += '<div style="display:flex;gap:8px">';
+    h += '<input type="datetime-local" id="lsFuDatetime" value="'+dtDef+'" style="flex:1;min-width:0;border:1.5px solid var(--border);border-radius:9px;padding:10px 12px;font-family:var(--f);font-size:14px;color:var(--text);outline:none;background:var(--white);box-sizing:border-box">';
+    h += '<button onclick="lsQuickSaveFu('+l.id+')" style="flex-shrink:0;padding:10px 18px;border-radius:9px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">Save</button>';
+    h += '</div>';
+  }
+  // Pending follow-ups (both layouts)
   if (fuItems.length) {
     h += '<div style="margin-top:12px">';
     fuItems.forEach(function(t){
@@ -7214,14 +7234,9 @@ function renderLeadScreen(id) {
   h += '</div>';
   h += '<div style="height:4px;background:var(--bg)"></div>';
 
-  // ══ APPOINTMENT | QUOTE | INVOICE (moved below the leads nav) ══
+  // ══ QUOTE | INVOICE (below the leads nav) ══
   h += '<div style="background:var(--white);padding:12px 16px;margin-bottom:4px">';
-  h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">';
-  if (typeof isClientMode === 'function' && isClientMode()) {
-    h += ldQuickBtn('🗓','Appointment','#ede9fe','#7c3aed', 'openApptSheet('+l.id+')', '');
-  } else {
-    h += ldQuickBtn('🤝','Meeting','#ede9fe','#7c3aed',  'openMeetingScreen('+l.id+')','meeting');
-  }
+  h += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">';
   h += ldQuickBtn('📄','Quotes','#fef3c7','#d97706',   'openLeadQuotes('+l.id+')','quotes');
   h += ldQuickBtn('🧾','Invoices','#d1fae5','#00a884', 'openLeadInvoices('+l.id+')','invoices');
   h += '</div></div>';
