@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-08 leadscreen-v1</title>
+<title>Adviuz Hub · v2026-06-08 leadscreen-v2</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3103,7 +3103,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-08 leadscreen-v1';
+var APP_VERSION = 'v2026-06-08 leadscreen-v2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7170,11 +7170,9 @@ function renderLeadScreen(id) {
   h += '</div></div>';
   h += '<div style="height:4px;background:var(--bg)"></div>';
 
-  // ══ STAGE + FOLLOW-UP — one line (stage left, follow-up date right) ══
+  // ══ STAGE + FOLLOW-UP — two stacked rows (Sales Stage, then Follow-up date) ══
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
-  // Left: Sales Stage
-  h += '<div style="min-width:0">';
+  // Row 1: Sales Stage (full width)
   h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px">Sales Stage</div>';
   h += '<select class="ld-stage-sel" id="lsStageSelect" onchange="lsSetStage(this.value)" style="border-color:'+stgC+';color:'+stgC+';width:100%">';
   var matchedStage = matchStageName(l.stage);
@@ -7182,15 +7180,15 @@ function renderLeadScreen(id) {
     h += '<option value="'+s.name+'"'+(s.name===matchedStage?' selected':'')+'>'+s.name+'</option>';
   });
   h += '</select>';
+  // Row 2: Follow-up date (full width). On mobile the follow-up is set when the
+  // picker is CLOSED (blue tick / Done) via onblur — not on each date tap. Desktop
+  // uses the Save button. The save itself is debounced so it can't double-book.
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin:16px 0 8px">Follow-up Date</div>';
+  h += '<div style="display:flex;gap:8px">';
+  h += '<input type="datetime-local" id="lsFuDatetime" value="'+dtDef+'" onblur="lsFuBlur('+l.id+')" style="flex:1;min-width:0;border:1.5px solid var(--border);border-radius:9px;padding:10px 12px;font-family:var(--f);font-size:14px;color:var(--text);outline:none;background:var(--white);box-sizing:border-box">';
+  h += '<button onclick="lsQuickSaveFu('+l.id+')" style="flex-shrink:0;padding:10px 18px;border-radius:9px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">Save</button>';
   h += '</div>';
-  // Right: Follow-up date (mobile: confirming the picker sets it; desktop: Save button)
-  h += '<div style="min-width:0">';
-  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px">Follow-up Date</div>';
-  h += '<input type="datetime-local" id="lsFuDatetime" value="'+dtDef+'" onchange="lsFuChanged('+l.id+')" style="width:100%;border:1.5px solid var(--border);border-radius:9px;padding:10px 12px;font-family:var(--f);font-size:13px;color:var(--text);outline:none;background:var(--white);min-width:0;box-sizing:border-box">';
-  h += '<button onclick="lsQuickSaveFu('+l.id+')" style="width:100%;margin-top:8px;padding:9px;border-radius:9px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">Save</button>';
-  h += '</div>';
-  h += '</div>';
-  // Pending follow-ups (full width, below the row)
+  // Pending follow-ups (full width, below)
   if (fuItems.length) {
     h += '<div style="margin-top:12px">';
     fuItems.forEach(function(t){
@@ -7524,11 +7522,12 @@ function ldCallBtn(icon, label, bg, col, fn, feature){
 }
 
 
-// Fired when the follow-up date/time input changes.
-// On touch devices (mobile) the native picker fires `change` only when the user
-// confirms (the blue tick), so we set the follow-up immediately — no extra Save tap.
-// On desktop, `change` fires while the user is still editing, so we wait for Save.
-function lsFuChanged(lid){
+// Fired when the follow-up date/time input loses focus.
+// On a phone, the native picker fires `blur` when it CLOSES (the blue tick / Done),
+// not while the user is still tapping dates — so the follow-up is set only on confirm,
+// with no extra Save tap. On desktop we don't auto-save here; the Save button is used.
+// (lsQuickSaveFu is debounced, so this can never double-book with the Save button.)
+function lsFuBlur(lid){
   var coarse = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) ||
                (window.matchMedia && window.matchMedia('(pointer:coarse)').matches);
   if (coarse) lsQuickSaveFu(lid);
