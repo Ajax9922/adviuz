@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-08 fu-tiles-v1</title>
+<title>Adviuz Hub · v2026-06-08 addlead-fix-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -381,6 +381,10 @@ html,body{width:100%;font-family:var(--f);background:var(--top);-webkit-font-smo
 .flbl{display:block;font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px}
 .finp,.fsel,.fta{width:100%;border:1.5px solid var(--border);border-radius:10px;padding:11px 13px;font-family:var(--f);font-size:14px;color:var(--text);outline:none;background:var(--bg);transition:border-color .15s;-webkit-appearance:none}
 .finp:focus,.fsel:focus,.fta:focus{border-color:var(--green);background:var(--white)}
+/* iOS: -webkit-appearance:none can hide a date/time field's value text. Force it visible. */
+.finp[type="date"],.finp[type="time"]{min-height:44px;line-height:1.3;color:var(--text);-webkit-text-fill-color:var(--text)}
+.finp[type="date"]::-webkit-date-and-time-value,.finp[type="time"]::-webkit-date-and-time-value{text-align:left}
+.finp[type="date"]::-webkit-datetime-edit,.finp[type="time"]::-webkit-datetime-edit{color:var(--text);-webkit-text-fill-color:var(--text);padding:0}
 input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 input[type=number]{-moz-appearance:textfield}
 .fta{height:80px;resize:none;line-height:1.5}
@@ -2118,6 +2122,10 @@ input[type=number]{-moz-appearance:textfield}
         <div id="aEmSug" style="display:none;flex-wrap:wrap;gap:6px;margin-top:8px"></div>
         <div id="aEmErr" style="font-size:11px;color:var(--red);margin-top:4px;display:none">Enter a valid email address</div>
       </div>
+      <div class="fg" id="aCampaignRow" style="display:none">
+        <label class="flbl">Campaign</label>
+        <select class="fsel" id="aCampaign"><option value="">— No campaign —</option></select>
+      </div>
       <!-- Hidden fields with defaults -->
       <input type="hidden" id="aFn" value="Lead">
       <input type="hidden" id="aLn" value="">
@@ -3085,7 +3093,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-08 fu-tiles-v1';
+var APP_VERSION = 'v2026-06-08 addlead-fix-v1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -8264,11 +8272,10 @@ async function saveNewLead(){
   if(em && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)){if(emErr)emErr.style.display='block';showToast('Invalid email address');return}
 
   var ph = rawPh ? (cc + rawPh) : '';
-  // In partner mode the lead belongs to THIS partner; admin may pick from dropdown.
-  // Robust: any partner context (role OR _isPartnerMode OR _partnerData) → use partner id.
-  var inPartner = (typeof isPartnerMode==='function' && isPartnerMode())
-                  || window._isPartnerMode === true
-                  || !!(window._partnerData && window._partnerData.id);
+  // Tag the lead by the ACTIVE view, not merely "has partner data". A dual-role
+  // user (partner + client) adding a lead in Client view must NOT be tagged as a
+  // partner, or the client list (which hides partner leads) would never show it.
+  var inPartner = (window._isPartnerMode === true) || (window._activeRole === 'partner');
   var selectedPartnerId = inPartner
     ? ((window._partnerData && window._partnerData.id) || null)
     : ((document.getElementById('aPartner') && document.getElementById('aPartner').value) || null);
@@ -8276,7 +8283,8 @@ async function saveNewLead(){
     id: nxtId, name: company, company: company, ph: ph, em: em,
     stage: '1. Fresh Lead', src: 'Manual', svc: 'Digital Flyers',
     note: '', ok: true, t: 'just now', col: COLORS[nxtId%COLORS.length],
-    partner_id: selectedPartnerId
+    partner_id: selectedPartnerId,
+    campaign_id: (document.getElementById('aCampaign') && document.getElementById('aCampaign').value) || null
   };
 
   // Duplicate check — local first, then DB
@@ -8445,7 +8453,8 @@ async function doSaveLead(lead) {
         sms_consent: true, call_consent: true, email_consent: true,
         color: lead.col,
         client_id: window._clientId || null,
-        partner_id: (lead.partner_id || ((window._partnerData && window._partnerData.id) || null)),
+        partner_id: lead.partner_id || null,
+        campaign_id: lead.campaign_id || null,
         stage_code: 'fresh_lead'
       })
     });
@@ -10480,7 +10489,12 @@ function closeSheet(id){document.getElementById(id).classList.remove('open')}
 // ═══════════════════════════════════════
 // UTILS
 // ═══════════════════════════════════════
-function fmtDate(d){return new Date(d+'T12:00:00').toLocaleDateString('en-CA',{month:'short',day:'numeric'})}
+function fmtDate(d){
+  if(!d) return '';
+  // Accept both date-only ('YYYY-MM-DD') and full ISO timestamps.
+  var dt = (typeof d==='string' && d.length<=10) ? new Date(d+'T12:00:00') : new Date(d);
+  return isNaN(dt.getTime()) ? '' : dt.toLocaleDateString('en-CA',{month:'short',day:'numeric'});
+}
 function timeAgo(iso){
   if(!iso)return 'recently';
   var diff=Date.now()-new Date(iso).getTime();
@@ -10759,7 +10773,7 @@ async function loadPartnerLeads() {
           stage: l.stage || partnerStageLabel(l.stage_code||'fresh_lead'),
           stage_code: l.stage_code||'fresh_lead',
           note: l.notes||'',
-          t: l.created_at ? new Date(l.created_at).toLocaleDateString('en-CA',{month:'short',day:'numeric'}) : '',
+          t: timeAgo(l.created_at),
           rawDate: l.created_at ? locDate(l.created_at) : locToday(),
           created_at: l.created_at || '',
           col: ['#00a884','#2563eb','#7c3aed','#d97706','#0891b2','#db2777'][name.charCodeAt(0)%6]||'#00a884',
@@ -12317,7 +12331,13 @@ function openApptSheet(leadId){
   if(note) note.innerHTML = 'Pick the date and time in the lead\'s local time — <b>'+tzShortLabel(tz)+'</b>. We\'ll remind them on their own clock, wherever they are.';
   var dEl=document.getElementById('apptDate'), tEl=document.getElementById('apptTime');
   if(l.appointment_at){ var z=isoToZonedParts(l.appointment_at, tz); if(dEl)dEl.value=z.date; if(tEl)tEl.value=z.time; }
-  else { if(dEl)dEl.value=''; if(tEl)tEl.value=''; }
+  else {
+    // No appointment yet → default to today (lead's clock) at 10:00 so the
+    // fields are never blank and it's obvious how to use them.
+    var nowZ = (typeof isoToZonedParts==='function') ? isoToZonedParts(new Date().toISOString(), tz) : {date:'',time:''};
+    if(dEl) dEl.value = nowZ.date || '';
+    if(tEl) tEl.value = '10:00';
+  }
   openSheet('apptSh');
 }
 
@@ -13504,6 +13524,22 @@ function openAddLeadSheet() {
     }
   } else if (partnerRow) {
     partnerRow.style.display = 'none';
+  }
+  // Populate campaign dropdown from the campaigns this user can see
+  var campRow = document.getElementById('aCampaignRow');
+  var campSel = document.getElementById('aCampaign');
+  if (campRow && campSel) {
+    var camps = [].concat(((window._adminData&&window._adminData.campaigns)||[]),(window._clientCampaigns||[]));
+    var seen={}, opts='<option value="">— No campaign —</option>';
+    camps.forEach(function(c){
+      if(c && c.id && !seen[c.id]){
+        seen[c.id]=1;
+        var nm=String(c.name||c.campaign_name||'Campaign').replace(/</g,'&lt;');
+        opts+='<option value="'+c.id+'">'+nm+'</option>';
+      }
+    });
+    campSel.innerHTML = opts;
+    campRow.style.display = Object.keys(seen).length ? 'block' : 'none';
   }
   openSheet('addLeadSh');
 }
