@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-08 ui-fixes-v7</title>
+<title>Adviuz Hub · v2026-06-08 sms-deeplink-v9</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3108,7 +3108,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-08 ui-fixes-v7';
+var APP_VERSION = 'v2026-06-08 sms-deeplink-v9';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -19599,13 +19599,34 @@ document.addEventListener('click', function(ev){
       if (tries > 40) clearInterval(iv);
     }, 600);
   };
+  // Open the SMS chat for a lead by DB id (used when a text-message notification is tapped).
+  window.openSmsByDbId = function (dbid) {
+    if (!dbid) return;
+    var tries = 0;
+    var iv = setInterval(function () {
+      tries++;
+      if (typeof leads !== 'undefined' && leads && leads.length && typeof openSmsSheet === 'function') {
+        var L = leads.find(function (x) { return String(x.dbId) === String(dbid) || String(x.id) === String(dbid); });
+        if (L) {
+          try {
+            window._smsLead = L;
+            if (typeof openLead === 'function') { try { openLead(L.id); } catch (e) {} }
+            openSmsSheet();
+          } catch (e) {}
+          clearInterval(iv); return;
+        }
+      }
+      if (tries > 40) clearInterval(iv);
+    }, 600);
+  };
   // Route any /?lead= or /?review= URL (used on launch and by SW messages).
   window.adviuzRouteUrl = function (url) {
     try {
       var qs = (url || '').split('?')[1] || '';
       var p = new URLSearchParams(qs);
-      var ld = p.get('lead'); var rv = p.get('review');
-      if (ld) window.openLeadByDbId(ld);
+      var ld = p.get('lead'); var rv = p.get('review'); var sm = p.get('sms');
+      if (sm) window.openSmsByDbId(sm);
+      else if (ld) window.openLeadByDbId(ld);
       if (rv) window.openReviewByDbId(rv);
     } catch (e) {}
   };
@@ -19616,9 +19637,11 @@ document.addEventListener('click', function(ev){
     var sp = new URLSearchParams(window.location.search);
     var rv = sp.get('review');
     var ld = sp.get('lead');
+    var sm = sp.get('sms');
     if (rv) window.openReviewByDbId(rv);
-    if (ld) window.openLeadByDbId(ld);
-    if (ld || rv) history.replaceState(null, '', window.location.pathname);
+    if (sm) window.openSmsByDbId(sm);
+    else if (ld) window.openLeadByDbId(ld);
+    if (ld || rv || sm) history.replaceState(null, '', window.location.pathname);
   } catch (e) {}
 
   // When the app is ALREADY open and a notification is tapped, the service worker
@@ -19735,12 +19758,12 @@ document.addEventListener('click', function(ev){
   if (!supported()) return;
   navigator.serviceWorker.register('/sw.js').catch(function () {});
 
-  // Auto-update: check for a freshly deployed service worker on load, and when a
-  // new one takes control, reload once so the newest build loads automatically
-  // (no manual cache clearing). Guarded so it can never loop.
+  // Auto-update: check for a freshly deployed service worker on load, and when an
+  // updated one takes control, reload once. Only hooks when a controller ALREADY
+  // exists, so it never reloads needlessly on the very first load. Guarded vs loops.
   try {
     navigator.serviceWorker.getRegistration().then(function (reg) { if (reg) reg.update(); }).catch(function () {});
-    if (!window._adviuzSWReloadHooked) {
+    if (navigator.serviceWorker.controller && !window._adviuzSWReloadHooked) {
       window._adviuzSWReloadHooked = true;
       navigator.serviceWorker.addEventListener('controllerchange', function () {
         if (window._adviuzReloaded) return;
