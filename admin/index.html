@@ -629,7 +629,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-08 backdrop-guard-v1</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-08 manual-impr-v1</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -4330,6 +4330,21 @@ async function removeFbMap(fbId){
   }catch(e){ toast('Error removing'); }
 }
 
+// ── Manual impressions: load current values into the edit modal ──────────
+async function loadManualImpr(campId){
+  var fb=document.getElementById('ecam-manual-fb'), gg=document.getElementById('ecam-manual-gg');
+  if(!campId || (!fb && !gg)) return;
+  try{
+    var r=await sbAdmin('/rest/v1/impressions?campaign_id=eq.'+encodeURIComponent(campId)+'&fb_campaign_id=eq.manual&select=platform,impressions');
+    if(!r.ok) return;
+    var rows=await r.json();
+    (rows||[]).forEach(function(row){
+      if(row.platform==='facebook' && fb) fb.value=row.impressions||0;
+      if(row.platform==='google'   && gg) gg.value=row.impressions||0;
+    });
+  }catch(e){}
+}
+
 function openEditCampaign(btn) {
   window._editCampaignId = btn.dataset.id;
   var modal = '<div class="modal-overlay open" id="editCampaignModal" onclick="if(event.target===this)this.remove()">'
@@ -4360,6 +4375,17 @@ function openEditCampaign(btn) {
     + '<div style="display:flex;gap:8px">'
     +   '<input class="fld" id="ecam-fbmap-input" placeholder="e.g. 120208123456789" style="flex:1" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addFbMap();}">'
     +   '<button type="button" class="tbl-btn primary" onclick="addFbMap()">Add</button>'
+    + '</div>'
+    + '</div>'
+    // ── Manual impressions (sources not auto-connected yet) ──
+    + '<div style="margin-top:6px;padding-top:14px;border-top:1px solid var(--border)">'
+    + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">\u270D\uFE0F Manual impressions</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">For sources you have not auto-connected yet. These are <b>added on top of</b> the synced numbers in this campaign\u2019s total exposure. Leave at 0 if not needed.</div>'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap">'
+    +   '<div style="flex:1;min-width:130px"><label class="fld" style="font-size:11px">Facebook / Instagram</label>'
+    +     '<input class="fld" id="ecam-manual-fb" type="number" min="0" inputmode="numeric" placeholder="0" style="width:100%"></div>'
+    +   '<div style="flex:1;min-width:130px"><label class="fld" style="font-size:11px">Google / YouTube / Display</label>'
+    +     '<input class="fld" id="ecam-manual-gg" type="number" min="0" inputmode="numeric" placeholder="0" style="width:100%"></div>'
     + '</div>'
     + '</div>'
     // ── Ad Preview content (shown to client on their campaign dashboard) ──
@@ -4457,6 +4483,7 @@ function openEditCampaign(btn) {
     + '</div></div></div>';
   document.body.insertAdjacentHTML('beforeend', modal);
   loadFbMap(window._editCampaignId);
+  loadManualImpr(window._editCampaignId);
 
   // ── Prefill Ad Preview fields from existing placement_preview ──
   var cam = (window._allCampaigns || []).find(function(c){ return String(c.id) === String(btn.dataset.id); });
@@ -4658,6 +4685,17 @@ async function saveCampaignEdit() {
     method: 'PATCH',
     body: JSON.stringify(payload)
   });
+
+  // -- Manual impressions: added on top of synced FB/Google totals --
+  var mfb = parseInt(document.getElementById('ecam-manual-fb')?.value || '0', 10) || 0;
+  var mgg = parseInt(document.getElementById('ecam-manual-gg')?.value || '0', 10) || 0;
+  try {
+    await sbAdmin('/rest/v1/rpc/set_manual_impressions', {
+      method: 'POST',
+      body: JSON.stringify({ p_campaign_id: id, p_facebook: mfb, p_google: mgg })
+    });
+  } catch(e){}
+
   document.getElementById('editCampaignModal')?.remove();
   toast(r.ok ? 'Campaign updated!' : 'Update failed');
   loadAdminData();
