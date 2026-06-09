@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-08 dualrole-caret-v1</title>
+<title>Adviuz Hub · v2026-06-08 fu-tiles-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3085,7 +3085,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-08 dualrole-caret-v1';
+var APP_VERSION = 'v2026-06-08 fu-tiles-v1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -5380,7 +5380,9 @@ function leadsHTML(){
   // ── Task 2: Sorting ──
   vis = vis.slice().sort(function(a,b){
     if(window._leadSort==='name') return (a.company||a.name||'').toLowerCase().localeCompare((b.company||b.name||'').toLowerCase());
-    var ad=a.rawDate||'', bd=b.rawDate||'';
+    // Use the full created_at timestamp (not just the day) so a fresh/repeat
+    // inquiry rises to the very top within its date group.
+    var ad=a.created_at||a.rawDate||'', bd=b.created_at||b.rawDate||'';
     if(window._leadSort==='oldest') return ad<bd?-1:(ad>bd?1:0);
     return ad>bd?-1:(ad<bd?1:0); // newest (default)
   });
@@ -5635,6 +5637,18 @@ function cleanActLabel(a){
 
 // On-demand AI summary — deferred (re-add later with lead-summary Edge Function)
 
+// Resolve a lead's campaign name for display on its tile.
+// Returns '' when there's no campaign or only a raw id (so we never show a UUID).
+function leadCampLabel(l){
+  var cid = l && (l.campaign_id || l.campaign);
+  if(!cid) return '';
+  var lists=[].concat(((window._adminData&&window._adminData.campaigns)||[]),(window._clientCampaigns||[]));
+  var c=lists.find(function(x){ return String(x.id)===String(cid); });
+  var nm = c ? (c.name||c.campaign_name||'') : (l.campaign_name||'');
+  if(!nm || /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(String(nm))) return '';
+  return String(nm);
+}
+
 function lRow(l,anySel){
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
   var isSel=selIds.has(l.id);
@@ -5668,6 +5682,12 @@ function lRow(l,anySel){
     +'<div class="sl-company">'+esc(title)+'</div>'
     +(sub?'<div class="sl-person">'+I.person+'<span>'+esc(sub)+'</span></div>':'')
     +'</div>';
+
+  // ── Campaign chip (only when we can resolve a real campaign name) ──
+  var campLbl = leadCampLabel(l);
+  var campRow = campLbl
+    ? '<div style="padding:2px 15px 0"><span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--sub);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:2px 9px">\uD83D\uDCE3 '+esc(campLbl)+'</span></div>'
+    : '';
 
   // ── Row 3: 2-col grid — email/phone, location/product ──
   function fld(svg,val){
@@ -5718,7 +5738,7 @@ function lRow(l,anySel){
   return '<div class="lead-row simple sl'+(isSel?' sel':'')+'" style="--lr-rail:'+rail+'" '
     +'onclick="'+(anySel?'toggleSel('+l.id+')':'openLead('+l.id+')')+'" '
     +'oncontextmenu="event.preventDefault();startSel('+l.id+')">'
-    +topRow+nameRow+grid+lastHTML+actBtns
+    +topRow+nameRow+campRow+grid+lastHTML+actBtns
   +'</div>';
 }
 
@@ -5854,29 +5874,34 @@ function taskListHTML(){
   var dotColors={past:'#cc0000',today:'#d97706',future:'#00a884'};
   var dc=dotColors[fuSeg];
 
-  return'<div style="background:var(--white)">'
+  return '<div class="lead-list">'
     +f.map(function(t){
-      var lead=leads.find(function(l){return l.id===t.lid})||{name:'Unknown',ph:'',col:'#667781',id:0};
-      var parts=t.time.split(':');var h=parseInt(parts[0]);var mm=parts[1];
+      var lead=leads.find(function(l){return l.id===t.lid;});
+      if(!lead) return '';
+      var parts=t.time.split(':');var h=parseInt(parts[0])||0;var mm=parts[1]||'00';
       var ap=h>=12?'PM':'AM';var h12=h%12||12;
-      return'<div class="task-row" onclick="openLead('+lead.id+')">'
-        +'<div class="task-dot" style="background:'+dc+'"></div>'
-        +'<div class="task-body">'
-        +'<div class="task-name">'+lead.name+'</div>'
-        +'<div class="task-meta">'+(t._appt?'&#128197; Appointment':(TICONS[t.type]+' '+TYPES[t.type]))+(fuSeg==='future'?' &middot; '+fmtDate(t.date):fuSeg==='past'?' &middot; <span style=color:var(--red)>Overdue</span>':'')+'</div>'
-        +'<div class="task-note">'+t.note+'</div>'
-        +'</div>'
-        +'<div class="task-right">'
-        +'<div class="task-time">'+h12+':'+mm+' '+ap+'</div>'
-        +'<div style="display:flex;gap:5px;margin-top:6px;justify-content:flex-end">'
-        +(t._appt
-           ? (fuSeg==='past'
-               ? '<button class="done-btn" onclick="event.stopPropagation();openMeetingReview('+lead.id+')">Review</button>'
-               : '<button class="done-btn" onclick="event.stopPropagation();openApptSheet('+lead.id+')">Edit</button>')
-           : '<button class="done-btn" onclick="event.stopPropagation();markDone('+t.id+')">Done</button>')
-        +'<button class="done-btn" onclick="event.stopPropagation();doCall('+lead.id+')" style="background:#ffe0e0;color:var(--red)">Call</button>'
-        +'</div></div></div>';
-    }).join('')+'</div><div style="height:8px"></div>';
+      var typeLbl = t._appt ? '&#128197; Appointment' : (TICONS[t.type]+' '+TYPES[t.type]);
+      var whenLbl = h12+':'+mm+' '+ap
+        + (fuSeg==='future' ? ' &middot; '+fmtDate(t.date)
+          : fuSeg==='past' ? ' &middot; Overdue' : '');
+      var actBtn = t._appt
+        ? (fuSeg==='past'
+            ? '<button class="done-btn" onclick="event.stopPropagation();openMeetingReview('+lead.id+')">Review</button>'
+            : '<button class="done-btn" onclick="event.stopPropagation();openApptSheet('+lead.id+')">Edit</button>')
+        : '<button class="done-btn" onclick="event.stopPropagation();markDone('+t.id+')">Done</button>';
+      return '<div class="fu-card">'
+        + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">'
+        +   '<span style="font-size:12px;font-weight:700;color:var(--text)">'+typeLbl+'</span>'
+        +   '<span style="font-size:12px;font-weight:700;color:'+dc+'">'+whenLbl+'</span>'
+        + '</div>'
+        + lRow(lead,false)
+        + '<div style="display:flex;gap:8px;margin-top:8px">'
+        +   actBtn
+        +   '<button class="done-btn" onclick="event.stopPropagation();doCall('+lead.id+')" style="background:#ffe0e0;color:var(--red)">Call</button>'
+        + '</div>'
+        + '</div>';
+    }).join('')
+    +'</div><div style="height:8px"></div>';
 }
 
 function markDone(id){
@@ -8560,7 +8585,7 @@ async function initTwilioDevice() {
     });
 
     twilioDevice.on('registered',   function(){ console.log('[Twilio] Device ready ✅'); });
-if(window._staffRole!=='sales_partner'&&window._staffRole!=='client'){twilioDevice.on('error',        function(e){ console.error('[Twilio]', e.message); showToast('📞 Twilio: '+e.message); });}
+if(window._staffRole!=='sales_partner'&&window._staffRole!=='client'){twilioDevice.on('error',        function(e){ console.error('[Twilio]', e.message); });}
     twilioDevice.on('unregistered', function(){ console.warn('[Twilio] Offline'); twilioDevice=null; });
     twilioDevice.register();
     setInterval(initTwilioDevice, 50*60*1000);
