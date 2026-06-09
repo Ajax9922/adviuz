@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-08 sms-chat-v1</title>
+<title>Adviuz Hub · v2026-06-08 sms-chat-v2</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3103,7 +3103,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-08 sms-chat-v1';
+var APP_VERSION = 'v2026-06-08 sms-chat-v2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -6764,20 +6764,31 @@ function openSmsSheet(){
   var tb  = document.getElementById('smsTplBtn'); if(tb) tb.classList.remove('on');
   var st  = document.getElementById('smsAiStatus'); if(st){ st.style.display='none'; }
   renderSmsTplChips();
+  window._smsThreadCount = -1;
   loadSmsThread(l);
+  // Live refresh: re-check for new messages every 5s while the chat is open.
+  if(window._smsPollTimer){ clearInterval(window._smsPollTimer); }
+  window._smsPollTimer = setInterval(function(){
+    var open = ov.classList.contains('open');
+    if(open && window._smsLead){ loadSmsThread(window._smsLead, true); }
+    else { clearInterval(window._smsPollTimer); window._smsPollTimer=null; }
+  }, 5000);
 }
 function closeSmsSheet(){
   var ov = document.getElementById('smsSheetOv'); if(ov) ov.classList.remove('open');
   window._smsLead = null;
+  if(window._smsPollTimer){ clearInterval(window._smsPollTimer); window._smsPollTimer=null; }
 }
 
 // Auto-grow the compose box as the user types (up to the CSS max-height).
 function smsGrow(ta){ if(!ta) return; ta.style.height='auto'; ta.style.height=Math.min(ta.scrollHeight,150)+'px'; }
 
 // ── Load the full SMS history for this lead and render it as chat bubbles ──
-async function loadSmsThread(l){
+// quiet=true is used by the auto-refresh poll: no "Loading…" flash, and it only
+// re-renders when the message count actually changed (avoids scroll jitter).
+async function loadSmsThread(l, quiet){
   var box = document.getElementById('smsThread'); if(!box) return;
-  box.innerHTML = '<div class="sms-empty">Loading messages…</div>';
+  if(!quiet) box.innerHTML = '<div class="sms-empty">Loading messages…</div>';
   var msgs = [];
   if(l && l.dbId){
     try{
@@ -6796,9 +6807,22 @@ async function loadSmsThread(l){
           var inbound = dir==='inbound' || type==='sms_received';
           return { body: body, time: r.created_at, out: !inbound };
         }).filter(function(m){ return m.body; });
+        // Collapse accidental duplicates (same text + direction within 2 minutes).
+        msgs = msgs.filter(function(m,i){
+          if(i===0) return true;
+          var p = msgs[i-1];
+          if(p.out===m.out && p.body===m.body){
+            var dt = Math.abs(new Date(m.time) - new Date(p.time));
+            if(!isNaN(dt) && dt < 120000) return false;
+          }
+          return true;
+        });
       }
     }catch(e){ /* fall through to empty */ }
   }
+  // On a quiet poll, skip the re-render when nothing new arrived.
+  if(quiet && window._smsThreadCount === msgs.length) return;
+  window._smsThreadCount = msgs.length;
   renderSmsThread(msgs);
 }
 
@@ -6985,9 +7009,31 @@ async function sendSmsFromSheet(){
     var data = await res.json();
     if(!res.ok || data.error) throw new Error(data.error || 'SMS failed');
 
-    // Show the sent message in the thread immediately and clear the box (sheet stays open like a chat)
+    // Show the sent message in the thread immediately (instant feedback) and clear the box.
     appendSmsBubble(msg, true);
     if(ta){ ta.value=''; smsGrow(ta); }
+
+    // Persist the sent message so it stays in the conversation (and shows on the right)
+    // even after closing/reopening. The send function doesn't log this, so we record it here.
+    if(l.dbId){
+      try{
+        await sbFetch('/rest/v1/lead_activity', {
+          method:'POST', headers:{ Prefer:'return=minimal' },
+          body: JSON.stringify({
+            lead_id:       l.dbId,
+            client_id:     window._clientId || null,
+            activity_type: 'sms_sent',
+            description:   msg,
+            direction:     'outbound',
+            created_at:    new Date().toISOString()
+          })
+        });
+      }catch(e){}
+      // Reconcile the thread from the database (dedupes if the server also logged it).
+      window._smsThreadCount = -1;
+      loadSmsThread(l, true);
+    }
+
     // Keep the lead timeline in sync
     if(!leadAct[l.id]) leadAct[l.id]=[];
     leadAct[l.id].unshift({ type:'sms_sent', label:'SMS Sent', time:new Date().toISOString(), body:msg, rec:false });
