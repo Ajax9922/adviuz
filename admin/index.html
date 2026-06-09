@@ -629,7 +629,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-08 fb-map-v1</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-08 backdrop-guard-v1</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -1923,7 +1923,9 @@ function renderClientRows(clients, leads) {
     if (!l || !l.email) return false;
     var s = String(l.stage || '').toLowerCase();
     var closed = s.indexOf('deal closed') !== -1 || s.indexOf('won') !== -1;
-    return closed && !_emails[String(l.email).toLowerCase()];
+    // Skip leads already attached to a client — they're an existing client's
+    // customer (e.g. imported Hair Tattoo / Laser leads), not a new client to onboard.
+    return closed && !l.client_id && !_emails[String(l.email).toLowerCase()];
   });
   var pendingHtml = pending.map(function(l){
     var nm = l.company || l.name || l.email;
@@ -5731,5 +5733,34 @@ async function deleteCampaign(el) {
 
 <div class="sidebar-overlay" id="adminSidebarOverlay" onclick="toggleAdminSidebar()"></div>
 </div><!-- /adminApp -->
+
+<script>
+/* ──────────────────────────────────────────────────────────────
+   Backdrop-close guard (backdrop-guard-v1)
+   Popups close when you click their dark background. But selecting text
+   inside a popup and releasing the mouse on the background was counted as
+   a background click, closing the window mid-edit. This makes a popup close
+   ONLY when the click both STARTS and ENDS on the background — a real
+   backdrop click — and ignores clicks produced by a text-selection drag.
+   Works for every .modal-overlay and .sheet-ov, current and future.
+   ────────────────────────────────────────────────────────────── */
+(function () {
+  var startedOnBackdrop = false;
+  function isBackdrop(el) {
+    return !!(el && el.classList &&
+      (el.classList.contains('modal-overlay') || el.classList.contains('sheet-ov')));
+  }
+  function markDown(e) { startedOnBackdrop = isBackdrop(e.target); }
+  document.addEventListener('mousedown', markDown, true);
+  document.addEventListener('touchstart', markDown, true);
+  document.addEventListener('click', function (e) {
+    // Click landed on a backdrop, but the press began inside the popup
+    // (e.g. a text-selection drag): swallow it before the inline onclick runs.
+    if (isBackdrop(e.target) && !startedOnBackdrop) {
+      e.stopImmediatePropagation();
+    }
+  }, true); // capture phase → runs before the backdrop's own onclick
+})();
+</script>
 </body>
 </html>
