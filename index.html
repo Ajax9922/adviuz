@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-08 addlead-fix-v1</title>
+<title>Adviuz Hub · v2026-06-08 addlead-form-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2100,7 +2100,7 @@ input[type=number]{-moz-appearance:textfield}
   <div class="sheet"><div class="sheet-handle"></div>
     <div class="sheet-head"><div class="sheet-title">New Lead</div><button class="sheet-x" onclick="closeSheet('addLeadSh')">&#x2715;</button></div>
     <div class="sh-body">
-      <div class="fg"><label class="flbl">Company / Business Name *</label>
+      <div class="fg"><label class="flbl">Name / Business Name *</label>
         <input class="finp" id="aCompany" placeholder="e.g. Markham Dental Studio" autofocus>
       </div>
       <div class="fg"><label class="flbl">Phone *</label>
@@ -3093,7 +3093,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-08 addlead-fix-v1';
+var APP_VERSION = 'v2026-06-08 addlead-form-v1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -8276,12 +8276,16 @@ async function saveNewLead(){
   // user (partner + client) adding a lead in Client view must NOT be tagged as a
   // partner, or the client list (which hides partner leads) would never show it.
   var inPartner = (window._isPartnerMode === true) || (window._activeRole === 'partner');
+  var inClient  = (window._isClientMode === true)  || (window._activeRole === 'client');
   var selectedPartnerId = inPartner
     ? ((window._partnerData && window._partnerData.id) || null)
     : ((document.getElementById('aPartner') && document.getElementById('aPartner').value) || null);
   var lead = {
     id: nxtId, name: company, company: company, ph: ph, em: em,
-    stage: '1. Fresh Lead', src: 'Manual', svc: 'Digital Flyers',
+    stage: '1. Fresh Lead', src: 'Manual',
+    // A client's own customer lead must NOT carry an Adviuz product ("Digital Flyers")
+    // as its service — the client lead loader hides those as Adviuz sales leads.
+    svc: inClient ? '' : 'Digital Flyers',
     note: '', ok: true, t: 'just now', col: COLORS[nxtId%COLORS.length],
     partner_id: selectedPartnerId,
     campaign_id: (document.getElementById('aCampaign') && document.getElementById('aCampaign').value) || null
@@ -13525,21 +13529,30 @@ function openAddLeadSheet() {
   } else if (partnerRow) {
     partnerRow.style.display = 'none';
   }
-  // Populate campaign dropdown from the campaigns this user can see
+  // Campaign dropdown: clients add their own customers as plain "manual" leads
+  // (no campaign — outbound calling uses the client's one number regardless).
+  // Only operator/partner adds offer a campaign picker.
   var campRow = document.getElementById('aCampaignRow');
   var campSel = document.getElementById('aCampaign');
+  var hideCamp = (window._isClientMode === true) || (window._activeRole === 'client');
   if (campRow && campSel) {
-    var camps = [].concat(((window._adminData&&window._adminData.campaigns)||[]),(window._clientCampaigns||[]));
-    var seen={}, opts='<option value="">— No campaign —</option>';
-    camps.forEach(function(c){
-      if(c && c.id && !seen[c.id]){
-        seen[c.id]=1;
-        var nm=String(c.name||c.campaign_name||'Campaign').replace(/</g,'&lt;');
-        opts+='<option value="'+c.id+'">'+nm+'</option>';
-      }
-    });
-    campSel.innerHTML = opts;
-    campRow.style.display = Object.keys(seen).length ? 'block' : 'none';
+    if (hideCamp) {
+      campSel.innerHTML = '<option value="">— No campaign —</option>';
+      campSel.value = '';
+      campRow.style.display = 'none';
+    } else {
+      var camps = [].concat(((window._adminData&&window._adminData.campaigns)||[]),(window._clientCampaigns||[]));
+      var seen={}, opts='<option value="">— No campaign —</option>';
+      camps.forEach(function(c){
+        if(c && c.id && !seen[c.id]){
+          seen[c.id]=1;
+          var nm=String(c.name||c.campaign_name||'Campaign').replace(/</g,'&lt;');
+          opts+='<option value="'+c.id+'">'+nm+'</option>';
+        }
+      });
+      campSel.innerHTML = opts;
+      campRow.style.display = Object.keys(seen).length ? 'block' : 'none';
+    }
   }
   openSheet('addLeadSh');
 }
