@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-08 leadscreen-v3</title>
+<title>Adviuz Hub · v2026-06-08 leadscreen-v4</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3103,7 +3103,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-08 leadscreen-v3';
+var APP_VERSION = 'v2026-06-08 leadscreen-v4';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7060,6 +7060,7 @@ function navLead(dir) {
 function renderLeadScreen(id) {
   var l = leads.find(function(x){ return x.id === id; });
   if(!l) return;
+  window._lsFuTouched = false; // fresh follow-up input each render — require a real pick before saving
 
   var init  = (l.name||'?').split(' ').map(function(w){return w[0]}).join('').slice(0,2).toUpperCase();
   var stgC  = stgColor(l.stage);
@@ -7187,15 +7188,15 @@ function renderLeadScreen(id) {
   });
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
   if (_coarse) {
-    // ── Mobile: one line, no Save ──
-    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:end">';
+    // ── Mobile: one line, no Save (Stage ~65%, Follow-up ~35%) ──
+    h += '<div style="display:grid;grid-template-columns:65fr 35fr;gap:10px;align-items:end">';
     h += '<div style="min-width:0">';
     h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px">Sales Stage</div>';
     h += '<select class="ld-stage-sel" id="lsStageSelect" onchange="lsSetStage(this.value)" style="border-color:'+stgC+';color:'+stgC+';width:100%">'+_stageOpts+'</select>';
     h += '</div>';
-    h += '<div style="min-width:0">';
-    h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px">Follow-up Date</div>';
-    h += '<input type="datetime-local" id="lsFuDatetime" value="'+dtDef+'" onblur="lsFuBlur('+l.id+')" style="width:100%;border:1.5px solid var(--border);border-radius:9px;padding:10px 12px;font-family:var(--f);font-size:13px;color:var(--text);outline:none;background:var(--white);min-width:0;box-sizing:border-box">';
+    h += '<div style="min-width:0;overflow:hidden">';
+    h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px">Follow-up</div>';
+    h += '<input type="datetime-local" id="lsFuDatetime" value="'+dtDef+'" oninput="window._lsFuTouched=true" onblur="lsFuBlur('+l.id+')" style="width:100%;border:1.5px solid var(--border);border-radius:9px;padding:10px 10px;font-family:var(--f);font-size:13px;color:var(--text);outline:none;background:var(--white);min-width:0;box-sizing:border-box">';
     h += '</div>';
     h += '</div>';
   } else {
@@ -7537,15 +7538,15 @@ function ldCallBtn(icon, label, bg, col, fn, feature){
 }
 
 
-// Fired when the follow-up date/time input loses focus.
-// On a phone, the native picker fires `blur` when it CLOSES (the blue tick / Done),
-// not while the user is still tapping dates — so the follow-up is set only on confirm,
-// with no extra Save tap. On desktop we don't auto-save here; the Save button is used.
-// (lsQuickSaveFu is debounced, so this can never double-book with the Save button.)
+// Fired when the follow-up date/time input loses focus (the picker closed via the
+// blue tick / Done). We ONLY schedule if the user actually changed the value this
+// time (window._lsFuTouched, set by the input's oninput). That way merely tapping
+// the field and dismissing — or the screen re-rendering — never schedules anything.
+// The flag is reset on every lead-screen render. (lsQuickSaveFu is also debounced.)
 function lsFuBlur(lid){
-  var coarse = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) ||
-               (window.matchMedia && window.matchMedia('(pointer:coarse)').matches);
-  if (coarse) lsQuickSaveFu(lid);
+  if (!window._lsFuTouched) return;
+  window._lsFuTouched = false;
+  lsQuickSaveFu(lid);
 }
 
 function lsQuickSaveFu(lid){
