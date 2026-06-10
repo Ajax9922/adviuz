@@ -629,7 +629,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-08 connect-sms-v1</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-09 welcome-admin-v2</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -1376,6 +1376,15 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
               <div><div class="toggle-info">Daily summary email</div><div class="toggle-sub">Views, revenue and leads summary at 9 AM</div></div>
               <div class="toggle on" onclick="this.classList.toggle('on')"><div class="toggle-thumb"></div></div>
             </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-title">Lead messaging</div>
+            <div class="form-group"><label class="fld">Default welcome text (sent instantly to new leads)</label>
+              <textarea class="fld" id="set-welcome-default" rows="5" placeholder="Hi {name}, thank you for contacting us about {service}. To book, call {phone}."></textarea>
+              <div style="font-size:10px;color:var(--muted);margin-top:4px">Used when a campaign has no welcome of its own. Tags: {name} {service} {phone}.</div>
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);cursor:pointer;margin-bottom:10px"><input type="checkbox" id="set-welcome-on" checked style="width:16px;height:16px;accent-color:var(--brand)"> Welcome texts enabled by default</label>
+            <button class="btn-save" onclick="saveWelcomeDefault()">Save welcome default</button>
           </div>
             <div class="form-group"><label class="fld">View counted webhook URL</label><input class="fld" placeholder="https://your-backend.com/api/view-counted"></div>
             <div class="form-group"><label class="fld">Lead received webhook URL</label><input class="fld" placeholder="https://your-backend.com/api/leads"></div>
@@ -3391,7 +3400,39 @@ function clearGhToken() {
   showGhStatus('warning', '⚠️ Token cleared — deploy will not work until you set a new one');
   toast('GitHub token removed');
 }
+async function saveWelcomeDefault() {
+  var msg = (document.getElementById('set-welcome-default') || { value:'' }).value.trim();
+  var enabled = !!((document.getElementById('set-welcome-on') || {}).checked);
+  var val = { message: msg, enabled: enabled };
+  var nowIso = new Date().toISOString();
+  try {
+    var r = await sbAdmin('/rest/v1/app_settings?key=eq.welcome_sms_default', {
+      method: 'PATCH', headers: { 'Prefer': 'return=representation' },
+      body: JSON.stringify({ value: val, updated_at: nowIso })
+    });
+    var rows = r.ok ? await r.json().catch(function(){ return []; }) : [];
+    if (r.ok && (!rows || !rows.length)) {
+      r = await sbAdmin('/rest/v1/app_settings', {
+        method: 'POST',
+        body: JSON.stringify({ key: 'welcome_sms_default', value: val, updated_at: nowIso })
+      });
+    }
+    if (r.ok) { toast('✅ Default welcome saved'); }
+    else { toast('Could not save default welcome'); }
+  } catch(e){ toast('Could not save default welcome'); }
+}
+
 async function onSettingsOpen() {
+  // Load the global default welcome text into the Settings field.
+  try {
+    var _wr = await sbAdmin('/rest/v1/app_settings?key=eq.welcome_sms_default&select=value&limit=1');
+    if (_wr.ok) {
+      var _wrows = await _wr.json();
+      var _wv = (_wrows && _wrows[0] && _wrows[0].value) || {};
+      var _wEl = document.getElementById('set-welcome-default'); if (_wEl) _wEl.value = _wv.message || '';
+      var _wOn = document.getElementById('set-welcome-on'); if (_wOn) _wOn.checked = (_wv.enabled !== false);
+    }
+  } catch(e){}
   var saved  = localStorage.getItem('adviuz_gh_token') || sessionStorage.getItem('adviuz_gh_token');
   var nSaved = localStorage.getItem('adviuz_netlify_token') || sessionStorage.getItem('adviuz_netlify_token');
   if (!saved || !nSaved) {
@@ -4502,6 +4543,12 @@ function openEditCampaign(btn) {
     + '<button type="button" id="ecam-connect-tw" onclick="_ecamConnectWebhooks()" style="width:100%;margin-top:2px;padding:10px;border:none;border-radius:8px;background:var(--brand);color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">&#128279; Connect calls &amp; texts for this number</button>'
     + '<div style="font-size:10px;color:var(--muted);margin-top:6px">Points this number&apos;s inbound calls and texts at Adviuz, so replies show in the chat thread and the generic Twilio auto-reply stops. This also happens automatically when you Save.</div>'
     + '</div>'
+    + '<div style="margin-top:6px;padding-top:14px;border-top:1px solid var(--border)">'
+    + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">&#128172; Welcome text message</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Sent instantly to a new lead the moment they inquire. Leave blank to use the global default (Settings). Tags: {name} {service} {phone}.</div>'
+    + '<div class="form-group"><textarea class="fld" id="ecam-welcome" rows="5" placeholder="Leave blank to use the global default welcome."></textarea></div>'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);cursor:pointer"><input type="checkbox" id="ecam-welcome-on" checked style="width:16px;height:16px;accent-color:var(--brand)"> Send welcome text to new leads</label>'
+    + '</div>'
     + '</div>'
     + '<div class="modal-foot">'
     + '<button class="btn-cancel" onclick="document.getElementById(\'editCampaignModal\').remove()">Cancel</button>'
@@ -4540,12 +4587,14 @@ function openEditCampaign(btn) {
   if (window._editCamClientId) {
     loadTwilioNumbers();
     // Prefer THIS campaign's own number + forward; fall back to client-level / profile for anything missing.
-    sbAdmin('/rest/v1/campaigns?id=eq.' + window._editCampaignId + '&select=twilio_phone,forward_to_phone&limit=1')
+    sbAdmin('/rest/v1/campaigns?id=eq.' + window._editCampaignId + '&select=twilio_phone,forward_to_phone,welcome_sms,welcome_sms_enabled&limit=1')
       .then(function(res){ return res.ok ? res.json() : []; })
       .then(function(rows){
         var crow = (rows && rows[0]) || {};
         var campTw  = crow.twilio_phone || '';
         var campFwd = crow.forward_to_phone || '';
+        setV('ecam-welcome', crow.welcome_sms || '');
+        var wOn = document.getElementById('ecam-welcome-on'); if (wOn) wOn.checked = (crow.welcome_sms_enabled !== false);
         if (campTw) { window._editCamTwNumber = campTw; if (window._setTwNumberSelected) window._setTwNumberSelected(campTw); }
         if (campFwd) { setV('ecam-tw-forward', campFwd); }
         if (campTw && campFwd) return;
@@ -4713,6 +4762,14 @@ async function saveCampaignEdit() {
   // Stage 2: store the number + forward ON the campaign (per-campaign mapping)
   payload.twilio_phone     = twPhone || null;
   payload.forward_to_phone = twForward || null;
+
+  // Welcome text (blank clears it → falls back to the global default)
+  var _wEl = document.getElementById('ecam-welcome');
+  if (_wEl) {
+    var _wv = _wEl.value.trim();
+    payload.welcome_sms = _wv || null;
+    payload.welcome_sms_enabled = !!(document.getElementById('ecam-welcome-on') || {}).checked;
+  }
 
   var r = await sbAdmin('/rest/v1/campaigns?id=eq.' + id, {
     method: 'PATCH',
