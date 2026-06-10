@@ -629,7 +629,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-10 admin-fields-v8</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-10 admin-fields-v9</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -925,6 +925,9 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
             <select class="fld" id="leads-filter-stage" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface)" onchange="filterLeadsTable()">
               <option value="">All stages</option>
               <option>New</option><option>Contacted</option><option>Interested</option><option>Quote sent</option><option>Won</option><option>Lost</option>
+            </select>
+            <select class="fld" id="leads-filter-cf" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface)" onchange="filterLeadsTable()">
+              <option value="">All fields</option>
             </select>
             <button class="tbl-btn" onclick="exportLeadsCSV()">Export CSV</button>
           </div>
@@ -5576,12 +5579,61 @@ function renderAdminLeads(leads, clients) {
   window._adminLeads   = leads;
   window._adminClients = clients;
   renderFilteredLeads(leads, clients);
+  loadAdminCfDefs().then(populateAdminCfFilter);
+}
+// ── Admin custom-field filter (Phase 3) ──
+async function loadAdminCfDefs(){
+  try{
+    var r = await sbAdmin('/rest/v1/custom_fields?filterable=eq.true&maps_to=is.null&select=field_key,label,field_type,options&order=sort_order.asc');
+    var rows = r.ok ? await r.json() : [];
+    var byKey={}, order=[];
+    (rows||[]).forEach(function(f){
+      if(!f.field_key) return;
+      if(!byKey[f.field_key]){ byKey[f.field_key]={field_key:f.field_key,label:f.label||f.field_key,field_type:f.field_type||'select',options:[]}; order.push(f.field_key); }
+      var d=byKey[f.field_key];
+      if(Array.isArray(f.options)) f.options.forEach(function(o){ if(d.options.indexOf(o)===-1) d.options.push(o); });
+    });
+    window._adminCfDefs = order.map(function(k){return byKey[k];});
+  }catch(e){ window._adminCfDefs = window._adminCfDefs||[]; }
+  return window._adminCfDefs||[];
+}
+function populateAdminCfFilter(){
+  var sel=document.getElementById('leads-filter-cf');
+  if(!sel || sel.options.length>1) return; // build once
+  var SEP='\u001F';
+  var esc=function(v){return (v==null?'':String(v)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');};
+  var present={};
+  (window._adminLeads||[]).forEach(function(l){
+    var ff=l.form_fields||{};
+    (window._adminCfDefs||[]).forEach(function(d){
+      var v=ff[d.field_key]; if(v!=null && v!==''){ (present[d.field_key]=present[d.field_key]||{})[String(v)]=1; }
+    });
+  });
+  var html='<option value="">All fields</option>';
+  (window._adminCfDefs||[]).forEach(function(d){
+    var vals;
+    if(d.field_type==='bool') vals=['Yes','No'];
+    else if(d.field_type==='select' && d.options.length) vals=d.options.map(String);
+    else vals=Object.keys(present[d.field_key]||{});
+    Object.keys(present[d.field_key]||{}).forEach(function(v){ if(vals.indexOf(v)===-1) vals.push(v); });
+    if(!vals.length) return;
+    html+='<optgroup label="'+esc(d.label)+'">';
+    vals.forEach(function(v){ html+='<option value="'+esc(d.field_key+SEP+v)+'">'+esc(v)+'</option>'; });
+    html+='</optgroup>';
+  });
+  sel.innerHTML=html;
 }
 function filterLeadsTable() {
   var clientId = document.getElementById('leads-filter-client')?.value || '';
   var stage    = document.getElementById('leads-filter-stage')?.value  || '';
+  var cfRaw    = document.getElementById('leads-filter-cf')?.value || '';
+  var cfKey='', cfVal='';
+  if(cfRaw){ var _p=cfRaw.split('\u001F'); cfKey=_p[0]; cfVal=_p.slice(1).join('\u001F'); }
   var leads    = (window._adminLeads || []).filter(function(l) {
-    return (!clientId || l.client_id === clientId) && (!stage || l.stage === stage);
+    if(clientId && l.client_id !== clientId) return false;
+    if(stage && l.stage !== stage) return false;
+    if(cfKey){ var v=(l.form_fields&&l.form_fields[cfKey]!=null)?String(l.form_fields[cfKey]):''; if(v!==cfVal) return false; }
+    return true;
   });
   renderFilteredLeads(leads, window._adminClients || []);
 }
