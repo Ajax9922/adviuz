@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-10 review-toggle-v13</title>
+<title>Adviuz Hub · v2026-06-10 custom-fields-v15</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3112,7 +3112,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-10 review-toggle-v13';
+var APP_VERSION = 'v2026-06-10 custom-fields-v15';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -4445,7 +4445,10 @@ function mapLead(l, i) {
     // the filters read l.campaign_id / l.campaign / l.campaign_name.
     campaign_id:   l.campaign_id   || null,
     campaign:      l.campaign      || null,
-    campaign_name: l.campaign_name || null
+    campaign_name: l.campaign_name || null,
+    // Custom-field support: raw jsonb bag + owning client (Phase 2/3)
+    form_fields:   l.form_fields || {},
+    client_id:     l.client_id || null
   };
 }
 
@@ -4920,6 +4923,46 @@ function afDistinct(){
   return { stages:stageOpts, execs:execOpts, locations:locOpts, partners:partOpts, sources:srcOpts, services:svcOpts };
 }
 
+// ── Custom-field filters (Phase 3) ───────────────────────────
+// Pull every FILTERABLE custom field that is NOT mapped to the built-in
+// Location/Service columns (those already have their own filter sections).
+// De-dupe by field_key across campaigns and merge their option lists so one
+// "Product Availability" section covers every campaign that defines it.
+async function loadCustomFieldDefs(){
+  try{
+    var r = await sbFetch('/rest/v1/custom_fields?filterable=eq.true&maps_to=is.null&select=field_key,label,field_type,options,sort_order&order=sort_order.asc');
+    var rows = r.ok ? (await r.json().catch(function(){return [];})) : [];
+    var byKey={}, order=[];
+    (rows||[]).forEach(function(f){
+      if(!f.field_key) return;
+      if(!byKey[f.field_key]){ byKey[f.field_key]={field_key:f.field_key,label:f.label||f.field_key,field_type:f.field_type||'select',options:[]}; order.push(f.field_key); }
+      var d=byKey[f.field_key];
+      if(Array.isArray(f.options)) f.options.forEach(function(o){ if(d.options.indexOf(o)===-1) d.options.push(o); });
+      if((!d.label||d.label===d.field_key) && f.label) d.label=f.label;
+    });
+    window._cfFilterDefs = order.map(function(k){return byKey[k];});
+    window._cfFilterLabels = {};
+    window._cfFilterDefs.forEach(function(d){ window._cfFilterLabels[d.field_key]=d.label; });
+  }catch(e){ window._cfFilterDefs = window._cfFilterDefs || []; }
+  return window._cfFilterDefs || [];
+}
+// Build chip options for one custom field, in the {value,label,n,dot} shape.
+function afCustomOpts(def){
+  var counts={};
+  (leads||[]).forEach(function(l){
+    var raw = (l.form_fields && l.form_fields[def.field_key]!=null) ? String(l.form_fields[def.field_key]) : '';
+    if(raw) counts[raw]=(counts[raw]||0)+1;
+  });
+  var values;
+  if(def.field_type==='bool'){ values=['Yes','No']; }
+  else if(def.field_type==='select' && def.options && def.options.length){ values=def.options.map(String); }
+  else { values=Object.keys(counts).sort(); } // text/number/date: only values actually present
+  if(def.field_type==='select' || def.field_type==='bool'){
+    Object.keys(counts).forEach(function(v){ if(values.indexOf(v)===-1) values.push(v); });
+  }
+  return values.map(function(v){ return {value:v,label:v,n:counts[v]||0,dot:'#6366f1'}; });
+}
+
 function ensureAdvancedFilterSheet(){
   if(document.getElementById('advancedFilterSh')) return;
   var html =
@@ -4945,8 +4988,9 @@ function ensureAdvancedFilterSheet(){
 function openAdvancedFilter(){
   try{
     ensureAdvancedFilterSheet();   // build the sheet if it isn't in the page
-    renderAdvancedFilter();
     openSheet('advancedFilterSh');
+    renderAdvancedFilter();        // render immediately with built-ins
+    loadCustomFieldDefs().then(function(){ renderAdvancedFilter(); }); // then add custom-field sections
   }catch(e){
     console.error('[openAdvancedFilter] failed:', e);
     if(typeof showToast==='function') showToast('Filter error: '+e.message);
@@ -4974,6 +5018,11 @@ function renderAdvancedFilter(){
   if (isClientMode()) {
     sections = sections.filter(function(s){ return s.key !== 'partners'; });
   }
+  // Append a section for each filterable custom field (Phase 3)
+  (window._cfFilterDefs||[]).forEach(function(def){
+    var opts = afCustomOpts(def);
+    if(opts.length) sections.push({ key:'cf:'+def.field_key, title:def.label, opts:opts });
+  });
   box.innerHTML = sections.map(function(sec){
     var selected = af[sec.key]||[];
     var count = selected.length;
@@ -5023,7 +5072,8 @@ function advFilterCount(){
   return (af.stages||[]).length+(af.partners||[]).length+(af.telecallers||[]).length+
          (af.managers||[]).length+(af.campaigns||[]).length+
          (af.locations||[]).length+(af.sources||[]).length+(af.services||[]).length+
-         (af.clients||[]).length;
+         (af.clients||[]).length+
+         Object.keys(af).reduce(function(s,k){ return s+(k.indexOf('cf:')===0?(af[k]||[]).length:0); },0);
 }
 // Show/hide the little dot on the header filter button
 function updateFilterDot(){
@@ -5071,6 +5121,12 @@ function updateActiveFilterBar(){
   add('Location', af.locations);
   add('Source', af.sources);
   add('Service', af.services);
+  Object.keys(af).forEach(function(k){
+    if(k.indexOf('cf:')!==0) return;
+    var arr=af[k]; if(!arr||!arr.length) return;
+    var lbl=(window._cfFilterLabels&&window._cfFilterLabels[k.slice(3)])||k.slice(3);
+    parts.push(lbl+': '+arr.join(', '));
+  });
 
   var company = clientContextName();
   var count = (typeof advFilterCount==='function') ? advFilterCount() : 0;
@@ -5335,6 +5391,16 @@ function leadsHTML(){
     if(af.sources   && af.sources.length   && af.sources.indexOf(l.src||'')===-1) return false;
     if(af.services  && af.services.length  && af.services.indexOf(l.svc||'')===-1) return false;
     if(af.clients   && af.clients.length   && af.clients.indexOf(l.company||'')===-1) return false;
+    // Custom-field filters (keys shaped "cf:<field_key>")
+    var _afKeys = Object.keys(af);
+    for(var _ci=0; _ci<_afKeys.length; _ci++){
+      var _k=_afKeys[_ci];
+      if(_k.indexOf('cf:')!==0) continue;
+      var _sel=af[_k]; if(!_sel||!_sel.length) continue;
+      var _fk=_k.slice(3);
+      var _v=(l.form_fields && l.form_fields[_fk]!=null) ? String(l.form_fields[_fk]) : '';
+      if(_sel.indexOf(_v)===-1) return false;
+    }
     // Legacy single-stage selector (kept for back-compat)
     if(schStg && l.stage!==schStg) return false;
     // Search
@@ -7078,6 +7144,83 @@ function navLead(dir) {
   openLead(leads[newIdx].id);
 }
 
+// ── Custom fields on the lead (Phase 2) ──────────────────────
+var _cfInputCss = 'width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--white);color:var(--text)';
+function _cfEsc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); }
+function _ldCfValue(f){
+  if(f.maps_to==='service')  return window._ldCfService  || '';
+  if(f.maps_to==='location') return window._ldCfLocation || '';
+  var ff = window._ldCfFormFields || {};
+  return (ff[f.field_key] != null) ? ff[f.field_key] : '';
+}
+async function loadLeadCustomFields(l){
+  var box = document.getElementById('ld-custom-fields');
+  if(!box) return;
+  box.innerHTML = '';
+  if(!l || !l.campaign_id || !l.dbId) return;
+  try{
+    var rf = await sbFetch('/rest/v1/custom_fields?campaign_id=eq.'+l.campaign_id+'&order=sort_order.asc,created_at.asc');
+    var fields = rf.ok ? (await rf.json().catch(function(){return [];})) : [];
+    if(!Array.isArray(fields) || !fields.length) return;
+    var rv = await sbFetch('/rest/v1/leads?id=eq.'+l.dbId+'&select=form_fields,service,location');
+    var rows = rv.ok ? (await rv.json().catch(function(){return [];})) : [];
+    var row = rows[0] || {};
+    window._ldCfFields     = fields;
+    window._ldCfFormFields = row.form_fields || {};
+    window._ldCfService    = (row.service  != null) ? row.service  : (l.svc || '');
+    window._ldCfLocation   = (row.location != null) ? row.location : (l.location || '');
+    renderLeadCustomFields(l, fields);
+  }catch(e){ /* silent — card just stays empty */ }
+}
+function renderLeadCustomFields(l, fields){
+  var box = document.getElementById('ld-custom-fields'); if(!box) return;
+  var h = '<div style="height:4px;background:var(--bg)"></div>'
+        + '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">'
+        + '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Details</div>'
+        + '<div style="display:flex;flex-direction:column;gap:10px">';
+  fields.forEach(function(f){
+    var val = _ldCfValue(f);
+    var ctrl;
+    if(!f.editable){
+      ctrl = '<div style="font-size:14px;color:var(--text);font-weight:600">'+((val!=='' && val!=null) ? _cfEsc(val) : '<span style="color:var(--sub);font-weight:400">—</span>')+'</div>';
+    } else if(f.field_type==='select' || f.field_type==='bool'){
+      var opts = (f.field_type==='bool') ? ['Yes','No'] : (Array.isArray(f.options)?f.options:[]);
+      var o = '<option value="">— Select —</option>';
+      opts.forEach(function(op){ o += '<option value="'+_cfEsc(op)+'"'+(String(op)===String(val)?' selected':'')+'>'+_cfEsc(op)+'</option>'; });
+      ctrl = '<select data-fid="'+f.id+'" onchange="saveLeadCustomField(this.dataset.fid, this.value)" style="'+_cfInputCss+'">'+o+'</select>';
+    } else {
+      var itype = (f.field_type==='number') ? 'number' : (f.field_type==='date' ? 'date' : 'text');
+      ctrl = '<input type="'+itype+'" data-fid="'+f.id+'" value="'+_cfEsc(val)+'" onchange="saveLeadCustomField(this.dataset.fid, this.value)" style="'+_cfInputCss+'">';
+    }
+    h += '<div style="display:flex;align-items:center;gap:10px">'
+       + '<div style="flex:0 0 38%;font-size:12px;color:var(--sub);font-weight:600">'+_cfEsc(f.label)+'</div>'
+       + '<div style="flex:1;min-width:0">'+ctrl+'</div>'
+       + '</div>';
+  });
+  h += '</div></div>';
+  box.innerHTML = h;
+}
+async function saveLeadCustomField(fid, value){
+  var l = leads.find(function(x){ return x.id === curLid; });
+  if(!l) return;
+  var f = (window._ldCfFields||[]).find(function(x){ return String(x.id)===String(fid); });
+  if(!f) return;
+  var patch = {};
+  if(f.maps_to==='service'){ patch.service = value || null; l.svc = value; window._ldCfService = value; }
+  else if(f.maps_to==='location'){ patch.location = value || null; l.location = value; window._ldCfLocation = value; }
+  else {
+    var ff = Object.assign({}, window._ldCfFormFields || {});
+    if(value==='' || value==null) delete ff[f.field_key]; else ff[f.field_key] = value;
+    window._ldCfFormFields = ff;
+    patch.form_fields = ff;
+  }
+  patch.updated_at = new Date().toISOString();
+  try{
+    var r = await sbFetch('/rest/v1/leads?id=eq.'+l.dbId, { method:'PATCH', body: JSON.stringify(patch) });
+    showToast(r && r.ok ? 'Saved' : 'Could not save');
+  }catch(e){ showToast('Could not save'); }
+}
+
 function renderLeadScreen(id) {
   var l = leads.find(function(x){ return x.id === id; });
   if(!l) return;
@@ -7175,6 +7318,7 @@ function renderLeadScreen(id) {
 
   h += '</div>'; // end info card
   h += '<div style="height:4px;background:var(--bg)"></div>';
+  h += '<div id="ld-custom-fields"></div>';
 
   // ══ SECTION 2 — COMMUNICATION & CALL (moved up to just under the lead info) ══
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
@@ -7512,6 +7656,7 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
   h += '</div>'; // end activity section
 
   document.getElementById('lsBody').innerHTML = h;
+  loadLeadCustomFields(l);
 }
 
 function viewQuoteFromActivity(quoteId) {
