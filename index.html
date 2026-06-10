@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-09 call-meta-v11</title>
+<title>Adviuz Hub · v2026-06-09 welcome-hub-v12</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3108,7 +3108,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-09 call-meta-v11';
+var APP_VERSION = 'v2026-06-09 welcome-hub-v12';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -12368,6 +12368,31 @@ async function saveCampaignContact(){
   if(btn){ btn.textContent='Save settings'; btn.disabled=false; }
 }
 
+// Save the per-campaign welcome text (clients go through a permission-checked RPC).
+window.saveCampaignWelcome = async function(){
+  var campId = window._clientDashCampId;
+  if(!campId){ showToast('No campaign selected'); return; }
+  var msg = (document.getElementById('cwMsg')||{value:''}).value.trim();
+  var enabled = !(document.getElementById('cwEnabled')) ? true : !!document.getElementById('cwEnabled').checked;
+  var btn = document.getElementById('cwSaveBtn');
+  if(btn){ btn.textContent='Saving…'; btn.disabled=true; }
+  try{
+    var res = await sbFetch('/rest/v1/rpc/update_campaign_welcome', {
+      method:'POST',
+      body: JSON.stringify({ p_campaign_id: campId, p_welcome: msg, p_enabled: enabled })
+    });
+    if(res.ok){
+      var cp = (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(campId); });
+      if(cp){ cp.welcome_sms = msg; cp.welcome_sms_enabled = enabled; }
+      showToast('&#x2705; Welcome message saved');
+    } else {
+      var _et=''; try{ _et = await res.text(); }catch(_e){}
+      showToast('Could not save: ' + (_et ? _et.slice(0,150) : ('HTTP '+res.status)));
+    }
+  }catch(e){ showToast('Could not save: ' + ((e&&e.message)||e||'network error')); }
+  if(btn){ btn.textContent='Save welcome message'; btn.disabled=false; }
+};
+
 // ═══════════════════════════════════════════════════════
 // AI FOLLOW-UP AUTOMATION — settings (5A)
 // Stores a global per-stage follow-up playbook in app_settings.value
@@ -12952,6 +12977,21 @@ function clientCampaignDetailHTML(campId){
     +      '<input type="checkbox" id="csNotify" '+(_notify?'checked':'')+' style="width:20px;height:20px;cursor:pointer;accent-color:var(--green)">'
     +    '</label>'
     +    '<button id="csSaveBtn" onclick="saveCampaignContact()" style="width:100%;padding:11px;border-radius:10px;background:var(--green);border:none;color:#fff;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer">Save settings</button>'
+    +  '</div>';
+
+  // ── WELCOME TEXT MESSAGE (per campaign) ──
+  var _wmsg = (cp.welcome_sms || '');
+  var _wEnabled = (cp.welcome_sms_enabled !== false);
+  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px">'
+    +    '<div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:2px">&#128172; Welcome text message</div>'
+    +    '<div style="font-size:11px;color:var(--sub);margin-bottom:12px">Sent automatically the moment a new lead inquires. Timing is fixed (instant) &mdash; you can edit the wording.</div>'
+    +    '<textarea id="cwMsg" rows="6" placeholder="Leave blank to use the Adviuz default welcome." style="width:100%;border:1px solid var(--border);border-radius:10px;padding:11px 12px;font-family:var(--f);font-size:13px;color:var(--text);line-height:1.5;resize:vertical;box-sizing:border-box;margin-bottom:6px">'+_wmsg.replace(/</g,'&lt;')+'</textarea>'
+    +    '<div style="font-size:10px;color:var(--sub);margin-bottom:12px">Tags you can use: {name} {service} {phone}</div>'
+    +    '<label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0 16px;cursor:pointer">'
+    +      '<span style="font-size:13px;font-weight:700;color:var(--text)">Send welcome text to new leads</span>'
+    +      '<input type="checkbox" id="cwEnabled" '+(_wEnabled?'checked':'')+' style="width:20px;height:20px;cursor:pointer;accent-color:var(--green)">'
+    +    '</label>'
+    +    '<button id="cwSaveBtn" onclick="saveCampaignWelcome()" style="width:100%;padding:11px;border-radius:10px;background:var(--green);border:none;color:#fff;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer">Save welcome message</button>'
     +  '</div>';
 
   // ── AD PREVIEWS ──
