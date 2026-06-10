@@ -509,7 +509,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
 // Immediately hide login if valid session exists — prevents flash
 (function() {
   try {
-    var jwt = sessionStorage.getItem('adviuz_admin_jwt');
+    var jwt = localStorage.getItem('adviuz_admin_jwt') || sessionStorage.getItem('adviuz_admin_jwt');
     if (jwt) {
       document.addEventListener('DOMContentLoaded', function() {
         var ov = document.getElementById('adminLoginOverlay');
@@ -629,7 +629,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-10 ai-profile-admin-v4</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-10 admin-leads-logs-v7</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -659,6 +659,10 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <button class="top-btn" onclick="openModal('clientModal')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         New Client
+      </button>
+      <button class="top-btn" onclick="openModal('campaignModal')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New Campaign
       </button>
       <button class="notif-btn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
@@ -801,10 +805,6 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <!-- TOP BAR: title + new campaign button -->
       <div class="sec-header" style="flex-wrap:wrap;gap:10px">
         <div class="sec-title">All campaigns</div>
-        <button class="top-btn" onclick="openModal('campaignModal')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          New Campaign
-        </button>
       </div>
       <!-- FILTER + SORT BAR -->
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;padding:12px 16px;background:var(--surface);border-radius:12px;border:1px solid var(--border)">
@@ -1663,7 +1663,7 @@ function touchActivity(){_lastActivityAt=Date.now();}
 function startSessionTimeoutWatch(){
   if(_sessionTimeoutIv)clearInterval(_sessionTimeoutIv);
   _sessionTimeoutIv=setInterval(function(){
-    if(Date.now()-_lastActivityAt>SESSION_TIMEOUT_MS){clearInterval(_sessionTimeoutIv);alert('Session expired. Please sign in again.');try{sessionStorage.clear();}catch(e){}location.reload();}
+    if(Date.now()-_lastActivityAt>SESSION_TIMEOUT_MS){clearInterval(_sessionTimeoutIv);alert('Session expired. Please sign in again.');try{localStorage.removeItem('adviuz_admin_jwt');localStorage.removeItem('adviuz_admin_rt');sessionStorage.clear();}catch(e){}location.reload();}
   },300000);
 }
 ['click','keydown','touchstart','scroll'].forEach(function(ev){document.addEventListener(ev,touchActivity,{passive:true});});
@@ -1696,8 +1696,8 @@ async function verify2FA(){
   err.style.display='none';
   var data=_2fa_pending_data;
   ADMIN_JWT=data.access_token;window._adminRefreshToken=data.refresh_token;
-  try{sessionStorage.setItem('adviuz_admin_jwt',data.access_token);sessionStorage.setItem('adviuz_admin_rt',data.refresh_token);}catch(e){}
-  setTimeout(refreshAdminToken,((data.expires_in||3600)-60)*1000);
+  _saveAdminTokens(data.access_token,data.refresh_token);
+  _scheduleAdminRefresh(data.expires_in||3600);
   document.getElementById('adminLoginOverlay').style.display='none';
   document.getElementById('adminApp').style.display='flex';
   _auditAdminLog('admin_login_2fa','admin',null,{email:data.user&&data.user.email},'success');
@@ -1739,25 +1739,75 @@ async function doAdminLogin() {
     btn.textContent = 'Sign in'; btn.disabled = false;
   }
 }
+// ── Persistent admin session helpers (localStorage so login survives closing the tab/app) ──
+function _saveAdminTokens(jwt, rt){ try{ localStorage.setItem('adviuz_admin_jwt', jwt); localStorage.setItem('adviuz_admin_rt', rt); }catch(e){} }
+function _clearAdminTokens(){ try{ localStorage.removeItem('adviuz_admin_jwt'); localStorage.removeItem('adviuz_admin_rt'); sessionStorage.removeItem('adviuz_admin_jwt'); sessionStorage.removeItem('adviuz_admin_rt'); }catch(e){} }
+var _adminRefreshTimer = null;
+function _scheduleAdminRefresh(expiresInSec){
+  if (_adminRefreshTimer) clearTimeout(_adminRefreshTimer);
+  var ms = Math.max(((expiresInSec || 3600) - 90), 60) * 1000;
+  _adminRefreshTimer = setTimeout(refreshAdminToken, ms);
+}
+function _enterAdminApp(){
+  var ov = document.getElementById('adminLoginOverlay'); if (ov) ov.style.display = 'none';
+  var ap = document.getElementById('adminApp'); if (ap) ap.style.display = 'flex';
+  startSessionTimeoutWatch();
+  loadAdminData();
+  try { var lp = sessionStorage.getItem('adviuz_admin_panel'); if (lp && document.getElementById('panel-' + lp)) setTimeout(function(){ showPanel(lp); }, 100); } catch(e){}
+}
 async function refreshAdminToken() {
-  if (!ADMIN_JWT) return;
-  // Supabase refresh — keeps session alive
-  const r = await fetch(SB_URL + '/auth/v1/token?grant_type=refresh_token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'apikey': SB_ANON },
-    body: JSON.stringify({ refresh_token: window._adminRefreshToken })
-  });
-  if (r.ok) {
-    const d = await r.json();
-    ADMIN_JWT = d.access_token;
-    window._adminRefreshToken = d.refresh_token;
-    const expiresIn = (d.expires_in || 3600) - 60;
-    setTimeout(refreshAdminToken, expiresIn * 1000);
-  } else {
-    ADMIN_JWT = null;
-    showAdminLogin();
+  if (!window._adminRefreshToken) return;
+  try {
+    const r = await fetch(SB_URL + '/auth/v1/token?grant_type=refresh_token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SB_ANON },
+      body: JSON.stringify({ refresh_token: window._adminRefreshToken })
+    });
+    if (r.ok) {
+      const d = await r.json();
+      ADMIN_JWT = d.access_token;
+      window._adminRefreshToken = d.refresh_token;
+      _saveAdminTokens(d.access_token, d.refresh_token);
+      _scheduleAdminRefresh(d.expires_in || 3600);
+    } else {
+      // Refresh token genuinely rejected — real logout.
+      ADMIN_JWT = null; _clearAdminTokens(); showAdminLogin();
+    }
+  } catch(e) {
+    // Network blip (common on mobile) — keep the session and retry shortly instead of logging out.
+    _scheduleAdminRefresh(120);
   }
 }
+// Restore a saved session on page load: try the access token, then fall back to the refresh token.
+async function _restoreAdminSession(storedJWT, storedRT){
+  ADMIN_JWT = storedJWT || null;
+  window._adminRefreshToken = storedRT || null;
+  if (storedJWT) {
+    try {
+      const r = await fetch(SB_URL + '/auth/v1/user', { headers: { 'apikey': SB_ANON, 'Authorization': 'Bearer ' + storedJWT } });
+      if (r.ok) { const u = await r.json(); if (u && u.id === ADMIN_UUID) { _enterAdminApp(); _scheduleAdminRefresh(3600); return; } }
+    } catch(e){}
+  }
+  if (storedRT) {
+    try {
+      const rr = await fetch(SB_URL + '/auth/v1/token?grant_type=refresh_token', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'apikey': SB_ANON },
+        body: JSON.stringify({ refresh_token: storedRT })
+      });
+      if (rr.ok) {
+        const d = await rr.json();
+        ADMIN_JWT = d.access_token; window._adminRefreshToken = d.refresh_token;
+        _saveAdminTokens(d.access_token, d.refresh_token);
+        _enterAdminApp(); _scheduleAdminRefresh(d.expires_in || 3600); return;
+      }
+    } catch(e){}
+  }
+  _clearAdminTokens(); showAdminLogin();
+}
+// Refresh the token whenever the admin tab regains focus (covers background timer throttling on mobile).
+document.addEventListener('visibilitychange', function(){
+  if (document.visibilityState === 'visible' && ADMIN_JWT && window._adminRefreshToken) { refreshAdminToken(); }
+});
 function showAdminLogin() {
   document.getElementById('adminLoginOverlay').style.display = 'flex';
   document.getElementById('adminApp').style.display = 'none';
@@ -1765,7 +1815,8 @@ function showAdminLogin() {
 function doAdminLogout() {
   ADMIN_JWT = null;
   window._adminRefreshToken = null;
-  try { sessionStorage.removeItem('adviuz_admin_jwt'); sessionStorage.removeItem('adviuz_admin_rt'); } catch(e) {}
+  if (_adminRefreshTimer) clearTimeout(_adminRefreshTimer);
+  _clearAdminTokens();
   showAdminLogin();
   toast('Signed out');
 }
@@ -1773,44 +1824,14 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('adminLoginPass').addEventListener('keydown', function(e) {
     if (e.key === 'Enter') doAdminLogin();
   });
-  // Try to restore session from sessionStorage (survives page refresh)
+  // Restore session (now from localStorage, so it survives closing the tab/app).
   var storedJWT = ''; var storedRT = '';
-  try { 
-    storedJWT = sessionStorage.getItem('adviuz_admin_jwt') || '';
-    storedRT  = sessionStorage.getItem('adviuz_admin_rt')  || '';
+  try {
+    storedJWT = localStorage.getItem('adviuz_admin_jwt') || sessionStorage.getItem('adviuz_admin_jwt') || '';
+    storedRT  = localStorage.getItem('adviuz_admin_rt')  || sessionStorage.getItem('adviuz_admin_rt')  || '';
   } catch(e) {}
-  if (storedJWT) {
-    // Verify the stored JWT is still valid by testing a quick auth call
-    fetch(ADMIN_UUID ? (SB_URL + '/auth/v1/user') : '', {
-      headers: { 'apikey': SB_ANON, 'Authorization': 'Bearer ' + storedJWT }
-    }).then(function(r) {
-      if (r.ok) {
-        return r.json().then(function(u) {
-          if (u.id === ADMIN_UUID) {
-            ADMIN_JWT = storedJWT;
-            window._adminRefreshToken = storedRT;
-            document.getElementById('adminLoginOverlay').style.display = 'none';
-            document.getElementById('adminApp').style.display = 'flex';
-            loadAdminData();
-            try {
-              var lastPanel = sessionStorage.getItem('adviuz_admin_panel');
-              if (lastPanel && document.getElementById('panel-' + lastPanel)) {
-                setTimeout(function(){ showPanel(lastPanel); }, 100);
-              }
-            } catch(e) {}
-          } else {
-            showAdminLogin();
-          }
-        });
-      } else {
-        // JWT expired — clear and show login
-        try { sessionStorage.removeItem('adviuz_admin_jwt'); sessionStorage.removeItem('adviuz_admin_rt'); } catch(e) {}
-        showAdminLogin();
-      }
-    }).catch(function() { showAdminLogin(); });
-  } else {
-    showAdminLogin();
-  }
+  if (storedJWT || storedRT) { _restoreAdminSession(storedJWT, storedRT); }
+  else { showAdminLogin(); }
 });
 let _autoRefreshStarted = false;
 async function loadAdminData() {
@@ -1833,6 +1854,7 @@ async function loadAdminData() {
       cam.google_impressions = camImps.filter(function(i){ return i.platform === 'google'; }).reduce(function(s,i){ return s + (i.impressions||0); }, 0);
     });
     renderAdminDashboard(clients, viewEvents, leads, campaigns, transactions);
+    window._allTransactions = transactions;
     renderClientsTable(clients, viewEvents, leads);
     renderCampaignsTable(campaigns, clients);
     renderBillingPanel(transactions, clients);
@@ -2030,13 +2052,59 @@ function openClientLogs(elOrId) { var clientId = (typeof elOrId === "string") ? 
   var name = c ? (c.business_name||c.email) : clientId;
   var leads = (window._allLeads||[]).filter(function(l){ return l.client_id === clientId; });
   var camps = (window._allCampaigns||[]).filter(function(cam){ return cam.client_id === clientId; });
-  var html = '<b style="font-size:15px">' + name + ' — Activity Log</b><br><br>';
-  html += '<b>Campaigns (' + camps.length + '):</b><br>';
-  camps.forEach(function(cam){ html += '• ' + cam.name + ' — ' + (cam.views_used||0) + ' views used<br>'; });
-  html += '<br><b>Leads (' + leads.length + '):</b><br>';
-  leads.slice(0,10).forEach(function(l){ html += '• ' + (l.name||'—') + ' · ' + (l.phone||'—') + ' · Stage: ' + (l.stage||'New') + '<br>'; });
-  if (leads.length > 10) html += '…and ' + (leads.length-10) + ' more';
-  alert(html);
+  var txns  = (window._allTransactions||[]).filter(function(t){ return t.client_id === clientId; });
+  var esc = function(v){ return (v==null?'':String(v)).replace(/[&<>]/g,function(ch){ return ({'&':'&amp;','<':'&lt;','>':'&gt;'})[ch]; }); };
+  var fmt = function(d){ if(!d) return ''; var x=new Date(d); return isNaN(x)?'':x.toLocaleDateString('en-CA')+' '+x.toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit'}); };
+
+  // Build a single chronological timeline of real events.
+  var events = [];
+  leads.forEach(function(l){
+    events.push({ ts:l.submitted_at, icon:'🟢', text:'New lead: <b>'+esc(l.name||l.company||'—')+'</b> ('+esc(l.phone||'—')+') · '+esc(l.source||'direct') });
+    var st = String(l.stage||'');
+    if(/won|closed|9\./i.test(st)) events.push({ ts:l.updated_at||l.submitted_at, icon:'🏆', text:'Deal closed: <b>'+esc(l.name||l.company||'—')+'</b>' });
+    else if(/lost/i.test(st))      events.push({ ts:l.updated_at||l.submitted_at, icon:'⚪', text:'Lead marked lost: <b>'+esc(l.name||l.company||'—')+'</b>' });
+    else if(/meeting/i.test(st))   events.push({ ts:l.updated_at||l.submitted_at, icon:'📅', text:'Meeting booked: <b>'+esc(l.name||l.company||'—')+'</b>' });
+  });
+  txns.forEach(function(t){
+    var amt = parseFloat(t.amount_cad||0);
+    var v   = t.views_added||0;
+    var bits = [];
+    if(v)   bits.push('+'+v+' views');
+    if(amt) bits.push('$'+amt.toFixed(2));
+    events.push({ ts:t.created_at, icon:'💳', text:'Recharge: '+(bits.join(' · ')||'top-up') });
+  });
+  events = events.filter(function(e){ return e.ts; }).sort(function(a,b){ return new Date(b.ts) - new Date(a.ts); });
+
+  var balanceLine = c ? ('Balance left: <b>'+((c.view_balance!=null?c.view_balance:(c.lead_balance!=null?c.lead_balance:0)))+'</b>') : '';
+  var summary =
+    '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:14px">' +
+      '<span>Campaigns: <b style="color:var(--text)">'+camps.length+'</b></span>' +
+      '<span>Total leads: <b style="color:var(--text)">'+leads.length+'</b></span>' +
+      '<span>Recharges: <b style="color:var(--text)">'+txns.length+'</b></span>' +
+      (balanceLine?('<span>'+balanceLine.replace('<b>','<b style="color:var(--text)">')+'</span>'):'') +
+    '</div>';
+
+  var rows = events.length ? events.map(function(e){
+    return '<div style="display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)">' +
+             '<div style="font-size:15px;line-height:1.2">'+e.icon+'</div>' +
+             '<div style="flex:1">' +
+               '<div style="font-size:13px;color:var(--text)">'+e.text+'</div>' +
+               '<div style="font-size:11px;color:var(--muted);margin-top:2px">'+esc(fmt(e.ts))+'</div>' +
+             '</div>' +
+           '</div>';
+  }).join('') : '<div style="color:var(--muted);font-size:13px;padding:16px 0">No activity yet.</div>';
+
+  var modal = document.createElement('div');
+  modal.className = 'modal-overlay open';
+  modal.id = 'clientLogsModal';
+  modal.onclick = function(ev){ if(ev.target===modal) modal.remove(); };
+  modal.innerHTML =
+    '<div class="modal" style="max-width:520px">' +
+      '<div class="modal-head"><div class="modal-title">'+esc(name)+' — Activity</div>' +
+        '<button class="modal-close" onclick="document.getElementById(\'clientLogsModal\').remove()">&times;</button></div>' +
+      '<div class="modal-body" style="max-height:70vh;overflow-y:auto">' + summary + rows + '</div>' +
+    '</div>';
+  document.body.appendChild(modal);
 }
 function renderCampaignsTable(campaigns, clients) {
   // Store globally for filter/sort
@@ -2210,9 +2278,9 @@ function renderCampaignRows(campaigns, clients) {
             + '<div style="font-size:10px;color:var(--muted)">' + pct + '% used</div>'
         ) +
       '</td>' +
-      // Leads count column
+      // Leads count column (clickable -> opens this campaign's leads)
       '<td style="text-align:center">' +
-        '<span style="font-weight:700;font-size:14px;color:' + (camLeads>0?'var(--brand)':'var(--muted)') + '">' + camLeads + '</span>' +
+        '<span data-camid="' + cam.id + '" data-camname="' + cam.name.replace(/"/g,'&quot;') + '" onclick="viewCampaignLeads(this.dataset.camid, this.dataset.camname)" style="font-weight:700;font-size:14px;cursor:pointer;' + (camLeads>0?'text-decoration:underline;':'') + 'color:' + (camLeads>0?'var(--brand)':'var(--muted)') + '" title="View leads">' + camLeads + '</span>' +
       '</td>' +
       // Status
       '<td><span class="badge ' + sc.cls + '"><span class="badge-dot"></span>' + sc.label + '</span></td>' +
@@ -4540,6 +4608,10 @@ function openEditCampaign(btn) {
     +   '<input class="fld" id="ecam-tw-forward" placeholder="+1xxxxxxxxxx">'
     +   '<div style="font-size:10px;color:var(--muted);margin-top:4px">Inbound calls to the number above ring this phone. Defaults to the client&apos;s profile number.</div>'
     + '</div>'
+    + '<div class="form-group"><label class="fld">Lead notification emails</label>'
+    +   '<input class="fld" id="ecam-emails" placeholder="name@email.com, second@email.com">'
+    +   '<div style="font-size:10px;color:var(--muted);margin-top:4px">Who gets emailed when a new lead comes in. Separate multiple with commas. Leave blank for none.</div>'
+    + '</div>'
     + '<button type="button" id="ecam-connect-tw" onclick="_ecamConnectWebhooks()" style="width:100%;margin-top:2px;padding:10px;border:none;border-radius:8px;background:var(--brand);color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">&#128279; Connect calls &amp; texts for this number</button>'
     + '<div style="font-size:10px;color:var(--muted);margin-top:6px">Points this number&apos;s inbound calls and texts at Adviuz, so replies show in the chat thread and the generic Twilio auto-reply stops. This also happens automatically when you Save.</div>'
     + '</div>'
@@ -4599,12 +4671,13 @@ function openEditCampaign(btn) {
   if (window._editCamClientId) {
     loadTwilioNumbers();
     // Prefer THIS campaign's own number + forward; fall back to client-level / profile for anything missing.
-    sbAdmin('/rest/v1/campaigns?id=eq.' + window._editCampaignId + '&select=twilio_phone,forward_to_phone,welcome_sms,welcome_sms_enabled,ai_profile&limit=1')
+    sbAdmin('/rest/v1/campaigns?id=eq.' + window._editCampaignId + '&select=twilio_phone,forward_to_phone,notification_emails,welcome_sms,welcome_sms_enabled,ai_profile&limit=1')
       .then(function(res){ return res.ok ? res.json() : []; })
       .then(function(rows){
         var crow = (rows && rows[0]) || {};
         var campTw  = crow.twilio_phone || '';
         var campFwd = crow.forward_to_phone || '';
+        try { var _em = crow.notification_emails; if (typeof _em === 'string') _em = JSON.parse(_em || '[]'); setV('ecam-emails', (Array.isArray(_em) ? _em : []).join(', ')); } catch(e){ setV('ecam-emails',''); }
         setV('ecam-welcome', crow.welcome_sms || '');
         var wOn = document.getElementById('ecam-welcome-on'); if (wOn) wOn.checked = (crow.welcome_sms_enabled !== false);
         var aip = crow.ai_profile || {};
@@ -4693,6 +4766,23 @@ async function uploadCreative(inputEl, kind) {
 }
 // Pull the AI Profile fields from the campaign's linked landing page (ad).
 // Template ads have structured fields; pasted ads only have raw HTML, which we strip to text.
+// Strip HTML to readable text AND decode entities (&amp; &#8594; &#128222; etc.).
+function _htmlToText(html){
+  if (!html) return '';
+  var s = String(html)
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ');
+  // numeric entities
+  s = s.replace(/&#x([0-9a-f]+);/gi, function(_m, h){ try { return String.fromCodePoint(parseInt(h, 16)); } catch(e){ return ''; } })
+       .replace(/&#(\d+);/g,         function(_m, d){ try { return String.fromCodePoint(parseInt(d, 10)); } catch(e){ return ''; } });
+  // common named entities
+  var named = { amp:'&', lt:'<', gt:'>', quot:'"', apos:"'", nbsp:' ', times:'×', hellip:'…', mdash:'—', ndash:'–', rsquo:'\u2019', lsquo:'\u2018', rdquo:'\u201D', ldquo:'\u201C' };
+  s = s.replace(/&([a-z]+);/gi, function(m, n){ var k = n.toLowerCase(); return (k in named) ? named[k] : m; });
+  return s.replace(/[ \t]+/g, ' ').replace(/\s*\n\s*/g, '\n').replace(/\n{2,}/g, '\n').trim();
+}
 // Only fills BLANK fields so it never clobbers your edits.
 function _ecamPullFromLanding(){
   var camRow = (window._allCampaigns || []).find(function(c){ return String(c.id) === String(window._editCampaignId); });
@@ -4707,21 +4797,14 @@ function _ecamPullFromLanding(){
     if (typeof so === 'string') so = JSON.parse(so);
     if (Array.isArray(so)) svcOpts = so.map(function(x){ return (x && (x.label || x.name)) || x; }).filter(Boolean).join('; ');
   } catch(e){}
-  var body = (ad.body_text || '').trim();
-  if (!body && ad.custom_html){
-    body = String(ad.custom_html)
-      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/&nbsp;/gi, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 600);
-  }
+  var body = _htmlToText(ad.body_text || '');
+  if (!body && ad.custom_html){ body = _htmlToText(ad.custom_html).slice(0, 700); }
   sv('ecam-aip-service', head || ad.business_name || '');
-  sv('ecam-aip-points',  [body, svcOpts].filter(Boolean).join(' · '));
+  sv('ecam-aip-points',  [body, svcOpts].filter(Boolean).join('\n'));
   sv('ecam-aip-cta',     ad.cta_text || '');
-  toast('Pulled from landing page — review and edit, then Save changes.');
+  toast(ad.custom_html && !ad.body_text
+    ? 'Pulled a rough draft from a pasted page — tidy it, or use Generate with AI (coming next).'
+    : 'Pulled from landing page — review and edit, then Save changes.');
 }
 
 async function saveCampaignEdit() {
@@ -4813,6 +4896,12 @@ async function saveCampaignEdit() {
   // Stage 2: store the number + forward ON the campaign (per-campaign mapping)
   payload.twilio_phone     = twPhone || null;
   payload.forward_to_phone = twForward || null;
+
+  // Lead notification emails (comma/space/newline separated -> array)
+  var _emRaw = (document.getElementById('ecam-emails')?.value || '');
+  var _emArr = _emRaw.split(/[\s,;]+/).map(function(s){ return s.trim(); })
+                     .filter(function(s){ return s && s.indexOf('@') > 0; });
+  payload.notification_emails = _emArr;
 
   // Welcome text (blank clears it → falls back to the global default)
   var _wEl = document.getElementById('ecam-welcome');
@@ -5365,11 +5454,10 @@ function renderFilteredLeads(leads, clients) {
       '<td>' + (l.source||'direct') + '</td>' +
       '<td><span class="badge ' + sc + '"><span class="badge-dot"></span>' + (l.stage||'New') + '</span></td>' +
       '<td class="td-mono">' + date + '</td>' +
-      '<td>' +
-          (l.client_id ? '<span class="tbl-btn" style="background:#16a34a;color:#fff;cursor:default" title="Already a client">✓ Client</span>'
-                       : '<button class="tbl-btn" style="background:#16a34a;color:#fff" onclick="convertLeadToClient(this)" data-id="' + l.id + '" data-name="' + (l.name||'').replace(/"/g,'&quot;') + '" data-email="' + (l.email||'').replace(/"/g,'&quot;') + '" data-phone="' + (l.phone||'') + '">&rarr; Client</button>') +
-          '<button class="tbl-btn" onclick="markLeadStage(this)" data-id="' + l.id + '" data-stage="Won">Won</button>' +
-          '<button class="tbl-btn danger" onclick="markLeadStage(this)" data-id="' + l.id + '" data-stage="Lost">Lost</button></td>' +
+      '<td style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">' +
+          '<button class="tbl-btn primary" onclick="editLeadAdmin(this)" data-id="' + l.id + '" title="Edit lead">Edit</button>' +
+          '<button class="tbl-btn danger" onclick="deleteLeadAdmin(this)" data-id="' + l.id + '" data-name="' + ((l.name||l.company||'')).replace(/"/g,'&quot;') + '" title="Delete lead">Delete</button>' +
+      '</td>' +
     '</tr>';
   }).join('');
 }
@@ -5381,6 +5469,72 @@ async function markLeadStage(el) {
     body: JSON.stringify({ stage: stage })
   });
   toast('Lead marked as ' + stage);
+  loadAdminData();
+}
+
+// ── Edit / Delete a lead from the admin Leads tab ──
+function _leadStageOptions(current){
+  var set = {};
+  (window._allLeads||[]).forEach(function(l){ if(l.stage) set[l.stage]=true; });
+  ['New','1. Fresh Lead','Won','Lost'].forEach(function(s){ set[s]=true; });
+  if(current) set[current]=true;
+  return Object.keys(set).sort().map(function(s){
+    return '<option value="'+s.replace(/"/g,'&quot;')+'"'+(s===current?' selected':'')+'>'+s+'</option>';
+  }).join('');
+}
+function editLeadAdmin(el){
+  var id = el.dataset.id;
+  var l = (window._allLeads||[]).find(function(x){ return String(x.id)===String(id); });
+  if(!l){ toast('Lead not found'); return; }
+  window._editLeadId = id;
+  var esc = function(v){ return (v==null?'':String(v)).replace(/"/g,'&quot;'); };
+  var clientOpts = '<option value="">— Unassigned —</option>' + (window._allClients||[]).filter(function(c){ return c.role!=='super_admin'; }).map(function(c){
+    return '<option value="'+c.id+'"'+(c.id===l.client_id?' selected':'')+'>'+esc(c.business_name||c.email||'Client')+'</option>';
+  }).join('');
+  var modal = document.createElement('div');
+  modal.className = 'modal-overlay open';
+  modal.id = 'editLeadModal';
+  modal.onclick = function(e){ if(e.target===modal) modal.remove(); };
+  modal.innerHTML =
+    '<div class="modal" style="max-width:460px">' +
+      '<div class="modal-head"><div class="modal-title">Edit lead</div>' +
+        '<button class="modal-close" onclick="document.getElementById(\'editLeadModal\').remove()">&times;</button></div>' +
+      '<div class="modal-body">' +
+        '<div class="form-group"><label class="fld">Name</label><input class="fld" id="elead-name" value="'+esc(l.name||l.company)+'"></div>' +
+        '<div class="form-group"><label class="fld">Phone</label><input class="fld" id="elead-phone" value="'+esc(l.phone)+'"></div>' +
+        '<div class="form-group"><label class="fld">Email</label><input class="fld" id="elead-email" value="'+esc(l.email)+'"></div>' +
+        '<div class="form-group"><label class="fld">Source</label><input class="fld" id="elead-source" value="'+esc(l.source)+'"></div>' +
+        '<div class="form-group"><label class="fld">Stage</label><select class="fld" id="elead-stage">'+_leadStageOptions(l.stage)+'</select></div>' +
+        '<div class="form-group"><label class="fld">Assign to client</label><select class="fld" id="elead-client">'+clientOpts+'</select></div>' +
+      '</div>' +
+      '<div class="modal-footer">' +
+        '<button class="btn-cancel" onclick="document.getElementById(\'editLeadModal\').remove()">Cancel</button>' +
+        '<button class="btn-save" onclick="saveLeadEditAdmin()">Save changes</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(modal);
+}
+async function saveLeadEditAdmin(){
+  var id = window._editLeadId; if(!id) return;
+  var gv = function(i){ return (document.getElementById(i)?.value||'').trim(); };
+  var payload = {
+    name:      gv('elead-name')   || null,
+    phone:     gv('elead-phone')  || null,
+    email:     gv('elead-email')  || null,
+    source:    gv('elead-source') || null,
+    stage:     gv('elead-stage')  || null,
+    client_id: gv('elead-client') || null
+  };
+  var r = await sbAdmin('/rest/v1/leads?id=eq.' + id, { method:'PATCH', body: JSON.stringify(payload) });
+  document.getElementById('editLeadModal')?.remove();
+  toast(r.ok ? 'Lead updated' : 'Update failed');
+  loadAdminData();
+}
+async function deleteLeadAdmin(el){
+  var id = el.dataset.id; var name = el.dataset.name || 'this lead';
+  if(!confirm('Delete ' + name + '? This cannot be undone.')) return;
+  var r = await sbAdmin('/rest/v1/leads?id=eq.' + id, { method:'DELETE', headers:{ Prefer:'return=minimal' } });
+  toast(r.ok ? 'Lead deleted' : 'Delete failed');
   loadAdminData();
 }
 
