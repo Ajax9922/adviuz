@@ -629,7 +629,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-09 welcome-admin-v2</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-10 ai-profile-admin-v3</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -4549,6 +4549,18 @@ function openEditCampaign(btn) {
     + '<div class="form-group"><textarea class="fld" id="ecam-welcome" rows="5" placeholder="Leave blank to use the global default welcome."></textarea></div>'
     + '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);cursor:pointer"><input type="checkbox" id="ecam-welcome-on" checked style="width:16px;height:16px;accent-color:var(--brand)"> Send welcome text to new leads</label>'
     + '</div>'
+    + '<div style="margin-top:6px;padding-top:14px;border-top:1px solid var(--border)">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">'
+    +   '<div style="font-size:12px;font-weight:800;color:var(--text)">&#129504; AI Profile <span style="font-weight:400;color:var(--muted)">(teaches the AI about this service)</span></div>'
+    +   '<button type="button" onclick="_ecamPullFromLanding()" style="white-space:nowrap;padding:7px 11px;border:1px solid var(--brand);border-radius:8px;background:var(--brand-light,#f5f3ff);color:var(--brand);font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font)">&#11015; Pull from landing page</button>'
+    + '</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Powers the welcome &amp; follow-up messages. Pull from the linked landing page, then review &amp; edit. None of this is shown to leads word-for-word.</div>'
+    + '<div class="form-group"><label class="fld">Service / what this campaign offers</label><textarea class="fld" id="ecam-aip-service" rows="2" placeholder="e.g. Laser skin-pigmentation treatment"></textarea></div>'
+    + '<div class="form-group"><label class="fld">Current offer / promotion</label><input class="fld" id="ecam-aip-offer" placeholder="e.g. Free consultation this month"></div>'
+    + '<div class="form-group"><label class="fld">Who it&apos;s for (audience)</label><input class="fld" id="ecam-aip-audience" placeholder="e.g. Adults with pigmentation or sun damage"></div>'
+    + '<div class="form-group"><label class="fld">Key points / selling points</label><textarea class="fld" id="ecam-aip-points" rows="4" placeholder="One per line — e.g. Certified dermatologists; Quick painless sessions; 5-star reviews"></textarea></div>'
+    + '<div class="form-group"><label class="fld">Desired action (CTA)</label><input class="fld" id="ecam-aip-cta" placeholder="e.g. Book a free consultation"></div>'
+    + '</div>'
     + '</div>'
     + '<div class="modal-foot">'
     + '<button class="btn-cancel" onclick="document.getElementById(\'editCampaignModal\').remove()">Cancel</button>'
@@ -4587,7 +4599,7 @@ function openEditCampaign(btn) {
   if (window._editCamClientId) {
     loadTwilioNumbers();
     // Prefer THIS campaign's own number + forward; fall back to client-level / profile for anything missing.
-    sbAdmin('/rest/v1/campaigns?id=eq.' + window._editCampaignId + '&select=twilio_phone,forward_to_phone,welcome_sms,welcome_sms_enabled&limit=1')
+    sbAdmin('/rest/v1/campaigns?id=eq.' + window._editCampaignId + '&select=twilio_phone,forward_to_phone,welcome_sms,welcome_sms_enabled,ai_profile&limit=1')
       .then(function(res){ return res.ok ? res.json() : []; })
       .then(function(rows){
         var crow = (rows && rows[0]) || {};
@@ -4595,6 +4607,12 @@ function openEditCampaign(btn) {
         var campFwd = crow.forward_to_phone || '';
         setV('ecam-welcome', crow.welcome_sms || '');
         var wOn = document.getElementById('ecam-welcome-on'); if (wOn) wOn.checked = (crow.welcome_sms_enabled !== false);
+        var aip = crow.ai_profile || {};
+        setV('ecam-aip-service',  aip.service);
+        setV('ecam-aip-offer',    aip.offer);
+        setV('ecam-aip-audience', aip.audience);
+        setV('ecam-aip-points',   aip.key_points);
+        setV('ecam-aip-cta',      aip.cta);
         if (campTw) { window._editCamTwNumber = campTw; if (window._setTwNumberSelected) window._setTwNumberSelected(campTw); }
         if (campFwd) { setV('ecam-tw-forward', campFwd); }
         if (campTw && campFwd) return;
@@ -4673,6 +4691,38 @@ async function uploadCreative(inputEl, kind) {
     toast('Upload failed — check the adviuz-files bucket is public');
   }
 }
+// Pull the AI Profile fields from the campaign's linked landing page (ad).
+// Template ads have structured fields; pasted ads only have raw HTML, which we strip to text.
+// Only fills BLANK fields so it never clobbers your edits.
+function _ecamPullFromLanding(){
+  var adId = (document.getElementById('ecam-ad') || {}).value || null;
+  var ad = (window._allAds || []).find(function(a){ return String(a.id) === String(adId); });
+  if (!ad){ toast('Link an Ad page to this campaign first (the "Ad page" field above), then Save & reopen.'); return; }
+  var sv = function(id, val){ var el = document.getElementById(id); if (el && !el.value.trim() && val) el.value = String(val); };
+  var head = [ad.headline_1, ad.headline_2].filter(Boolean).join(' ').trim();
+  var svcOpts = '';
+  try {
+    var so = ad.service_options;
+    if (typeof so === 'string') so = JSON.parse(so);
+    if (Array.isArray(so)) svcOpts = so.map(function(x){ return (x && (x.label || x.name)) || x; }).filter(Boolean).join('; ');
+  } catch(e){}
+  var body = (ad.body_text || '').trim();
+  if (!body && ad.custom_html){
+    body = String(ad.custom_html)
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 600);
+  }
+  sv('ecam-aip-service', head || ad.business_name || '');
+  sv('ecam-aip-points',  [body, svcOpts].filter(Boolean).join(' · '));
+  sv('ecam-aip-cta',     ad.cta_text || '');
+  toast('Pulled from landing page — review and edit, then Save changes.');
+}
+
 async function saveCampaignEdit() {
   var id     = window._editCampaignId;
   var name   = document.getElementById('ecam-name')?.value.trim();
@@ -4770,6 +4820,16 @@ async function saveCampaignEdit() {
     payload.welcome_sms = _wv || null;
     payload.welcome_sms_enabled = !!(document.getElementById('ecam-welcome-on') || {}).checked;
   }
+
+  // AI Profile (per-campaign brain for welcome + follow-up messages)
+  var _aip = {
+    service:    ev('ecam-aip-service'),
+    offer:      ev('ecam-aip-offer'),
+    audience:   ev('ecam-aip-audience'),
+    key_points: ev('ecam-aip-points'),
+    cta:        ev('ecam-aip-cta')
+  };
+  payload.ai_profile = Object.keys(_aip).some(function(k){ return _aip[k]; }) ? _aip : null;
 
   var r = await sbAdmin('/rest/v1/campaigns?id=eq.' + id, {
     method: 'PATCH',
