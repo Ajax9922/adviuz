@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-11 wrapup-v19</title>
+<title>Adviuz Hub · v2026-06-11 wrapup-v20</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3112,7 +3112,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-11 wrapup-v19';
+var APP_VERSION = 'v2026-06-11 wrapup-v20';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -4665,7 +4665,7 @@ async function openNotifPanel(){
     var icon=optOut?'\uD83D\uDED1':'\uD83D\uDCAC';
     var title=optOut?'Opt-out (STOP)':'SMS reply';
     var safeDb=String(a.lead_id||'');
-    h+='<button onclick="closeSheet(\'notifSh\');_notifOpenLeadByDb(\''+safeDb+'\')" style="width:100%;display:flex;gap:11px;align-items:flex-start;background:'+(isNew?'var(--greenl,#e7f8f3)':'var(--white)')+';border:1px solid var(--border);border-radius:12px;padding:11px 12px;margin-bottom:8px;text-align:left;cursor:pointer;font-family:var(--f)">'+
+    h+='<button onclick="closeSheet(\'notifSh\');_notifOpenSms(\''+safeDb+'\')" style="width:100%;display:flex;gap:11px;align-items:flex-start;background:'+(isNew?'var(--greenl,#e7f8f3)':'var(--white)')+';border:1px solid var(--border);border-radius:12px;padding:11px 12px;margin-bottom:8px;text-align:left;cursor:pointer;font-family:var(--f)">'+
         '<span style="width:34px;height:34px;border-radius:9px;background:'+(optOut?'#fff0f0':'#eef4ff')+';display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">'+icon+'</span>'+
         '<span style="flex:1;min-width:0">'+
           '<span style="display:block;font-size:13px;font-weight:800;color:var(--text)">'+title+(isNew?' <span style="color:#cc0000">\u2022</span>':'')+'</span>'+
@@ -4708,6 +4708,12 @@ function _notifOpenLeadByDb(dbId){
   }
   var lt=document.getElementById('tab-leads');
   if(lt && typeof goTab==='function') goTab('leads',lt);
+}
+function _notifOpenSms(dbId){
+  var l=(leads||[]).find(function(x){ return String(x.dbId)===String(dbId)||String(x.id)===String(dbId); });
+  if(l && typeof openSms==='function'){ openSms(l.id); return; }
+  if(typeof openSmsByDbId==='function'){ openSmsByDbId(dbId); return; }
+  _notifOpenLeadByDb(dbId);
 }
 function _notifOpenAdmin(id, link){
   try{ sbFetch('/rest/v1/admin_notifications?id=eq.'+id,{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({is_read:true})}); }catch(e){}
@@ -4767,7 +4773,7 @@ function ensureWrapSheet(){
   var html='<div class="sheet-ov" id="wrapSh" onclick="if(event.target===this)closeSheet(\'wrapSh\')" style="z-index:1050">'+
     '<div class="sheet" style="max-height:92dvh">'+
       '<div class="sheet-handle"></div>'+
-      '<div class="sh-body" id="wrapBody" style="padding:6px 16px 20px"></div>'+
+      '<div class="sh-body" id="wrapBody" style="padding:6px 16px calc(26px + env(safe-area-inset-bottom,0px))"></div>'+
     '</div></div>';
   document.body.insertAdjacentHTML('beforeend',html);
 }
@@ -4796,7 +4802,7 @@ function _wrapBtns(){
   var skip = (w.step!==2) ? '<button onclick="_wrapNext(true)" style="flex:0 0 auto;padding:13px 14px;border:none;background:none;color:var(--sub);font-weight:600;font-size:14px;font-family:var(--f);cursor:pointer">Skip</button>' : '';
   var nextLbl = last ? 'Save \u2713' : 'Next \u2192';
   var next = '<button onclick="_wrapNext()" style="flex:1;padding:13px;border:none;border-radius:11px;background:var(--green);color:#fff;font-weight:800;font-size:15px;font-family:var(--f);cursor:pointer">'+nextLbl+'</button>';
-  return '<div style="display:flex;gap:8px;align-items:center;margin-top:16px">'+back+skip+next+'</div>';
+  return '<div style="display:flex;gap:8px;align-items:center;margin-top:18px;padding-bottom:6px">'+back+skip+next+'</div>';
 }
 function renderWrap(){
   var w=window._wrap, box=document.getElementById('wrapBody'); if(!w||!box) return;
@@ -4820,14 +4826,13 @@ function renderWrap(){
       }).join('')+'</div>'+_wrapBtns();
   } else if(w.step===3){
     var presets=[['Today 6pm','today6'],['Tomorrow','tom'],['In 2 days','2d'],['Next week','1w']];
-    var curWhen=w.followup?_wrapFmtWhen(w.followup):'';
     h=_wrapHead('Set the next follow-up')+
       '<div style="display:flex;flex-wrap:wrap;gap:8px">'+presets.map(function(p){
         return '<button onclick="_wrapPreset(this.dataset.k)" data-k="'+p[1]+'" style="flex:1;min-width:46%;padding:13px;border:1px solid var(--border);border-radius:12px;background:var(--white);color:var(--text);font-size:14px;font-weight:700;font-family:var(--f);cursor:pointer">'+p[0]+'</button>';
       }).join('')+'</div>'+
       '<div style="margin-top:10px;font-size:12px;color:var(--sub);font-weight:600">Or pick exactly</div>'+
-      '<input type="datetime-local" onchange="window._wrap.followup=this.value?new Date(this.value).toISOString():\'\';renderWrap()" style="width:100%;margin-top:6px;padding:11px;border:1px solid var(--border);border-radius:11px;font-size:14px;font-family:inherit;background:var(--white);color:var(--text)">'+
-      (curWhen?'<div style="margin-top:10px;text-align:center;font-size:13px;color:var(--green);font-weight:700">\uD83D\uDCC5 '+curWhen+'</div>':'')+
+      '<input type="datetime-local" id="wrapFuInput" onchange="window._wrap.followup=this.value?new Date(this.value).toISOString():\'\';_wrapShowFollowup()" style="width:100%;margin-top:6px;padding:11px;border:1px solid var(--border);border-radius:11px;font-size:14px;font-family:inherit;background:var(--white);color:var(--text)">'+
+      '<div id="wrapFuLabel" style="margin-top:10px;text-align:center;font-size:13px;color:var(--green);font-weight:700;min-height:18px"></div>'+
       _wrapBtns();
   } else if(w.step===4){
     var ad=(w.appt&&w.appt.slice(0,10))||'', at=(w.appt&&w.appt.slice(11,16))||'10:00';
@@ -4839,6 +4844,18 @@ function renderWrap(){
   }
   box.innerHTML=h;
   if(w.step===1){ var ta=document.getElementById('wrapNotes'); if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length,ta.value.length); } }
+  if(w.step===3){ _wrapShowFollowup(); }
+}
+function _wrapShowFollowup(){
+  var w=window._wrap; if(!w) return;
+  var lab=document.getElementById('wrapFuLabel');
+  if(lab) lab.innerHTML = w.followup ? ('\uD83D\uDCC5 '+_wrapFmtWhen(w.followup)) : '';
+  // keep the native input in sync if a preset set the value
+  var inp=document.getElementById('wrapFuInput');
+  if(inp && w.followup){
+    try{ var d=new Date(w.followup); var pad=function(n){return String(n).padStart(2,'0');};
+      inp.value=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes()); }catch(e){}
+  }
 }
 function _wrapAddNote(txt){ var w=window._wrap; w.notes=(w.notes?w.notes.replace(/\s+$/,'')+'\n':'')+txt; var ta=document.getElementById('wrapNotes'); if(ta){ta.value=w.notes;ta.focus();} }
 function _wrapSetStage(name){ window._wrap.stage=name; renderWrap(); }
@@ -4848,7 +4865,7 @@ function _wrapPreset(kind){
   else if(kind==='tom'){ d.setDate(d.getDate()+1); d.setHours(10,0,0,0); }
   else if(kind==='2d'){ d.setDate(d.getDate()+2); d.setHours(10,0,0,0); }
   else if(kind==='1w'){ d.setDate(d.getDate()+7); d.setHours(10,0,0,0); }
-  window._wrap.followup=d.toISOString(); renderWrap();
+  window._wrap.followup=d.toISOString(); _wrapShowFollowup();
 }
 function _wrapApptSet(){ var d=(document.getElementById('wrapApptD')||{}).value||'', t=(document.getElementById('wrapApptT')||{}).value||'10:00'; window._wrap.appt = d ? (d+'T'+t) : ''; }
 function _wrapBack(){ var w=window._wrap; if(w.step>1){ w.step--; renderWrap(); } }
@@ -4866,7 +4883,7 @@ async function saveWrap(){
   if(w.stage) patch.stage=w.stage;
   if(w.followup) patch.next_followup=w.followup;
   var booked = (/meeting booked/i.test(w.stage||'')) && w.appt;
-  if(booked){ var dt=new Date(w.appt); if(!isNaN(dt)) patch.meeting_date=dt.toISOString(); }
+  if(booked){ var dt=new Date(w.appt); if(!isNaN(dt)){ patch.meeting_date=dt.toISOString(); patch.appointment_at=dt.toISOString(); } }
   try{
     if(w.notes && w.notes.trim()){
       await sbFetch('/rest/v1/lead_activity',{method:'POST',headers:{'Prefer':'return=minimal'},body:JSON.stringify({
@@ -4875,7 +4892,17 @@ async function saveWrap(){
       })});
     }
     await sbFetch('/rest/v1/leads?id=eq.'+w.dbId,{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify(patch)});
-    if(l){ if(w.stage)l.stage=w.stage; if(w.followup)l.next_followup=w.followup; if(booked&&patch.meeting_date)l.meeting_date=patch.meeting_date; l.call_wrapup_pending=false; }
+    if(l){ if(w.stage)l.stage=w.stage; if(w.followup)l.next_followup=w.followup; if(booked&&patch.meeting_date){l.meeting_date=patch.meeting_date;l.appointment_at=patch.appointment_at;} l.call_wrapup_pending=false; }
+    // Also create a real task row so it appears in the Follow-ups tab + fires reminders
+    if(w.followup && l && typeof addTask==='function'){
+      try{
+        var fd=new Date(w.followup), pad=function(n){return String(n).padStart(2,'0');};
+        addTask({ lid:l.id, type:'call',
+          date:fd.getFullYear()+'-'+pad(fd.getMonth()+1)+'-'+pad(fd.getDate()),
+          time:pad(fd.getHours())+':'+pad(fd.getMinutes()),
+          note:(w.notes||'').trim()||'Follow-up from call log' });
+      }catch(e){}
+    }
     closeSheet('wrapSh');
     if(typeof render==='function') render();
     if(typeof updateNotifBadge==='function') updateNotifBadge();
@@ -4924,7 +4951,7 @@ function ensureSimpleSheet(id,title){
     '<div class="sheet" style="max-height:80dvh">'+
       '<div class="sheet-handle"></div>'+
       '<div class="sheet-head"><div class="sheet-title">'+title+'</div><button class="sheet-x" onclick="closeSheet(\''+id+'\')">&#x2715;</button></div>'+
-      '<div class="sh-body" id="'+id+'Body" style="padding:8px 16px 22px"></div>'+
+      '<div class="sh-body" id="'+id+'Body" style="padding:8px 16px calc(26px + env(safe-area-inset-bottom,0px))"></div>'+
     '</div></div>';
   document.body.insertAdjacentHTML('beforeend',html);
 }
