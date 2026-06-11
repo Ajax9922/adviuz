@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-10 custom-fields-v15</title>
+<title>Adviuz Hub · v2026-06-11 wrapup-v19</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3112,7 +3112,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-10 custom-fields-v15';
+var APP_VERSION = 'v2026-06-11 wrapup-v19';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -4448,7 +4448,13 @@ function mapLead(l, i) {
     campaign_name: l.campaign_name || null,
     // Custom-field support: raw jsonb bag + owning client (Phase 2/3)
     form_fields:   l.form_fields || {},
-    client_id:     l.client_id || null
+    client_id:     l.client_id || null,
+    // Post-call wrap-up + action-card fields
+    call_wrapup_pending: !!l.call_wrapup_pending,
+    next_followup: l.next_followup || null,
+    meeting_date:  l.meeting_date || null,
+    meeting_outcome: l.meeting_outcome || null,
+    deal_value:    (l.deal_value != null ? l.deal_value : null)
   };
 }
 
@@ -4551,13 +4557,50 @@ function openNotifSettings(){
   openSheet('notifSettingsSh');
 }
 
-function _notifNewCount(){
-  if(_notifPrefs().leads===false) return 0;
+// ── Bell sources ─────────────────────────────────────────────
+// SMS replies (incl. STOP/opt-outs) come from the viewer's OWN lead activity,
+// which RLS scopes per client — so a client sees only their own leads' replies,
+// the operator sees all. admin_notifications stays an operator-only feed for
+// platform events (payouts, etc.) and excludes SMS (sourced above instead).
+function _isOperatorBell(){ return window._staffRole === 'super_admin'; }
+window._adminNotifs = window._adminNotifs || [];
+window._smsReplies  = window._smsReplies  || [];
+async function loadAdminNotifs(){
+  if(!_isOperatorBell()){ window._adminNotifs=[]; return; }
+  try{
+    var r = await sbFetch('/rest/v1/admin_notifications?order=created_at.desc&limit=30');
+    window._adminNotifs = r.ok ? (await r.json().catch(function(){return [];})) : [];
+  }catch(e){ window._adminNotifs = []; }
+  if(typeof updateNotifBadge==='function') updateNotifBadge();
+}
+async function loadSmsReplies(){
+  try{
+    var r = await sbFetch('/rest/v1/lead_activity?activity_type=eq.sms_received&order=created_at.desc&limit=20&select=id,lead_id,client_id,description,created_at');
+    window._smsReplies = r.ok ? (await r.json().catch(function(){return [];})) : [];
+  }catch(e){ window._smsReplies = []; }
+  if(typeof updateNotifBadge==='function') updateNotifBadge();
+}
+function _smsReplyIsOptOut(desc){ return /\b(stop|stopall|unsubscribe|cancel|quit|opt\s*-?\s*out|revoke)\b/i.test(String(desc||'')); }
+function _smsRepliesNew(){
   var seen=_notifLastSeen();
-  return (leads||[]).filter(function(l){
-    var ts=l.created_at?new Date(l.created_at).getTime():0;
-    return ts && ts>seen;
-  }).length;
+  return (window._smsReplies||[]).filter(function(a){ var ts=a.created_at?new Date(a.created_at).getTime():0; return ts && ts>seen; }).length;
+}
+// Operator-only, non-SMS unread (SMS now comes from lead activity for everyone)
+function _adminNotifUnread(){ return (window._adminNotifs||[]).filter(function(n){ return !n.is_read && n.type!=='sms_reply' && n.type!=='sms_optout'; }).length; }
+
+function _notifNewCount(){
+  var n = 0;
+  if(_notifPrefs().leads!==false){
+    var seen=_notifLastSeen();
+    n += (leads||[]).filter(function(l){
+      var ts=l.created_at?new Date(l.created_at).getTime():0;
+      return ts && ts>seen;
+    }).length;
+  }
+  n += _smsRepliesNew();
+  n += _adminNotifUnread();
+  n += _bellActionItems().length;
+  return n;
 }
 function updateNotifBadge(){
   var n=_notifNewCount();
@@ -4591,37 +4634,348 @@ function ensureNotifSheet(){
     '</div>';
   document.body.insertAdjacentHTML('beforeend',html);
 }
-function openNotifPanel(){
+async function openNotifPanel(){
   ensureNotifSheet();
+  await loadAdminNotifs();
+  await loadSmsReplies();
   var seen=_notifLastSeen();
+  var body=document.getElementById('notifBody');
+  var h='';
+  // ── Action to-dos first (wrap-up, deal amount, meeting outcome, follow-up due) ──
+  _bellActionItems().forEach(function(it){ h += _bellActionCardHtml(it); });
+  // ── Operator platform notifications (payouts, etc.) — SMS excluded here ──
+  (window._adminNotifs||[]).forEach(function(nf){
+    if(nf.type==='sms_reply' || nf.type==='sms_optout') return; // SMS comes from lead activity below
+    var isNew=!nf.is_read;
+    var icon=(nf.type==='payout_request')?'\uD83D\uDCB8':'\uD83D\uDD14';
+    var safeLink=_notifEsc(String(nf.link||'')).replace(/'/g,"\\'");
+    h+='<button onclick="closeSheet(\'notifSh\');_notifOpenAdmin(\''+nf.id+'\',\''+safeLink+'\')" style="width:100%;display:flex;gap:11px;align-items:flex-start;background:'+(isNew?'var(--greenl,#e7f8f3)':'var(--white)')+';border:1px solid var(--border);border-radius:12px;padding:11px 12px;margin-bottom:8px;text-align:left;cursor:pointer;font-family:var(--f)">'+
+        '<span style="width:34px;height:34px;border-radius:9px;background:#fff0f0;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">'+icon+'</span>'+
+        '<span style="flex:1;min-width:0">'+
+          '<span style="display:block;font-size:13px;font-weight:800;color:var(--text)">'+_notifEsc(nf.title||'Notification')+(isNew?' <span style="color:#cc0000">\u2022</span>':'')+'</span>'+
+          '<span style="display:block;font-size:12px;color:var(--sub);margin-top:1px">'+_notifEsc(nf.body||'')+'</span>'+
+        '</span>'+
+      '</button>';
+  });
+  // ── SMS replies (incl. STOP/opt-outs) — viewer's own leads, RLS-scoped ──
+  (window._smsReplies||[]).forEach(function(a){
+    var ts=a.created_at?new Date(a.created_at).getTime():0;
+    var isNew=ts && ts>seen;
+    var optOut=_smsReplyIsOptOut(a.description);
+    var icon=optOut?'\uD83D\uDED1':'\uD83D\uDCAC';
+    var title=optOut?'Opt-out (STOP)':'SMS reply';
+    var safeDb=String(a.lead_id||'');
+    h+='<button onclick="closeSheet(\'notifSh\');_notifOpenLeadByDb(\''+safeDb+'\')" style="width:100%;display:flex;gap:11px;align-items:flex-start;background:'+(isNew?'var(--greenl,#e7f8f3)':'var(--white)')+';border:1px solid var(--border);border-radius:12px;padding:11px 12px;margin-bottom:8px;text-align:left;cursor:pointer;font-family:var(--f)">'+
+        '<span style="width:34px;height:34px;border-radius:9px;background:'+(optOut?'#fff0f0':'#eef4ff')+';display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">'+icon+'</span>'+
+        '<span style="flex:1;min-width:0">'+
+          '<span style="display:block;font-size:13px;font-weight:800;color:var(--text)">'+title+(isNew?' <span style="color:#cc0000">\u2022</span>':'')+'</span>'+
+          '<span style="display:block;font-size:12px;color:var(--sub);margin-top:1px">'+_notifEsc(a.description||'')+'</span>'+
+        '</span>'+
+      '</button>';
+  });
+  // ── New leads ──
   var items=(leads||[]).slice().sort(function(a,b){
     return (b.created_at?new Date(b.created_at).getTime():0)-(a.created_at?new Date(a.created_at).getTime():0);
   }).slice(0,25);
-  var body=document.getElementById('notifBody');
+  items.forEach(function(l){
+    var ts=l.created_at?new Date(l.created_at).getTime():0;
+    var isNew=ts && ts>seen;
+    var who=l.company||l.name||'New lead';
+    h+='<button onclick="closeSheet(\'notifSh\');_notifOpenLead('+l.id+')" style="width:100%;display:flex;gap:11px;align-items:flex-start;background:'+(isNew?'var(--greenl,#e7f8f3)':'var(--white)')+';border:1px solid var(--border);border-radius:12px;padding:11px 12px;margin-bottom:8px;text-align:left;cursor:pointer;font-family:var(--f)">'+
+        '<span style="width:34px;height:34px;border-radius:9px;background:#e7f8f3;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">\uD83D\uDC64</span>'+
+        '<span style="flex:1;min-width:0">'+
+          '<span style="display:block;font-size:13px;font-weight:800;color:var(--text)">New lead: '+_notifEsc(who)+(isNew?' <span style="color:#cc0000">\u2022</span>':'')+'</span>'+
+          '<span style="display:block;font-size:12px;color:var(--sub);margin-top:1px">'+_notifEsc(l.stage||'')+' \u00B7 '+_notifEsc(l.t||'')+'</span>'+
+        '</span>'+
+      '</button>';
+  });
   if(body){
-    if(!items.length){
-      body.innerHTML='<div style="text-align:center;color:var(--sub);padding:42px 0;font-size:14px">No notifications yet</div>';
-    }else{
-      var h='';
-      items.forEach(function(l){
-        var ts=l.created_at?new Date(l.created_at).getTime():0;
-        var isNew=ts && ts>seen;
-        var who=l.company||l.name||'New lead';
-        h+='<button onclick="closeSheet(\'notifSh\');_notifOpenLead('+l.id+')" style="width:100%;display:flex;gap:11px;align-items:flex-start;background:'+(isNew?'var(--greenl,#e7f8f3)':'var(--white)')+';border:1px solid var(--border);border-radius:12px;padding:11px 12px;margin-bottom:8px;text-align:left;cursor:pointer;font-family:var(--f)">'+
-            '<span style="width:34px;height:34px;border-radius:9px;background:#e7f8f3;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">\uD83D\uDC64</span>'+
-            '<span style="flex:1;min-width:0">'+
-              '<span style="display:block;font-size:13px;font-weight:800;color:var(--text)">New lead: '+_notifEsc(who)+(isNew?' <span style="color:#cc0000">\u2022</span>':'')+'</span>'+
-              '<span style="display:block;font-size:12px;color:var(--sub);margin-top:1px">'+_notifEsc(l.stage||'')+' \u00B7 '+_notifEsc(l.t||'')+'</span>'+
-            '</span>'+
-          '</button>';
-      });
-      body.innerHTML=h;
-    }
+    body.innerHTML = h || '<div style="text-align:center;color:var(--sub);padding:42px 0;font-size:14px">No notifications yet</div>';
   }
   openSheet('notifSh');
   _notifSetSeen();
+  // Mark operator platform notifications read on open (clears the badge), best-effort
+  if(_isOperatorBell() && _adminNotifUnread()>0){
+    try{ sbFetch('/rest/v1/admin_notifications?is_read=eq.false&type=not.in.(sms_reply,sms_optout)',{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({is_read:true})}); }catch(e){}
+    (window._adminNotifs||[]).forEach(function(n){ if(n.type!=='sms_reply'&&n.type!=='sms_optout') n.is_read=true; });
+  }
   updateNotifBadge();
 }
+function _notifOpenLeadByDb(dbId){
+  if(dbId){
+    var ld=(leads||[]).find(function(x){ return String(x.dbId)===String(dbId); });
+    if(ld && typeof openLead==='function'){ openLead(ld.id); return; }
+  }
+  var lt=document.getElementById('tab-leads');
+  if(lt && typeof goTab==='function') goTab('leads',lt);
+}
+function _notifOpenAdmin(id, link){
+  try{ sbFetch('/rest/v1/admin_notifications?id=eq.'+id,{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({is_read:true})}); }catch(e){}
+  (window._adminNotifs||[]).forEach(function(n){ if(String(n.id)===String(id)) n.is_read=true; });
+  if(typeof updateNotifBadge==='function') updateNotifBadge();
+  if(!link) return;
+  // A lead UUID → open that lead; other links (e.g. 'commissions') just clear.
+  if(/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(link)){
+    var ld=(leads||[]).find(function(x){ return String(x.dbId)===String(link); });
+    if(ld && typeof openLead==='function'){ openLead(ld.id); return; }
+  }
+}
+// ════════════════════════════════════════════════════════════
+// POST-CALL WRAP-UP + ACTION CARDS  (Notes → Stage → Follow-up → Appt)
+// Designed to be fast & rewarding so agents actually log every call.
+// ════════════════════════════════════════════════════════════
+function _isClosedStage(s){ return /(deal closed|not interested|^10\.|^9\.|lost|^12\.)/i.test(String(s||'')); }
+function _wrapFmtWhen(iso){
+  if(!iso) return '';
+  var d=new Date(iso); if(isNaN(d)) return '';
+  return d.toLocaleDateString(undefined,{month:'short',day:'numeric'})+', '+d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
+}
+// Outstanding to-dos derived from each lead's own state (auto-clear when done)
+function _bellActionItems(){
+  var now=Date.now(), out=[];
+  (leads||[]).forEach(function(l){
+    var name=l.company||l.name||'Lead';
+    if(l.call_wrapup_pending) out.push({kind:'wrapup',dbId:l.dbId,name:name,sort:4});
+    if(/deal closed/i.test(String(l.stage||'')) && (l.deal_value==null||l.deal_value===''||Number(l.deal_value)===0))
+      out.push({kind:'deal',dbId:l.dbId,name:name,sort:3});
+    if(l.meeting_date){ var mt=new Date(l.meeting_date).getTime(); if(mt&&mt<=now&&!l.meeting_outcome) out.push({kind:'meeting',dbId:l.dbId,name:name,sort:2}); }
+    if(l.next_followup && !_isClosedStage(l.stage)){ var ft=new Date(l.next_followup).getTime(); if(ft&&ft<=now) out.push({kind:'followup',dbId:l.dbId,name:name,when:l.next_followup,sort:1}); }
+  });
+  out.sort(function(a,b){return b.sort-a.sort;});
+  return out;
+}
+function _bellActionCardHtml(it){
+  var meta={
+    wrapup:  {icon:'\uD83D\uDCDE',bg:'#eef4ff',title:'Log your call',sub:'How did your call with '+_notifEsc(it.name)+' go?',fn:'openCallWrapup'},
+    deal:    {icon:'\uD83D\uDCB0',bg:'#e7f8f3',title:'Add deal amount',sub:_notifEsc(it.name)+' — deal closed, enter the amount',fn:'openDealAmount'},
+    meeting: {icon:'\uD83E\uDD1D',bg:'#fff7e6',title:'How did the meeting go?',sub:_notifEsc(it.name)+' — add the outcome',fn:'openMeetingOutcome'},
+    followup:{icon:'\u23F0',bg:'#fdeef0',title:'Follow-up due',sub:_notifEsc(it.name)+' \u00B7 '+_wrapFmtWhen(it.when),fn:'_notifOpenLeadByDb'}
+  }[it.kind];
+  if(!meta) return '';
+  return '<button onclick="closeSheet(\'notifSh\');'+meta.fn+'(\''+it.dbId+'\')" style="width:100%;display:flex;gap:11px;align-items:flex-start;background:'+meta.bg+';border:1px solid var(--border);border-radius:12px;padding:11px 12px;margin-bottom:8px;text-align:left;cursor:pointer;font-family:var(--f)">'+
+      '<span style="width:34px;height:34px;border-radius:9px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">'+meta.icon+'</span>'+
+      '<span style="flex:1;min-width:0">'+
+        '<span style="display:block;font-size:13px;font-weight:800;color:var(--text)">'+meta.title+' <span style="color:#cc0000">\u2022</span></span>'+
+        '<span style="display:block;font-size:12px;color:var(--sub);margin-top:1px">'+meta.sub+'</span>'+
+      '</span>'+
+    '</button>';
+}
+
+// ── The guided wrap-up sheet ──
+function ensureWrapSheet(){
+  if(document.getElementById('wrapSh')) return;
+  var html='<div class="sheet-ov" id="wrapSh" onclick="if(event.target===this)closeSheet(\'wrapSh\')" style="z-index:1050">'+
+    '<div class="sheet" style="max-height:92dvh">'+
+      '<div class="sheet-handle"></div>'+
+      '<div class="sh-body" id="wrapBody" style="padding:6px 16px 20px"></div>'+
+    '</div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+function openCallWrapup(dbId){
+  var l=(leads||[]).find(function(x){return String(x.dbId)===String(dbId);});
+  if(!l){ showToast('Lead not found'); return; }
+  window._wrap={ dbId:dbId, name:(l.company||l.name||'Lead'), step:1, notes:'', stage:l.stage||'', followup:'', appt:'' };
+  ensureWrapSheet(); renderWrap(); openSheet('wrapSh');
+}
+function _wrapSteps(){ return (/meeting booked/i.test(window._wrap.stage||'')) ? 4 : 3; }
+function _wrapDots(){
+  var n=_wrapSteps(), cur=window._wrap.step, s='';
+  for(var i=1;i<=n;i++){ s+='<span style="width:8px;height:8px;border-radius:50%;background:'+(i<=cur?'var(--green)':'var(--border)')+'"></span>'; }
+  return '<div style="display:flex;gap:6px;align-items:center;justify-content:center;margin:2px 0 14px">'+s+'</div>';
+}
+function _wrapHead(label){
+  var w=window._wrap;
+  return '<div style="text-align:center;margin-top:4px"><div style="font-size:12px;color:var(--sub);font-weight:600">Quick call log</div>'+
+    '<div style="font-size:18px;font-weight:800;color:var(--text);margin-top:1px">'+_notifEsc(w.name)+'</div></div>'+
+    _wrapDots()+
+    '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px">'+label+'</div>';
+}
+function _wrapBtns(){
+  var w=window._wrap, last=(w.step>=_wrapSteps());
+  var back = w.step>1 ? '<button onclick="_wrapBack()" style="flex:0 0 auto;padding:13px 16px;border:1px solid var(--border);border-radius:11px;background:var(--white);color:var(--text);font-weight:700;font-size:14px;font-family:var(--f);cursor:pointer">Back</button>' : '';
+  var skip = (w.step!==2) ? '<button onclick="_wrapNext(true)" style="flex:0 0 auto;padding:13px 14px;border:none;background:none;color:var(--sub);font-weight:600;font-size:14px;font-family:var(--f);cursor:pointer">Skip</button>' : '';
+  var nextLbl = last ? 'Save \u2713' : 'Next \u2192';
+  var next = '<button onclick="_wrapNext()" style="flex:1;padding:13px;border:none;border-radius:11px;background:var(--green);color:#fff;font-weight:800;font-size:15px;font-family:var(--f);cursor:pointer">'+nextLbl+'</button>';
+  return '<div style="display:flex;gap:8px;align-items:center;margin-top:16px">'+back+skip+next+'</div>';
+}
+function renderWrap(){
+  var w=window._wrap, box=document.getElementById('wrapBody'); if(!w||!box) return;
+  var h='';
+  if(w.step===1){
+    var chips=['Interested \u2705','Asked for pricing \uD83D\uDCB0','Call back later \u23F0','Wants a meeting \uD83E\uDD1D','Not interested \u274C','No answer'];
+    h=_wrapHead('Add a quick note')+
+      '<textarea id="wrapNotes" oninput="window._wrap.notes=this.value" placeholder="What did you discuss?" style="width:100%;min-height:92px;padding:12px;border:1px solid var(--border);border-radius:12px;font-size:15px;font-family:inherit;resize:vertical;background:var(--white);color:var(--text)">'+_notifEsc(w.notes)+'</textarea>'+
+      '<div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:10px">'+chips.map(function(c){return '<button onclick="_wrapAddNote(this.dataset.c)" data-c="'+_notifEsc(c)+'" style="padding:8px 12px;border:1px solid var(--border);border-radius:20px;background:var(--bg);color:var(--text);font-size:13px;font-weight:600;font-family:var(--f);cursor:pointer">'+c+'</button>';}).join('')+'</div>'+
+      _wrapBtns();
+  } else if(w.step===2){
+    h=_wrapHead('Update the sales stage')+
+      '<div style="display:flex;flex-direction:column;gap:7px;max-height:46dvh;overflow:auto;-webkit-overflow-scrolling:touch">'+
+      (STAGES||[]).map(function(s){
+        var on=String(s.name)===String(w.stage);
+        return '<button onclick="_wrapSetStage(this.dataset.s)" data-s="'+_notifEsc(s.name)+'" style="display:flex;align-items:center;gap:10px;padding:12px 13px;border:1.5px solid '+(on?s.color:'var(--border)')+';border-radius:12px;background:'+(on?s.color+'14':'var(--white)')+';cursor:pointer;font-family:var(--f);text-align:left">'+
+          '<span style="width:11px;height:11px;border-radius:50%;background:'+s.color+';flex-shrink:0"></span>'+
+          '<span style="flex:1;font-size:14px;font-weight:'+(on?'800':'600')+';color:var(--text)">'+_notifEsc(s.name)+'</span>'+
+          (on?'<span style="color:'+s.color+';font-weight:800">\u2713</span>':'')+
+        '</button>';
+      }).join('')+'</div>'+_wrapBtns();
+  } else if(w.step===3){
+    var presets=[['Today 6pm','today6'],['Tomorrow','tom'],['In 2 days','2d'],['Next week','1w']];
+    var curWhen=w.followup?_wrapFmtWhen(w.followup):'';
+    h=_wrapHead('Set the next follow-up')+
+      '<div style="display:flex;flex-wrap:wrap;gap:8px">'+presets.map(function(p){
+        return '<button onclick="_wrapPreset(this.dataset.k)" data-k="'+p[1]+'" style="flex:1;min-width:46%;padding:13px;border:1px solid var(--border);border-radius:12px;background:var(--white);color:var(--text);font-size:14px;font-weight:700;font-family:var(--f);cursor:pointer">'+p[0]+'</button>';
+      }).join('')+'</div>'+
+      '<div style="margin-top:10px;font-size:12px;color:var(--sub);font-weight:600">Or pick exactly</div>'+
+      '<input type="datetime-local" onchange="window._wrap.followup=this.value?new Date(this.value).toISOString():\'\';renderWrap()" style="width:100%;margin-top:6px;padding:11px;border:1px solid var(--border);border-radius:11px;font-size:14px;font-family:inherit;background:var(--white);color:var(--text)">'+
+      (curWhen?'<div style="margin-top:10px;text-align:center;font-size:13px;color:var(--green);font-weight:700">\uD83D\uDCC5 '+curWhen+'</div>':'')+
+      _wrapBtns();
+  } else if(w.step===4){
+    var ad=(w.appt&&w.appt.slice(0,10))||'', at=(w.appt&&w.appt.slice(11,16))||'10:00';
+    h=_wrapHead('\uD83E\uDD1D Book the meeting')+
+      '<div style="font-size:13px;color:var(--sub);margin-bottom:10px">Pick a date & time for the appointment.</div>'+
+      '<input type="date" id="wrapApptD" value="'+ad+'" onchange="_wrapApptSet()" style="width:100%;padding:12px;border:1px solid var(--border);border-radius:11px;font-size:15px;font-family:inherit;margin-bottom:8px;background:var(--white);color:var(--text)">'+
+      '<input type="time" id="wrapApptT" value="'+at+'" onchange="_wrapApptSet()" style="width:100%;padding:12px;border:1px solid var(--border);border-radius:11px;font-size:15px;font-family:inherit;background:var(--white);color:var(--text)">'+
+      _wrapBtns();
+  }
+  box.innerHTML=h;
+  if(w.step===1){ var ta=document.getElementById('wrapNotes'); if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length,ta.value.length); } }
+}
+function _wrapAddNote(txt){ var w=window._wrap; w.notes=(w.notes?w.notes.replace(/\s+$/,'')+'\n':'')+txt; var ta=document.getElementById('wrapNotes'); if(ta){ta.value=w.notes;ta.focus();} }
+function _wrapSetStage(name){ window._wrap.stage=name; renderWrap(); }
+function _wrapPreset(kind){
+  var d=new Date();
+  if(kind==='today6') d.setHours(18,0,0,0);
+  else if(kind==='tom'){ d.setDate(d.getDate()+1); d.setHours(10,0,0,0); }
+  else if(kind==='2d'){ d.setDate(d.getDate()+2); d.setHours(10,0,0,0); }
+  else if(kind==='1w'){ d.setDate(d.getDate()+7); d.setHours(10,0,0,0); }
+  window._wrap.followup=d.toISOString(); renderWrap();
+}
+function _wrapApptSet(){ var d=(document.getElementById('wrapApptD')||{}).value||'', t=(document.getElementById('wrapApptT')||{}).value||'10:00'; window._wrap.appt = d ? (d+'T'+t) : ''; }
+function _wrapBack(){ var w=window._wrap; if(w.step>1){ w.step--; renderWrap(); } }
+function _wrapNext(skip){
+  var w=window._wrap;
+  if(w.step===1){ w.step=2; renderWrap(); return; }
+  if(w.step===2){ w.step=3; renderWrap(); return; }
+  if(w.step===3){ if(/meeting booked/i.test(w.stage||'')){ w.step=4; renderWrap(); return; } return saveWrap(); }
+  return saveWrap();
+}
+async function saveWrap(){
+  var w=window._wrap; if(!w) return;
+  var l=(leads||[]).find(function(x){return String(x.dbId)===String(w.dbId);});
+  var patch={ call_wrapup_pending:false, updated_at:new Date().toISOString() };
+  if(w.stage) patch.stage=w.stage;
+  if(w.followup) patch.next_followup=w.followup;
+  var booked = (/meeting booked/i.test(w.stage||'')) && w.appt;
+  if(booked){ var dt=new Date(w.appt); if(!isNaN(dt)) patch.meeting_date=dt.toISOString(); }
+  try{
+    if(w.notes && w.notes.trim()){
+      await sbFetch('/rest/v1/lead_activity',{method:'POST',headers:{'Prefer':'return=minimal'},body:JSON.stringify({
+        lead_id:w.dbId, client_id:(l&&l.client_id)||null, activity_type:'note',
+        description:w.notes.trim(), performed_by:'agent', created_at:new Date().toISOString()
+      })});
+    }
+    await sbFetch('/rest/v1/leads?id=eq.'+w.dbId,{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify(patch)});
+    if(l){ if(w.stage)l.stage=w.stage; if(w.followup)l.next_followup=w.followup; if(booked&&patch.meeting_date)l.meeting_date=patch.meeting_date; l.call_wrapup_pending=false; }
+    closeSheet('wrapSh');
+    if(typeof render==='function') render();
+    if(typeof updateNotifBadge==='function') updateNotifBadge();
+    if(booked && patch.meeting_date){
+      // Reuse the existing create-meeting path: Calendar event + Meet link +
+      // confirmation emails to the guest, the host, and sales@adviuz.ca.
+      showToast('Booking the meeting\u2026');
+      var startsAt = patch.meeting_date;
+      var endsAt   = new Date(new Date(patch.meeting_date).getTime()+60*60000).toISOString();
+      var pName = (typeof currentUser!=='undefined' && currentUser) ? (currentUser.name||currentUser.email||'') : '';
+      var pEmail= (typeof currentUser!=='undefined' && currentUser) ? (currentUser.email||'') : '';
+      try{
+        var cr = await sbFetch('/functions/v1/create-meeting',{method:'POST',body:JSON.stringify({
+          lead_id:        w.dbId,
+          client_id:      (l&&l.client_id)||window._clientId||null,
+          meeting_type:   (l&&l.svc) || 'Demo',
+          starts_at:      startsAt,
+          ends_at:        endsAt,
+          duration_mins:  60,
+          guest_name:     (l&&(l.company||l.name))||w.name,
+          guest_email:    (l&&l.em)||'',
+          guest_phone:    (l&&l.ph)||'',
+          guest_company:  (l&&l.company)||'',
+          partner_name:   pName,
+          partner_email:  pEmail,
+          notes:          (w.notes||'').trim()||null,
+          send_now:       true
+        })});
+        if(cr && cr.ok){
+          if(l) l.stage_code='meeting_locked';
+          showToast((l&&l.em) ? ('Meeting booked \u2014 invite sent to '+w.name+' \uD83E\uDD1D') : 'Meeting booked \u2014 invite on the calendar \uD83E\uDD1D');
+        } else {
+          showToast('Saved, but the calendar invite didn\u2019t send');
+        }
+      }catch(e){ showToast('Saved, but the calendar invite didn\u2019t send'); }
+    } else {
+      showToast(w.stage ? ('Saved \u2014 '+w.name+' \u2192 '+w.stage) : 'Saved \u2713');
+    }
+  }catch(e){ showToast('Could not save'); }
+}
+
+// ── Quick mini-sheets: deal amount + meeting outcome ──
+function ensureSimpleSheet(id,title){
+  if(document.getElementById(id)) return;
+  var html='<div class="sheet-ov" id="'+id+'" onclick="if(event.target===this)closeSheet(\''+id+'\')" style="z-index:1050">'+
+    '<div class="sheet" style="max-height:80dvh">'+
+      '<div class="sheet-handle"></div>'+
+      '<div class="sheet-head"><div class="sheet-title">'+title+'</div><button class="sheet-x" onclick="closeSheet(\''+id+'\')">&#x2715;</button></div>'+
+      '<div class="sh-body" id="'+id+'Body" style="padding:8px 16px 22px"></div>'+
+    '</div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+function openDealAmount(dbId){
+  var l=(leads||[]).find(function(x){return String(x.dbId)===String(dbId);}); if(!l){showToast('Lead not found');return;}
+  window._dealLead=dbId; ensureSimpleSheet('dealSh','Enter deal amount');
+  document.getElementById('dealShBody').innerHTML=
+    '<div style="font-size:14px;color:var(--text);font-weight:700;margin-bottom:2px">\uD83C\uDF89 Deal closed with '+_notifEsc(l.company||l.name||'Lead')+'</div>'+
+    '<div style="font-size:12px;color:var(--sub);margin-bottom:12px">Enter the value so it counts toward revenue.</div>'+
+    '<input id="dealAmt" type="number" inputmode="decimal" placeholder="Amount (e.g. 1500)" style="width:100%;padding:13px;border:1px solid var(--border);border-radius:11px;font-size:16px;font-family:inherit;margin-bottom:12px;background:var(--white);color:var(--text)">'+
+    '<button onclick="saveDealAmount()" style="width:100%;padding:13px;border:none;border-radius:11px;background:var(--green);color:#fff;font-weight:800;font-size:15px;font-family:var(--f);cursor:pointer">Save amount</button>';
+  openSheet('dealSh'); setTimeout(function(){var i=document.getElementById('dealAmt');if(i)i.focus();},60);
+}
+async function saveDealAmount(){
+  var v=parseFloat((document.getElementById('dealAmt')||{}).value||'0')||0;
+  if(!v){ showToast('Enter an amount'); return; }
+  var dbId=window._dealLead;
+  try{
+    await sbFetch('/rest/v1/leads?id=eq.'+dbId,{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({deal_value:v,updated_at:new Date().toISOString()})});
+    var l=(leads||[]).find(function(x){return String(x.dbId)===String(dbId);}); if(l)l.deal_value=v;
+    closeSheet('dealSh'); showToast('Deal amount saved \uD83C\uDF89'); if(typeof render==='function')render(); updateNotifBadge();
+  }catch(e){ showToast('Could not save'); }
+}
+function openMeetingOutcome(dbId){
+  var l=(leads||[]).find(function(x){return String(x.dbId)===String(dbId);}); if(!l){showToast('Lead not found');return;}
+  window._moLead=dbId; window._moVal=''; ensureSimpleSheet('moSh','How did the meeting go?');
+  var chips=['Went well \uD83D\uDC4D','Needs follow-up','No-show','Rescheduled','Not a fit'];
+  document.getElementById('moShBody').innerHTML=
+    '<div style="font-size:13px;color:var(--sub);margin-bottom:12px">'+_notifEsc(l.company||l.name||'Lead')+'</div>'+
+    '<div id="moChips" style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:10px">'+chips.map(function(c){return '<button onclick="_moPick(this)" data-c="'+_notifEsc(c)+'" style="padding:9px 13px;border:1.5px solid var(--border);border-radius:20px;background:var(--white);color:var(--text);font-size:13px;font-weight:600;font-family:var(--f);cursor:pointer">'+c+'</button>';}).join('')+'</div>'+
+    '<textarea id="moNotes" placeholder="Optional details…" style="width:100%;min-height:70px;padding:11px;border:1px solid var(--border);border-radius:11px;font-size:14px;font-family:inherit;background:var(--white);color:var(--text)"></textarea>'+
+    '<button onclick="saveMeetingOutcome()" style="width:100%;margin-top:12px;padding:13px;border:none;border-radius:11px;background:var(--green);color:#fff;font-weight:800;font-size:15px;font-family:var(--f);cursor:pointer">Save outcome</button>';
+  openSheet('moSh');
+}
+function _moPick(btn){
+  window._moVal=btn.dataset.c;
+  var box=document.getElementById('moChips'); if(box){ Array.prototype.forEach.call(box.children,function(b){ var on=b===btn; b.style.borderColor=on?'var(--green)':'var(--border)'; b.style.background=on?'#e7f8f3':'var(--white)'; }); }
+}
+async function saveMeetingOutcome(){
+  var pick=window._moVal||'', extra=((document.getElementById('moNotes')||{}).value||'').trim();
+  var outcome=[pick,extra].filter(Boolean).join(' — ');
+  if(!outcome){ showToast('Pick how it went'); return; }
+  var dbId=window._moLead;
+  try{
+    await sbFetch('/rest/v1/leads?id=eq.'+dbId,{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({meeting_outcome:outcome,updated_at:new Date().toISOString()})});
+    var l=(leads||[]).find(function(x){return String(x.dbId)===String(dbId);}); if(l)l.meeting_outcome=outcome;
+    if(extra||pick){ await sbFetch('/rest/v1/lead_activity',{method:'POST',headers:{'Prefer':'return=minimal'},body:JSON.stringify({lead_id:dbId,client_id:(l&&l.client_id)||null,activity_type:'note',description:'Meeting outcome: '+outcome,performed_by:'agent',created_at:new Date().toISOString()})}); }
+    closeSheet('moSh'); showToast('Outcome saved \u2713'); if(typeof render==='function')render(); updateNotifBadge();
+  }catch(e){ showToast('Could not save'); }
+}
+
 function _notifOpenLead(id){
   if(id!=null && typeof openLead==='function'){ openLead(id); return; }
   var lt=document.getElementById('tab-leads');
@@ -5345,6 +5699,20 @@ function render(){
   document.getElementById('content').innerHTML=(pages[curTab]||leadsHTML)();
   if(typeof updateActiveFilterBar==='function') updateActiveFilterBar();
   if(typeof updateNotifBadge==='function') updateNotifBadge();
+  if(!window._bellLoaded){
+    window._bellLoaded=true;
+    if(typeof loadAdminNotifs==='function') loadAdminNotifs();
+    if(typeof loadSmsReplies==='function') loadSmsReplies();
+  }
+  // Deep-link from a push: /?wrapup=<leadId> opens the call wrap-up directly
+  if(!window._deepLinkDone){
+    try{
+      var _wu=new URLSearchParams(location.search).get('wrapup');
+      if(_wu && (leads||[]).some(function(x){return String(x.dbId)===String(_wu);})){
+        window._deepLinkDone=true; openCallWrapup(_wu);
+      }
+    }catch(e){}
+  }
   if(typeof renderStats==='function') renderStats();
   // Keep the control bar's filter dot/state fresh, but never rebuild it while
   // the user is typing in the search box (would drop focus).
