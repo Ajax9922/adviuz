@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-11 wrapup-v22</title>
+<title>Adviuz Hub · v2026-06-11 appt-sms-v23</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3112,7 +3112,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-11 wrapup-v22';
+var APP_VERSION = 'v2026-06-11 appt-sms-v23';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -4889,7 +4889,7 @@ async function saveWrap(){
   if(w.stage) patch.stage=w.stage;
   if(w.followup) patch.next_followup=w.followup;
   var booked = (/meeting booked/i.test(w.stage||'')) && w.appt;
-  if(booked){ var dt=new Date(w.appt); if(!isNaN(dt)){ patch.meeting_date=dt.toISOString(); patch.appointment_at=dt.toISOString(); } }
+  if(booked){ var dt=new Date(w.appt); if(!isNaN(dt)){ patch.meeting_date=dt.toISOString(); patch.appointment_at=dt.toISOString(); patch.sms_consent=true; } }
   try{
     if(w.notes && w.notes.trim()){
       await sbFetch('/rest/v1/lead_activity',{method:'POST',headers:{'Prefer':'return=minimal'},body:JSON.stringify({
@@ -4912,38 +4912,21 @@ async function saveWrap(){
     closeSheet('wrapSh');
     if(typeof render==='function') render();
     if(typeof updateNotifBadge==='function') updateNotifBadge();
-    if(booked && patch.meeting_date){
-      // Reuse the existing create-meeting path: Calendar event + Meet link +
-      // confirmation emails to the guest, the host, and sales@adviuz.ca.
-      showToast('Booking the meeting\u2026');
-      var startsAt = patch.meeting_date;
-      var endsAt   = new Date(new Date(patch.meeting_date).getTime()+60*60000).toISOString();
-      var pName = (typeof currentUser!=='undefined' && currentUser) ? (currentUser.name||currentUser.email||'') : '';
-      var pEmail= (typeof currentUser!=='undefined' && currentUser) ? (currentUser.email||'') : '';
+    if(booked && patch.appointment_at){
+      // CLIENT appointment → send the customer an SMS confirmation from the
+      // client's own number (appt-confirm). The reminder engine then handles
+      // the 24h / day-of 8am / 1h-before texts per the client's settings.
+      // (This is NOT the Adviuz sales-demo flow — no Meet link / Adviuz email.)
+      showToast('Booking the appointment\u2026');
       try{
-        var cr = await sbFetch('/functions/v1/create-meeting',{method:'POST',body:JSON.stringify({
-          lead_id:        w.dbId,
-          client_id:      (l&&l.client_id)||window._clientId||null,
-          meeting_type:   (l&&l.svc) || 'Demo',
-          starts_at:      startsAt,
-          ends_at:        endsAt,
-          duration_mins:  60,
-          guest_name:     (l&&(l.company||l.name))||w.name,
-          guest_email:    (l&&l.em)||'',
-          guest_phone:    (l&&l.ph)||'',
-          guest_company:  (l&&l.company)||'',
-          partner_name:   pName,
-          partner_email:  pEmail,
-          notes:          (w.notes||'').trim()||null,
-          send_now:       true
-        })});
-        if(cr && cr.ok){
-          if(l) l.stage_code='meeting_locked';
-          showToast((l&&l.em) ? ('Meeting booked \u2014 invite sent to '+w.name+' \uD83E\uDD1D') : 'Meeting booked \u2014 invite on the calendar \uD83E\uDD1D');
+        var cr = await sbFetch('/functions/v1/appt-confirm',{method:'POST',body:JSON.stringify({ lead_id: w.dbId })});
+        var cd = cr && cr.ok ? await cr.json().catch(function(){return {};}) : {};
+        if(cr && cr.ok && cd && cd.sent){
+          showToast('Appointment booked \u2014 confirmation text sent to '+w.name+' \uD83E\uDD1D');
         } else {
-          showToast('Saved, but the calendar invite didn\u2019t send');
+          showToast('Appointment booked \uD83E\uDD1D');
         }
-      }catch(e){ showToast('Saved, but the calendar invite didn\u2019t send'); }
+      }catch(e){ showToast('Appointment booked \uD83E\uDD1D'); }
     } else {
       showToast(w.stage ? ('Saved \u2014 '+w.name+' \u2192 '+w.stage) : 'Saved \u2713');
     }
