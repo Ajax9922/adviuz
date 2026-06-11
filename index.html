@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-11 wrapup-v20</title>
+<title>Adviuz Hub · v2026-06-11 wrapup-v21</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3112,7 +3112,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-11 wrapup-v20';
+var APP_VERSION = 'v2026-06-11 wrapup-v21';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -9409,7 +9409,40 @@ function rejectCall() {
   document.getElementById('incomingCallOv').style.display = 'none';
 }
 
-function doCall(id) {
+var _pendingCallId = null;
+function ensureCallConfirmSheet(){
+  if(document.getElementById('callConfirmSh')) return;
+  var html='<div class="sheet-ov" id="callConfirmSh" onclick="if(event.target===this)closeSheet(\'callConfirmSh\')" style="z-index:1055">'+
+    '<div class="sheet" style="max-height:62dvh">'+
+      '<div class="sheet-handle"></div>'+
+      '<div class="sh-body" style="padding:6px 18px calc(24px + env(safe-area-inset-bottom,0px));text-align:center">'+
+        '<div style="width:62px;height:62px;border-radius:50%;background:#e7f8f3;display:flex;align-items:center;justify-content:center;font-size:28px;margin:4px auto 12px">\uD83D\uDCDE</div>'+
+        '<div style="font-size:12px;color:var(--sub);font-weight:700;letter-spacing:.3px;text-transform:uppercase">Start a call</div>'+
+        '<div id="ccName" style="font-size:20px;font-weight:800;color:var(--text);margin-top:3px">Lead</div>'+
+        '<div id="ccPhone" style="font-size:15px;color:var(--sub);margin-top:4px;letter-spacing:.4px"></div>'+
+        '<div style="display:flex;gap:10px;margin-top:22px">'+
+          '<button onclick="closeSheet(\'callConfirmSh\')" style="flex:1;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--white);color:var(--text);font-weight:700;font-size:15px;font-family:var(--f);cursor:pointer">Cancel</button>'+
+          '<button onclick="_confirmCallGo()" style="flex:1.5;padding:14px;border:none;border-radius:12px;background:var(--green);color:#fff;font-weight:800;font-size:15px;font-family:var(--f);cursor:pointer">\uD83D\uDCDE Call now</button>'+
+        '</div>'+
+      '</div>'+
+    '</div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+function doCall(id){
+  var l = leads.find(function(x){ return x.id===id||x.dbId===id; });
+  if(!l){ showToast('Lead not found'); return; }
+  _pendingCallId = id;
+  ensureCallConfirmSheet();
+  var nm=document.getElementById('ccName'); if(nm) nm.textContent = l.company||l.name||'this lead';
+  var ph=document.getElementById('ccPhone'); if(ph) ph.textContent = l.ph||'';
+  openSheet('callConfirmSh');
+}
+function _confirmCallGo(){
+  var id=_pendingCallId; _pendingCallId=null;
+  closeSheet('callConfirmSh');
+  if(id!=null) _doCallNow(id);
+}
+function _doCallNow(id) {
   var l = leads.find(function(x){ return x.id===id||x.dbId===id; });
   if (!l) { showToast('Lead not found'); return; }
   _callLeadId = id;
@@ -9493,6 +9526,15 @@ function _makeCall(l) {
       var durStr = Math.floor(dur/60)+'m '+(dur%60)+'s';
       endCallSheet(); 
       showToast('Call ended · '+durStr);
+      // ── Answered outbound call → prompt the same post-call wrap-up ──
+      if (dur > 0) {
+        l.call_wrapup_pending = true;
+        if (l.dbId) {
+          sbFetch('/rest/v1/leads?id=eq.'+l.dbId, {method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({call_wrapup_pending:true})}).catch(function(){});
+          if (typeof updateNotifBadge==='function') updateNotifBadge();
+          setTimeout(function(){ if(typeof openCallWrapup==='function') openCallWrapup(l.dbId); }, 600);
+        }
+      }
       // ── Update lead_activity row with duration ──
       // lead_activity is the canonical store for calls — it gets the call_sid on
       // accept, duration on disconnect, and recording_url + ai_summary from the
