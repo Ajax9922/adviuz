@@ -629,7 +629,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-10 admin-fields-v9</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-11 views-fix-v10</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -4968,7 +4968,7 @@ async function saveCampaignEdit() {
   var status = document.getElementById('ecam-status')?.value;
   if (!id) return;
   var adId = document.getElementById('ecam-ad')?.value || null;
-  var payload = { name:name, view_budget:budget, views_used:used, status:status };
+  var payload = { name:name, view_budget:budget, status:status };
   if (adId) payload.ad_id = adId;
 
   // ── Ad Preview content → placement_preview JSONB ──
@@ -5078,6 +5078,15 @@ async function saveCampaignEdit() {
     method: 'PATCH',
     body: JSON.stringify(payload)
   });
+
+  // Views: store the entered number as the DESIRED TOTAL (baseline + live tracked),
+  // so imported/historical views survive the live recompute instead of resetting.
+  try {
+    await sbAdmin('/rest/v1/rpc/set_campaign_views', {
+      method: 'POST', headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ p_campaign_id: id, p_total: used })
+    });
+  } catch(e){}
 
   // -- Manual impressions: added on top of synced FB/Google totals --
   var mfb = parseInt(document.getElementById('ecam-manual-fb')?.value || '0', 10) || 0;
