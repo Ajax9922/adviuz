@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-11 ai-summary-oncall-v39</title>
+<title>Adviuz Hub · v2026-06-11 summary-accuracy-v40</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3146,7 +3146,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-11 ai-summary-oncall-v39';
+var APP_VERSION = 'v2026-06-11 summary-accuracy-v40';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -8150,7 +8150,7 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
     h += '</div></div>';
   });
     if (actFilter==='all' && !actExpand && filteredActs.length > showCount) {
-      h += '<button onclick="window._actExpand=true; renderLeadScreen('+l.id+')" style="width:100%;margin-top:8px;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--white);color:var(--blue);font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">Show all '+filteredActs.length+' entries</button>';
+      h += '<button onclick="actShowAll('+l.id+')" style="width:100%;margin-top:8px;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--white);color:var(--blue);font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">Show all '+filteredActs.length+' entries</button>';
     }
     h += '</div>';
   } // end filteredActs.length else
@@ -9977,11 +9977,25 @@ async function assignLeadTo(userId, userName) {
 }
 
 
+// Expand the activity list to "show all" without yanking the scroll position.
+function actShowAll(lid) {
+  var sb = document.getElementById('lsBody');
+  var y  = sb ? sb.scrollTop : 0;
+  window._actExpand = true;
+  renderLeadScreen(lid);
+  requestAnimationFrame(function(){
+    var sb2 = document.getElementById('lsBody');
+    if (sb2) sb2.scrollTop = y;
+  });
+}
+
 // ═══════════════════════════════════════════════════════
 // CALL SUMMARY GENERATOR (Claude AI)
 // ═══════════════════════════════════════════════════════
 async function generateCallSummary(lead, durationSec, callRowId) {
   if (!lead || !lead.dbId) return;
+  // Skip ultra-short / abandoned / test calls — nothing meaningful to summarise.
+  if (!durationSec || durationSec < 15) return;
   var mins   = Math.floor(durationSec / 60);
   var secs   = durationSec % 60;
   var durStr = mins + 'm ' + secs + 's';
@@ -9997,6 +10011,7 @@ async function generateCallSummary(lead, durationSec, callRowId) {
         product:  lead.svc   || 'unknown',
         stage:    lead.stage || 'unknown',
         duration: durStr,
+        direction: 'outbound',
         context:  actsStr
       })
     });
