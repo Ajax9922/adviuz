@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-12 quote-province-v43</title>
+<title>Adviuz Hub · v2026-06-12 pay-invoice-v45</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1555,6 +1555,44 @@ body.impersonating .ls-topbar{padding-top:8px}
     <div class="sh-foot">
       <button class="btn btn-ghost" onclick="closeSheet('markPaidSh')" style="flex:1">Cancel</button>
       <button class="btn" id="markPaidBtn" onclick="confirmMarkPaid()" style="flex:2;justify-content:center;background:var(--green);color:#fff">Confirm Payment</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SET CLIENT LOCATION (when a quote lead has no usable province) ═══ -->
+<div class="sheet-ov" id="leadLocSh" style="z-index:880" onclick="if(event.target===this)closeSheet('leadLocSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sh-head">
+      <div class="sh-title">Set client location</div>
+      <button class="sh-x" onclick="closeSheet('leadLocSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body">
+      <div style="font-size:13px;color:var(--sub);margin-bottom:14px;line-height:1.6">We don&rsquo;t have a location for <b id="llClient">this client</b> yet. Set their province so quotes use the right <b>tax</b> and reminders send on their <b>local time</b>. It&rsquo;s saved to their profile for next time.</div>
+      <div class="fg"><label class="flbl">Province *</label>
+        <select class="fsel" id="ll-province">
+          <option value="">Select...</option>
+          <option value="AB">Alberta — 5% GST</option>
+          <option value="BC">BC — 12% GST+PST</option>
+          <option value="MB">Manitoba — 12% GST+PST</option>
+          <option value="NB">New Brunswick — 15% HST</option>
+          <option value="NL">Newfoundland — 15% HST</option>
+          <option value="NS">Nova Scotia — 15% HST</option>
+          <option value="NT">NWT — 5% GST</option>
+          <option value="NU">Nunavut — 5% GST</option>
+          <option value="ON">Ontario — 13% HST</option>
+          <option value="PE">PEI — 15% HST</option>
+          <option value="QC">Quebec — 14.975%</option>
+          <option value="SK">Saskatchewan — 11%</option>
+          <option value="YT">Yukon — 5% GST</option>
+        </select>
+      </div>
+      <div class="fg"><label class="flbl">City / Town (optional)</label>
+        <input class="finp" id="ll-city" placeholder="e.g. Markham">
+      </div>
+    </div>
+    <div class="sh-foot">
+      <button class="btn btn-ghost" onclick="closeSheet('leadLocSh')" style="flex:1">Skip</button>
+      <button class="btn" id="llSaveBtn" onclick="saveLeadLocation()" style="flex:2;justify-content:center;background:var(--green);color:#fff">Save location</button>
     </div>
   </div>
 </div>
@@ -3146,7 +3184,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-12 quote-province-v43';
+var APP_VERSION = 'v2026-06-12 pay-invoice-v45';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -12168,6 +12206,19 @@ function clientBillSetFilter(f) {
   if (body) body.innerHTML = clientBillingHTML();
 }
 
+// Pay an outstanding/partial invoice → opens Stripe checkout for the balance due.
+async function payInvoice(invId, btn){
+  var orig = btn ? btn.textContent : '';
+  if (btn){ btn.disabled = true; btn.textContent = 'Starting secure checkout\u2026'; }
+  try {
+    var r = await sbFetch('/functions/v1/pay-invoice', { method:'POST', body: JSON.stringify({ invoice_id: invId }) });
+    var d = await r.json().catch(function(){ return {}; });
+    if (r.ok && d.checkout_url){ window.location.href = d.checkout_url; return; }
+    showToast(d.error || 'Could not start payment');
+  } catch(e){ showToast('Payment error \u2014 please try again'); }
+  if (btn){ btn.disabled = false; btn.textContent = orig; }
+}
+
 window._cInvOpen = window._cInvOpen || {};
 function cInvToggle(id) {
   window._cInvOpen = window._cInvOpen || {};
@@ -12197,6 +12248,10 @@ function _cInvCard(inv) {
   var tot    = '$' + fmtCAD(parseFloat(inv.total) || 0);
   var hasPdf = !!inv.pdf_url;
   var open   = !!(window._cInvOpen || {})[inv.id];
+  var totVal = parseFloat(inv.total) || 0;
+  var apVal  = (inv.amount_paid != null) ? (parseFloat(inv.amount_paid) || 0) : (((inv.payment_status||'').toLowerCase() === 'paid') ? totVal : 0);
+  var outVal = Math.max(0, totVal - apVal);
+  var canPay = (inv.payment_status||'').toLowerCase() !== 'paid' && outVal > 0.005;
   var esc    = function(x){ return String(x==null?'':x).replace(/[&<>]/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;'}[m]; }); };
 
   var h = '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:10px">';
@@ -12242,8 +12297,11 @@ function _cInvCard(inv) {
     h += '</div>';
   }
 
-  // Download
+  // Pay outstanding balance (unpaid / partial), then Download
   h += '<div style="margin-top:12px">';
+  if (canPay) {
+    h += '<button data-id="'+inv.id+'" onclick="payInvoice(this.dataset.id, this)" style="width:100%;padding:12px;border-radius:10px;background:var(--green);border:none;color:#fff;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer;margin-bottom:8px">Pay $'+fmtCAD(outVal)+'</button>';
+  }
   if (hasPdf) {
     h += '<button data-url="'+inv.pdf_url+'" onclick="window.open(this.dataset.url,\'_blank\')" style="width:100%;padding:11px;border-radius:10px;background:var(--navy,#001f3f);border:none;color:#fff;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">\u2B07\uFE0F Download PDF</button>';
   } else {
@@ -16625,6 +16683,46 @@ function closeQuotesList() {
   document.getElementById('quotesListScreen').classList.remove('open');
 }
 
+// ── Set-client-location sheet (source of truth for tax + reminder timezone) ──
+function promptLeadLocation(l){
+  if(!l || !l.dbId) return;
+  window._llLeadId = l.dbId;
+  var nameEl = document.getElementById('llClient');
+  if(nameEl) nameEl.textContent = l.company || l.name || 'this client';
+  var prov = document.getElementById('ll-province'); if(prov) prov.value = '';
+  var city = document.getElementById('ll-city');     if(city) city.value = '';
+  openSheet('leadLocSh');
+}
+async function saveLeadLocation(){
+  var prov = (document.getElementById('ll-province')||{}).value;
+  if(!prov){ showToast('Please select a province'); return; }
+  var city = ((document.getElementById('ll-city')||{}).value||'').trim();
+  var provName = CODE_TO_PROVINCE[prov] || prov;
+  var loc = city ? (city + ', ' + provName) : provName;
+  var btn = document.getElementById('llSaveBtn');
+  if(btn){ btn.textContent = 'Saving...'; btn.disabled = true; }
+  try {
+    if(window._llLeadId){
+      await sbFetch('/rest/v1/leads?id=eq.'+window._llLeadId, {
+        method:'PATCH', headers:{'Prefer':'return=minimal'},
+        body: JSON.stringify({ location: loc })
+      });
+      var lq = leads.find(function(x){ return x.dbId===window._llLeadId; });
+      if(lq) lq.location = loc;
+    }
+    // Apply to the quote that's open underneath.
+    var qp = document.getElementById('q-province');
+    if(qp){ qp.value = prov; setProvinceTax(); }
+    window._quoteProvFromLead = true;
+    closeSheet('leadLocSh');
+    showToast('\u2705 Location saved to the client\u2019s profile');
+  } catch(e){
+    showToast('Could not save location — try again');
+  } finally {
+    if(btn){ btn.textContent = 'Save location'; btn.disabled = false; }
+  }
+}
+
 function openCreateQuoteSheet(lid) {
   // lid can be local numeric id or UUID — get the dbId (UUID)
   var dbLeadId = null;  if(lid) {
@@ -16665,12 +16763,10 @@ function openCreateQuoteSheet(lid) {
   // Falls back to SK only when there's no lead or the location has no recognizable province.
   var provCode = l ? provFromText(l.location) : null;
   window._quoteProvFromLead = !!provCode;
+  var _needLoc = !!(l && !provCode);   // prompt for location after the sheet opens
   var provSel = document.getElementById('q-province');
   if(provSel) provSel.value = provCode || 'SK';
   setProvinceTax();
-  if(l && !provCode){
-    showToast('\u26A0\uFE0F Set this client\u2019s province below \u2014 it\u2019ll be saved to their profile');
-  }
 
   // Set valid date 7 days from now (LOCAL date — toISOString would use UTC and shift a day)
   var validEl = document.getElementById('q-valid');
@@ -16680,6 +16776,8 @@ function openCreateQuoteSheet(lid) {
   renderQuoteItems();
   recalcQuote();
   openCreateQuote();
+  // No usable province on the lead → prompt to set it (stacks above the quote sheet).
+  if(_needLoc && l){ setTimeout(function(){ promptLeadLocation(l); }, 220); }
 }
 
 function addQuoteItem() {
@@ -16893,23 +16991,6 @@ async function saveAndSendQuote() {
     var data = await res.json();
     var q = Array.isArray(data) ? data[0] : data;
     if(!q || !q.id) throw new Error('Quote saved but no ID returned');
-
-    // Source-of-truth: if this lead had no usable province in their profile, save the
-    // one chosen here so future quotes/invoices/reminders use the right tax + timezone.
-    try {
-      if(_quoteLeadId && !window._quoteProvFromLead && province){
-        var lq = leads.find(function(x){ return x.dbId===_quoteLeadId; });
-        var curLoc = (lq && lq.location ? (''+lq.location).trim() : '');
-        if(!curLoc){
-          var provName = CODE_TO_PROVINCE[province] || province;
-          await sbFetch('/rest/v1/leads?id=eq.'+_quoteLeadId, {
-            method:'PATCH', headers:{'Prefer':'return=minimal'},
-            body: JSON.stringify({ location: provName })
-          });
-          if(lq) lq.location = provName;
-        }
-      }
-    } catch(_e){ /* non-fatal */ }
 
     // Send email to client
     var qUrl = 'https://hub.adviuz.ca/quote/?id='+q.id;
