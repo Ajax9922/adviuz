@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-11 call-rec-v35</title>
+<title>Adviuz Hub · v2026-06-11 rec-dl-v36</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3146,7 +3146,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-11 call-rec-v35';
+var APP_VERSION = 'v2026-06-11 rec-dl-v36';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7150,7 +7150,7 @@ async function loadLeadActivity(localId, dbId) {
     var dbActs = all.map(function(row) {
       var d = new Date(row.time);
       var ts = isNaN(d) ? row.time : d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit',hour12:true});
-      return Object.assign({}, row, {time:ts});
+      return Object.assign({}, row, {time:ts, _rawTime: row.time});
     });
 
     var existing   = leadAct[localId] || [];
@@ -7249,6 +7249,41 @@ function initListPullToRefresh(){
 
 // ── Per-call note (a quick manual note attached to one call recording) ──
 function _escTxt(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// Build a friendly recording filename: <phone>_<DDMMYYHHMM>_<durationSeconds>
+function _recFileName(l, item){
+  var ph = (l && l.ph ? String(l.ph) : '').replace(/\D/g,'');
+  if (ph.length === 11 && ph[0] === '1') ph = ph.slice(1); // drop NANP country code
+  var dt = '';
+  var d = new Date(item && item._rawTime ? item._rawTime : (item && item.time));
+  if (!isNaN(d)) {
+    var p = function(n){ return (n<10?'0':'')+n; };
+    dt = p(d.getDate())+p(d.getMonth()+1)+String(d.getFullYear()).slice(-2)+p(d.getHours())+p(d.getMinutes());
+  }
+  var dur = (item && item.duration_seconds) ? item.duration_seconds : 0;
+  return [ph||'call', dt, dur].filter(function(x){return x!=='';}).join('_');
+}
+
+// Download a recording with a custom filename. Fetches the audio as a blob so the
+// name sticks (the browser's built-in player can't be renamed); falls back to
+// opening the file directly if the fetch is blocked.
+async function dlRecording(url, fname){
+  try{
+    if (window.showToast) showToast('Preparing download…');
+    var res = await fetch(url);
+    if(!res.ok) throw new Error('http '+res.status);
+    var blob = await res.blob();
+    var ext  = (blob.type||'').indexOf('wav')>-1 ? '.wav' : '.mp3';
+    var obj  = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = obj; a.download = (fname||'recording') + ext;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(obj); }, 2000);
+  }catch(e){
+    // Cross-origin or network blocked the rename — open it so it can still be saved.
+    window.open(url, '_blank');
+  }
+}
 
 function callNoteHTML(item){
   if (!item || !item.id) return '';
@@ -8070,8 +8105,14 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
 
       // Recording player
       if (item.recording_url) {
+        var recFn = _recFileName(l, item);
         h += '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:9px 12px;margin-bottom:8px">';
         h += '<audio src="'+item.recording_url+'" preload="none" style="width:100%;height:36px;outline:none" controls></audio>';
+        h += '<div style="display:flex;justify-content:flex-end;margin-top:4px">';
+        h += '<button type="button" data-rurl="'+encodeURIComponent(item.recording_url)+'" data-rfn="'+recFn+'" onclick="dlRecording(decodeURIComponent(this.dataset.rurl), this.dataset.rfn)" style="display:flex;align-items:center;gap:4px;background:none;border:none;cursor:pointer;font-family:var(--f);font-size:11px;font-weight:700;color:#2563eb;padding:2px">';
+        h += '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+        h += 'Download</button>';
+        h += '</div>';
         h += '</div>';
       }
 
