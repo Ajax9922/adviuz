@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-11 activity-showall-v38</title>
+<title>Adviuz Hub · v2026-06-11 ai-summary-oncall-v39</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3146,7 +3146,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-11 activity-showall-v38';
+var APP_VERSION = 'v2026-06-11 ai-summary-oncall-v39';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -9685,7 +9685,7 @@ function _makeCall(l) {
           if (hasRec || _recPolls >= 23) { clearInterval(window._recPoll); window._recPoll = null; }
         }, 4000);
       }
-      generateCallSummary(l, dur);
+      generateCallSummary(l, dur, _actRowId);
     });
     call.on('error',      function(e){ showToast('❌ '+e.message); endCallSheet(); });
   }).catch(function(e) {
@@ -9980,7 +9980,7 @@ async function assignLeadTo(userId, userName) {
 // ═══════════════════════════════════════════════════════
 // CALL SUMMARY GENERATOR (Claude AI)
 // ═══════════════════════════════════════════════════════
-async function generateCallSummary(lead, durationSec) {
+async function generateCallSummary(lead, durationSec, callRowId) {
   if (!lead || !lead.dbId) return;
   var mins   = Math.floor(durationSec / 60);
   var secs   = durationSec % 60;
@@ -10005,20 +10005,37 @@ async function generateCallSummary(lead, durationSec) {
     var summary = (data.summary || '').trim();
     if (!summary) return;
 
-    // Persist to the DB only (skipLocal), then reload activity from the DB so the
-    // note appears exactly once. Previously it was inserted locally AND by
-    // logActivity AND re-read by the recording poll → duplicate notes.
-    await logActivity({
-      lead_id:    lead.id,
-      db_lead_id: lead.dbId,
-      client_id:  window._clientId,
-      type:       'note',
-      label:      '🤖 AI Call Summary',
-      body:       summary,
-      skipLocal:  true
-    });
+    // ── Attach the summary to the CALL itself (lead_activity.ai_summary) so it
+    //    renders directly under the call card, not as a standalone note. ──
+    var rowId = callRowId || null;
+    if (!rowId) {
+      // Fallback: locate the most recent call row for this lead.
+      try {
+        var q = await sbFetch('/rest/v1/lead_activity?lead_id=eq.'+lead.dbId+'&activity_type=eq.call&order=created_at.desc&limit=1&select=id');
+        var rows = await q.json();
+        if (Array.isArray(rows) && rows[0] && rows[0].id) rowId = rows[0].id;
+      } catch(_) {}
+    }
+    if (rowId) {
+      await sbFetch('/rest/v1/lead_activity?id=eq.'+rowId, {
+        method:  'PATCH',
+        headers: { 'Prefer': 'return=minimal' },
+        body:    JSON.stringify({ ai_summary: summary })
+      });
+    } else {
+      // Last resort: never lose the summary — log it as a note if no call row found.
+      await logActivity({
+        lead_id:    lead.id,
+        db_lead_id: lead.dbId,
+        client_id:  window._clientId,
+        type:       'note',
+        label:      '🤖 AI Call Summary',
+        body:       summary,
+        skipLocal:  true
+      });
+    }
     loadLeadActivity(lead.id, lead.dbId);
-    showToast('✅ Call summary generated');
+    showToast('✅ Call summary added to the call');
   } catch(e) {
     console.warn('[callSummary]', e.message);
   }
