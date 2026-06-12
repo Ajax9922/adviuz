@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-11 activity-clean-v33</title>
+<title>Adviuz Hub · v2026-06-11 call-card-v34</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3146,7 +3146,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-11 activity-clean-v33';
+var APP_VERSION = 'v2026-06-11 call-card-v34';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -8030,70 +8030,62 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
     if(i<showCount-1) h += '<div class="ld-act-line"></div>';
 
     if (isCall) {
-      // ── CALL ACTIVITY — Premium Card UI ──
+      // ── CALL ACTIVITY — answered/missed, directional, recording → note → AI summary ──
       var ct   = item.callType || (item.label||'').toLowerCase();
-      var isIn  = ct.indexOf('inbound')>-1;
       var isAI  = ct.indexOf('ai')>-1;
       var isIVR = ct.indexOf('ivr')>-1;
-      var callLabel = isAI&&isIn?'AI Inbound':isAI?'AI Outbound':isIVR&&isIn?'IVR Inbound':isIVR?'IVR Outbound':isIn?'Inbound':'Outbound';
-      var callIcon  = isAI?'🤖':isIVR?'📣':'📞';
-      var callBg    = isIn ? '#dcfce7' : '#fee2e2';
-      var callCol   = isIn ? '#15803d'  : '#dc2626';
-      var callDotBg = isIn ? '#dcfce7'  : '#fee2e2';
+      var isIn  = (typeof item.isInbound !== 'undefined') ? item.isInbound : (ct.indexOf('inbound')>-1);
+      var durSec2 = item.duration_seconds || 0;
+      var oc = (item.outcome || (item.body&&item.body.match(/status:\s*(\S+)/i) ? item.body.match(/status:\s*(\S+)/i)[1] : '') || '').toLowerCase();
+      var answered = durSec2 > 0;
+      if (oc) {
+        if (/no.?answer|missed|busy|failed|voicemail|declin|cancel|reject/.test(oc)) answered = false;
+        else if (/answer|complete|in.?progress/.test(oc)) answered = true;
+      }
+      var durTxt = (item.dur && item.dur !== '\u2014' && item.dur !== '0s') ? item.dur
+                 : (durSec2>0 ? Math.floor(durSec2/60)+'m '+(durSec2%60)+'s' : '');
+      var channel   = isAI ? 'AI ' : isIVR ? 'IVR ' : '';
+      var statusTxt = answered ? 'Answered' : 'Missed';
+      var dirArrow  = isIn ? '\u2193' : '\u2191';
+      var stColBg = answered ? '#dcfce7' : '#fee2e2';
+      var stCol   = answered ? '#15803d' : '#dc2626';
 
-      // Dot with colored background
-      h += '<div style="width:36px;height:36px;border-radius:50%;background:'+callDotBg+';display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px">'+callIcon+'</div>';
+      // Colored directional phone dot (green = answered, red = missed)
+      h += '<div style="width:36px;height:36px;border-radius:50%;background:'+stColBg+';display:flex;align-items:center;justify-content:center;flex-shrink:0">'
+        + '<svg fill="none" stroke="'+stCol+'" stroke-width="2" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>'
+        + '</div>';
       h += '<div class="ld-act-body" style="width:100%">';
 
       // Card container
       h += '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.06)">';
 
-      // Top row — badge + time
-      h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
-      h += '<span style="font-size:11px;font-weight:800;padding:4px 10px;border-radius:20px;background:'+callBg+';color:'+callCol+';letter-spacing:.02em">'+callLabel+'</span>';
-      h += '<span style="font-size:11px;color:#9ca3af">'+item.time+'</span>';
+      // Top row — status badge + direction/duration | time
+      h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px">';
+      h += '<div style="display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap">';
+      h += '<span style="font-size:11px;font-weight:800;padding:4px 10px;border-radius:20px;background:'+stColBg+';color:'+stCol+';letter-spacing:.02em;white-space:nowrap">'+dirArrow+' '+statusTxt+'</span>';
+      h += '<span style="font-size:11px;color:#6b7280;font-weight:600;white-space:nowrap">'+channel+(isIn?'Incoming':'Outgoing')+(durTxt?' \u00b7 '+durTxt:'')+'</span>';
       h += '</div>';
-
-      // Stats row — duration + outcome
-      h += '<div style="display:flex;gap:16px;margin-bottom:10px">';
-      var dur = item.dur || (item.body&&item.body.match(/duration:\s*(\S+)/i) ? item.body.match(/duration:\s*(\S+)/i)[1] : null);
-      if (dur && dur !== '0s') {
-        h += '<div style="display:flex;align-items:center;gap:5px">';
-        h += '<svg fill="none" stroke="#9ca3af" stroke-width="2" viewBox="0 0 24 24" style="width:13px;height:13px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
-        h += '<span style="font-size:12px;font-weight:700;color:#374151">'+dur+'</span>';
-        h += '</div>';
-      }
-      var outcome = item.outcome || (item.body&&item.body.match(/status:\s*(\S+)/i) ? item.body.match(/status:\s*(\S+)/i)[1].replace(/-/g,' ') : null);
-      if (outcome) {
-        var outcomeIcon = outcome.indexOf('answer')>-1&&outcome.indexOf('no')===-1?'✅':outcome.indexOf('no-answer')>-1||outcome.indexOf('no answer')>-1?'📵':outcome.indexOf('voicemail')>-1?'📩':'📞';
-        h += '<div style="display:flex;align-items:center;gap:5px">';
-        h += '<span style="font-size:12px">'+outcomeIcon+'</span>';
-        h += '<span style="font-size:12px;color:#6b7280;text-transform:capitalize">'+outcome+'</span>';
-        h += '</div>';
-      } else if (item.body && !item.rec) {
-        h += '<span style="font-size:12px;color:#6b7280">'+item.body+'</span>';
-      }
+      h += '<span style="font-size:11px;color:#9ca3af;flex-shrink:0">'+item.time+'</span>';
       h += '</div>';
 
       // Recording player
       if (item.recording_url) {
         h += '<div style="display:flex;flex-direction:column;gap:6px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:9px 12px;margin-bottom:8px">';
-        h += '<div style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em">Recording'+(dur && dur!=='—' ? ' &middot; '+dur : '')+'</div>';
+        h += '<div style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em">Recording'+(durTxt ? ' &middot; '+durTxt : '')+'</div>';
         h += '<audio src="'+item.recording_url+'" preload="none" style="width:100%;height:36px;outline:none" controls></audio>';
         h += '<a href="'+item.recording_url+'" download target="_blank" style="font-size:11px;color:#2563eb;font-weight:700;text-decoration:none;align-self:flex-end">&#11015; Download</a>';
         h += '</div>';
-        h += callNoteHTML(item);
       }
 
-      // AI Summary
+      // Note (manual call note) — sits under the recording
+      h += callNoteHTML(item);
+
+      // AI Summary — sits under the note
       if (item.summary) {
-        h += '<div style="background:#eff6ff;border-radius:8px;padding:10px 12px;border-left:3px solid #2563eb">';
-        h += '<div style="font-size:10px;font-weight:800;color:#1d4ed8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">🤖 AI Summary</div>';
+        h += '<div style="background:#eff6ff;border-radius:8px;padding:10px 12px;border-left:3px solid #2563eb;margin-top:8px">';
+        h += '<div style="font-size:10px;font-weight:800;color:#1d4ed8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">\uD83E\uDD16 AI Summary</div>';
         h += '<div style="font-size:12px;color:#374151;line-height:1.6">'+item.summary+'</div>';
         h += '</div>';
-      } else {
-        // Show placeholder summary prompt
-        h += '<div style="font-size:11px;color:#9ca3af;font-style:italic">No summary available for this call</div>';
       }
 
       h += '</div>'; // end card
