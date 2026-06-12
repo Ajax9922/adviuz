@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-12 lead-alerts-v46</title>
+<title>Adviuz Hub · v2026-06-12 campaign-lock-v47</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3203,7 +3203,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-12 lead-alerts-v46';
+var APP_VERSION = 'v2026-06-12 campaign-lock-v47';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -12583,6 +12583,7 @@ function _clientCampCard(cp) {
   var viewBudget = Number(cp.view_budget)||0;
   var viewsUsed  = Number(cp.views_used)||0;
   var remaining  = Math.max(0, viewBudget - viewsUsed);
+  var exhausted  = viewBudget > 0 && viewsUsed >= viewBudget;
   var pctUsed    = viewBudget>0 ? Math.min(100, Math.round(viewsUsed/viewBudget*100)) : 0;
   // Total exposure = real Facebook + Google impressions for this campaign.
   // Falls back to flyer views only if no impressions have synced yet.
@@ -12591,8 +12592,8 @@ function _clientCampCard(cp) {
 
   var campLeads  = (leads||[]).filter(function(l){ return gfCampaignId(l)===String(cp.id||''); }).length;
 
-  var statusDot = active ? 'var(--green)' : (paused ? '#f59e0b' : '#9ca3af');
-  var statusLbl = active ? 'Active' : (paused ? 'Paused' : (cp.status||'—'));
+  var statusDot = exhausted ? '#dc2626' : (active ? 'var(--green)' : (paused ? '#f59e0b' : '#9ca3af'));
+  var statusLbl = exhausted ? 'Out of views' : (active ? 'Active' : (paused ? 'Paused' : (cp.status||'—')));
 
   var selMode  = !!window._campSelMode;
   var selected = !!(window._campSel||{})[cp.id];
@@ -12619,7 +12620,7 @@ function _clientCampCard(cp) {
       + '<span style="flex:1"></span>';
   }
   h += '<span style="font-size:11px;font-weight:700;color:'+statusDot+';flex-shrink:0">'+statusLbl+'</span>';
-  if (!selMode) h += _campToggleSwitch(cp.id, active);
+  if (!selMode) h += _campToggleSwitch(cp.id, active, exhausted);
   h += '</div>';
 
   // ── Big "Total Exposure" tile (above the 3 stats per user spec) ──
@@ -12666,11 +12667,25 @@ function _statTile(label, val){
 }
 
 // Reusable iOS/Material-style on/off switch → flips campaigns.status live.
-function _campToggleSwitch(id, on){
+// When `exhausted` (campaign has used all its views), the switch is replaced
+// by a locked "Top up" pill — the client can't turn a spent campaign back on.
+function _campToggleSwitch(id, on, exhausted){
+  if (exhausted) {
+    return '<div onclick="event.stopPropagation();campOutOfViews(\''+id+'\')" role="button" aria-disabled="true" '
+      + 'style="display:flex;align-items:center;gap:5px;padding:6px 11px;border-radius:99px;background:#fff7ed;border:1.5px solid #fdba74;color:#c2410c;font-size:11px;font-weight:800;cursor:pointer;flex-shrink:0;white-space:nowrap">'
+      + '\u26A0\uFE0F Top up'
+      + '</div>';
+  }
   return '<div onclick="event.stopPropagation();clientToggleCampaign(\''+id+'\',\''+(on?'paused':'active')+'\')" role="switch" aria-checked="'+(on?'true':'false')+'" '
     + 'style="width:44px;height:26px;border-radius:99px;background:'+(on?'var(--green)':'#cbd5e1')+';position:relative;cursor:pointer;flex-shrink:0;transition:background .2s">'
     + '<div style="position:absolute;top:3px;left:'+(on?'21px':'3px')+';width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:left .2s"></div>'
     + '</div>';
+}
+
+// Tapped the locked "Top up" pill on a spent campaign.
+function campOutOfViews(id){
+  showToast('This campaign is out of views \u2014 top up to resume');
+  try { if (typeof openAddBalanceSheet === 'function') openAddBalanceSheet(); } catch(e){}
 }
 
 // ── Campaign DETAIL view ──
@@ -13841,6 +13856,7 @@ function clientCampaignDetailHTML(campId){
   var viewBudget = Number(cp.view_budget)||0;
   var viewsUsed  = Number(cp.views_used)||0;
   var remaining  = Math.max(0, viewBudget - viewsUsed);
+  var exhausted  = viewBudget > 0 && viewsUsed >= viewBudget;
   var totalImpr     = (Number(cp.fb_impressions)||0) + (Number(cp.google_impressions)||0);
   var totalExposure = totalImpr || (Number(cp.total_exposure)||0) || viewsUsed;
   var campLeads  = (leads||[]).filter(function(l){ return gfCampaignId(l)===String(cp.id||''); }).length;
@@ -13856,7 +13872,7 @@ function clientCampaignDetailHTML(campId){
   h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">'
     +    '<div style="font-size:22px;font-weight:800;color:var(--text);letter-spacing:-.01em;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">'+(cp.name||'Campaign')+'</div>'
     +    '<button onclick="'+_viewClick+'" title="View live ad — counts a 25s view" style="width:40px;height:40px;border-radius:50%;border:1.5px solid var(--border);background:var(--white);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">'+_eye+'</button>'
-    +    _campToggleSwitch(cp.id, active)
+    +    _campToggleSwitch(cp.id, active, exhausted)
     +  '</div>';
 
   // (Preview button removed — the eye icon previews, and tapping a placement
@@ -14032,6 +14048,14 @@ function clientBackToCampaigns(){
 // ── Pause / Activate (immediate DB flip) ──
 async function clientToggleCampaign(campId, newStatus){
   if (!campId || !newStatus) return;
+  // Block turning a spent campaign back on — no views left to serve.
+  if (newStatus === 'active') {
+    var c0 = (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(campId); });
+    if (c0) {
+      var vb = Number(c0.view_budget)||0, vu = Number(c0.views_used)||0;
+      if (vb > 0 && vu >= vb) { campOutOfViews(campId); return; }
+    }
+  }
   try {
     var res = await sbFetch('/rest/v1/campaigns?id=eq.'+campId, {
       method:'PATCH',
@@ -14069,14 +14093,21 @@ async function campBulkToggle(status){
   var ids=Object.keys(window._campSel||{});
   if(!ids.length){ showToast('Select at least one campaign'); return; }
   showToast('Updating '+ids.length+' campaign'+(ids.length>1?'s':'')+'…');
+  var skipped=0;
   for(var i=0;i<ids.length;i++){
     try{
+      if (status==='active'){
+        var c=(window._clientCampaigns||[]).find(function(x){return String(x.id)===String(ids[i]);});
+        if (c){ var vb=Number(c.view_budget)||0, vu=Number(c.views_used)||0; if (vb>0&&vu>=vb){ skipped++; continue; } }
+      }
       var res=await sbFetch('/rest/v1/campaigns?id=eq.'+ids[i],{method:'PATCH',body:JSON.stringify({status:status,updated_at:new Date().toISOString()})});
       if(res&&res.ok){ var cp=(window._clientCampaigns||[]).find(function(x){return String(x.id)===String(ids[i]);}); if(cp) cp.status=status; }
     }catch(e){}
   }
   window._campSelMode=false; window._campSel={};
-  showToast(status==='active'?'▶ Campaigns activated':'⏸ Campaigns paused');
+  showToast(status==='active'
+    ? ('▶ Campaigns activated'+(skipped?(' · '+skipped+' skipped (out of views)'):''))
+    : '⏸ Campaigns paused');
   document.getElementById('content').innerHTML=clientDashHTML();
 }
 
