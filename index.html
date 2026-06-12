@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-12 pay-invoice-v45</title>
+<title>Adviuz Hub · v2026-06-12 lead-alerts-v46</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1593,6 +1593,25 @@ body.impersonating .ls-topbar{padding-top:8px}
     <div class="sh-foot">
       <button class="btn btn-ghost" onclick="closeSheet('leadLocSh')" style="flex:1">Skip</button>
       <button class="btn" id="llSaveBtn" onclick="saveLeadLocation()" style="flex:2;justify-content:center;background:var(--green);color:#fff">Save location</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ LEAD ALERT NUMBERS (client self-service SMS alert recipients) ═══ -->
+<div class="sheet-ov" id="leadAlertSh" style="z-index:880" onclick="if(event.target===this)closeSheet('leadAlertSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sh-head">
+      <div class="sh-title">Lead alert numbers</div>
+      <button class="sh-x" onclick="closeSheet('leadAlertSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body">
+      <div style="font-size:13px;color:var(--sub);margin-bottom:14px;line-height:1.6">We&rsquo;ll text these mobiles the instant a new lead calls or enquires. Add <b>one or more</b> &mdash; use numbers that can receive texts (a landline won&rsquo;t work).</div>
+      <div id="laRows"></div>
+      <button onclick="laAddRow()" style="width:100%;padding:11px;border-radius:10px;background:var(--white);border:1.5px dashed var(--border);color:var(--text);font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer;margin-top:2px">+ Add another number</button>
+    </div>
+    <div class="sh-foot">
+      <button class="btn btn-ghost" onclick="closeSheet('leadAlertSh')" style="flex:1">Cancel</button>
+      <button class="btn" id="laSaveBtn" onclick="saveLeadAlerts()" style="flex:2;justify-content:center;background:var(--green);color:#fff">Save numbers</button>
     </div>
   </div>
 </div>
@@ -3184,7 +3203,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-12 pay-invoice-v45';
+var APP_VERSION = 'v2026-06-12 lead-alerts-v46';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -12219,6 +12238,94 @@ async function payInvoice(invId, btn){
   if (btn){ btn.disabled = false; btn.textContent = orig; }
 }
 
+// ══════════════════════════════════════════════════════
+// LEAD ALERT NUMBERS — client self-service (one or more mobiles)
+// Stored on clients.notification_phones as ["1XXXXXXXXXX", ...].
+// Real clients save via the update_my_notification_phones RPC (scoped to
+// their own row); operator mirror-mode PATCHes the viewed client directly.
+// ══════════════════════════════════════════════════════
+function _laNorm(s){
+  var d = String(s||'').replace(/\D/g,'');
+  if (d.length === 10) return '1'+d;
+  if (d.length === 11 && d.charAt(0)==='1') return d;
+  if (d.length >= 11) return d;
+  return '';
+}
+function _laDisplay(v){
+  var d = String(v||'').replace(/\D/g,'');
+  if (d.length === 11 && d.charAt(0)==='1') d = d.slice(1);
+  if (d.length === 10) return '('+d.slice(0,3)+') '+d.slice(3,6)+'-'+d.slice(6);
+  return String(v||'');
+}
+function _laRowHTML(val){
+  return '<div class="la-row" style="display:flex;gap:8px;margin-bottom:8px;align-items:center">'
+    +   '<input class="finp la-inp" type="tel" inputmode="tel" placeholder="(416) 555-0123" value="'+_laDisplay(val).replace(/"/g,'&quot;')+'" style="flex:1">'
+    +   '<button onclick="laRemoveRow(this)" title="Remove" style="width:42px;height:42px;flex-shrink:0;border-radius:10px;border:1.5px solid var(--border);background:var(--white);color:var(--sub);font-size:20px;cursor:pointer;line-height:1">&times;</button>'
+    + '</div>';
+}
+function _laRenderRows(list){
+  var box = document.getElementById('laRows'); if(!box) return;
+  var arr = (list && list.length) ? list : [''];
+  box.innerHTML = arr.map(function(v){ return _laRowHTML(v); }).join('');
+}
+function laAddRow(){
+  var box = document.getElementById('laRows'); if(!box) return;
+  box.insertAdjacentHTML('beforeend', _laRowHTML(''));
+  var rows = box.querySelectorAll('.la-row');
+  var last = rows[rows.length-1];
+  var inp = last && last.querySelector('input'); if(inp) inp.focus();
+}
+function laRemoveRow(btn){
+  var row = btn.closest('.la-row'); if(!row) return;
+  var box = document.getElementById('laRows');
+  row.remove();
+  if (box && !box.querySelector('.la-row')) _laRenderRows(['']); // never fully empty
+}
+function openLeadAlertSheet(){
+  var c = window._clientData || {};
+  var raw = c.notification_phones;
+  try { if (typeof raw === 'string') raw = JSON.parse(raw||'[]'); } catch(e){ raw = []; }
+  var list = Array.isArray(raw) ? raw.map(function(x){ return String(x); }).filter(Boolean) : [];
+  // Helpful default: pre-fill the client's mobile on file if nothing set yet.
+  if (!list.length && c.phone) list = [String(c.phone)];
+  _laRenderRows(list);
+  openSheet('leadAlertSh');
+}
+async function saveLeadAlerts(){
+  var btn = document.getElementById('laSaveBtn');
+  var inputs = Array.prototype.slice.call(document.querySelectorAll('#laRows .la-inp'));
+  // Flag anything typed that isn't a valid 10/11-digit number.
+  var bad = inputs.filter(function(inp){ var raw=inp.value.replace(/\D/g,''); return raw.length>0 && !_laNorm(inp.value); });
+  if (bad.length){ showToast('Check the number(s) — enter a 10-digit mobile'); bad[0].focus(); return; }
+  var seen = {}, out = [];
+  inputs.forEach(function(inp){ var n=_laNorm(inp.value); if(n && !seen[n]){ seen[n]=1; out.push(n); } });
+  var cid = window._clientId; if(!cid){ showToast('No client loaded'); return; }
+  if (btn){ btn.disabled = true; btn.textContent = 'Saving\u2026'; }
+  try {
+    var r;
+    if (window._viewingAsClient) {
+      // Operator mirror mode — staff can PATCH the viewed client directly.
+      r = await sbFetch('/rest/v1/clients?id=eq.'+cid, {
+        method:'PATCH', headers:{ 'Prefer':'return=minimal' },
+        body: JSON.stringify({ notification_phones: out })
+      });
+    } else {
+      r = await sbFetch('/rest/v1/rpc/update_my_notification_phones', {
+        method:'POST', body: JSON.stringify({ p_phones: out })
+      });
+    }
+    if (r.ok){
+      if (window._clientData) window._clientData.notification_phones = out;
+      closeSheet('leadAlertSh');
+      showToast(out.length ? ('\u2705 Saved \u2014 alerts go to '+out.length+' number'+(out.length>1?'s':'')) : '\u2705 Saved \u2014 no numbers set');
+      try { if (window._isClientMode) render(); } catch(e){}
+    } else {
+      showToast('Could not save \u2014 please try again');
+    }
+  } catch(e){ showToast('Save error \u2014 please try again'); }
+  if (btn){ btn.disabled = false; btn.textContent = 'Save numbers'; }
+}
+
 window._cInvOpen = window._cInvOpen || {};
 function cInvToggle(id) {
   window._cInvOpen = window._cInvOpen || {};
@@ -12401,6 +12508,20 @@ function clientCampaignListHTML() {
     +    '<span style="flex:1;min-width:0">'
     +      '<span style="display:block;font-size:14px;font-weight:800;color:var(--text)">Billing &amp; Invoices</span>'
     +      '<span style="display:block;font-size:12px;color:var(--sub);margin-top:1px">View invoices, payments &amp; download PDFs</span>'
+    +    '</span>'
+    +    '<span style="font-size:18px;color:var(--sub);flex-shrink:0">\u203A</span>'
+    +  '</button>';
+
+  // ── Lead alert numbers entry (SMS recipients for new leads) ──
+  var _napRaw = (c.notification_phones != null) ? c.notification_phones : [];
+  try { if (typeof _napRaw === 'string') _napRaw = JSON.parse(_napRaw || '[]'); } catch(e){ _napRaw = []; }
+  var _napN = Array.isArray(_napRaw) ? _napRaw.filter(Boolean).length : 0;
+  var _napSub = _napN ? (_napN + ' number' + (_napN>1?'s':'') + ' set') : 'Get a text the moment a lead comes in';
+  h += '<button onclick="openLeadAlertSheet()" style="width:100%;display:flex;align-items:center;gap:12px;background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:14px;cursor:pointer;text-align:left;font-family:var(--f)">'
+    +    '<span style="width:38px;height:38px;border-radius:11px;background:var(--greenl,#e7f8f3);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">\uD83D\uDD14</span>'
+    +    '<span style="flex:1;min-width:0">'
+    +      '<span style="display:block;font-size:14px;font-weight:800;color:var(--text)">Lead alert numbers</span>'
+    +      '<span style="display:block;font-size:12px;color:var(--sub);margin-top:1px">'+_napSub+'</span>'
     +    '</span>'
     +    '<span style="font-size:18px;color:var(--sub);flex-shrink:0">\u203A</span>'
     +  '</button>';
