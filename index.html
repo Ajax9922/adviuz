@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-11 ai-summary-lock-v41</title>
+<title>Adviuz Hub · v2026-06-12 quote-province-v43</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3146,7 +3146,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-11 ai-summary-lock-v41';
+var APP_VERSION = 'v2026-06-12 quote-province-v43';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -15960,6 +15960,23 @@ var PROVINCE_TZ = {
   NL:{name:'NST/NDT',utc:-3.5,dst:true}
 };
 
+// ── Province from a lead's free-text location (source of truth for tax + timezone) ──
+var PROVINCE_NAMES = {
+  'newfoundland and labrador':'NL','newfoundland':'NL','prince edward island':'PE','pei':'PE',
+  'nova scotia':'NS','new brunswick':'NB','british columbia':'BC','northwest territories':'NT',
+  'saskatchewan':'SK','manitoba':'MB','ontario':'ON','quebec':'QC','québec':'QC',
+  'alberta':'AB','yukon':'YT','nunavut':'NU'
+};
+var CODE_TO_PROVINCE = {NL:'Newfoundland and Labrador',PE:'Prince Edward Island',NS:'Nova Scotia',NB:'New Brunswick',BC:'British Columbia',NT:'Northwest Territories',SK:'Saskatchewan',MB:'Manitoba',ON:'Ontario',QC:'Quebec',AB:'Alberta',YT:'Yukon',NU:'Nunavut'};
+function provFromText(s){
+  if(!s) return null;
+  var t = (''+s).toLowerCase();
+  var names = Object.keys(PROVINCE_NAMES).sort(function(a,b){return b.length-a.length;});
+  for(var i=0;i<names.length;i++){ if(t.indexOf(names[i])>-1) return PROVINCE_NAMES[names[i]]; }
+  var m = t.match(/\b(on|ab|bc|qc|mb|sk|ns|nb|nl|pe|yt|nu|nt)\b/);
+  return m ? m[1].toUpperCase() : null;
+}
+
 function isDST() {
   // DST in Canada: 2nd Sunday in March (2:00 AM) → 1st Sunday in November (2:00 AM)
   // IMPORTANT: Do NOT use browser getTimezoneOffset() — Saskatoon never observes DST
@@ -16644,15 +16661,20 @@ function openCreateQuoteSheet(lid) {
   var dEl = document.getElementById('q-discount'); if(dEl) dEl.value = '';
   var fEl = document.getElementById('q-final-amount'); if(fEl) fEl.value = '';
 
-  // Set default province SK
+  // Province: derive from the lead's location (source of truth for tax + timezone).
+  // Falls back to SK only when there's no lead or the location has no recognizable province.
+  var provCode = l ? provFromText(l.location) : null;
+  window._quoteProvFromLead = !!provCode;
   var provSel = document.getElementById('q-province');
-  if(provSel) provSel.value = 'SK';
+  if(provSel) provSel.value = provCode || 'SK';
   setProvinceTax();
+  if(l && !provCode){
+    showToast('\u26A0\uFE0F Set this client\u2019s province below \u2014 it\u2019ll be saved to their profile');
+  }
 
-  // Set valid date 7 days from now
-  var d = new Date(Date.now() + 7*86400000);
+  // Set valid date 7 days from now (LOCAL date — toISOString would use UTC and shift a day)
   var validEl = document.getElementById('q-valid');
-  if(validEl) validEl.value = d.toISOString().split('T')[0];
+  if(validEl) validEl.value = locDate(Date.now() + 7*86400000);
 
   loadPlansIntoQuoteDropdown();
   renderQuoteItems();
@@ -16778,6 +16800,11 @@ async function saveAndSendQuote() {
   var notes    = (document.getElementById('q-notes')||{}).value.trim();
   var terms    = (document.getElementById('q-terms')||{}).value;
   var valid    = (document.getElementById('q-valid')||{}).value;
+  // Never send an already-expired quote: if blank, today, or in the past, bump to today+7 (local).
+  (function(){
+    var todayStr = locToday();
+    if(!valid || valid <= todayStr) valid = locDate(Date.now() + 7*86400000);
+  })();
   var taxRate  = parseFloat((document.getElementById('q-tax')||{}).value||0);
   var taxType  = (document.getElementById('q-tax')||{}).options ? ((document.getElementById('q-tax')||{}).options[(document.getElementById('q-tax')||{}).selectedIndex]||{}).text||'' : '';
   taxType = taxType.replace(/[\d.%\s-]+/,'').trim(); // extract e.g. "GST+PST"
@@ -16867,6 +16894,23 @@ async function saveAndSendQuote() {
     var q = Array.isArray(data) ? data[0] : data;
     if(!q || !q.id) throw new Error('Quote saved but no ID returned');
 
+    // Source-of-truth: if this lead had no usable province in their profile, save the
+    // one chosen here so future quotes/invoices/reminders use the right tax + timezone.
+    try {
+      if(_quoteLeadId && !window._quoteProvFromLead && province){
+        var lq = leads.find(function(x){ return x.dbId===_quoteLeadId; });
+        var curLoc = (lq && lq.location ? (''+lq.location).trim() : '');
+        if(!curLoc){
+          var provName = CODE_TO_PROVINCE[province] || province;
+          await sbFetch('/rest/v1/leads?id=eq.'+_quoteLeadId, {
+            method:'PATCH', headers:{'Prefer':'return=minimal'},
+            body: JSON.stringify({ location: provName })
+          });
+          if(lq) lq.location = provName;
+        }
+      }
+    } catch(_e){ /* non-fatal */ }
+
     // Send email to client
     var qUrl = 'https://hub.adviuz.ca/quote/?id='+q.id;
     try {
@@ -16876,7 +16920,7 @@ async function saveAndSendQuote() {
         return '<tr><td style="padding:8px 0;font-size:14px;color:#111827;border-bottom:1px solid #e5e7eb;">'+i.name+'</td>'
                +'<td style="padding:8px 0;font-size:14px;color:#111827;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:500;">CAD $'+parseFloat(i.total||0).toLocaleString('en-CA',{minimumFractionDigits:2})+'</td></tr>';
       }).join('');
-      var validStr = valid ? new Date(valid).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : '7 days';
+      var validStr = valid ? new Date(valid+'T12:00:00').toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : '7 days';
       var discountRow = discount > 0
         ? '<tr><td style="padding:4px 0;font-size:13px;color:#dc2626;">Discount</td><td style="text-align:right;font-size:13px;color:#dc2626;">- CAD $'+discount.toFixed(2)+'</td></tr>' : '';
       var taxRow = taxAmt > 0
