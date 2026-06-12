@@ -1446,6 +1446,12 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
           </div>
           <div id="cm-phone-hint" style="font-size:11px;color:var(--muted);margin-top:4px">Enter exactly 10 digits</div>
         </div>
+        <!-- Lead alert SMS numbers (one or more, client-level) -->
+        <div class="form-group full">
+          <label class="fld">Lead alert SMS number(s)</label>
+          <textarea class="fld" id="cm-notify-phones" placeholder="e.g. 4165550123, 9055551234" style="height:54px;resize:none"></textarea>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">Texted the instant a lead comes in. One or more mobiles, separated by comma or new line. Leave blank to fall back to the client's phone above.</div>
+        </div>
         <!-- Password -->
         <div class="form-group full" id="cm-pass-group">
           <label class="fld">Login password <span style="color:var(--danger)">*</span></label>
@@ -2415,7 +2421,7 @@ function generatePassword() {
   }
 }
 function resetClientModal() {
-  ['cm-name','cm-biz','cm-email','cm-phone','cm-pass','cm-notes','cm-balance'].forEach(function(id){
+  ['cm-name','cm-biz','cm-email','cm-phone','cm-pass','cm-notes','cm-balance','cm-notify-phones'].forEach(function(id){
     var el = document.getElementById(id); if(el) el.value = '';
   });
   var err = document.getElementById('cm-error');
@@ -5220,6 +5226,13 @@ function openEditClient(el) {
   // Parse phone — strip country code if present
   var rawPhone = (c.phone || '').replace(/^\+\d{1,3}/, '').replace(/\D/g,'');
   if (pEl) pEl.value = rawPhone;
+  // Lead alert SMS numbers (client-level, one or more)
+  var npEl = document.getElementById('cm-notify-phones');
+  if (npEl) {
+    var nps = c.notification_phones;
+    try { if (typeof nps === 'string') nps = JSON.parse(nps || '[]'); } catch(e){ nps = []; }
+    npEl.value = (Array.isArray(nps) ? nps : []).map(function(x){ return _admPhoneDisplay(x); }).filter(Boolean).join(', ');
+  }
   var billing = document.getElementById('new-client-billing');
   var role    = document.getElementById('new-client-role');
   if (billing) billing.value = c.billing_model || 'views';
@@ -5244,6 +5257,27 @@ function openEditClient(el) {
   if (btn) btn.textContent = 'Save changes';
   openModal('clientModal');
 }
+// ── Lead alert SMS number helpers (client-level notification_phones) ──
+function _admPhoneNorm(s){
+  var d = String(s||'').replace(/\D/g,'');
+  if (d.length === 10) return '1'+d;
+  if (d.length === 11 && d.charAt(0)==='1') return d;
+  if (d.length >= 11) return d;
+  return '';
+}
+function _admPhoneDisplay(v){
+  var d = String(v||'').replace(/\D/g,'');
+  if (d.length === 11 && d.charAt(0)==='1') d = d.slice(1);
+  if (d.length === 10) return '('+d.slice(0,3)+') '+d.slice(3,6)+'-'+d.slice(6);
+  return String(v||'');
+}
+function _admParsePhones(str){
+  var parts = String(str||'').split(/[\s,;]+/);
+  var seen = {}, out = [];
+  parts.forEach(function(p){ var n=_admPhoneNorm(p); if(n && !seen[n]){ seen[n]=1; out.push(n); } });
+  return out.slice(0,10);
+}
+
 async function saveClientEdit() {
   var cid = window._editClientId;
   if (!cid) return;
@@ -5266,6 +5300,7 @@ async function saveClientEdit() {
     body: (function(){
       var d = { contact_name:n, business_name:b, phone:p, billing_model:billing, role:role };
       if (!isNaN(newBal) && newBal >= 0) d.view_balance = newBal;
+      d.notification_phones = _admParsePhones(document.getElementById('cm-notify-phones')?.value || '');
       return JSON.stringify(d);
     })()
   });
