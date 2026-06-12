@@ -117,6 +117,20 @@ function fmtCAD(n){ return "$"+Math.abs(parseFloat(n||0)).toLocaleString("en-CA"
 function dOnly(str){ return (typeof str==='string' && str.length<=10) ? new Date(str+'T12:00:00') : new Date(str); }
 function fmtDate(str){ if(!str)return""; return dOnly(str).toLocaleDateString("en-CA",{day:"2-digit",month:"short",year:"numeric"}); }
 
+// ── Branded file URLs ──
+// Once a Cloudflare proxy (e.g. files.adviuz.ca) serves the public Supabase
+// storage bucket, set BRANDED_FILES_BASE and PDF links show your own domain
+// instead of the supabase.co URL. Empty = unchanged (still works as-is).
+var BRANDED_FILES_BASE = ""; // e.g. "https://files.adviuz.ca"
+var SB_STORAGE_PREFIX  = SB_URL + "/storage/v1/object/public/adviuz-files/";
+function brandFileUrl(url){
+  if(!url || !BRANDED_FILES_BASE) return url || "";
+  if(url.indexOf(SB_STORAGE_PREFIX) === 0){
+    return BRANDED_FILES_BASE.replace(/\/+$/,'') + "/" + url.slice(SB_STORAGE_PREFIX.length);
+  }
+  return url;
+}
+
 var PROV_TAX = {
   SK:{rate:0.11,label:"GST+PST (11%)"},AB:{rate:0.05,label:"GST (5%)"},
   ON:{rate:0.13,label:"HST (13%)"},BC:{rate:0.12,label:"GST+PST (12%)"},
@@ -250,7 +264,7 @@ function renderQuote(q){
   }
 
   // Share row — PDF uses pdfmonkey URL if available, else print
-  var pdfUrl = q.pdf_url || '';
+  var pdfUrl = brandFileUrl(q.pdf_url || '');
   html+="<div class='share-row'>"
     +(pdfUrl
       ? "<a href='"+pdfUrl+"' target='_blank' id='sharePdfBtn' class='share-btn pdf'>&#x1F4C4; Download PDF</a>"
@@ -322,13 +336,13 @@ function renderQuote(q){
     +"<div><div class='footer-lbl'>North America</div><div class='footer-val'>Instad Web Services Ltd<br>329, 125 Stonebridge Common<br>Saskatoon, SK S7T 0Z5<br>Canada</div></div>"
     +"<div><div class='footer-lbl'>Contact</div><div class='footer-val'><a href='https://adviuz.ca' style='color:var(--green)'>adviuz.ca</a><br><a href='mailto:sales@adviuz.ca' style='color:var(--green)'>sales@adviuz.ca</a></div></div>"
     +"</div>"
-    +"<div class='footer-bottom'>Generated: "+new Date().toLocaleString("en-CA",{dateStyle:"medium",timeStyle:"short"})+" &bull; This is a system generated quote and does not require a signature. <span style='opacity:.5'>qv2026-06-12</span></div>"
+    +"<div class='footer-bottom'>Generated: "+new Date().toLocaleString("en-CA",{dateStyle:"medium",timeStyle:"short"})+" &bull; This is a system generated quote and does not require a signature. <span style='opacity:.5'>qv2026-06-12b</span></div>"
     +"</div>";
 
   document.getElementById("main").innerHTML = html;
 
   // Store pdfmonkey URL globally for download button
-  window._currentPdfUrl = q.pdf_url || '';
+  window._currentPdfUrl = brandFileUrl(q.pdf_url || '');
 
   // PDF button is already an <a href target="_blank"> when pdf_url exists
   // No onclick needed — the href handles the click
@@ -413,6 +427,7 @@ function setupWhatsAppShare(q, total){
     + "\n*Amount:* " + totalFmt
     + (q.valid_until ? "\n*Valid Until:* " + dOnly(q.valid_until).toLocaleDateString("en-CA",{month:"short",day:"numeric",year:"numeric"}) : "")
     + "\n\n*View & Pay Online:*\n" + qUrl
+    + (q.pdf_url ? "\n\n*Download PDF:*\n" + brandFileUrl(q.pdf_url) : "")
     + "\n\n_Pay securely by card, or e-transfer to sales@adviuz.ca with quote # as reference._";
   var waUrl = "https://wa.me/?text=" + encodeURIComponent(msg);
   // Topbar button
