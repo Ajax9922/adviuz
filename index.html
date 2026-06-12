@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-11 lead-scroll-v28</title>
+<title>Adviuz Hub · v2026-06-11 list-ptr-v30</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1275,6 +1275,11 @@ body.impersonating .ls-topbar{padding-top:8px}
     <div class="menu-biz-sub">Ontario, Canada &middot; Adviuz client</div>
   </div>
   <div class="menu-items">
+    <div class="menu-item" onclick="closeMenu();adviuzForceRefresh()">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      <span>Refresh app</span>
+      <span id="menuAppVer" style="margin-left:auto;font-size:10px;color:rgba(255,255,255,.4);font-weight:600"></span>
+    </div>
     <div class="menu-sect">Campaigns</div>
     <div class="menu-item" onclick="closeMenu();openCampaigns()">
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>Digital Flyer Campaigns
@@ -3140,7 +3145,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-11 lead-scroll-v28';
+var APP_VERSION = 'v2026-06-11 list-ptr-v30';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -5741,6 +5746,7 @@ function skipDealValueAndClose(){
 function render(){
   var pages={leads:leadsHTML,followups:followupsHTML,reports:reportsHTML,calls:callsHTML,dashboard:window._isPartnerMode?partnerDashHTML:(window._isClientMode?clientDashHTML:adminDashHTML)};
   document.getElementById('content').innerHTML=(pages[curTab]||leadsHTML)();
+  if(typeof initListPullToRefresh==='function') initListPullToRefresh();
   if(typeof updateActiveFilterBar==='function') updateActiveFilterBar();
   if(typeof updateNotifBadge==='function') updateNotifBadge();
   if(!window._bellLoaded){
@@ -7211,6 +7217,29 @@ function initLeadPullToRefresh(){
       armed = false;
       showToast('🔄 Refreshing…');
       refreshCurrentLead(document.getElementById('lsRefresh'));
+    }
+  }, { passive: true });
+  el.addEventListener('touchend', function(){ armed = false; }, { passive: true });
+}
+
+// Pull-to-refresh on the main list (Leads / Follow-ups / Calls / Reports):
+// swipe down while scrolled to the top to reload the current data.
+function initListPullToRefresh(){
+  var el = document.getElementById('content');
+  if (!el || el._ptrInit) return;
+  el._ptrInit = true;
+  var startY = 0, armed = false;
+  el.addEventListener('touchstart', function(e){
+    armed  = (el.scrollTop <= 0);
+    startY = e.touches[0].clientY;
+  }, { passive: true });
+  el.addEventListener('touchmove', function(e){
+    if (!armed) return;
+    if (el.scrollTop > 0) { armed = false; return; }
+    if (e.touches[0].clientY - startY > 75) {
+      armed = false;
+      if (window.showToast) showToast('🔄 Refreshing…');
+      if (typeof refreshLeads === 'function') refreshLeads();
     }
   }, { passive: true });
   el.addEventListener('touchend', function(){ armed = false; }, { passive: true });
@@ -11318,10 +11347,34 @@ function sendBulkEmail(){var withEmail=Array.from(selIds).filter(function(id){va
 function openMenu(){
   document.getElementById('menuOv').classList.add('open');
   document.getElementById('menuDrawer').style.display='flex';
+  try{ var mv=document.getElementById('menuAppVer'); if(mv) mv.textContent = (typeof APP_VERSION!=='undefined'?APP_VERSION:'').replace(/^v\d{4}-\d{2}-\d{2}\s*/,''); }catch(e){}
 }
 function closeMenu(){
   document.getElementById('menuOv').classList.remove('open');
   document.getElementById('menuDrawer').style.display='none';
+}
+
+// Force the app to fetch the newest deployed version: refresh the service worker,
+// clear cached files, then hard-reload. Auth/session (localStorage) is untouched.
+async function adviuzForceRefresh(){
+  try{ if(window.showToast) showToast('Updating to the latest version…'); }catch(e){}
+  try{
+    if('serviceWorker' in navigator){
+      var reg = await navigator.serviceWorker.getRegistration();
+      if(reg){ try{ await reg.update(); }catch(e){} }
+    }
+  }catch(e){}
+  try{
+    if(window.caches && caches.keys){
+      var keys = await caches.keys();
+      await Promise.all(keys.map(function(k){ return caches.delete(k); }));
+    }
+  }catch(e){}
+  try{
+    var u = new URL(window.location.href);
+    u.searchParams.set('_v', Date.now());
+    window.location.replace(u.href);
+  }catch(e){ window.location.reload(); }
 }
 
 // ═══════════════════════════════════════
