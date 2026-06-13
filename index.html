@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-13 ai-outbound-v51</title>
+<title>Adviuz Hub · v2026-06-13 ai-calllog-v52</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3203,7 +3203,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-13 ai-outbound-v51';
+var APP_VERSION = 'v2026-06-13 ai-calllog-v52';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7169,7 +7169,9 @@ async function loadLeadActivity(localId, dbId) {
         isInbound:    isInbound,
         summary:      row.ai_summary || row.summary || null,
         id:           row.id,
-        call_note:    row.call_note || null
+        call_note:    row.call_note || null,
+        is_ai:        !!(row.metadata && (row.metadata.handler === 'ai' || row.metadata.ai === true)),
+        transcript:   (row.metadata && row.metadata.transcript) || ''
       };
     });
 
@@ -7803,6 +7805,13 @@ function lsToggleTranscript(){
   d.style.display = open ? 'none' : 'block';
   if(b) b.textContent = open ? 'View transcript ▾' : 'Hide transcript ▴';
 }
+function lsToggleActTx(id){
+  var d = document.getElementById('act-tx-'+id), b = document.getElementById('act-tx-btn-'+id);
+  if(!d) return;
+  var open = d.style.display !== 'none';
+  d.style.display = open ? 'none' : 'block';
+  if(b) b.textContent = open ? 'View transcript ▾' : 'Hide transcript ▴';
+}
 function renderLeadScreen(id) {
   var l = leads.find(function(x){ return x.id === id; });
   if(!l) return;
@@ -8033,6 +8042,9 @@ function renderLeadScreen(id) {
     var isIn0  = (typeof recentCall.isInbound !== 'undefined') ? recentCall.isInbound : (ct0.indexOf('inbound')>-1);
     var dirTxt0 = isIn0 ? 'Inbound' : 'Outbound';
     var cb0 = isIn0 ? '#d1fae5' : '#ffe0e0', cc0 = isIn0 ? 'var(--green)' : 'var(--red)';
+    var isAiHandled0 = !!(recentCall._ai || recentCall.is_ai);
+    var hb0 = isAiHandled0 ? '#ede9fe' : '#f3f4f6', hc0 = isAiHandled0 ? '#7c3aed' : '#4b5563';
+    var hTxt0 = isAiHandled0 ? '🤖 AI' : '👤 Human';
     var dur0 = recentCall.dur || '';
     if (dur0 === '\u2014') dur0 = '';
     // Line 1 — title · clock · duration ............ date/time
@@ -8046,6 +8058,7 @@ function renderLeadScreen(id) {
     // Line 2 — direction badge + play bar
     h += '<div style="display:flex;align-items:center;gap:10px;background:var(--bg);border-radius:12px;padding:10px 12px">';
     h += '<span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;background:'+cb0+';color:'+cc0+';white-space:nowrap;flex-shrink:0">'+dirTxt0+'</span>';
+    h += '<span style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;background:'+hb0+';color:'+hc0+';white-space:nowrap;flex-shrink:0">'+hTxt0+'</span>';
     if (recentCall.rec && recentCall.recording_url) {
       h += '<audio id="recAudio0" src="'+recentCall.recording_url+'" preload="metadata" style="flex:1;min-width:0;height:36px;border-radius:8px;outline:none" controls></audio>';
     } else if (recentCall.rec) {
@@ -8158,7 +8171,7 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
     if (isCall) {
       // ── CALL ACTIVITY — answered/missed, directional, recording → note → AI summary ──
       var ct   = item.callType || (item.label||'').toLowerCase();
-      var isAI  = ct.indexOf('ai')>-1;
+      var isAI  = (typeof item.is_ai!=='undefined' && item.is_ai) || ct.indexOf('ai')>-1;
       var isIVR = ct.indexOf('ivr')>-1;
       var isIn  = (typeof item.isInbound !== 'undefined') ? item.isInbound : (ct.indexOf('inbound')>-1);
       var durSec2 = item.duration_seconds || 0;
@@ -8170,7 +8183,7 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
       }
       var durTxt = (item.dur && item.dur !== '\u2014' && item.dur !== '0s') ? item.dur
                  : (durSec2>0 ? Math.floor(durSec2/60)+'m '+(durSec2%60)+'s' : '');
-      var channel   = isAI ? 'AI ' : isIVR ? 'IVR ' : '';
+      var channel   = isIVR ? 'IVR ' : '';
       var statusTxt = answered ? 'Answered' : 'Missed';
       var dirArrow  = isIn ? '\u2193' : '\u2191';
       var stColBg = answered ? '#dcfce7' : '#fee2e2';
@@ -8190,6 +8203,7 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
       h += '<div style="display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap">';
       h += '<span style="font-size:11px;font-weight:800;padding:4px 10px;border-radius:20px;background:'+stColBg+';color:'+stCol+';letter-spacing:.02em;white-space:nowrap">'+dirArrow+' '+statusTxt+'</span>';
       h += '<span style="font-size:11px;color:#6b7280;font-weight:600;white-space:nowrap">'+channel+(isIn?'Incoming':'Outgoing')+(durTxt?' \u00b7 '+durTxt:'')+'</span>';
+      h += '<span style="font-size:10px;font-weight:800;padding:3px 8px;border-radius:20px;background:'+(isAI?'#ede9fe':'#f3f4f6')+';color:'+(isAI?'#7c3aed':'#4b5563')+';white-space:nowrap">'+(isAI?'🤖 AI':'👤 Human')+'</span>';
       h += '</div>';
       h += '<span style="font-size:11px;color:#9ca3af;flex-shrink:0">'+item.time+'</span>';
       h += '</div>';
@@ -8206,11 +8220,18 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
 
       // AI Summary — sits under the note.
       // LOCKED: AI Sales Engine feature — hidden from live clients for now.
-      if (item.summary && !isClientMode()) {
+      // Skip when the call note already carries the same summary (avoids dupes).
+      if (item.summary && item.summary !== item.call_note && !isClientMode()) {
         h += '<div style="background:#eff6ff;border-radius:8px;padding:10px 12px;border-left:3px solid #2563eb;margin-top:8px">';
         h += '<div style="font-size:10px;font-weight:800;color:#1d4ed8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">\uD83E\uDD16 AI Summary</div>';
         h += '<div style="font-size:12px;color:#374151;line-height:1.6">'+item.summary+'</div>';
         h += '</div>';
+      }
+
+      // AI call transcript — clickable toggle, same UX as Recent Call Recording.
+      if (item.transcript) {
+        h += '<button onclick="lsToggleActTx(\''+item.id+'\')" id="act-tx-btn-'+item.id+'" style="background:none;border:none;color:var(--blue);font-size:12px;font-weight:700;cursor:pointer;padding:8px 0 0;display:block">View transcript ▾</button>';
+        h += '<div id="act-tx-'+item.id+'" style="display:none;white-space:pre-wrap;font-size:12px;color:var(--sub);line-height:1.65;margin-top:8px;max-height:300px;overflow:auto;background:var(--bg);border-radius:8px;padding:12px">'+sanitize(item.transcript)+'</div>';
       }
 
       h += '</div>'; // end card
