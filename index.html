@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-12 campaign-lock-v47</title>
+<title>Adviuz Hub · v2026-06-13 ai-call-v48</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3203,7 +3203,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-12 campaign-lock-v47';
+var APP_VERSION = 'v2026-06-13 ai-call-v48';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -4545,7 +4545,13 @@ function mapLead(l, i) {
     next_followup: l.next_followup || null,
     meeting_date:  l.meeting_date || null,
     meeting_outcome: l.meeting_outcome || null,
-    deal_value:    (l.deal_value != null ? l.deal_value : null)
+    deal_value:    (l.deal_value != null ? l.deal_value : null),
+    // Retell AI call data (inbound/outbound voice agent)
+    call_summary:        l.call_summary || '',
+    call_recording_url:  l.call_recording_url || l.last_recording_url || '',
+    call_transcript:     l.call_transcript || '',
+    call_duration_sec:   (l.call_duration_sec != null ? l.call_duration_sec : (l.last_call_duration_s != null ? l.last_call_duration_s : null)),
+    retell_call_id:      l.retell_call_id || null
   };
 }
 
@@ -7785,6 +7791,18 @@ async function saveLeadCustomField(fid, value){
   }catch(e){ showToast('Could not save'); }
 }
 
+function _fmtDur(sec){
+  sec = Number(sec)||0;
+  var m = Math.floor(sec/60), s = sec%60;
+  return m+':'+String(s).padStart(2,'0');
+}
+function lsToggleTranscript(){
+  var d = document.getElementById('ls-tx'), b = document.getElementById('ls-tx-btn');
+  if(!d) return;
+  var open = d.style.display !== 'none';
+  d.style.display = open ? 'none' : 'block';
+  if(b) b.textContent = open ? 'View transcript ▾' : 'Hide transcript ▴';
+}
 function renderLeadScreen(id) {
   var l = leads.find(function(x){ return x.id === id; });
   if(!l) return;
@@ -7886,6 +7904,24 @@ function renderLeadScreen(id) {
   h += '</div>'; // end info card
   h += '<div style="height:4px;background:var(--bg)"></div>';
   h += '<div id="ld-custom-fields"></div>';
+
+  // ══ AI CALL — recording + summary + transcript (Retell voice agent) ══
+  if (!isClientMode() && (l.call_recording_url || l.call_summary || l.call_transcript)) {
+    h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
+    h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">🤖 AI Call'+(l.call_duration_sec?(' · '+_fmtDur(l.call_duration_sec)):'')+'</div>';
+    if (l.call_recording_url) {
+      h += '<audio controls preload="none" style="width:100%;height:40px;margin-bottom:'+((l.call_summary||l.call_transcript)?'12px':'0')+'"><source src="'+sanitize(l.call_recording_url)+'"></audio>';
+    }
+    if (l.call_summary) {
+      h += '<div style="font-size:13px;color:var(--text);line-height:1.6;margin-bottom:'+(l.call_transcript?'10px':'0')+'">'+sanitize(l.call_summary)+'</div>';
+    }
+    if (l.call_transcript) {
+      h += '<button onclick="lsToggleTranscript()" id="ls-tx-btn" style="background:none;border:none;color:var(--blue);font-size:12px;font-weight:700;cursor:pointer;padding:0">View transcript ▾</button>';
+      h += '<div id="ls-tx" style="display:none;white-space:pre-wrap;font-size:12px;color:var(--sub);line-height:1.65;margin-top:8px;max-height:300px;overflow:auto;background:var(--bg);border-radius:8px;padding:12px">'+sanitize(l.call_transcript)+'</div>';
+    }
+    h += '</div>';
+    h += '<div style="height:4px;background:var(--bg)"></div>';
+  }
 
   // ══ SECTION 2 — COMMUNICATION & CALL (moved up to just under the lead info) ══
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
