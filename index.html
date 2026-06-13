@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-13 ai-call-v48</title>
+<title>Adviuz Hub · v2026-06-13 ai-call-v49</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3203,7 +3203,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-13 ai-call-v48';
+var APP_VERSION = 'v2026-06-13 ai-call-v49';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7896,7 +7896,7 @@ function renderLeadScreen(id) {
   // AI Summary only in top card (recording moved below)
   // LOCKED: AI Sales Engine feature — hidden from live clients for now.
   if (!isClientMode()) {
-    var summaryText = l.note || ('Interested in '+(l.svc||'services')+'. Stage: '+l.stage+'.');
+    var summaryText = l.call_summary || l.note || ('Interested in '+(l.svc||'services')+'. Stage: '+l.stage+'.');
     h += '<div style="background:#f0fdf9;border-left:3px solid var(--green);border-radius:0 8px 8px 0;padding:10px 12px;margin-top:12px;font-size:12px;color:var(--sub);line-height:1.65">';
     h += '<span style="font-weight:700;color:var(--green)">AI Summary</span> · '+summaryText+'</div>';
   }
@@ -7904,24 +7904,6 @@ function renderLeadScreen(id) {
   h += '</div>'; // end info card
   h += '<div style="height:4px;background:var(--bg)"></div>';
   h += '<div id="ld-custom-fields"></div>';
-
-  // ══ AI CALL — recording + summary + transcript (Retell voice agent) ══
-  if (!isClientMode() && (l.call_recording_url || l.call_summary || l.call_transcript)) {
-    h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
-    h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">🤖 AI Call'+(l.call_duration_sec?(' · '+_fmtDur(l.call_duration_sec)):'')+'</div>';
-    if (l.call_recording_url) {
-      h += '<audio controls preload="none" style="width:100%;height:40px;margin-bottom:'+((l.call_summary||l.call_transcript)?'12px':'0')+'"><source src="'+sanitize(l.call_recording_url)+'"></audio>';
-    }
-    if (l.call_summary) {
-      h += '<div style="font-size:13px;color:var(--text);line-height:1.6;margin-bottom:'+(l.call_transcript?'10px':'0')+'">'+sanitize(l.call_summary)+'</div>';
-    }
-    if (l.call_transcript) {
-      h += '<button onclick="lsToggleTranscript()" id="ls-tx-btn" style="background:none;border:none;color:var(--blue);font-size:12px;font-weight:700;cursor:pointer;padding:0">View transcript ▾</button>';
-      h += '<div id="ls-tx" style="display:none;white-space:pre-wrap;font-size:12px;color:var(--sub);line-height:1.65;margin-top:8px;max-height:300px;overflow:auto;background:var(--bg);border-radius:8px;padding:12px">'+sanitize(l.call_transcript)+'</div>';
-    }
-    h += '</div>';
-    h += '<div style="height:4px;background:var(--bg)"></div>';
-  }
 
   // ══ SECTION 2 — COMMUNICATION & CALL (moved up to just under the lead info) ══
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
@@ -8035,6 +8017,14 @@ function renderLeadScreen(id) {
   // ══ RECENT CALL RECORDING (above notes) — compact: title·duration·time, then direction + player ══
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
   var recentCall = acts.find(function(a){ return a.type==='call' && a.recording_url; }) || acts.find(function(a){ return a.type==='call'; });
+  // Fall back to the AI (Retell) call recording stored on the lead itself.
+  if ((!recentCall || !recentCall.recording_url) && (l.call_recording_url || l.call_transcript)) {
+    recentCall = {
+      type:'call', rec: !!l.call_recording_url, recording_url: l.call_recording_url || null,
+      time:'', dur: (l.call_duration_sec ? _fmtDur(l.call_duration_sec) : ''),
+      isInbound: ((l.src||'').toLowerCase().indexOf('inbound')>-1), callType:'inbound', _ai:true
+    };
+  }
   if (!recentCall) {
     h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">📼 Recent Call Recording</div>';
     h += '<div style="font-size:13px;color:var(--sub);padding:4px 0 8px">No call recordings yet</div>';
@@ -8066,6 +8056,11 @@ function renderLeadScreen(id) {
       h += '<span style="font-size:12px;color:var(--sub)">No recording on this call</span>';
     }
     h += '</div>';
+    // AI call transcript (toggle) — only present for Retell voice calls
+    if (l.call_transcript) {
+      h += '<button onclick="lsToggleTranscript()" id="ls-tx-btn" style="background:none;border:none;color:var(--blue);font-size:12px;font-weight:700;cursor:pointer;padding:8px 0 0">View transcript ▾</button>';
+      h += '<div id="ls-tx" style="display:none;white-space:pre-wrap;font-size:12px;color:var(--sub);line-height:1.65;margin-top:8px;max-height:300px;overflow:auto;background:var(--bg);border-radius:8px;padding:12px">'+sanitize(l.call_transcript)+'</div>';
+    }
   }
   h += '</div>';
 
