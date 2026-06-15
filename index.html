@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-15 inquiry-date-v2</title>
+<title>Adviuz Hub · v2026-06-15 inline-name-v4</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3200,7 +3200,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-15 inquiry-date-v2';
+var APP_VERSION = 'v2026-06-15 inline-name-v4';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -6276,7 +6276,7 @@ function lRow(l,anySel,forceDetailed){
   var _isReturning = _firstD && _createdD && !isNaN(_firstD) && !isNaN(_createdD) && (_createdD - _firstD > 36*3600*1000);
   var _origLbl = (_firstD && !isNaN(_firstD)) ? _firstD.toLocaleDateString('en-CA',{month:'short',day:'numeric'}) : '';
   var timeHTML = _isReturning
-    ? '<span class="sl-inq" title="First inquired">'+esc(_origLbl)+'</span><span class="sl-back" title="Last contact">\u21A9 '+esc(l.t||'')+'</span>'
+    ? '<span class="sl-back" title="Returning lead">\u21A9 '+esc(l.t||'')+'</span>'
     : '<span>'+esc(l.t||'')+'</span>';
   var topRow='<div class="sl-top-row">'
     +'<div class="sl-top-left">'+cb+stgBadge(l.stage)+'</div>'
@@ -7985,8 +7985,13 @@ function renderLeadScreen(id) {
   h += '<div style="width:48px;height:48px;border-radius:14px;background:'+l.col+
        ';display:flex;align-items:center;justify-content:center;font-weight:800;font-size:19px;color:#fff;flex-shrink:0">'+init+'</div>';
   h += '<div style="flex:1;min-width:0">';
-  h += '<div style="font-size:16px;font-weight:800;color:var(--text);letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(sanitize(l.company)||sanitize(l.name))+'</div>';
-  if(l.company) h += '<div style="font-size:13px;color:var(--sub);margin-top:1px">'+sanitize(l.name)+'</div>';
+  var _nameSpan = '<span id="lsInlineName" onclick="event.stopPropagation();startInlineNameEdit()" title="Tap to rename" style="cursor:pointer;border-bottom:1px dashed var(--border)">'+(sanitize(l.name)||'+ Add name')+'</span>';
+  if(l.company){
+    h += '<div style="font-size:16px;font-weight:800;color:var(--text);letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+sanitize(l.company)+'</div>';
+    h += '<div style="font-size:13px;color:var(--sub);margin-top:1px">'+_nameSpan+'</div>';
+  } else {
+    h += '<div style="font-size:16px;font-weight:800;color:var(--text);letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_nameSpan+'</div>';
+  }
   h += '</div>';
   // Stage badge + Edit button
   h += '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">';
@@ -9176,6 +9181,52 @@ function updStg(id,s){
   if(curTab==='leads')render();
 }
 var editLeadId = null;
+
+// ── Inline name edit (tap the name in the lead detail to rename, no sheet) ──
+var _inlineNameBusy = false;
+function startInlineNameEdit(){
+  var host = document.getElementById('lsInlineName');
+  if(!host || host.querySelector('input')) return;
+  var l = leads.find(function(x){return x.id===curLid;});
+  if(!l) return;
+  var cur = String(l.name||'').replace(/"/g,'&quot;');
+  host.innerHTML = '<input id="lsInlineNameInp" value="'+cur+'" '
+    + 'style="font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--green);border-radius:8px;padding:2px 8px;width:100%;max-width:260px;outline:none" '
+    + 'onkeydown="if(event.key===\'Enter\'){event.preventDefault();this.blur();}else if(event.key===\'Escape\'){event.preventDefault();window._inlineNameCancel=true;this.blur();}" '
+    + 'onblur="commitInlineNameEdit(this.value)">';
+  var inp = document.getElementById('lsInlineNameInp');
+  if(inp){ inp.focus(); try{ inp.select(); }catch(e){} }
+}
+async function commitInlineNameEdit(val){
+  if(_inlineNameBusy) return;
+  var host = document.getElementById('lsInlineName');
+  var l = leads.find(function(x){return x.id===curLid;});
+  if(!l){ return; }
+  if(window._inlineNameCancel){ window._inlineNameCancel=false; if(host) host.textContent = l.name||'+ Add name'; return; }
+  var nm = String(val||'').trim();
+  if(!nm){ showToast('Name required'); if(host) host.textContent = l.name||'+ Add name'; return; }
+  if(nm === (l.name||'')){ if(host) host.textContent = nm; return; }
+  _inlineNameBusy = true;
+  var prev = l.name||'';
+  l.name = nm;
+  if(host) host.textContent = nm;
+  // Keep the topbar title in sync when the name is the headline (no company)
+  if(!l.company){ var tb=document.getElementById('lsName'); if(tb) tb.textContent = nm; }
+  try{
+    if(l.dbId){
+      var r = await sbFetch('/rest/v1/leads?id=eq.'+l.dbId,{method:'PATCH',body:JSON.stringify({name:nm,updated_at:new Date().toISOString()})});
+      if(!r.ok && r.status!==204){ throw new Error('HTTP '+r.status); }
+    }
+    showToast('✅ Name updated');
+    render();
+  }catch(e){
+    l.name = prev;
+    if(host) host.textContent = prev||'+ Add name';
+    if(!l.company){ var tb2=document.getElementById('lsName'); if(tb2) tb2.textContent = prev; }
+    showToast('❌ Could not save name');
+  }
+  _inlineNameBusy = false;
+}
 
 function openEditLead(id) {
   editLeadId = id;
