@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-13 livetx-v56</title>
+<title>Adviuz Hub · v2026-06-15 inquiry-date-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -226,7 +226,9 @@ body.call-mini-open .topbar{padding-top:calc(env(safe-area-inset-top,0px) + 68px
 .lead-row.simple.sl{padding:0 0 14px}
 .sl .sl-top-row{display:flex;align-items:center;justify-content:space-between;padding:14px 15px 0;gap:10px;position:relative;z-index:1}
 .sl .sl-top-left{display:flex;align-items:center;gap:8px;min-width:0;flex:1}
-.sl .sl-time{font-size:11px;color:var(--muted);font-weight:600;white-space:nowrap;flex-shrink:0}
+.sl .sl-time{font-size:11px;color:var(--muted);font-weight:600;white-space:nowrap;flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:1px;line-height:1.25}
+.sl .sl-time .sl-inq{color:var(--text);font-weight:700}
+.sl .sl-time .sl-back{color:var(--muted);font-weight:600;font-size:10px}
 .sl .sl-names{padding:10px 15px 0;position:relative;z-index:1}
 .sl .sl-company{font-size:16px;font-weight:700;color:var(--text);letter-spacing:-.015em;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sl .sl-person{display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--sub);font-weight:500;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -3198,7 +3200,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-13 livetx-v56';
+var APP_VERSION = 'v2026-06-15 inquiry-date-v1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -4517,6 +4519,8 @@ function mapLead(l, i) {
     ok: l.sms_consent || false,
     t: timeAgo(l.created_at),
     created_at: l.created_at || null,
+    first_inquiry_at: l.first_inquiry_at || null,
+    last_activity_at: l.last_activity_at || null,
     rawDate: l.created_at ? locDate(l.created_at) : locToday(),
     col: l.color || COLORS[i % COLORS.length],
     partner_id: l.partner_id || null,
@@ -6264,9 +6268,19 @@ function lRow(l,anySel,forceDetailed){
   };
 
   // ── Row 1: checkbox + stage badge + time ──
+  // Returning leads have created_at bumped on re-inquiry, so surface the ORIGINAL
+  // inquiry date plus a "called back" recency hint. Fresh leads keep "X ago".
+  var _firstIso = l.first_inquiry_at || l.created_at;
+  var _firstD = _firstIso ? new Date(_firstIso) : null;
+  var _createdD = l.created_at ? new Date(l.created_at) : null;
+  var _isReturning = _firstD && _createdD && !isNaN(_firstD) && !isNaN(_createdD) && (_createdD - _firstD > 36*3600*1000);
+  var _origLbl = (_firstD && !isNaN(_firstD)) ? _firstD.toLocaleDateString('en-CA',{month:'short',day:'numeric'}) : '';
+  var timeHTML = _isReturning
+    ? '<span class="sl-inq" title="First inquired">'+esc(_origLbl)+'</span><span class="sl-back" title="Last contact">\u21A9 '+esc(l.t||'')+'</span>'
+    : '<span>'+esc(l.t||'')+'</span>';
   var topRow='<div class="sl-top-row">'
     +'<div class="sl-top-left">'+cb+stgBadge(l.stage)+'</div>'
-    +'<span class="sl-time">'+esc(l.t||'')+'</span>'
+    +'<span class="sl-time">'+timeHTML+'</span>'
     +'</div>';
 
   // ── Row 2: company name + person name (subtitle) ──
@@ -12020,6 +12034,7 @@ async function loadPartnerLeads() {
           t: timeAgo(l.created_at),
           rawDate: l.created_at ? locDate(l.created_at) : locToday(),
           created_at: l.created_at || '',
+          first_inquiry_at: l.first_inquiry_at || null,
           col: ['#00a884','#2563eb','#7c3aed','#d97706','#0891b2','#db2777'][name.charCodeAt(0)%6]||'#00a884',
           partner_id: l.partner_id
         };
