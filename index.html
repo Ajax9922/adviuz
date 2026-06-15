@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-15 inquiry-date-v1</title>
+<title>Adviuz Hub · v2026-06-15 inquiry-date-v2</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3200,7 +3200,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-15 inquiry-date-v1';
+var APP_VERSION = 'v2026-06-15 inquiry-date-v2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -6291,8 +6291,15 @@ function lRow(l,anySel,forceDetailed){
 
   // ── Campaign chip (only when we can resolve a real campaign name) ──
   var campLbl = leadCampLabel(l);
-  var campRow = campLbl
-    ? '<div style="padding:2px 15px 0"><span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--sub);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:2px 9px">\uD83D\uDCE3 '+esc(campLbl)+'</span></div>'
+  var _inqIsoC = l.first_inquiry_at || l.created_at;
+  var _inqDC = _inqIsoC ? new Date(_inqIsoC) : null;
+  var _inqLblC = (_inqDC && !isNaN(_inqDC)) ? _inqDC.toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : '';
+  var _chipCss = 'display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--sub);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:2px 9px';
+  var campRow = (campLbl || _inqLblC)
+    ? '<div style="padding:2px 15px 0;display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
+      + (campLbl ? '<span style="'+_chipCss+'">\uD83D\uDCE3 '+esc(campLbl)+'</span>' : '')
+      + (_inqLblC ? '<span style="'+_chipCss+'">\uD83D\uDCC5 '+esc(_inqLblC)+'</span>' : '')
+      + '</div>'
     : '';
 
   // ── Row 3: 2-col grid — email/phone, location/product ──
@@ -8002,8 +8009,15 @@ function renderLeadScreen(id) {
     : '<span style="color:var(--green);cursor:pointer;font-weight:600" onclick="openEditLead('+l.id+')">+ Add location</span>');
   // Product / Service
   if(l.svc) h += ldInfoRow('🛠','Product',l.svc);
-  // Date of Inquiry
-  h += ldInfoRow('📅','Inquiry Date',l.t||'—');
+  // Date of Inquiry — original first-inquiry date & time, in the lead's local tz
+  var _inqTz = l.timezone || (typeof tzFromPhone==='function'?tzFromPhone(l.ph):'') || 'America/Toronto';
+  var _inqIso = l.first_inquiry_at || l.created_at;
+  var _inqAbs = '—';
+  if(_inqIso){ var _inqD2=new Date(_inqIso); if(!isNaN(_inqD2)){
+    _inqAbs = _inqD2.toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric',timeZone:_inqTz})
+            + ', ' + _inqD2.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit',hour12:true,timeZone:_inqTz});
+  } }
+  h += ldInfoRow('📅','Inquiry Date',_inqAbs);
   // Appointment (future) — shown in the LEAD's local time
   var _leadTz = l.timezone || tzFromPhone(l.ph) || 'America/Toronto';
   var _apptHtml = l.appointment_at
