@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-15 inline-name-v4</title>
+<title>Adviuz Hub · v2026-06-15 sms-tpl-ai-v5</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -817,6 +817,12 @@ body.impersonating .ls-topbar{padding-top:8px}
   font-size:13px;font-weight:700;cursor:pointer}
 .sms-tpl-save{background:var(--green);color:#fff}
 .sms-tpl-cancel{background:var(--surface);color:var(--sub)}
+.sms-tpl-edit{padding:0 6px 0 4px;color:var(--sub);font-weight:700;font-size:12px;cursor:pointer;line-height:1}
+.sms-tpl-ai-row{display:flex;gap:8px;align-items:stretch}
+.sms-tpl-ai-row input{flex:1}
+.sms-tpl-ai-row button{flex-shrink:0;padding:0 14px;border-radius:9px;border:1.5px solid var(--green);
+  background:var(--white);color:var(--green);font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
+.sms-tpl-ai-row button:disabled{opacity:.6;cursor:default}
 .sms-ai-status{font-size:12px;color:var(--sub);text-align:center;padding:7px;flex-shrink:0;background:var(--white)}
 /* compose bar pinned at bottom */
 .sms-compose-bar{display:flex;align-items:flex-end;gap:8px;flex-shrink:0;
@@ -3200,7 +3206,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-15 inline-name-v4';
+var APP_VERSION = 'v2026-06-15 sms-tpl-ai-v5';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7694,7 +7700,9 @@ function renderSmsTplChips(){
   window._smsAllTpls.forEach(function(t,i){
     if(t.custom){
       h += '<span class="sms-tpl-chip-wrap"><span class="sms-tpl-chip" onclick="pickSmsTplIdx(this,'+i+')">'
-         + _smsEsc(t.label)+'</span><span class="sms-tpl-del" title="Delete" onclick="deleteCustomSmsTemplate(event,'+i+')">&times;</span></span>';
+         + _smsEsc(t.label)+'</span>'
+         + '<span class="sms-tpl-edit" title="Edit" onclick="editCustomSmsTemplate(event,'+i+')">\u270E</span>'
+         + '<span class="sms-tpl-del" title="Delete" onclick="deleteCustomSmsTemplate(event,'+i+')">&times;</span></span>';
     } else {
       h += '<div class="sms-tpl-chip" onclick="pickSmsTplIdx(this,'+i+')">'+_smsEsc(t.label)+'</div>';
     }
@@ -7714,19 +7722,57 @@ function pickSmsTplIdx(el, i){
   if(ta){ ta.value = msg; smsGrow(ta); ta.focus(); }
 }
 
-// Inline "add template" editor inside the template bar (no native prompt).
-function addCustomSmsTemplate(){
+// Inline "add / edit template" editor inside the template bar (no native prompt).
+function _openTplForm(label, body){
   var bar = document.getElementById('smsTplBar'); if(!bar) return;
   bar.classList.add('show');
+  var L = String(label||'').replace(/"/g,'&quot;');
+  var B = String(body||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
   bar.innerHTML =
     '<div class="sms-tpl-add-form">'
-    + '<input id="smsTplLabel" maxlength="40" placeholder="Short name (e.g. 📋 Send quote)">'
-    + '<textarea id="smsTplBody" placeholder="Message text… you can use {name} and {service}"></textarea>'
+    + '<input id="smsTplLabel" maxlength="40" placeholder="Short name (e.g. 📋 Send quote)" value="'+L+'">'
+    + '<div class="sms-tpl-ai-row">'
+    +   '<input id="smsTplCmd" placeholder="✨ Describe it (e.g. a friendly follow-up)" onkeydown="if(event.key===\'Enter\'){event.preventDefault();genTplFromCmd();}">'
+    +   '<button id="smsTplGenBtn" onclick="genTplFromCmd()">Generate</button>'
+    + '</div>'
+    + '<textarea id="smsTplBody" placeholder="Message text… you can use {name} and {service}">'+B+'</textarea>'
     + '<div class="sms-tpl-add-row">'
-    +   '<button class="sms-tpl-cancel" onclick="renderSmsTplChips()">Cancel</button>'
+    +   '<button class="sms-tpl-cancel" onclick="window._smsTplEditPos=-1;renderSmsTplChips()">Cancel</button>'
     +   '<button class="sms-tpl-save" onclick="saveCustomSmsTemplate()">Save template</button>'
     + '</div></div>';
   var b = document.getElementById('smsTplBody'); if(b) b.focus();
+}
+function addCustomSmsTemplate(){ window._smsTplEditPos = -1; _openTplForm('',''); }
+function editCustomSmsTemplate(ev, allIdx){
+  if(ev && ev.stopPropagation) ev.stopPropagation();
+  var t = (window._smsAllTpls||[])[allIdx]; if(!t || !t.custom) return;
+  var arr = getCustomSmsTemplates();
+  window._smsTplEditPos = arr.findIndex(function(x){ return x.label===t.label && x.text===t.text; });
+  _openTplForm(t.label, t.text);
+}
+// ✨ Generate the template body from a plain-language command (template mode).
+async function genTplFromCmd(){
+  var cmdEl  = document.getElementById('smsTplCmd');
+  var bodyEl = document.getElementById('smsTplBody');
+  var lblEl  = document.getElementById('smsTplLabel');
+  var btn    = document.getElementById('smsTplGenBtn');
+  var cmd = (cmdEl ? cmdEl.value : '').trim();
+  if(!cmd){ showToast('Type what the template should say'); return; }
+  if(btn){ btn.disabled=true; btn.textContent='…'; }
+  try {
+    var res = await sbFetch('/functions/v1/ai-draft-sms', {
+      method:'POST',
+      body: JSON.stringify({ mode:'template', command:cmd, business: window._clientName || '' })
+    });
+    var data = await res.json();
+    if(!res.ok || data.error) throw new Error(data.error || 'AI request failed');
+    var text = (data.draft||'').trim();
+    if(bodyEl){ bodyEl.value = text; }
+    if(lblEl && !lblEl.value.trim()){ lblEl.value = '✨ ' + cmd.slice(0,24) + (cmd.length>24?'…':''); }
+  } catch(e) {
+    showToast('AI generation failed — try again');
+  }
+  if(btn){ btn.disabled=false; btn.textContent='Generate'; }
 }
 function saveCustomSmsTemplate(){
   var lbl  = ((document.getElementById('smsTplLabel')||{}).value||'').trim();
@@ -7734,10 +7780,13 @@ function saveCustomSmsTemplate(){
   if(!body){ showToast('Add the message text'); return; }
   if(!lbl){ lbl = '⭐ ' + body.slice(0,18) + (body.length>18?'…':''); }
   var arr = getCustomSmsTemplates();
-  arr.push({ label: lbl, text: body });
+  var pos = (typeof window._smsTplEditPos==='number') ? window._smsTplEditPos : -1;
+  if(pos>=0 && pos<arr.length){ arr[pos] = { label: lbl, text: body }; }
+  else { arr.push({ label: lbl, text: body }); }
+  window._smsTplEditPos = -1;
   setCustomSmsTemplates(arr);
   renderSmsTplChips();
-  showToast('Template saved');
+  showToast(pos>=0 ? 'Template updated' : 'Template saved');
 }
 function deleteCustomSmsTemplate(ev, allIdx){
   if(ev && ev.stopPropagation) ev.stopPropagation();
