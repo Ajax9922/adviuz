@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-15 tpl-db-v7</title>
+<title>Adviuz Hub · v2026-06-15 kbfix-v8</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -367,6 +367,8 @@ body.call-mini-open .topbar{padding-top:calc(env(safe-area-inset-top,0px) + 68px
 /* Sheet */
 .sheet-ov{display:none;position:fixed;top:0;left:0;width:100%;height:100%;min-width:100vw;min-height:100vh;z-index:850;background:rgba(0,0,0,.55);align-items:flex-end;justify-content:center;box-sizing:border-box}
 .sheet-ov.open{display:flex}
+/* Lift any open bottom sheet above the on-screen keyboard (var set by JS via visualViewport). */
+.sheet-ov.open,.act-sheet-ov.open{padding-bottom:var(--kb,0px)}
 .sheet{background:var(--white);border-radius:18px 18px 0 0;width:100%;max-width:430px;max-height:94dvh;animation:shUp .26s cubic-bezier(.34,1.1,.64,1);padding-bottom:env(safe-area-inset-bottom,16px);display:flex;flex-direction:column;overflow:hidden}
 
 .sheet::-webkit-scrollbar{display:none}
@@ -3257,7 +3259,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-15 tpl-db-v7';
+var APP_VERSION = 'v2026-06-15 kbfix-v8';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -11950,6 +11952,34 @@ function openSheet(id){
   if(id==='stageSh')renderStageList();
 }
 function closeSheet(id){document.getElementById(id).classList.remove('open')}
+
+// ── Keyboard-aware sheets ────────────────────────────────────────────────
+// On iOS the on-screen keyboard overlays fixed elements without resizing the
+// layout viewport, so the lower part of a bottom sheet (e.g. the Message box in
+// the template editor) ends up hidden behind it. We measure the keyboard height
+// from the visualViewport and expose it as --kb; the CSS above lifts open sheets
+// by that amount. We also nudge the focused field fully into view.
+(function(){
+  var vv = window.visualViewport;
+  if(!vv) return;
+  function applyKb(){
+    var kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+    // Ignore tiny deltas (URL bar shuffle); only react to a real keyboard.
+    document.documentElement.style.setProperty('--kb', (kb > 90 ? kb : 0) + 'px');
+  }
+  vv.addEventListener('resize', applyKb);
+  vv.addEventListener('scroll', applyKb);
+  applyKb();
+  // When a field inside an open sheet gains focus, make sure it's fully visible.
+  document.addEventListener('focusin', function(e){
+    var t = e.target;
+    if(!t || !t.closest) return;
+    if(!t.closest('.sheet-ov.open, .act-sheet-ov.open')) return;
+    setTimeout(function(){
+      try{ t.scrollIntoView({block:'center', behavior:'smooth'}); }catch(_){ }
+    }, 280);
+  });
+})();
 
 // Prevent sheets/overlays from closing on a DRAG-release. The inline
 // onclick="if(event.target===this)closeSheet(...)" on each backdrop fires
