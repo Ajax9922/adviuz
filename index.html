@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-15 tpl-sheet-v6</title>
+<title>Adviuz Hub · v2026-06-15 tpl-db-v7</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3134,7 +3134,7 @@ Dr. Sarah
     </div>
     <div class="sh-body" id="smsTplListBody"></div>
     <div class="sh-foot">
-      <button class="btn btn-dark" onclick="openTplEditSheet(-1,'','')" style="flex:1;justify-content:center">＋ New template</button>
+      <button class="btn btn-dark" onclick="openTplEditNew()" style="flex:1;justify-content:center">＋ New template</button>
     </div>
   </div>
 </div>
@@ -3257,7 +3257,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-15 tpl-sheet-v6';
+var APP_VERSION = 'v2026-06-15 tpl-db-v7';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7616,7 +7616,10 @@ function openSmsSheet(){
   // Reset compose + bars
   var ta = document.getElementById('smsCompose'); if(ta){ ta.value=''; smsGrow(ta); }
   var st  = document.getElementById('smsAiStatus'); if(st){ st.style.display='none'; }
-  renderSmsTplChips();   // templates visible by default (no folder toggle)
+  // Templates visible by default. Load this client's shared templates from the
+  // database first (falls back to local), then render the strip.
+  renderSmsTplChips();
+  loadCustomTemplates().then(renderSmsTplChips);
   window._smsThreadCount = -1;
   loadSmsThread(l);
   // Live refresh: re-check for new messages every 5s while the chat is open.
@@ -7731,26 +7734,37 @@ var _smsBuiltinTpls = [
 ];
 
 // Custom templates are saved per client on this device.
-function _smsTplKey(){ return 'adviuz_sms_tpls_'+(window._clientId||'global'); }
-function getCustomSmsTemplates(){
-  try{ var raw=localStorage.getItem(_smsTplKey()); var arr=raw?JSON.parse(raw):[]; return Array.isArray(arr)?arr:[]; }
-  catch(e){ return []; }
+// ── Template storage: DB-backed (shared per client across devices), with a
+// localStorage fallback for contexts that have no client_id (e.g. partner mode). ──
+function _tplClientId(){ return (window._smsLead && window._smsLead.client_id) || window._clientId || null; }
+function _tplUseDb(){ return !!_tplClientId(); }
+function _tplLsKey(){ return 'adviuz_sms_tpls_'+(_tplClientId()||'global'); }
+function _tplLsGet(){ try{ var raw=localStorage.getItem(_tplLsKey()); var arr=raw?JSON.parse(raw):[]; return Array.isArray(arr)?arr:[]; }catch(e){ return []; } }
+function _tplLsSet(arr){ try{ localStorage.setItem(_tplLsKey(), JSON.stringify(arr||[])); }catch(e){} }
+
+window._smsTplCache = window._smsTplCache || [];
+// Load the active client's templates into the cache (DB, else localStorage).
+async function loadCustomTemplates(){
+  if(_tplUseDb()){
+    try{
+      var r = await sbFetch('/rest/v1/sms_templates?select=id,label,body&client_id=eq.'+_tplClientId()+'&order=created_at.asc');
+      if(r.ok){ var rows = await r.json(); window._smsTplCache = (rows||[]).map(function(x){ return {id:x.id, label:x.label, text:x.body}; }); return; }
+    }catch(e){ console.warn('[tpl] DB load failed, using local', e&&e.message); }
+  }
+  window._smsTplCache = _tplLsGet().map(function(t,i){ return {lsIdx:i, label:t.label, text:t.text}; });
 }
-function setCustomSmsTemplates(arr){
-  try{ localStorage.setItem(_smsTplKey(), JSON.stringify(arr||[])); }catch(e){}
-}
+function getCustomSmsTemplates(){ return window._smsTplCache || []; }
 
 function renderSmsTplChips(){
   var bar = document.getElementById('smsTplBar'); if(!bar) return;
   bar.classList.add('show');
-  var custom = getCustomSmsTemplates();
   window._smsAllTpls = _smsBuiltinTpls.map(function(t){ return {label:t[0], text:t[1], custom:false}; })
-    .concat(custom.map(function(t){ return {label:t.label, text:t.text, custom:true}; }));
+    .concat(getCustomSmsTemplates().map(function(t){ return {label:t.label, text:t.text, custom:true, id:t.id||null, lsIdx:(typeof t.lsIdx==='number'?t.lsIdx:-1)}; }));
   var h='';
   window._smsAllTpls.forEach(function(t,i){
     h += '<div class="sms-tpl-chip" onclick="pickSmsTplIdx(this,'+i+')">'+_smsEsc(t.label)+'</div>';
   });
-  h += '<div class="sms-tpl-chip-add" onclick="openTplEditSheet(-1,\'\',\'\')">＋ New</div>';
+  h += '<div class="sms-tpl-chip-add" onclick="openTplEditNew()">＋ New</div>';
   h += '<div class="sms-tpl-chip-add" onclick="openSmsTplList()" style="border-style:solid;color:var(--sub);border-color:var(--border)">See all</div>';
   bar.innerHTML = h;
 }
@@ -7768,23 +7782,32 @@ function pickSmsTplIdx(el, i){
 
 // Inline "add / edit template" editor inside the template bar (no native prompt).
 // ── Templates: clean add/edit via a bottom sheet, plus a manage-all list ──
-function openTplEditSheet(pos, label, body){
-  window._smsTplEditPos = (typeof pos==='number') ? pos : -1;
-  var titleEl=document.getElementById('smsTplEditTitle'); if(titleEl) titleEl.textContent = (window._smsTplEditPos>=0?'Edit Template':'New Template');
+function _fillTplSheet(title, label, body){
+  var titleEl=document.getElementById('smsTplEditTitle'); if(titleEl) titleEl.textContent = title;
   var lblEl=document.getElementById('tplEditLabel'); if(lblEl) lblEl.value = label||'';
   var cmdEl=document.getElementById('tplEditCmd'); if(cmdEl) cmdEl.value = '';
   var bodyEl=document.getElementById('tplEditBody'); if(bodyEl) bodyEl.value = body||'';
   openSheet('smsTplEditSh');
 }
-// Legacy name kept for any old caller — now opens the clean sheet.
-function addCustomSmsTemplate(){ openTplEditSheet(-1,'',''); }
+function openTplEditNew(){
+  window._smsTplEditId = null; window._smsTplEditLsIdx = -1;
+  _fillTplSheet('New Template', '', '');
+}
+function openTplEditExisting(allIdx){
+  var t = (window._smsAllTpls||[])[allIdx]; if(!t || !t.custom) return;
+  window._smsTplEditId = t.id || null;
+  window._smsTplEditLsIdx = (typeof t.lsIdx==='number') ? t.lsIdx : -1;
+  _fillTplSheet('Edit Template', t.label, t.text);
+}
+// Legacy aliases (old callers)
+function openTplEditSheet(){ openTplEditNew(); }
+function addCustomSmsTemplate(){ openTplEditNew(); }
 
 function openSmsTplList(){ renderSmsTplListBody(); openSheet('smsTplListSh'); }
 function renderSmsTplListBody(){
   var bodyEl=document.getElementById('smsTplListBody'); if(!bodyEl) return;
-  var custom=getCustomSmsTemplates();
   window._smsAllTpls = _smsBuiltinTpls.map(function(t){ return {label:t[0], text:t[1], custom:false}; })
-    .concat(custom.map(function(t){ return {label:t.label, text:t.text, custom:true}; }));
+    .concat(getCustomSmsTemplates().map(function(t){ return {label:t.label, text:t.text, custom:true, id:t.id||null, lsIdx:(typeof t.lsIdx==='number'?t.lsIdx:-1)}; }));
   var h='';
   window._smsAllTpls.forEach(function(t,i){
     h += '<div class="tpl-row">'
@@ -7813,17 +7836,22 @@ function useTplFromList(i){
 }
 function editCustomSmsTemplate(ev, allIdx){
   if(ev && ev.stopPropagation) ev.stopPropagation();
-  var t = (window._smsAllTpls||[])[allIdx]; if(!t || !t.custom) return;
-  var arr = getCustomSmsTemplates();
-  var pos = arr.findIndex(function(x){ return x.label===t.label && x.text===t.text; });
-  openTplEditSheet(pos, t.label, t.text);
+  openTplEditExisting(allIdx);
 }
-function deleteCustomSmsTemplate(ev, allIdx){
+async function deleteCustomSmsTemplate(ev, allIdx){
   if(ev && ev.stopPropagation) ev.stopPropagation();
   var t = (window._smsAllTpls||[])[allIdx]; if(!t || !t.custom) return;
-  var arr = getCustomSmsTemplates();
-  var pos = arr.findIndex(function(x){ return x.label===t.label && x.text===t.text; });
-  if(pos>=0){ arr.splice(pos,1); setCustomSmsTemplates(arr); renderSmsTplChips(); renderSmsTplListBody(); showToast('Template deleted'); }
+  if(_tplUseDb() && t.id){
+    try{ var r = await sbFetch('/rest/v1/sms_templates?id=eq.'+t.id, {method:'DELETE'}); if(!r.ok && r.status!==204) throw new Error('del'); }
+    catch(e){ showToast('Could not delete template'); return; }
+  } else {
+    var arr = _tplLsGet();
+    if(t.lsIdx>=0 && t.lsIdx<arr.length){ arr.splice(t.lsIdx,1); _tplLsSet(arr); }
+  }
+  await loadCustomTemplates();
+  renderSmsTplChips();
+  var listSh=document.getElementById('smsTplListSh'); if(listSh && listSh.classList.contains('open')) renderSmsTplListBody();
+  showToast('Template deleted');
 }
 // ✨ Generate the template body from a plain-language command, with campaign context.
 async function genTplFromCmd(){
@@ -7851,22 +7879,40 @@ async function genTplFromCmd(){
   }
   if(btn){ btn.disabled=false; btn.textContent='Generate'; }
 }
-function saveTplFromSheet(){
+async function saveTplFromSheet(){
   var lbl  = ((document.getElementById('tplEditLabel')||{}).value||'').trim();
   var body = ((document.getElementById('tplEditBody')||{}).value||'').trim();
   if(!body){ showToast('Add the message text'); return; }
   if(!lbl){ lbl = '⭐ ' + body.slice(0,18) + (body.length>18?'…':''); }
-  var arr = getCustomSmsTemplates();
-  var pos = (typeof window._smsTplEditPos==='number') ? window._smsTplEditPos : -1;
-  if(pos>=0 && pos<arr.length){ arr[pos] = { label: lbl, text: body }; }
-  else { arr.push({ label: lbl, text: body }); }
-  window._smsTplEditPos = -1;
-  setCustomSmsTemplates(arr);
+  var editId = window._smsTplEditId || null;
+  var editLs = (typeof window._smsTplEditLsIdx==='number') ? window._smsTplEditLsIdx : -1;
+  var saveBtn = document.querySelector('#smsTplEditSh .btn-dark');
+  if(saveBtn){ saveBtn.disabled=true; saveBtn.textContent='Saving…'; }
+  try{
+    if(_tplUseDb()){
+      var r;
+      if(editId){ r = await sbFetch('/rest/v1/sms_templates?id=eq.'+editId, {method:'PATCH', body: JSON.stringify({label:lbl, body:body, updated_at:new Date().toISOString()})}); }
+      else      { r = await sbFetch('/rest/v1/sms_templates', {method:'POST', body: JSON.stringify({client_id:_tplClientId(), label:lbl, body:body})}); }
+      if(!r.ok && r.status!==201 && r.status!==204){ throw new Error('save failed'); }
+    } else {
+      var arr = _tplLsGet();
+      if(editLs>=0 && editLs<arr.length){ arr[editLs] = {label:lbl, text:body}; }
+      else { arr.push({label:lbl, text:body}); }
+      _tplLsSet(arr);
+    }
+  }catch(e){
+    showToast('Could not save template');
+    if(saveBtn){ saveBtn.disabled=false; saveBtn.textContent='Save template'; }
+    return;
+  }
+  window._smsTplEditId=null; window._smsTplEditLsIdx=-1;
+  await loadCustomTemplates();
+  if(saveBtn){ saveBtn.disabled=false; saveBtn.textContent='Save template'; }
   closeSheet('smsTplEditSh');
   renderSmsTplChips();
   var listSh=document.getElementById('smsTplListSh');
   if(listSh && listSh.classList.contains('open')) renderSmsTplListBody();
-  showToast(pos>=0 ? 'Template updated' : 'Template saved');
+  showToast((editId||editLs>=0) ? 'Template updated' : 'Template saved');
 }
 
 async function generateAiSms(){
