@@ -4733,6 +4733,13 @@ function openEditCampaign(btn) {
     + '<div class="form-group"><label class="fld">Custom head code (anything else)</label><textarea class="fld" id="ecam-tg-custom" rows="3" placeholder="&lt;!-- extra verification or pixel code --&gt;"></textarea></div>'
     + '</div>'
     + '<div style="margin-top:6px;padding-top:14px;border-top:1px solid var(--border)">'
+    + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">&#128279; Facebook Conversions API (server-side)</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Paste this client&rsquo;s Meta CAPI access token to send server-side Lead events for better tracking and match quality. Leave blank to keep the existing token. Get it in Events Manager &rarr; the client dataset &rarr; Settings &rarr; Conversions API &rarr; Generate access token.</div>'
+    + '<div class="form-group"><label class="fld">Meta CAPI access token</label><textarea class="fld" id="ecam-capi-token" rows="2" placeholder="EAA... paste to set or replace; leave blank to keep current"></textarea></div>'
+    + '<div class="form-group"><label class="fld">Test event code (optional)</label><input class="fld" id="ecam-capi-test" placeholder="TEST12345 while testing; clear to go live"></div>'
+    + '<div id="ecam-capi-status" style="font-size:11px;color:var(--muted);margin-top:-4px"></div>'
+    + '</div>'
+    + '<div style="margin-top:6px;padding-top:14px;border-top:1px solid var(--border)">'
     + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">&#128222; Twilio Number (Calls &amp; SMS)</div>'
     + '<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Assigned to this client for the Dialer, SMS &amp; inbound calls. Pick a number you own, or buy a new one on Twilio then refresh.</div>'
     + '<div class="form-group"><label class="fld">Twilio phone number</label>'
@@ -4830,12 +4837,18 @@ function openEditCampaign(btn) {
   if (window._editCamClientId) {
     loadTwilioNumbers();
     // Prefer THIS campaign's own number + forward; fall back to client-level / profile for anything missing.
-    sbAdmin('/rest/v1/campaigns?id=eq.' + window._editCampaignId + '&select=twilio_phone,forward_to_phone,notification_emails,welcome_sms,welcome_sms_enabled,ai_profile&limit=1')
+    sbAdmin('/rest/v1/campaigns?id=eq.' + window._editCampaignId + '&select=twilio_phone,forward_to_phone,notification_emails,welcome_sms,welcome_sms_enabled,ai_profile,meta_capi_token,meta_capi_test_code&limit=1')
       .then(function(res){ return res.ok ? res.json() : []; })
       .then(function(rows){
         var crow = (rows && rows[0]) || {};
         var campTw  = crow.twilio_phone || '';
         var campFwd = crow.forward_to_phone || '';
+        // Facebook CAPI: show status (we never re-display the long token); prefill the short test code.
+        setV('ecam-capi-test', crow.meta_capi_test_code || '');
+        var _capiStat = document.getElementById('ecam-capi-status');
+        if (_capiStat) _capiStat.textContent = crow.meta_capi_token
+          ? '\u2713 CAPI active \u2014 a token is saved for this campaign. Paste a new one only if you want to replace it.'
+          : 'Not set up yet \u2014 paste this client\u2019s token to enable server-side Lead tracking.';
         try { var _em = crow.notification_emails; if (typeof _em === 'string') _em = JSON.parse(_em || '[]'); setV('ecam-emails', (Array.isArray(_em) ? _em : []).join(', ')); } catch(e){ setV('ecam-emails',''); }
         setV('ecam-welcome', crow.welcome_sms || '');
         var wOn = document.getElementById('ecam-welcome-on'); if (wOn) wOn.checked = (crow.welcome_sms_enabled !== false);
@@ -5011,6 +5024,13 @@ async function saveCampaignEdit() {
   var tgOut = {};
   Object.keys(tgMap).forEach(function(k){ if (tgMap[k]) tgOut[k] = tgMap[k]; });
   payload.tracking_tags = tgOut;
+
+  // -- Facebook Conversions API (server-side) -> direct campaign columns --
+  // Token: only write when a value is entered, so a blank box never wipes an existing token.
+  var _capiTok = ev('ecam-capi-token');
+  if (_capiTok) payload.meta_capi_token = _capiTok;
+  // Test event code: always write (blank clears it -> live mode).
+  payload.meta_capi_test_code = ev('ecam-capi-test') || null;
 
   // -- Twilio number + forward -> client_integrations (client-level) --
   var twPhone   = ev('ecam-tw-number');
