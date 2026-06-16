@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-16 leadfix-v15</title>
+<title>Adviuz Hub · v2026-06-16 proposal-v16</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1387,6 +1387,9 @@ body.impersonating .ls-topbar{padding-top:8px}
     </div>
     <div class="menu-item" onclick="closeMenu();openEmailSigSheet()">
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>Email Signature
+    </div>
+    <div class="menu-item" onclick="closeMenu();openProposalAutoSheet()">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>Auto-Send Proposals
     </div>
     <div class="menu-item" onclick="closeMenu();openSheet('apiSettingsSh')">
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>API Keys & Integrations
@@ -3302,7 +3305,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-16 leadfix-v15';
+var APP_VERSION = 'v2026-06-16 proposal-v16';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -5283,6 +5286,59 @@ function openEmailSigSheet() {
       if(el) el.addEventListener('input', updatePreview);
     });
   }, 100);
+}
+
+// ── Auto-send proposal toggle (global operator setting) ──
+async function openProposalAutoSheet() {
+  openSheet('proposalAutoSh');
+  var t = document.getElementById('proposalAutoToggle');
+  var hint = document.getElementById('proposalAutoHint');
+  if(t){ t.classList.remove('on'); t.disabled = true; }
+  if(hint){ hint.textContent = 'Loading\u2026'; }
+  try {
+    var res = await sbFetch('/rest/v1/app_settings?key=eq.proposal_autosend_enabled&select=value');
+    var rows = res.ok ? await res.json() : [];
+    var on = !(rows && rows[0] && rows[0].value === false); // default ON when absent
+    if(t){ t.classList.toggle('on', on); t.disabled = false; }
+    setProposalAutoHint(on);
+  } catch(e) {
+    if(hint) hint.textContent = 'Could not load the current setting \u2014 reopen to retry.';
+    if(t) t.disabled = false;
+  }
+}
+
+function setProposalAutoHint(on) {
+  var hint = document.getElementById('proposalAutoHint');
+  if(!hint) return;
+  hint.textContent = on
+    ? 'On \u2014 new partner & pipeline leads receive the proposal automatically.'
+    : 'Off \u2014 no proposals are sent automatically. Leads are added as normal.';
+}
+
+async function toggleProposalAutosend() {
+  var t = document.getElementById('proposalAutoToggle');
+  if(!t || t.disabled) return;
+  var newOn = !t.classList.contains('on');
+  t.classList.toggle('on', newOn);
+  t.disabled = true;
+  try {
+    var res = await sbFetch('/rest/v1/app_settings', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ key: 'proposal_autosend_enabled', value: newOn, updated_at: new Date().toISOString() })
+    });
+    if(res.ok){
+      showToast(newOn ? '\u2705 Proposal auto-send is ON' : 'Proposal auto-send is OFF');
+      setProposalAutoHint(newOn);
+    } else {
+      t.classList.toggle('on', !newOn); // revert
+      showToast('Could not save \u2014 please try again');
+    }
+  } catch(e) {
+    t.classList.toggle('on', !newOn); // revert
+    showToast('Could not save \u2014 please try again');
+  }
+  t.disabled = false;
 }
 
 function buildEmailFooter(opts) {
@@ -20436,6 +20492,21 @@ document.addEventListener('click', function(ev){
     <div class="sh-foot">
       <button class="btn btn-ghost" onclick="closeSheet('emailSigSh')" style="flex:1">Cancel</button>
       <button class="btn btn-primary" onclick="saveEmailSig()" style="flex:2;justify-content:center">Save Signature</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ AUTO-SEND PROPOSALS SHEET ════════════════════════════ -->
+<div class="sheet-ov" id="proposalAutoSh" onclick="if(event.target===this)closeSheet('proposalAutoSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title">&#x1F4E4; Auto-Send Proposals</div><button class="sheet-x" onclick="closeSheet('proposalAutoSh')">&#x2715;</button></div>
+    <div class="sh-body">
+      <p style="font-size:12px;color:var(--sub);margin:0 0 16px;line-height:1.7">When a partner or admin adds a sales lead, the full proposal email is sent to them automatically. Leads that already received it are never emailed twice, and a CC added later is sent the proposal too.</p>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--surface)">
+        <div style="font-size:14px;font-weight:600;color:var(--text)">Auto-send proposal to new leads</div>
+        <button class="perm-toggle" id="proposalAutoToggle" onclick="toggleProposalAutosend()"></button>
+      </div>
+      <div id="proposalAutoHint" style="font-size:12px;color:var(--sub);margin-top:12px;line-height:1.7">Loading&hellip;</div>
     </div>
   </div>
 </div>
