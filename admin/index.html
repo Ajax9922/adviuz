@@ -4738,6 +4738,8 @@ function openEditCampaign(btn) {
     + '<div class="form-group"><label class="fld">Meta CAPI access token</label><textarea class="fld" id="ecam-capi-token" rows="2" placeholder="EAA... paste to set or replace; leave blank to keep current"></textarea></div>'
     + '<div class="form-group"><label class="fld">Test event code (optional)</label><input class="fld" id="ecam-capi-test" placeholder="TEST12345 while testing; clear to go live"></div>'
     + '<div id="ecam-capi-status" style="font-size:11px;color:var(--muted);margin-top:-4px"></div>'
+    + '<button type="button" class="btn-save" onclick="sendCapiTestLead()" style="margin-top:10px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-size:12px">&#129514; Send test lead (no client notified)</button>'
+    + '<div id="ecam-capi-testresult" style="font-size:12px;margin-top:8px;line-height:1.5"></div>'
     + '</div>'
     + '<div style="margin-top:6px;padding-top:14px;border-top:1px solid var(--border)">'
     + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">&#128222; Twilio Number (Calls &amp; SMS)</div>'
@@ -4979,6 +4981,41 @@ function _ecamPullFromLanding(){
     : 'Pulled from landing page — review and edit, then Save changes.');
 }
 
+async function sendCapiTestLead() {
+  var cid = window._editCampaignId;
+  var out = document.getElementById('ecam-capi-testresult');
+  var btn = document.querySelector('button[onclick="sendCapiTestLead()"]');
+  if (!cid) { if (out){ out.style.color='var(--danger)'; out.textContent='Open a campaign first.'; } return; }
+  var tcEl = document.getElementById('ecam-capi-test');
+  var tc = (tcEl ? tcEl.value : '').trim();
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending test lead\u2026'; }
+  if (out) { out.style.color = 'var(--muted)'; out.textContent = 'Sending a synthetic lead to Meta (no client will be notified)\u2026'; }
+  try {
+    var r = await sbAdmin('/functions/v1/capi-test', {
+      method: 'POST',
+      body: JSON.stringify(tc ? { campaign_id: cid, test_event_code: tc } : { campaign_id: cid })
+    });
+    var d = await r.json().catch(function(){ return {}; });
+    var res = (d && d.result) || {};
+    if (res.ok && res.events_received) {
+      out.style.color = 'var(--brand)';
+      out.innerHTML = '\u2705 Meta received the test lead (events_received: ' + res.events_received + ') on pixel ' + (res.pixel || '?') + '.<br>No client was notified. '
+        + (tc ? ('Check Test Events under code <b>' + sanitize(tc) + '</b>.') : 'Sent as a test event \u2014 it will not count as a live conversion.');
+    } else if (res.skipped === 'no capi token') {
+      out.style.color = 'var(--warning)'; out.textContent = '\u26A0\uFE0F No CAPI token saved yet \u2014 paste a token above and press Save changes first.';
+    } else if (res.skipped === 'no pixel id') {
+      out.style.color = 'var(--warning)'; out.textContent = '\u26A0\uFE0F No Meta Pixel ID set \u2014 fill the Meta Pixel ID field and press Save changes first.';
+    } else if (res.skipped) {
+      out.style.color = 'var(--warning)'; out.textContent = '\u26A0\uFE0F Skipped: ' + res.skipped;
+    } else {
+      var em = (res && res.error) || d.error || JSON.stringify(d);
+      out.style.color = 'var(--danger)'; out.textContent = '\u274C ' + (typeof em === 'string' ? em : JSON.stringify(em));
+    }
+  } catch (e) {
+    if (out) { out.style.color = 'var(--danger)'; out.textContent = '\u274C ' + (e && e.message ? e.message : String(e)); }
+  }
+  if (btn) { btn.disabled = false; btn.innerHTML = '\uD83E\uDDEA Send test lead (no client notified)'; }
+}
 async function saveCampaignEdit() {
   var id     = window._editCampaignId;
   var name   = document.getElementById('ecam-name')?.value.trim();
