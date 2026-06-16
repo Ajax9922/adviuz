@@ -79,6 +79,15 @@ async function countViewLive() {
   return result;
 }
 
+// Reads a browser cookie by name (used for Meta's _fbp click cookie).
+function _adviuzCookie(name) {
+  try {
+    const parts = ('; ' + document.cookie).split('; ' + name + '=');
+    if (parts.length === 2) return decodeURIComponent(parts.pop().split(';').shift());
+  } catch (e) {}
+  return null;
+}
+
 // Called when inquiry form submitted on ad page
 async function submitLeadLive(formData) {
   const p = new URLSearchParams(window.location.search);
@@ -93,6 +102,11 @@ async function submitLeadLive(formData) {
     message:     formData.message     || null,
     source:      p.get('utm_source')  || 'direct',
     utm_campaign:p.get('utm_campaign')|| null,
+    // ── Ad-click attribution: captured for Meta CAPI + Google offline conversions ──
+    fbclid:      p.get('fbclid')      || null,
+    gclid:       p.get('gclid')       || null,
+    fbp:         _adviuzCookie('_fbp')|| null,
+    event_source_url: window.location.href,
     billing_model: 'views',           // ad page leads default to views model
     stage:       'New',
     ai_call_status: 'pending',
