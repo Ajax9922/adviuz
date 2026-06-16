@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-15 topup-wa-v10</title>
+<title>Adviuz Hub · v2026-06-15 topup-credit-v12</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3299,7 +3299,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-15 topup-wa-v10';
+var APP_VERSION = 'v2026-06-15 topup-credit-v12';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -8942,7 +8942,7 @@ function applyTopupEmailTemplate(firstName) {
   showToast('\u26a1 Top-Up template ready \u2014 click Send Email');
 }
 
-function buildTopupHtml(firstName) {
+function buildTopupHtml(firstName, email) {
   firstName = firstName || 'there';
 
   var header =
@@ -9062,7 +9062,12 @@ function buildTopupHtml(firstName) {
     +'<p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6;font-family:Helvetica,Arial,sans-serif;">Questions? Just reply to this email and we\'ll help right away.</p>'
     +'</td></tr>';
 
-  return header + body + footer;
+  var _topupOut = header + body + footer;
+  if (email) {
+    var _pe = '?prefilled_email=' + encodeURIComponent(email);
+    _topupOut = _topupOut.replace(/(https:\/\/buy\.stripe\.com\/[A-Za-z0-9]+)"/g, '$1' + _pe + '"');
+  }
+  return _topupOut;
 }
 
 
@@ -11666,7 +11671,7 @@ function previewEmail(){
   } else if (window._useTopupSuccessTemplate) {
     previewHtml = buildTopupSuccessHtml(window._topupSuccessFirstName||firstName, viewsAdded, fromEmail);
   } else if (window._useTopupTemplate) {
-    previewHtml = buildTopupHtml(window._topupFirstName||firstName);
+    previewHtml = buildTopupHtml(window._topupFirstName||firstName, to);
   } else if (window._useSeqTemplate) {
     previewHtml = buildSeqEmail(window._useSeqTemplate, window._seqFirstName||firstName, window._seqCompany||'');
   } else if (window._usePlansTemplate) {
@@ -11733,7 +11738,7 @@ async function sendEmail(){
       finalHtml = buildTopupSuccessHtml(window._topupSuccessFirstName || 'there', viewsAdded, fromEmail);
       window._useTopupSuccessTemplate = false;
     } else if(window._useTopupTemplate) {
-      finalHtml = buildTopupHtml(window._topupFirstName || 'there');
+      finalHtml = buildTopupHtml(window._topupFirstName || 'there', to);
       window._useTopupTemplate = false;
     } else if(window._useSeqTemplate) {
       finalHtml = buildSeqEmail(window._useSeqTemplate, window._seqFirstName||'there', window._seqCompany||'');
@@ -13940,13 +13945,15 @@ async function openTopupWa(campId){
   }catch(e){}
   if(!camp){ if(info) info.textContent = 'Could not load this campaign.'; return; }
   try{
-    var r2 = await sbFetch('/rest/v1/clients?id=eq.'+camp.client_id+'&select=phone,business_name,contact_name&limit=1');
+    var r2 = await sbFetch('/rest/v1/clients?id=eq.'+camp.client_id+'&select=phone,business_name,contact_name,email&limit=1');
     if(r2.ok){ var cr = await r2.json(); client = cr && cr[0]; }
   }catch(e){}
   window._topupWa = {
     phone:   (client && client.phone) || '',
     contact: (client && client.contact_name) || '',
     biz:     (client && client.business_name) || '',
+    email:   (client && client.email) || '',
+    clientId: camp.client_id || '',
     campName: camp.name || 'your campaign'
   };
   var digits = String(window._topupWa.phone).replace(/[^0-9]/g,'');
@@ -13978,8 +13985,13 @@ function waSendTopup(i){
   var digits = String(t.phone||'').replace(/[^0-9]/g,'');
   if(!digits){ showToast('No WhatsApp number on file'); return; }
   var first = (t.contact||'').split(' ')[0] || 'there';
+  // Tag the link so payment credits this client's views + auto-creates their invoice.
+  var params = [];
+  if(t.email){ params.push('prefilled_email='+encodeURIComponent(t.email)); }
+  if(t.clientId){ params.push('client_reference_id='+encodeURIComponent(t.clientId+':'+p.views)); }
+  var link = p.url + (params.length ? ('?'+params.join('&')) : '');
   var msg = 'Hi '+first+', your Adviuz campaign "'+t.campName+'" is running low on flyer views. '
-          + 'Top up '+p.views.toLocaleString()+' views here to keep your ads live:\n'+p.url;
+          + 'Top up '+p.views.toLocaleString()+' views here to keep your ads live:\n'+link;
   window.open('https://wa.me/'+digits+'?text='+encodeURIComponent(msg), '_blank');
   closeSheet('topupWaSh');
 }
