@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-15 aicall-v9</title>
+<title>Adviuz Hub · v2026-06-15 topup-wa-v10</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -2639,7 +2639,7 @@ body.impersonating .ls-topbar{padding-top:8px}
     </div>
   </div>
 </div>
-<!-- ═══ AI AUTO-CALL SETTINGS ═══ -->
+<!-- ═══ FOLLOW-UP REVIEW QUEUE (5C) ═══ -->
 <div class="sheet-ov" id="aiCallSh" onclick="if(event.target===this)closeSheet('aiCallSh')">
   <div class="sheet"><div class="sheet-handle"></div>
     <div class="sheet-head"><div class="sheet-title">AI Auto-Call</div><button class="sheet-x" onclick="closeSheet('aiCallSh')">&#x2715;</button></div>
@@ -2663,6 +2663,16 @@ body.impersonating .ls-topbar{padding-top:8px}
       </div>
 
       <button id="acSaveBtn" class="btn btn-primary" onclick="saveAiCallSettings()" style="width:100%;justify-content:center">Save settings</button>
+    </div>
+  </div>
+</div>
+<!-- ═══ SEND TOP-UP LINK ON WHATSAPP ═══ -->
+<div class="sheet-ov" id="topupWaSh" onclick="if(event.target===this)closeSheet('topupWaSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title">Send top-up link</div><button class="sheet-x" onclick="closeSheet('topupWaSh')">&#x2715;</button></div>
+    <div class="sh-body">
+      <div id="topupWaInfo" style="font-size:13px;color:var(--sub);margin-bottom:14px;line-height:1.6">Loading&hellip;</div>
+      <div id="topupWaList"></div>
     </div>
   </div>
 </div>
@@ -3289,7 +3299,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-15 aicall-v9';
+var APP_VERSION = 'v2026-06-15 topup-wa-v10';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -6261,6 +6271,8 @@ function renderCampaigns(camps) {
     }
     html += '<button class="camp-act-btn cab-stats" data-cid="'+camp.id+'" onclick="showCampStats(this.dataset.cid)">';
     html += '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:14px;height:14px"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Details</button>';
+    html += '<button class="camp-act-btn cab-topup" data-cid="'+camp.id+'" onclick="openTopupWa(this.dataset.cid)">';
+    html += '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:14px;height:14px"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>Top-up</button>';
     html += '<button class="camp-act-btn cab-boost" onclick="showToast(&quot;&#x1F680; Boost coming soon&quot;)">';
     html += '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Boost</button>';
     html += '</div>';
@@ -13904,6 +13916,73 @@ var FOLLOWUP_DEFAULTS = {
     '15': { on:false, days:[]      }
   }
 };
+
+// ── Send top-up payment link on WhatsApp (manual, operator) ──────────────
+var TOPUP_PACKAGES = [
+  {views:200,   url:'https://buy.stripe.com/4gM6oAbKJ8kmgjB9579EI03', tag:''},
+  {views:500,   url:'https://buy.stripe.com/fZudR22a9fMO5EX8139EI0b', tag:''},
+  {views:1000,  url:'https://buy.stripe.com/8x2dR2eWVcAC6J11CF9EI0c', tag:'Popular'},
+  {views:2500,  url:'https://buy.stripe.com/6oU00c4ihbwy8R9ftv9EI0d', tag:''},
+  {views:5000,  url:'https://buy.stripe.com/dRmaEQ9CB0RU3wP2GJ9EI0e', tag:''},
+  {views:10000, url:'https://buy.stripe.com/cNieV67ut6ceebt8139EI0f', tag:'Best deal'}
+];
+
+async function openTopupWa(campId){
+  openSheet('topupWaSh');
+  var info = document.getElementById('topupWaInfo');
+  var listEl = document.getElementById('topupWaList');
+  if(info) info.textContent = 'Loading…';
+  if(listEl) listEl.innerHTML = '';
+  var camp=null, client=null;
+  try{
+    var r = await sbFetch('/rest/v1/campaigns?id=eq.'+campId+'&select=name,view_budget,views_used,client_id&limit=1');
+    if(r.ok){ var rows = await r.json(); camp = rows && rows[0]; }
+  }catch(e){}
+  if(!camp){ if(info) info.textContent = 'Could not load this campaign.'; return; }
+  try{
+    var r2 = await sbFetch('/rest/v1/clients?id=eq.'+camp.client_id+'&select=phone,business_name,contact_name&limit=1');
+    if(r2.ok){ var cr = await r2.json(); client = cr && cr[0]; }
+  }catch(e){}
+  window._topupWa = {
+    phone:   (client && client.phone) || '',
+    contact: (client && client.contact_name) || '',
+    biz:     (client && client.business_name) || '',
+    campName: camp.name || 'your campaign'
+  };
+  var digits = String(window._topupWa.phone).replace(/[^0-9]/g,'');
+  if(info){
+    info.innerHTML = digits
+      ? 'Pick a package to send <b>'+_smsEsc(window._topupWa.biz||'this client')+'</b> a WhatsApp message with the payment link. WhatsApp opens with the message ready &mdash; you just press send.'
+      : '<span style="color:var(--red,#dc2626)">No WhatsApp number on file for this client.</span> Add a phone number to the client first.';
+  }
+  renderTopupWaList(!!digits);
+}
+
+function renderTopupWaList(hasPhone){
+  var el = document.getElementById('topupWaList'); if(!el) return;
+  var h='';
+  TOPUP_PACKAGES.forEach(function(p,i){
+    h += '<button class="btn" '+(hasPhone?'':'disabled ')+'onclick="waSendTopup('+i+')" '
+       + 'style="width:100%;justify-content:space-between;margin-bottom:8px;background:var(--white);border:1px solid var(--border);padding:13px 14px'+(hasPhone?'':';opacity:.45')+'">'
+       + '<span style="font-size:14px;font-weight:800;color:var(--text)">'+p.views.toLocaleString()+' Flyer Views'
+       + (p.tag?' <span style="font-size:10px;font-weight:700;background:var(--green);color:#fff;padding:2px 7px;border-radius:5px;margin-left:6px">'+p.tag+'</span>':'')
+       + '</span><span style="font-size:13px;font-weight:700;color:var(--green)">Send &rarr;</span>'
+       + '</button>';
+  });
+  el.innerHTML = h;
+}
+
+function waSendTopup(i){
+  var p = TOPUP_PACKAGES[i]; if(!p) return;
+  var t = window._topupWa || {};
+  var digits = String(t.phone||'').replace(/[^0-9]/g,'');
+  if(!digits){ showToast('No WhatsApp number on file'); return; }
+  var first = (t.contact||'').split(' ')[0] || 'there';
+  var msg = 'Hi '+first+', your Adviuz campaign "'+t.campName+'" is running low on flyer views. '
+          + 'Top up '+p.views.toLocaleString()+' views here to keep your ads live:\n'+p.url;
+  window.open('https://wa.me/'+digits+'?text='+encodeURIComponent(msg), '_blank');
+  closeSheet('topupWaSh');
+}
 
 // ── AI Auto-Call settings (operator) ─────────────────────────────────────
 var AC_PIPELINE_ID = '7d315d20-00af-4e7f-8d79-c89b3f2b5cf7'; // Adviuz own pipeline
