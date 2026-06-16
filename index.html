@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-15 topup-credit-v12</title>
+<title>Adviuz Hub · v2026-06-15 topup-email-v13</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1525,6 +1525,9 @@ body.impersonating .ls-topbar{padding-top:8px}
         &#x1F4CA; <strong>Tracking on</strong> — opens &amp; clicks show in activity thread.<br>
         Replies go to the From address you selected above.
       </div>
+    </div>
+    <div id="emailWaRow" style="display:none;padding:0 16px 10px">
+      <button class="btn" onclick="openTopupWaFromEmail()" style="width:100%;justify-content:center;background:#25d366;color:#fff">&#x1F4F2; Send top-up link on WhatsApp</button>
     </div>
     <div class="sh-foot">
       <button class="btn btn-ghost" onclick="closeSheet('emailSh')" style="flex:1">Cancel</button>
@@ -3299,7 +3302,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-15 topup-credit-v12';
+var APP_VERSION = 'v2026-06-15 topup-email-v13';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -8939,6 +8942,7 @@ function applyTopupEmailTemplate(firstName) {
   if(bodyEl) bodyEl.value = '[Top-Up Views Email - Beautiful HTML will be sent]\n\nHi ' + firstName + ',\n\nYour campaign is running but your view balance is low.\n\nPackages available: 200 / 500 / 1,000 / 2,500 / 5,000 / 10,000 views\n\n\u2014 Adviuz Team';
   window._useTopupTemplate = true;
   window._topupFirstName   = firstName;
+  var _waRow = document.getElementById('emailWaRow'); if(_waRow) _waRow.style.display='block';
   showToast('\u26a1 Top-Up template ready \u2014 click Send Email');
 }
 
@@ -9063,10 +9067,23 @@ function buildTopupHtml(firstName, email) {
     +'</td></tr>';
 
   var _topupOut = header + body + footer;
-  if (email) {
-    var _pe = '?prefilled_email=' + encodeURIComponent(email);
-    _topupOut = _topupOut.replace(/(https:\/\/buy\.stripe\.com\/[A-Za-z0-9]+)"/g, '$1' + _pe + '"');
-  }
+  // Tag each package link so a payment credits the advertiser's views and
+  // auto-creates their invoice (client_id taken from the lead being emailed),
+  // and pre-fill the recipient's email at checkout.
+  var _topL = (typeof _emailLeadId !== 'undefined' && _emailLeadId) ? (leads||[]).find(function(x){return x.id===_emailLeadId;}) : null;
+  var _topCid = (_topL && _topL.client_id) ? _topL.client_id : '';
+  var _topViews = {
+    '4gM6oAbKJ8kmgjB9579EI03':200,  'fZudR22a9fMO5EX8139EI0b':500,
+    '8x2dR2eWVcAC6J11CF9EI0c':1000, '6oU00c4ihbwy8R9ftv9EI0d':2500,
+    'dRmaEQ9CB0RU3wP2GJ9EI0e':5000, 'cNieV67ut6ceebt8139EI0f':10000
+  };
+  _topupOut = _topupOut.replace(/https:\/\/buy\.stripe\.com\/([A-Za-z0-9]+)/g, function(full, code){
+    var ps = [];
+    if (email) ps.push('prefilled_email=' + encodeURIComponent(email));
+    var v = _topViews[code];
+    if (_topCid && v) ps.push('client_reference_id=' + encodeURIComponent(_topCid + ':' + v));
+    return ps.length ? (full + '?' + ps.join('&')) : full;
+  });
   return _topupOut;
 }
 
@@ -11015,6 +11032,7 @@ function openEmail(id){
   } catch(e){
     console.warn('[openEmail] non-fatal prep error:', e && e.message);
   }
+  var _waRow1 = document.getElementById('emailWaRow'); if(_waRow1) _waRow1.style.display='none';
   openSheet('emailSh');
 }
 
@@ -11423,6 +11441,7 @@ function applyMasterEmailTpl(key){
   window._useSeqTemplate            = null;
   var drow = document.getElementById('designUrlRow'); if(drow) drow.style.display='none';
   document.getElementById('topupViewsRow') && (document.getElementById('topupViewsRow').style.display='none');
+  var _waRow0 = document.getElementById('emailWaRow'); if(_waRow0) _waRow0.style.display='none';
   var l = _emailLeadId ? leads.find(function(x){return x.id===_emailLeadId}) : null;
   var firstName = l ? l.name.split(' ')[0] : 'there';
   if(key === 'topup') {
@@ -13994,6 +14013,29 @@ function waSendTopup(i){
           + 'Top up '+p.views.toLocaleString()+' views here to keep your ads live:\n'+link;
   window.open('https://wa.me/'+digits+'?text='+encodeURIComponent(msg), '_blank');
   closeSheet('topupWaSh');
+}
+
+// Open the WhatsApp top-up picker for the lead currently in the email composer.
+function openTopupWaFromEmail(){
+  var l = (typeof _emailLeadId !== 'undefined' && _emailLeadId) ? leads.find(function(x){return x.id===_emailLeadId;}) : null;
+  var to = (document.getElementById('emailTo')||{}).value.trim();
+  window._topupWa = {
+    phone:    (l && l.ph) || '',
+    contact:  (l && l.name) || '',
+    biz:      (l && (l.company || l.name)) || '',
+    email:    to || (l && l.em) || '',
+    clientId: (l && l.client_id) || '',
+    campName: (l && (l.company || l.name)) || 'your campaign'
+  };
+  openSheet('topupWaSh');
+  var info = document.getElementById('topupWaInfo');
+  var digits = String(window._topupWa.phone).replace(/[^0-9]/g,'');
+  if(info){
+    info.innerHTML = digits
+      ? 'Pick a package to send <b>'+_smsEsc(window._topupWa.biz||'this client')+'</b> a WhatsApp message with the payment link. WhatsApp opens with the message ready &mdash; you just press send.'
+      : '<span style="color:var(--red,#dc2626)">No WhatsApp number on file for this lead.</span>';
+  }
+  renderTopupWaList(!!digits);
 }
 
 // ── AI Auto-Call settings (operator) ─────────────────────────────────────
