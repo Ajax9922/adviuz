@@ -629,7 +629,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-17 approve-fix-v1</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-17 leadpkg-a</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -1524,9 +1524,21 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
         <div class="topup-card" onclick="selectPackage(this,2500,10000)"><div class="topup-views">2,500</div><div class="topup-price">CAD $10,000</div><div class="topup-tag">$4 CAD/view</div></div>
         <div class="topup-card" onclick="selectPackage(this,5000,17500)"><div class="topup-views">5,000</div><div class="topup-price">CAD $17,500</div><div class="topup-tag">$3.50 CAD/view</div></div>
       </div>
+      <div id="topup-leads-pkg" style="display:none;margin-top:4px">
+        <label class="fld" style="display:block;margin-bottom:6px">Expected leads</label>
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <button type="button" id="topup-lead-fixed-btn" onclick="setLeadPkgMode('fixed')" style="flex:1;padding:9px;border:2px solid var(--border);border-radius:9px;background:var(--surface);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font)">Fixed number</button>
+          <button type="button" id="topup-lead-range-btn" onclick="setLeadPkgMode('range')" style="flex:1;padding:9px;border:2px solid var(--brand);border-radius:9px;background:var(--brand-light);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font)">Range</button>
+        </div>
+        <div id="topup-lead-fixed-wrap" class="form-group" style="display:none"><label class="fld">Number of leads</label><input class="fld" id="topup-lead-fixed" type="number" placeholder="e.g. 100"></div>
+        <div id="topup-lead-range-wrap" class="form-grid" style="grid-template-columns:1fr 1fr;gap:12px">
+          <div class="form-group"><label class="fld">From</label><input class="fld" id="topup-lead-min" type="number" placeholder="e.g. 500"></div>
+          <div class="form-group"><label class="fld">To</label><input class="fld" id="topup-lead-max" type="number" placeholder="e.g. 1000"></div>
+        </div>
+      </div>
       <div class="form-grid" style="margin-top:16px">
-        <div class="form-group"><label class="fld" id="topup-unit-label">Views to add</label><input class="fld" id="topup-views" type="number" value="500"></div>
-        <div class="form-group"><label class="fld">Amount collected ($)</label><input class="fld" id="topup-amount" type="number" value="2500"></div>
+        <div class="form-group" id="topup-views-group"><label class="fld" id="topup-unit-label">Views to add</label><input class="fld" id="topup-views" type="number" value="500"></div>
+        <div class="form-group"><label class="fld" id="topup-amount-label">Amount collected ($)</label><input class="fld" id="topup-amount" type="number" value="2500"></div>
         <div class="form-group full"><label class="fld">Payment reference</label><input class="fld" placeholder="UPI / bank transfer reference"></div>
       </div>
     </div>
@@ -2370,43 +2382,79 @@ function setTopupMode(mode){
   if(bv){ bv.style.borderColor=(mode==='views')?'var(--brand)':'var(--border)'; bv.style.background=(mode==='views')?'var(--brand-light)':'var(--surface)'; }
   if(bl){ bl.style.borderColor=(mode==='leads')?'var(--brand)':'var(--border)'; bl.style.background=(mode==='leads')?'var(--brand-light)':'var(--surface)'; }
   var isLeads=(mode==='leads');
-  var t=document.getElementById('topup-title'); if(t) t.textContent=isLeads?'Add lead balance':'Add view balance';
-  var intro=document.getElementById('topup-intro'); if(intro) intro.textContent=isLeads?"Enter how many leads to credit to this client's lead balance.":"Select a package or enter a custom amount to top up this client's view balance.";
+  var t=document.getElementById('topup-title'); if(t) t.textContent=isLeads?'Add lead package':'Add view balance';
+  var intro=document.getElementById('topup-intro'); if(intro) intro.textContent=isLeads?"Set this client's lead package — the expected leads and the package price.":"Select a package or enter a custom amount to top up this client's view balance.";
   var pkg=document.getElementById('topupPackages'); if(pkg) pkg.style.display=isLeads?'none':'';
-  var ul=document.getElementById('topup-unit-label'); if(ul) ul.textContent=isLeads?'Leads to add':'Views to add';
-  var sb=document.getElementById('topup-save-btn'); if(sb) sb.textContent=isLeads?'Add leads':'Add views';
+  var lp=document.getElementById('topup-leads-pkg'); if(lp) lp.style.display=isLeads?'':'none';
+  var vg=document.getElementById('topup-views-group'); if(vg) vg.style.display=isLeads?'none':'';
+  var al=document.getElementById('topup-amount-label'); if(al) al.textContent=isLeads?'Package cost ($)':'Amount collected ($)';
+  var sb=document.getElementById('topup-save-btn'); if(sb) sb.textContent=isLeads?'Save package':'Add views';
+  if(isLeads && !window._leadPkgMode) setLeadPkgMode('range');
+}
+function setLeadPkgMode(m){
+  window._leadPkgMode = m;
+  var fb=document.getElementById('topup-lead-fixed-btn'), rb=document.getElementById('topup-lead-range-btn');
+  if(fb){ fb.style.borderColor=(m==='fixed')?'var(--brand)':'var(--border)'; fb.style.background=(m==='fixed')?'var(--brand-light)':'var(--surface)'; }
+  if(rb){ rb.style.borderColor=(m==='range')?'var(--brand)':'var(--border)'; rb.style.background=(m==='range')?'var(--brand-light)':'var(--surface)'; }
+  var fw=document.getElementById('topup-lead-fixed-wrap'); if(fw) fw.style.display=(m==='fixed')?'':'none';
+  var rw=document.getElementById('topup-lead-range-wrap'); if(rw) rw.style.display=(m==='range')?'':'none';
 }
 async function doTopup() {
   var mode   = window._topupMode || 'views';
   var isLeads= (mode === 'leads');
-  var unit   = isLeads ? 'leads' : 'views';
-  var qty    = parseInt(document.getElementById('topup-views') ? document.getElementById('topup-views').value : 0);
   var amount = parseFloat(document.getElementById('topup-amount') ? document.getElementById('topup-amount').value : 0);
   var refEl  = document.querySelector('#topupModal input[placeholder*="reference"]');
   var ref    = refEl ? refEl.value : '';
   var cid    = window._topupClientId;
-  if (!cid)    { toast('Select a client first'); return; }
-  if (!qty)    { toast('Enter number of ' + unit); return; }
-  if (!amount) { toast('Enter the amount paid'); return; }
-  await sbAdmin('/rest/v1/transactions', {
-    method: 'POST',
-    headers: { Prefer: 'return=minimal' },
-    body: JSON.stringify({ client_id:cid, billing_model:mode, views_added:qty, amount_cad:amount, price_per_unit:amount/qty, payment_reference:ref, payment_status:'confirmed', created_by:'admin' })
-  });
+  if (!cid) { toast('Select a client first'); return; }
+
   if (isLeads) {
-    await sbAdmin('/rest/v1/rpc/increment_lead_balance', {
-      method: 'POST',
-      body: JSON.stringify({ p_client_id: cid, p_leads: qty })
-    });
-  } else {
-    var newBalance = (window._topupClientBalance || 0) + qty;
+    var pm = window._leadPkgMode || 'range';
+    var lmin, lmax;
+    if (pm === 'fixed') {
+      lmin = lmax = parseInt((document.getElementById('topup-lead-fixed')||{}).value || 0);
+    } else {
+      lmin = parseInt((document.getElementById('topup-lead-min')||{}).value || 0);
+      lmax = parseInt((document.getElementById('topup-lead-max')||{}).value || 0);
+    }
+    if (!lmin || !lmax) { toast('Enter the expected leads'); return; }
+    if (lmax < lmin) { var _t = lmin; lmin = lmax; lmax = _t; }
+    if (!amount)      { toast('Enter the package cost'); return; }
+    // Save the lead package onto the client (range/fixed + price). Presence of a
+    // package is what the campaign + client app read — we don't flip the client's
+    // overall billing_model, so flyers + leads can coexist.
     await sbAdmin('/rest/v1/clients?id=eq.' + cid, {
       method: 'PATCH',
-      body: JSON.stringify({ view_balance: newBalance })
+      body: JSON.stringify({ lead_pkg_min: lmin, lead_pkg_max: lmax, lead_pkg_cost: amount })
     });
+    await sbAdmin('/rest/v1/rpc/increment_lead_balance', {
+      method: 'POST', body: JSON.stringify({ p_client_id: cid, p_leads: lmax })
+    }).catch(function(){});
+    await sbAdmin('/rest/v1/transactions', {
+      method: 'POST', headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ client_id:cid, billing_model:'leads', views_added:lmax, amount_cad:amount, price_per_unit:(lmax?amount/lmax:0), payment_reference:ref, payment_status:'confirmed', created_by:'admin' })
+    }).catch(function(){});
+    closeModal('topupModal');
+    var pkgTxt = (lmin === lmax) ? (lmin + ' leads') : (lmin + '\u2013' + lmax + ' leads');
+    toast('\u2705 Lead package set: ' + pkgTxt + ' \u2014 CAD $' + amount.toLocaleString());
+    loadAdminData();
+    return;
   }
+
+  // ── Views (unchanged) ──
+  var qty = parseInt(document.getElementById('topup-views') ? document.getElementById('topup-views').value : 0);
+  if (!qty)    { toast('Enter number of views'); return; }
+  if (!amount) { toast('Enter the amount paid'); return; }
+  await sbAdmin('/rest/v1/transactions', {
+    method: 'POST', headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({ client_id:cid, billing_model:'views', views_added:qty, amount_cad:amount, price_per_unit:amount/qty, payment_reference:ref, payment_status:'confirmed', created_by:'admin' })
+  });
+  var newBalance = (window._topupClientBalance || 0) + qty;
+  await sbAdmin('/rest/v1/clients?id=eq.' + cid, {
+    method: 'PATCH', body: JSON.stringify({ view_balance: newBalance })
+  });
   closeModal('topupModal');
-  toast('Added ' + qty.toLocaleString() + ' ' + unit + ' \u2014 CAD $' + amount.toLocaleString());
+  toast('Added ' + qty.toLocaleString() + ' views \u2014 CAD $' + amount.toLocaleString());
   loadAdminData();
 }
 function generatePassword() {
