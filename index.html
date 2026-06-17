@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-17 act-scope-v1</title>
+<title>Adviuz Hub · v2026-06-17 leadpkg-d2</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3305,7 +3305,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-17 act-scope-v1';
+var APP_VERSION = 'v2026-06-17 leadpkg-d2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -13213,12 +13213,24 @@ function clientCampaignListHTML() {
   var h = '<div style="padding:14px 16px">';
 
   // ── Account Balance card with + Add Balance button ──
+  var _cd = window._clientData || {};
+  var _leadPkgMax = Number(_cd.lead_pkg_max)||0;
+  var _leadsOnly  = _leadPkgMax > 0 && purchased === 0;
+  if (_leadsOnly) {
+    h += '<div style="background:linear-gradient(135deg,#001f3f,#0c2d4f);border-radius:16px;padding:18px;margin-bottom:14px;color:#fff">'
+      +    '<div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.7);letter-spacing:.07em;text-transform:uppercase">Your Lead Package</div>'
+      +    '<div style="font-size:30px;font-weight:800;margin-top:6px;letter-spacing:-.02em;line-height:1.05">'+_estLeadsText()+' <span style="font-size:14px;font-weight:600;color:rgba(255,255,255,.75)">leads</span></div>'
+      +    (Number(_cd.lead_pkg_cost)>0 ? '<div style="font-size:12px;color:rgba(255,255,255,.7);margin-top:5px">Package price: $'+Number(_cd.lead_pkg_cost).toLocaleString()+'</div>' : '')
+      +    '<button onclick="openAddBalanceSheet()" data-action="openAddBalanceSheet" style="margin-top:14px;width:100%;padding:13px;border-radius:11px;background:#fff;color:#001f3f;border:none;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer">+ Add Balance</button>'
+      +  '</div>';
+  } else {
   h += '<div style="background:linear-gradient(135deg,#001f3f,#0c2d4f);border-radius:16px;padding:18px;margin-bottom:14px;color:#fff">'
     +    '<div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.7);letter-spacing:.07em;text-transform:uppercase">Wallet Balance</div>'
     +    '<div style="font-size:34px;font-weight:800;margin-top:6px;letter-spacing:-.02em;line-height:1">'+bal+' <span style="font-size:14px;font-weight:600;color:rgba(255,255,255,.75)">Flyer Views</span></div>'
     +    '<div style="font-size:11px;color:rgba(255,255,255,.6);margin-top:5px">'+inCampaigns+' in campaigns \u00B7 '+unallotted+' unallotted</div>'
     +    '<button onclick="openAddBalanceSheet()" data-action="openAddBalanceSheet" style="margin-top:14px;width:100%;padding:13px;border-radius:11px;background:#fff;color:#001f3f;border:none;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer">+ Add Balance</button>'
     +  '</div>';
+  }
 
   // ── Billing & Invoices entry ──
   h += '<button onclick="openClientBilling()" style="width:100%;display:flex;align-items:center;gap:12px;background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:14px;cursor:pointer;text-align:left;font-family:var(--f)">'
@@ -13308,6 +13320,14 @@ function clientCampaignListHTML() {
   return h;
 }
 
+function _isLeadsCamp(cp){ return String((cp&&cp.billing_model)||'').toLowerCase()==='leads'; }
+function _estLeadsText(){
+  var cd = window._clientData||{};
+  var mn = Number(cd.lead_pkg_min)||0, mx = Number(cd.lead_pkg_max)||0;
+  if (!mn && !mx) return '\u2014';
+  if (!mx || mn===mx) return (mn||mx).toLocaleString();
+  return mn.toLocaleString()+'\u2013'+mx.toLocaleString();
+}
 function _clientCampCard(cp) {
   var active     = (cp.status||'').toLowerCase() === 'active';
   var paused     = (cp.status||'').toLowerCase() === 'paused';
@@ -13361,20 +13381,40 @@ function _clientCampCard(cp) {
     +    '<div style="font-size:11px;color:#1e40af;margin-top:2px">Your ad reached '+totalExposure.toLocaleString()+' people</div>'
     +  '</div>';
 
-  // ── 3 stats: Flyer Views (used) / Remaining / Leads ──
-  // Leads tile is CLICKABLE → goes to Leads tab pre-filtered by this campaign.
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px" onclick="event.stopPropagation()">'
-    +    _statTile('Flyer Views', viewsUsed)
-    +    _statTile('Remaining',   remaining)
-    +    '<div onclick="event.stopPropagation();gotoLeadsForCampaign(\''+cp.id+'\')" style="background:var(--bg);border-radius:9px;padding:9px 6px;text-align:center;cursor:pointer;border:1.5px solid var(--green);background:#ecfdf5">'
-    +      '<div style="font-size:16px;font-weight:800;color:var(--green);letter-spacing:-.01em">'+campLeads+'</div>'
-    +      '<div style="font-size:9px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.05em;margin-top:2px">Leads ›</div>'
-    +    '</div>'
-    +  '</div>';
+  // ── Stats: leads campaigns show Estimated Leads + Leads Delivered;
+  //    flyer campaigns show Flyer Views / Remaining / Leads. ──
+  if (_isLeadsCamp(cp)) {
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px" onclick="event.stopPropagation()">'
+      +    '<div style="background:var(--bg);border-radius:9px;padding:9px 6px;text-align:center">'
+      +      '<div style="font-size:16px;font-weight:800;color:var(--text);letter-spacing:-.01em">'+_estLeadsText()+'</div>'
+      +      '<div style="font-size:9px;font-weight:600;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-top:2px">Estimated Leads</div>'
+      +    '</div>'
+      +    '<div onclick="event.stopPropagation();gotoLeadsForCampaign(\''+cp.id+'\')" style="border-radius:9px;padding:9px 6px;text-align:center;cursor:pointer;border:1.5px solid var(--green);background:#ecfdf5">'
+      +      '<div style="font-size:16px;font-weight:800;color:var(--green);letter-spacing:-.01em">'+campLeads+'</div>'
+      +      '<div style="font-size:9px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.05em;margin-top:2px">Leads Delivered ›</div>'
+      +    '</div>'
+      +  '</div>';
+  } else {
+    // ── 3 stats: Flyer Views (used) / Remaining / Leads ──
+    // Leads tile is CLICKABLE → goes to Leads tab pre-filtered by this campaign.
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px" onclick="event.stopPropagation()">'
+      +    _statTile('Flyer Views', viewsUsed)
+      +    _statTile('Remaining',   remaining)
+      +    '<div onclick="event.stopPropagation();gotoLeadsForCampaign(\''+cp.id+'\')" style="background:var(--bg);border-radius:9px;padding:9px 6px;text-align:center;cursor:pointer;border:1.5px solid var(--green);background:#ecfdf5">'
+      +      '<div style="font-size:16px;font-weight:800;color:var(--green);letter-spacing:-.01em">'+campLeads+'</div>'
+      +      '<div style="font-size:9px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.05em;margin-top:2px">Leads ›</div>'
+      +    '</div>'
+      +  '</div>';
+  }
 
-  // Progress bar
+  // Progress bar — flyer: views used; leads: delivered vs package max.
+  var _barPct = pctUsed;
+  if (_isLeadsCamp(cp)) {
+    var _mx = Number((window._clientData||{}).lead_pkg_max)||0;
+    _barPct = _mx>0 ? Math.min(100, Math.round(campLeads/_mx*100)) : 0;
+  }
   h += '<div style="height:6px;background:var(--bg);border-radius:99px;overflow:hidden;margin-bottom:4px">'
-    +    '<div style="height:100%;width:'+pctUsed+'%;background:linear-gradient(90deg,var(--green),#22c55e);border-radius:99px;transition:width .4s"></div>'
+    +    '<div style="height:100%;width:'+_barPct+'%;background:linear-gradient(90deg,var(--green),#22c55e);border-radius:99px;transition:width .4s"></div>'
     +  '</div>';
 
   h += '</div>';
@@ -14795,12 +14835,33 @@ function clientCampaignDetailHTML(campId){
   // Full-width: Total Exposure
   h += _fullCard('Total Exposure', totalExposure.toLocaleString(), 'Your ad reached to '+totalExposure.toLocaleString()+' people');
 
-  // 2-up: Viewed | Balance
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
-    +    _halfCard('Viewed',  viewsUsed.toLocaleString(),  'People saw your Flyer for 25s')
-    +    _halfCard('Balance', remaining.toLocaleString(),  'Flyer Views')
-    +  '</div>';
+  // 2-up: leads → Estimated Leads | Leads Delivered; flyer → Viewed | Balance
+  if (_isLeadsCamp(cp)) {
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
+      +    _halfCard('Estimated Leads', _estLeadsText(), 'What this package should deliver')
+      +    '<div onclick="gotoLeadsForCampaign(\''+cp.id+'\')" style="background:var(--white);border:1.5px solid var(--green);border-radius:12px;padding:14px;cursor:pointer">'
+      +      '<div style="font-size:12px;font-weight:700;color:var(--sub)">Leads Delivered</div>'
+      +      '<div style="font-size:24px;font-weight:800;color:var(--text);margin-top:3px;letter-spacing:-.02em;line-height:1">'+campLeads+'</div>'
+      +      '<div style="font-size:11px;color:var(--green);margin-top:3px;font-weight:600">People Inquired ›</div>'
+      +    '</div>'
+      +  '</div>';
+  } else {
+    h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
+      +    _halfCard('Viewed',  viewsUsed.toLocaleString(),  'People saw your Flyer for 25s')
+      +    _halfCard('Balance', remaining.toLocaleString(),  'Flyer Views')
+      +  '</div>';
+  }
 
+  // leads → Status only (Leads Delivered shown above); flyer → Leads Generated | Status
+  if (_isLeadsCamp(cp)) {
+    h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px">'
+      +    '<div style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--sub)">'
+      +      '<span style="width:8px;height:8px;border-radius:50%;background:'+(active?'var(--green)':'#f59e0b')+'"></span>Status'
+      +    '</div>'
+      +    '<div style="font-size:24px;font-weight:800;color:var(--text);margin-top:3px;letter-spacing:-.02em;line-height:1">'+(active?'Active':'Paused')+'</div>'
+      +    '<div style="font-size:11px;color:var(--sub);margin-top:3px">'+(active?'Ad is active now':'Ad is paused')+'</div>'
+      +  '</div>';
+  } else {
   // 2-up: Leads Generated | Status
   h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px">'
     +    '<div onclick="gotoLeadsForCampaign(\''+cp.id+'\')" style="background:var(--white);border:1.5px solid var(--green);border-radius:12px;padding:14px;cursor:pointer">'
@@ -14816,6 +14877,7 @@ function clientCampaignDetailHTML(campId){
     +      '<div style="font-size:11px;color:var(--sub);margin-top:3px">'+(active?'Ad is active now':'Ad is paused')+'</div>'
     +    '</div>'
     +  '</div>';
+  }
 
   // ── CALL & EMAIL SETTINGS (per campaign) ──
   var _tw = cp.twilio_phone || '';
@@ -15080,9 +15142,32 @@ window._viewBundles = [
 ];
 
 function openAddBalanceSheet(){
-  var box = document.getElementById('addBalanceBundles');
-  if (box) box.innerHTML = window._viewBundles.map(_bundleCard).join('');
+  var box   = document.getElementById('addBalanceBundles');
+  var intro = document.getElementById('addBalanceIntro');
+  var foot  = document.getElementById('addBalanceFootnote');
+  var cd = window._clientData || {};
+  var leadPkgMax = Number(cd.lead_pkg_max)||0;
+  var leadsOnly  = leadPkgMax > 0 && (Number(cd.view_balance)||0) === 0;
+  if (leadsOnly) {
+    if (intro) intro.textContent = 'Here\u2019s your current lead package. To extend it or add more leads, contact your Adviuz manager and we\u2019ll set it up for you.';
+    if (box)   box.innerHTML = _leadPkgSheetCard();
+    if (foot)  foot.textContent = 'Lead packages are managed for you \u2014 no online checkout needed.';
+  } else {
+    if (intro) intro.textContent = "Pick a flyer-views bundle. You'll be taken to Stripe to pay securely. Once payment succeeds, your balance is credited automatically and you'll receive an invoice + confirmation email \u2014 then you can allocate the views to any campaign.";
+    if (box)   box.innerHTML = window._viewBundles.map(_bundleCard).join('');
+    if (foot)  foot.textContent = 'Powered by Stripe \u00B7 CAD pricing \u00B7 Includes invoice + 25-second view guarantee';
+  }
   openSheet('addBalanceSh');
+}
+
+function _leadPkgSheetCard(){
+  var cd = window._clientData||{};
+  var costTxt = Number(cd.lead_pkg_cost)>0 ? ('$'+Number(cd.lead_pkg_cost).toLocaleString()) : '';
+  return '<div style="background:var(--white);border:1.5px solid var(--green);border-radius:13px;padding:18px;margin-bottom:10px">'
+    +    '<div style="font-size:11px;font-weight:700;color:var(--green);letter-spacing:.06em;text-transform:uppercase">Your Lead Package</div>'
+    +    '<div style="font-size:26px;font-weight:800;color:var(--text);margin-top:6px;letter-spacing:-.02em;line-height:1">'+_estLeadsText()+' <span style="font-size:14px;font-weight:600;color:var(--sub)">leads</span></div>'
+    +    (costTxt ? '<div style="font-size:13px;color:var(--sub);margin-top:4px">Package price: '+costTxt+'</div>' : '')
+    +  '</div>';
 }
 
 function _bundleCard(b){
@@ -20691,11 +20776,11 @@ document.addEventListener('click', function(ev){
       <button class="sheet-x" onclick="closeSheet('addBalanceSh')">&#x2715;</button>
     </div>
     <div class="sh-body" style="padding:16px">
-      <div style="font-size:13px;color:var(--sub);margin-bottom:14px;line-height:1.5">
+      <div id="addBalanceIntro" style="font-size:13px;color:var(--sub);margin-bottom:14px;line-height:1.5">
         Pick a flyer-views bundle. You'll be taken to Stripe to pay securely. Once payment succeeds, your balance is credited automatically and you'll receive an invoice + confirmation email — then you can allocate the views to any campaign.
       </div>
       <div id="addBalanceBundles"></div>
-      <div style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center;line-height:1.5">
+      <div id="addBalanceFootnote" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center;line-height:1.5">
         Powered by Stripe · CAD pricing · Includes invoice + 25-second view guarantee
       </div>
     </div>
