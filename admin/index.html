@@ -629,7 +629,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-17 calltrack-v1</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-17 approve-fix-v1</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -1963,9 +1963,13 @@ function renderClientRows(clients, leads) {
     if (!l || !l.email) return false;
     var s = String(l.stage || '').toLowerCase();
     var closed = s.indexOf('deal closed') !== -1 || s.indexOf('won') !== -1;
-    // Skip leads already attached to a client — they're an existing client's
-    // customer (e.g. imported Hair Tattoo / Laser leads), not a new client to onboard.
-    return closed && !l.client_id && !_emails[String(l.email).toLowerCase()];
+    // A lead attached to a REAL client is that client's own customer (e.g.
+    // imported Hair Tattoo / Laser leads) — skip it. But Adviuz's own
+    // sales-pipeline client is just the inbox for new leads, so a closed lead
+    // sitting there IS an onboarding candidate and must show for approval.
+    var ADVIUZ_PIPELINE = '7d315d20-00af-4e7f-8d79-c89b3f2b5cf7';
+    var realClient = !!l.client_id && l.client_id !== ADVIUZ_PIPELINE;
+    return closed && !realClient && !_emails[String(l.email).toLowerCase()];
   });
   var pendingHtml = pending.map(function(l){
     var nm = l.company || l.name || l.email;
