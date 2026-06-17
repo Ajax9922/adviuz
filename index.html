@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-16 funnel-v1</title>
+<title>Adviuz Hub · v2026-06-16 funnel-v2</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3305,7 +3305,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-16 funnel-v1';
+var APP_VERSION = 'v2026-06-16 funnel-v2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -6831,10 +6831,6 @@ function reportsHTML(){
   // All roles now use the clean client-style report. It reads the same
   // role-scoped `leads` array, so the operator's data feeds it directly.
   // (Old detailed admin report kept below, unused, for easy revert.)
-  if (window._staffRole === 'super_admin' || window._staffRole === 'manager') {
-    setTimeout(loadFounderFunnel, 30);
-    return founderFunnelShell() + clientReportsHTML();
-  }
   return clientReportsHTML();
 
   var filtLeads = rptFilterLeads(leads);
@@ -6936,28 +6932,9 @@ function reportsHTML(){
 // ═══════════════════════════════════════════════════════════════════
 // FOUNDER FUNNEL  (operator-only — powered by staff-gated founder_funnel() RPC)
 // ═══════════════════════════════════════════════════════════════════
-window._ffDays   = window._ffDays   || 30;
-window._ffSource = (typeof window._ffSource === 'string') ? window._ffSource : '';
-
-function founderFunnelShell(){
-  var days = [{k:7,l:'7 Days'},{k:30,l:'30 Days'},{k:90,l:'90 Days'}];
-  var srcs = [{k:'',l:'All'},{k:'facebook',l:'Facebook'},{k:'google',l:'Google'}];
-  var dayChips = days.map(function(d){
-    return '<div class="fchip'+(window._ffDays===d.k?' on':'')+'" style="flex-shrink:0" onclick="window._ffDays='+d.k+';loadFounderFunnel()">'+d.l+'</div>';
-  }).join('');
-  var srcChips = srcs.map(function(s){
-    return '<div class="fchip'+(window._ffSource===s.k?' on':'')+'" style="flex-shrink:0" onclick="window._ffSource=\''+s.k+'\';loadFounderFunnel()">'+s.l+'</div>';
-  }).join('');
-  return '<div class="rpt-section" style="margin:10px 12px 4px">'
-    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
-    +   '<div class="rpt-title" style="margin:0">\uD83C\uDFAF Founder Funnel</div>'
-    +   '<div style="font-size:9px;font-weight:800;letter-spacing:.06em;color:var(--muted);border:1px solid var(--border);border-radius:20px;padding:2px 8px">OPERATOR ONLY</div>'
-    + '</div>'
-    + '<div style="display:flex;gap:6px;margin-bottom:6px;overflow-x:auto">'+dayChips+'</div>'
-    + '<div style="display:flex;gap:6px;margin-bottom:10px;overflow-x:auto">'+srcChips+'</div>'
-    + '<div id="ffBody"><div style="text-align:center;color:var(--muted);font-size:13px;padding:18px">Loading funnel\u2026</div></div>'
-    + '</div>';
-}
+window._ffDays            = window._ffDays || 30;
+window._ffSource          = (typeof window._ffSource === 'string') ? window._ffSource : '';
+window._adminCampDetailId = window._adminCampDetailId || null;
 
 function ffNum(n){ return (Number(n)||0).toLocaleString(); }
 function ffPct(a,b){ return (b && b>0) ? Math.round((Number(a)||0)/b*100) : 0; }
@@ -6971,12 +6948,10 @@ function ffStageRow(label, val, prev, accent){
     + '<div style="font-size:14px;font-weight:800;color:'+(accent||'var(--text)')+'">'+ffNum(val)+pct+'</div></div>';
 }
 
-function ffCardHTML(r){
+function ffFunnelBody(r){
   var imp=Number(r.impressions)||0, clk=Number(r.clicks)||0, land=Number(r.landings)||0,
       v25=Number(r.views_25s)||0, ld=Number(r.leads)||0, call=Number(r.calls)||0;
-  return '<div class="rpt-card" style="display:block;text-align:left;margin-bottom:10px;padding:13px">'
-    + '<div style="font-weight:800;font-size:14px;color:var(--text)">'+(r.campaign_name||'\u2014')+'</div>'
-    + '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">'+(r.client_name||'')+'</div>'
+  return '<div class="rpt-card" style="display:block;text-align:left;padding:4px 13px 12px">'
     + ffStageRow('\uD83D\uDC41\uFE0F Impressions', imp, null)
     + ffStageRow('\uD83D\uDDB1\uFE0F Clicks (Meta)', clk, imp)
     + ffStageRow('\uD83D\uDCCD Landed on page', land, clk||imp)
@@ -6986,28 +6961,60 @@ function ffCardHTML(r){
     + '</div>';
 }
 
-async function loadFounderFunnel(){
+// Operator campaign detail — opened from Dashboard > Campaigns. Shows the
+// conversion funnel for ONE campaign via the staff-gated founder_funnel RPC.
+function adminCampDetailHTML(campId){
+  var c = ((typeof _adminData!=='undefined' && _adminData.campaigns)||[]).find(function(x){ return String(x.id)===String(campId); }) || {};
+  var cn = (c.clients && c.clients.business_name) || '';
+  var stCol = c.status==='active'?'var(--green)':(c.status==='paused'?'var(--amber)':'var(--sub)');
+  var pct = c.view_budget>0?Math.min(100,Math.round((c.views_used||0)/c.view_budget*100)):0;
+  var days = [{k:7,l:'7 Days'},{k:30,l:'30 Days'},{k:90,l:'90 Days'}];
+  var srcs = [{k:'',l:'All'},{k:'facebook',l:'Facebook'},{k:'google',l:'Google'}];
+  var dayChips = days.map(function(d){ return '<div class="fchip'+(window._ffDays===d.k?' on':'')+'" style="flex-shrink:0" onclick="window._ffDays='+d.k+';loadCampFunnel(\''+campId+'\')">'+d.l+'</div>'; }).join('');
+  var srcChips = srcs.map(function(s){ return '<div class="fchip'+(window._ffSource===s.k?' on':'')+'" style="flex-shrink:0" onclick="window._ffSource=\''+s.k+'\';loadCampFunnel(\''+campId+'\')">'+s.l+'</div>'; }).join('');
+  setTimeout(function(){ loadCampFunnel(campId); }, 30);
+  var h = '<div style="padding:12px 14px">';
+  h += '<button onclick="adminBackToCampaigns()" style="background:none;border:none;color:var(--sub);font-family:var(--f);font-size:13px;cursor:pointer;padding:0 0 12px 0;display:flex;align-items:center;gap:5px">\u2039 Campaigns</button>';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px"><div style="font-size:20px;font-weight:800;color:var(--text)">'+(c.name||'Campaign')+'</div><span style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:20px;color:'+stCol+';background:'+stCol+'18">'+(c.status||'')+'</span></div>';
+  h += '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">'+cn+'</div>';
+  h += '<div style="height:5px;background:var(--border);border-radius:3px;margin-bottom:4px"><div style="height:100%;width:'+pct+'%;background:var(--green);border-radius:3px"></div></div>';
+  h += '<div style="font-size:11px;color:var(--sub);margin-bottom:14px">'+(c.views_used||0)+' / '+(c.view_budget||0)+' views used</div>';
+  h += '<div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:8px">\uD83C\uDFAF Conversion Funnel</div>';
+  h += '<div style="display:flex;gap:6px;margin-bottom:6px;overflow-x:auto">'+dayChips+'</div>';
+  h += '<div style="display:flex;gap:6px;margin-bottom:10px;overflow-x:auto">'+srcChips+'</div>';
+  h += '<div id="ffBody"><div style="text-align:center;color:var(--muted);font-size:13px;padding:18px">Loading funnel\u2026</div></div>';
+  h += '</div>';
+  return h;
+}
+
+async function loadCampFunnel(campId){
   var body = document.getElementById('ffBody');
   if (body) body.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:13px;padding:18px">Loading funnel\u2026</div>';
   try {
-    var res = await sbFetch('/rest/v1/rpc/founder_funnel', {
-      method:'POST',
-      body: JSON.stringify({ p_days: window._ffDays, p_source: window._ffSource || null })
-    });
+    var res = await sbFetch('/rest/v1/rpc/founder_funnel', { method:'POST', body: JSON.stringify({ p_days: window._ffDays, p_source: window._ffSource || null }) });
     var rows = await res.json();
     if (!Array.isArray(rows)) rows = [];
+    var r = rows.find(function(x){ return String(x.campaign_id)===String(campId); });
     body = document.getElementById('ffBody');
     if (!body) return;
-    if (!rows.length) {
-      body.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:13px;padding:18px">No data for this period.</div>';
-      return;
-    }
-    body.innerHTML = rows.map(ffCardHTML).join('')
-      + '<div style="font-size:10px;color:var(--muted);line-height:1.5;padding:6px 2px 0">Clicks come from Meta\u2019s daily sync. <b>Landed</b> &amp; <b>Pressed call</b> activate once the ad-page tracking snippet is live.</div>';
+    if (!r) { body.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:13px;padding:18px">No funnel data for this period.</div>'; return; }
+    body.innerHTML = ffFunnelBody(r)
+      + '<div style="font-size:10px;color:var(--muted);line-height:1.5;padding:8px 2px 0">Clicks come from Meta\u2019s daily sync. <b>Landed</b> &amp; <b>Pressed call</b> activate once the ad-page tracking snippet is live.</div>';
   } catch(e){
     var b = document.getElementById('ffBody');
     if (b) b.innerHTML = '<div style="color:#c0392b;font-size:13px;padding:12px">Could not load funnel: '+((e&&e.message)?e.message:e)+'</div>';
   }
+}
+
+function openAdminCampDetail(id){
+  window._adminCampDetailId = id;
+  var ct = document.getElementById('content'); if (ct) ct.innerHTML = adminDashHTML();
+  if (typeof renderCtrlBar==='function') renderCtrlBar();
+}
+function adminBackToCampaigns(){
+  window._adminCampDetailId = null;
+  var ct = document.getElementById('content'); if (ct) ct.innerHTML = adminDashHTML();
+  if (typeof renderCtrlBar==='function') renderCtrlBar();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -15934,7 +15941,7 @@ function adminDashHTML() {
   }
   var tot = _adminData.allLeads.length;
   var closed = _adminData.allLeads.filter(function(l){return l.stage==='9. Deal Closed'||l.stage==='Deal Closed';}).length;
-  if (cur !== 'affiliates' && cur !== 'invoices') {  // Partners + Invoices views are focused — no generic KPI tiles
+  if (cur !== 'affiliates' && cur !== 'invoices' && !(cur==='campaigns' && window._adminCampDetailId)) {  // Partners + Invoices views are focused — no generic KPI tiles
     h += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:12px">';
     h += adMini(_adminData.clients.length,'Clients');
     h += adMini(_adminData.campaigns.length,'Campaigns');
@@ -16418,6 +16425,7 @@ function adClientsHTML() {
 }
 
 function adCampaignsHTML() {
+  if (window._adminCampDetailId) return adminCampDetailHTML(window._adminCampDetailId);
   var camps = _adminData.campaigns;
   var h = '<div style="padding:0 12px 12px;margin-top:10px">';
   h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0 10px">';
@@ -16432,7 +16440,7 @@ function adCampaignsHTML() {
     var wfLabels = {payment_received:'💰 Payment received',content_pending:'📁 Content pending',design_in_progress:'🎨 Design in progress',design_approval:'👁 Design approval',campaign_setup:'⚙️ Campaign setup',active:'🚀 Live',paused:'⏸ Paused',completed:'✅ Completed'};
     var wf = c.workflow_stage||c.status||'active';
     var wfLabel = wfLabels[wf]||wf;
-    h += '<div style="padding:12px 14px;'+(i?'border-top:1px solid var(--border)':'')+';cursor:pointer" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">'     
+    h += '<div style="padding:12px 14px;'+(i?'border-top:1px solid var(--border)':'')+';cursor:pointer" onclick="openAdminCampDetail(\''+c.id+'\')" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">'     
       +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">'
       +'<div style="font-size:13px;font-weight:700;color:var(--text)">'+cn+'</div>'
       +'<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;color:'+stCol+';background:'+stCol+'18">'+c.status+'</span></div>'
