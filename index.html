@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-16 funnel-v2</title>
+<title>Adviuz Hub · v2026-06-17 act-scope-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3305,7 +3305,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-16 funnel-v2';
+var APP_VERSION = 'v2026-06-17 act-scope-v1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -3756,7 +3756,7 @@ function switchRole(role){
   var menuBtn = document.querySelector('.tb-menu'); if(menuBtn) menuBtn.style.display='';
   ['partnerSignOutBtn','clientSignOutBtn'].forEach(function(id){ var b=document.getElementById(id); if(b) b.style.display='none'; });
   // fresh data slate, then bring up the target view
-  leads = []; nxtId = 1;
+  leads = []; nxtId = 1; leadAct = {}; callLog = [];
   var done = (role==='client') ? showClientUI() : showPartnerUI();
   Promise.resolve(done).then(function(){ ensureRoleSwitcher(); });
   showToast('Switched to ' + (role==='client' ? 'Client' : 'Partner') + ' view');
@@ -4473,6 +4473,7 @@ async function refreshLeads() {
         // Leads / Follow-ups / Reports / Calls → reload this partner's leads + calls
         await loadPartnerLeads();
         await loadCallLog();
+        await preloadActivity();
       }
     } catch(e) { console.warn('[partner refresh]', e && e.message); }
     if(rb){ rb.style.opacity='1'; rb.style.pointerEvents='auto'; }
@@ -12489,6 +12490,7 @@ async function showPartnerUI() {
   await loadPartnerLeads();
   await loadPartnerComms();
   await loadCallLog();
+  await preloadActivity();
   render();
 }
 
@@ -12658,9 +12660,19 @@ async function showClientUI() {
 // first. Opening a lead still refreshes it via loadLeadActivity.
 async function preloadActivity() {
   try {
-    var cid = window._clientId; if (!cid) return;
+    leadAct = {};  // clear stale activity so a prior panel's data can't bleed onto reused local ids
     var byDbId = {}; (leads||[]).forEach(function(l){ if (l.dbId) byDbId[l.dbId] = l.id; });
-    var qs = '?client_id=eq.'+cid+'&select=*&order=created_at.desc&limit=800';
+    var _partner = (typeof isPartnerMode==='function' && isPartnerMode());
+    var qs;
+    if (_partner) {
+      // Partner → scope STRICTLY by this partner's own lead ids (never by client_id).
+      var _pids = Object.keys(byDbId);
+      if (!_pids.length) return;
+      qs = '?lead_id=in.('+_pids.join(',')+')&select=*&order=created_at.desc&limit=800';
+    } else {
+      var cid = window._clientId; if (!cid) return;
+      qs = '?client_id=eq.'+cid+'&select=*&order=created_at.desc&limit=800';
+    }
     var rs = await Promise.all([
       sbFetch('/rest/v1/lead_activity'+qs),
       sbFetch('/rest/v1/activity_log'+qs)
