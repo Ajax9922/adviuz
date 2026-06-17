@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-16 proposal-v16</title>
+<title>Adviuz Hub · v2026-06-16 funnel-v1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3305,7 +3305,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-16 proposal-v16';
+var APP_VERSION = 'v2026-06-16 funnel-v1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -6831,6 +6831,10 @@ function reportsHTML(){
   // All roles now use the clean client-style report. It reads the same
   // role-scoped `leads` array, so the operator's data feeds it directly.
   // (Old detailed admin report kept below, unused, for easy revert.)
+  if (window._staffRole === 'super_admin' || window._staffRole === 'manager') {
+    setTimeout(loadFounderFunnel, 30);
+    return founderFunnelShell() + clientReportsHTML();
+  }
   return clientReportsHTML();
 
   var filtLeads = rptFilterLeads(leads);
@@ -6927,6 +6931,83 @@ function reportsHTML(){
     +'<div style="background:var(--bg);border-radius:9px;padding:13px"><div style="font-size:26px;font-weight:800;color:var(--sub)">'+ms+'</div><div style="font-size:11px;color:var(--sub);margin-top:3px;font-weight:600">Missed</div></div>'
     +'</div></div>'
     +'<div style="height:8px"></div>';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FOUNDER FUNNEL  (operator-only — powered by staff-gated founder_funnel() RPC)
+// ═══════════════════════════════════════════════════════════════════
+window._ffDays   = window._ffDays   || 30;
+window._ffSource = (typeof window._ffSource === 'string') ? window._ffSource : '';
+
+function founderFunnelShell(){
+  var days = [{k:7,l:'7 Days'},{k:30,l:'30 Days'},{k:90,l:'90 Days'}];
+  var srcs = [{k:'',l:'All'},{k:'facebook',l:'Facebook'},{k:'google',l:'Google'}];
+  var dayChips = days.map(function(d){
+    return '<div class="fchip'+(window._ffDays===d.k?' on':'')+'" style="flex-shrink:0" onclick="window._ffDays='+d.k+';loadFounderFunnel()">'+d.l+'</div>';
+  }).join('');
+  var srcChips = srcs.map(function(s){
+    return '<div class="fchip'+(window._ffSource===s.k?' on':'')+'" style="flex-shrink:0" onclick="window._ffSource=\''+s.k+'\';loadFounderFunnel()">'+s.l+'</div>';
+  }).join('');
+  return '<div class="rpt-section" style="margin:10px 12px 4px">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
+    +   '<div class="rpt-title" style="margin:0">\uD83C\uDFAF Founder Funnel</div>'
+    +   '<div style="font-size:9px;font-weight:800;letter-spacing:.06em;color:var(--muted);border:1px solid var(--border);border-radius:20px;padding:2px 8px">OPERATOR ONLY</div>'
+    + '</div>'
+    + '<div style="display:flex;gap:6px;margin-bottom:6px;overflow-x:auto">'+dayChips+'</div>'
+    + '<div style="display:flex;gap:6px;margin-bottom:10px;overflow-x:auto">'+srcChips+'</div>'
+    + '<div id="ffBody"><div style="text-align:center;color:var(--muted);font-size:13px;padding:18px">Loading funnel\u2026</div></div>'
+    + '</div>';
+}
+
+function ffNum(n){ return (Number(n)||0).toLocaleString(); }
+function ffPct(a,b){ return (b && b>0) ? Math.round((Number(a)||0)/b*100) : 0; }
+
+function ffStageRow(label, val, prev, accent){
+  var pct = (prev!=null && prev>0)
+    ? ' <span style="color:var(--muted);font-weight:600;font-size:11px">('+ffPct(val,prev)+'%)</span>'
+    : '';
+  return '<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-top:1px solid var(--border)">'
+    + '<div style="font-size:12px;color:var(--sub)">'+label+'</div>'
+    + '<div style="font-size:14px;font-weight:800;color:'+(accent||'var(--text)')+'">'+ffNum(val)+pct+'</div></div>';
+}
+
+function ffCardHTML(r){
+  var imp=Number(r.impressions)||0, clk=Number(r.clicks)||0, land=Number(r.landings)||0,
+      v25=Number(r.views_25s)||0, ld=Number(r.leads)||0, call=Number(r.calls)||0;
+  return '<div class="rpt-card" style="display:block;text-align:left;margin-bottom:10px;padding:13px">'
+    + '<div style="font-weight:800;font-size:14px;color:var(--text)">'+(r.campaign_name||'\u2014')+'</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">'+(r.client_name||'')+'</div>'
+    + ffStageRow('\uD83D\uDC41\uFE0F Impressions', imp, null)
+    + ffStageRow('\uD83D\uDDB1\uFE0F Clicks (Meta)', clk, imp)
+    + ffStageRow('\uD83D\uDCCD Landed on page', land, clk||imp)
+    + ffStageRow('\u23F1\uFE0F Stayed 25s', v25, land||clk||imp)
+    + ffStageRow('\u2705 Converted (leads)', ld, v25||land||clk||imp, 'var(--green)')
+    + ffStageRow('\uD83D\uDCDE Pressed call', call, ld||v25)
+    + '</div>';
+}
+
+async function loadFounderFunnel(){
+  var body = document.getElementById('ffBody');
+  if (body) body.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:13px;padding:18px">Loading funnel\u2026</div>';
+  try {
+    var res = await sbFetch('/rest/v1/rpc/founder_funnel', {
+      method:'POST',
+      body: JSON.stringify({ p_days: window._ffDays, p_source: window._ffSource || null })
+    });
+    var rows = await res.json();
+    if (!Array.isArray(rows)) rows = [];
+    body = document.getElementById('ffBody');
+    if (!body) return;
+    if (!rows.length) {
+      body.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:13px;padding:18px">No data for this period.</div>';
+      return;
+    }
+    body.innerHTML = rows.map(ffCardHTML).join('')
+      + '<div style="font-size:10px;color:var(--muted);line-height:1.5;padding:6px 2px 0">Clicks come from Meta\u2019s daily sync. <b>Landed</b> &amp; <b>Pressed call</b> activate once the ad-page tracking snippet is live.</div>';
+  } catch(e){
+    var b = document.getElementById('ffBody');
+    if (b) b.innerHTML = '<div style="color:#c0392b;font-size:13px;padding:12px">Could not load funnel: '+((e&&e.message)?e.message:e)+'</div>';
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
