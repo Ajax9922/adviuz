@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-17 leadpkg-d2</title>
+<title>Adviuz Hub · v2026-06-18 ai-gate-p1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3305,7 +3305,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-17 leadpkg-d2';
+var APP_VERSION = 'v2026-06-18 ai-gate-p1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -4354,6 +4354,8 @@ function doLogout() {
   window._telecallerUserId = null;
   window._telecallerScope = null;
   window._clientPlan    = null;
+  window._clientAiEnabled = false;
+  window._clientAiMinutes = 0;
   window._clientCampaigns = [];
   // Restore admin topbar buttons
   ['tbPlusBtn','tbSearch','tbRefresh','tbNotifBtn'].forEach(function(id){
@@ -12591,15 +12593,21 @@ async function showClientUI() {
   if (!ok || !window._clientData) { showToast('Client account not found'); return; }
   var c = window._clientData;
 
-  // ── Load client plan from client_integrations (defaults to 'basic' if no row).
+  // ── Load client plan + AI flags from client_integrations (defaults if no row).
   // clientCan() reads window._clientPlan, so this MUST happen before any
   // lead-detail render that uses pLock(..., feature).
-  window._clientPlan = 'basic';
+  window._clientPlan       = 'basic';
+  window._clientAiEnabled  = false;
+  window._clientAiMinutes  = 0;
   try {
-    var ciRes = await sbFetch('/rest/v1/client_integrations?select=plan&client_id=eq.'+c.id+'&limit=1');
+    var ciRes = await sbFetch('/rest/v1/client_integrations?select=plan,ai_enabled,ai_minutes_balance&client_id=eq.'+c.id+'&limit=1');
     if (ciRes.ok) {
       var ciArr = await ciRes.json();
-      if (ciArr.length && ciArr[0].plan) window._clientPlan = ciArr[0].plan;
+      if (ciArr.length) {
+        if (ciArr[0].plan) window._clientPlan = ciArr[0].plan;
+        window._clientAiEnabled = !!ciArr[0].ai_enabled;
+        window._clientAiMinutes = Number(ciArr[0].ai_minutes_balance)||0;
+      }
     }
   } catch(e) { /* silent: stays on basic */ }
 
@@ -13256,7 +13264,9 @@ function clientCampaignListHTML() {
     +    '<span style="font-size:18px;color:var(--sub);flex-shrink:0">\u203A</span>'
     +  '</button>';
 
-  // ── AI auto-call toggle (auto-call new leads with the AI agent) ──
+  // ── AI auto-call toggle — ONLY shown to AI-enabled clients (e.g. Gul).
+  //    Non-AI clients (Trichology, etc.) never see this. ──
+  if (window._clientAiEnabled) {
   var _aiOn = !!c.ai_autocall_enabled;
   h += '<div style="width:100%;display:flex;align-items:center;gap:12px;background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:14px;text-align:left">'
     +    '<span style="width:38px;height:38px;border-radius:11px;background:#ede9fe;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">🤖</span>'
@@ -13268,6 +13278,7 @@ function clientCampaignListHTML() {
     +      '<span style="position:absolute;top:3px;left:'+(_aiOn?'23px':'3px')+';width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2)"></span>'
     +    '</button>'
     +  '</div>';
+  }
 
   // ── Filter row (Name + Status) ──
   var hasFilter = !!(f.name || f.status);
@@ -15264,7 +15275,9 @@ function clientGetPlan() { return normalizeClientPlan(window._clientPlan); }
 function clientCan(feature) {
   var plan = clientGetPlan();
   var aiOnly = { meeting:1, quotes:1, invoices:1, email:1, ai_call:1 };
-  if (aiOnly[feature]) return plan === 'ai_sales_engine';
+  // AI features unlock for clients who purchased an AI plan (ai_enabled).
+  // Legacy 'ai_sales_engine' plan string kept for backward compatibility.
+  if (aiOnly[feature]) return !!window._clientAiEnabled || plan === 'ai_sales_engine';
   // sms / whatsapp / ivr_call / etc. — open on all plans
   return true;
 }
