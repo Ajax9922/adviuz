@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-25 ai-card-fix</title>
+<title>Adviuz Hub · v2026-06-26 live-call-fixes</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1276,8 +1276,9 @@ body.impersonating .ls-topbar{padding-top:8px}
     </div>
   </div>
   <div class="lf-btns">
-    <button class="lf-btn lb-listen" onclick="openInRetell()">&#x1F3A7; Listen</button>
+    <button class="lf-btn lb-listen" id="lfListenBtn" onclick="openInRetell()">&#x1F3A7; Listen</button>
     <button class="lf-btn lb-hangup" id="lfHangupBtn" onclick="askHangupLiveCall()">&#x1F4DE; End Call</button>
+    <span class="lf-btn lb-end" id="lfEndedChip" style="display:none;cursor:default;background:rgba(255,255,255,.06);color:rgba(255,255,255,.55)">&#x2713; Call ended</span>
     <button class="lf-btn lb-end" onclick="closeLiveFull()">&#x2715; Close</button>
   </div>
 </div>
@@ -3328,7 +3329,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-25 ai-card-fix';
+var APP_VERSION = 'v2026-06-26 live-call-fixes';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -5430,6 +5431,17 @@ function goTab(tab,btn){
       if(curTab==='followups'){ var ct=document.getElementById('content'); if(ct) ct.innerHTML=followupsHTML(); }
     }).catch(function(){});
   }
+  // When the Calls tab opens, re-pull the call log from the database so calls
+  // that finished elsewhere show up without a manual refresh.
+  if(tab==='calls' && typeof loadCallLog==='function'){
+    loadCallLog().then(function(){
+      if(curTab==='calls'){
+        var cc=document.getElementById('content'); if(cc) cc.innerHTML=callsHTML();
+        if(typeof loadLiveCalls==='function') loadLiveCalls();
+        if(typeof renderStats==='function') renderStats();
+      }
+    }).catch(function(){});
+  }
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active')});
   btn.classList.add('active');
   // When the client taps Dashboard, always start at the campaigns list view —
@@ -7459,7 +7471,7 @@ function callsHTML(){
 }
 
 // ═══ LIVE CALLS (inbound + outbound, in progress) ═══
-var _liveListTimer = null, _liveDurTimer = null, _liveDetailTimer = null, _liveDetailId = null;
+var _liveListTimer = null, _liveDurTimer = null, _liveDetailTimer = null, _liveDetailId = null, _liveDetailMiss = 0;
 
 function _liveDur(startMs){
   if(!startMs) return '0:00';
@@ -7473,8 +7485,28 @@ async function loadLiveCalls(){
   try {
     var res = await sbFetch('/functions/v1/live-calls', { method:'POST', body: JSON.stringify({}) });
     var data = await res.json().catch(function(){ return {}; });
-    renderLiveCalls((data && data.calls) || []);
+    var calls = (data && data.calls) || [];
+    // Detect a call that was live a moment ago but is now gone (its row was deleted
+    // on call-end) -> auto-refresh the completed-calls list so it appears instantly.
+    var ids = calls.map(function(c){ return c.call_id; });
+    var prev = window._prevLiveIds || [];
+    var justEnded = prev.some(function(id){ return ids.indexOf(id) === -1; });
+    window._prevLiveIds = ids;
+    renderLiveCalls(calls);
+    if(justEnded) _refreshCallsTab(calls);
   } catch(e){ /* ignore */ }
+}
+
+// Re-pull the call log and, if the operator is on the Calls tab, re-render it.
+function _refreshCallsTab(calls){
+  if(typeof loadCallLog!=='function') return;
+  loadCallLog().then(function(){
+    if(curTab==='calls'){
+      var c=document.getElementById('content');
+      if(c){ c.innerHTML=callsHTML(); if(typeof renderLiveCalls==='function') renderLiveCalls(calls||[]); }
+      if(typeof renderStats==='function') renderStats();
+    }
+  }).catch(function(){});
 }
 
 function renderLiveCalls(calls){
@@ -7515,6 +7547,28 @@ function stopLivePolling(){
 
 function openInRetell(){ window.open('https://dashboard.retellai.com/', '_blank'); }
 
+// Flip the live-call footer into the neutral "ended" state. Safe to call repeatedly.
+function _markLiveCallEnded(){
+  var hang = document.getElementById('lfHangupBtn'); if(hang) hang.style.display='none';
+  var lis  = document.getElementById('lfListenBtn'); if(lis)  lis.style.display='none';
+  var chip = document.getElementById('lfEndedChip'); if(chip) chip.style.display='';
+  var st = document.getElementById('lfStatus'); if(st){ st.textContent='Ended'; st.style.color='#f87171'; }
+  var badge = document.getElementById('lfLiveBadge'); if(badge){ badge.style.background='#6b7280'; badge.innerHTML='ENDED'; }
+  window._realLiveActive = false;
+  if(_liveDetailTimer){ clearInterval(_liveDetailTimer); _liveDetailTimer=null; }
+  if(typeof loadCallLog==='function'){ loadCallLog().catch(function(){}); }
+}
+
+// Operator Listen / jump-in is restricted to the single super-admin operator account.
+// Clients, sales partners, telecallers and managers must never see it.
+function _isOperatorListen(){
+  try{
+    if(window._staffRole !== 'super_admin') return false;
+    var em = (typeof currentUser!=='undefined' && currentUser && currentUser.email) ? currentUser.email.toLowerCase() : '';
+    return (em === '' || em === 'ajaysheria90@gmail.com');
+  }catch(e){ return false; }
+}
+
 function openLiveFull(){ document.getElementById('liveFull').classList.add('show'); }
 function closeLiveFull(){
   var el = document.getElementById('liveFull'); if(el) el.classList.remove('show');
@@ -7540,9 +7594,7 @@ async function confirmHangupLiveCall(){
     var d = await res.json().catch(function(){ return {}; });
     if(res.ok && d && d.ok){
       showToast('\uD83D\uDCDE Call ended');
-      var st = document.getElementById('lfStatus'); if(st){ st.textContent='Ended'; st.style.color='#f87171'; }
-      var badge = document.getElementById('lfLiveBadge'); if(badge){ badge.style.background='#6b7280'; badge.innerHTML='ENDED'; }
-      if(_liveDetailTimer){ clearInterval(_liveDetailTimer); _liveDetailTimer=null; }
+      _markLiveCallEnded();
       if(typeof loadLiveCalls==='function'){ try{ loadLiveCalls(); }catch(e){} }
     } else {
       var m=(d&&(d.error||d.skipped))?(': '+(d.error||d.skipped)):'';
@@ -7555,13 +7607,16 @@ async function confirmHangupLiveCall(){
 
 function openLiveCall(callId, name){
   _liveDetailId = callId;
+  _liveDetailMiss = 0;
   window._realLiveActive = true;
+  var _h = document.getElementById('lfHangupBtn'); if(_h) _h.style.display='';
+  var _c = document.getElementById('lfEndedChip'); if(_c) _c.style.display='none';
   var nm = document.getElementById('lfName'); if(nm) nm.textContent = name || 'Live call';
   var av = document.getElementById('lfAv'); if(av) av.textContent = (name||'?').split(' ').map(function(w){return w[0];}).join('').slice(0,2).toUpperCase();
   var tw = document.getElementById('lfTranscript'); if(tw) tw.innerHTML = '<div style="color:rgba(255,255,255,.4);font-size:13px">Connecting\u2026</div>';
   openLiveFull();
-  var _lb = document.querySelector('#liveFull .lb-listen');
-  if(_lb) _lb.style.display = (typeof isClientMode==='function' && isClientMode()) ? 'none' : '';
+  var _lb = document.getElementById('lfListenBtn') || document.querySelector('#liveFull .lb-listen');
+  if(_lb) _lb.style.display = (typeof _isOperatorListen==='function' && _isOperatorListen()) ? '' : 'none';
   loadLiveDetail();
   _liveDetailTimer = setInterval(loadLiveDetail, 3000);
 }
@@ -7571,8 +7626,16 @@ async function loadLiveDetail(){
   try {
     var res = await sbFetch('/functions/v1/live-calls', { method:'POST', body: JSON.stringify({ call_id: _liveDetailId }) });
     var d = await res.json().catch(function(){ return {}; });
-    if(!d || !d.ok) return;
-    var ended = d.call_status==='ended' || d.call_status==='error' || !!d.end_timestamp;
+    // Row deleted on call-end (or not found) -> end the screen after 2 quiet checks (~6s),
+    // so a one-off network blip never ends it early.
+    var gone = !res.ok || !d || d.ok===false || d.found===false || d.call_status==='not_found';
+    if(gone){
+      _liveDetailMiss++;
+      if(_liveDetailMiss >= 2) _markLiveCallEnded();
+      return;
+    }
+    _liveDetailMiss = 0;
+    var ended = d.call_status==='ended' || d.call_status==='error' || !!d.end_timestamp || (d.status && d.status!=='ongoing');
     var nm = document.getElementById('lfName'); if(nm) nm.textContent = d.lead_name || 'Caller';
     var av = document.getElementById('lfAv'); if(av) av.textContent = (d.lead_name||'?').split(' ').map(function(w){return w[0];}).join('').slice(0,2).toUpperCase();
     var sub = document.getElementById('lfSub'); if(sub) sub.textContent = (d.direction==='outbound'?d.to_number:d.from_number)||'\u00a0';
@@ -7583,9 +7646,9 @@ async function loadLiveDetail(){
       var s = Math.max(0, Math.floor((endMs-Number(d.start_timestamp))/1000));
       tEl.textContent = Math.floor(s/60)+':'+((s%60)<10?'0':'')+(s%60);
     }
-    var st = document.getElementById('lfStatus'); if(st){ st.textContent = ended?'Ended':'Live'; st.style.color = ended?'#f87171':'#4ade80'; }
+    var st = document.getElementById('lfStatus'); if(st && !ended){ st.textContent='Live'; st.style.color='#4ade80'; }
     var badge = document.getElementById('lfLiveBadge');
-    if(badge){ badge.style.background = ended?'#6b7280':'var(--red)'; badge.innerHTML = (ended?'':'<div class="live-pulse"></div>')+(ended?'ENDED':'LIVE'); }
+    if(badge && !ended){ badge.style.background='var(--red)'; badge.innerHTML='<div class="live-pulse"></div>LIVE'; }
     var tw = document.getElementById('lfTranscript');
     if(tw){
       var arr = d.transcript_object || [];
@@ -7601,10 +7664,9 @@ async function loadLiveDetail(){
       }
       var _lbBody = document.querySelector('#liveFull .lf-body'); if(_lbBody) _lbBody.scrollTop = _lbBody.scrollHeight;
     }
-    if(ended && _liveDetailTimer){ clearInterval(_liveDetailTimer); _liveDetailTimer=null; }
+    if(ended) _markLiveCallEnded();
   } catch(e){ /* ignore */ }
 }
-
 // ═══════════════════════════════════════
 // LEAD DETAIL
 // ═══════════════════════════════════════
