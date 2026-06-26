@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Adviuz — Admin Panel · worker-deploy-v2</title>
+<title>Adviuz — Admin Panel · v2026-06-26 ai-routing</title>
 <link rel="manifest" id="adminPwaManifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -629,7 +629,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-17 leadpkg-a</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-06-26 ai-routing</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -4438,16 +4438,24 @@ async function _ecamConnectWebhooks(){
   if(!phone){ toast('Pick a Twilio number first'); return; }
   var btn = document.getElementById('ecam-connect-tw');
   if(btn){ btn.disabled = true; btn.textContent = 'Connecting\u2026'; }
+  var aiMode = ((document.getElementById('ecam-routing-mode')||{}).value === 'ai');
   var okCall = false, okSms = false;
-  try {
-    var v = await sbAdmin('/functions/v1/twilio-voice?action=set-inbound-webhook', { method:'POST', body: JSON.stringify({ phone: phone }) });
-    okCall = v.ok;
-  } catch(e){}
+  if (aiMode) {
+    // AI client: leave the Retell voice bridge in place; only (re)wire SMS.
+    okCall = true;
+  } else {
+    try {
+      var v = await sbAdmin('/functions/v1/twilio-voice?action=set-inbound-webhook', { method:'POST', body: JSON.stringify({ phone: phone }) });
+      okCall = v.ok;
+    } catch(e){}
+  }
   try {
     var s = await sbAdmin('/functions/v1/twilio-voice?action=set-messaging-webhook', { method:'POST', body: JSON.stringify({ phone: phone }) });
     okSms = s.ok;
   } catch(e){}
-  if(okCall && okSms)      toast('\u2705 ' + phone + ' connected for calls & texts');
+  if(aiMode && okSms)       toast('\uD83E\uDD16 AI bridge kept; texts connected for ' + phone);
+  else if(aiMode && !okSms) toast('AI bridge kept; text wiring failed \u2014 check Twilio config');
+  else if(okCall && okSms)  toast('\u2705 ' + phone + ' connected for calls & texts');
   else if(okSms && !okCall) toast('Texts connected; call wiring failed \u2014 check Twilio config');
   else if(okCall && !okSms) toast('Calls connected; text wiring failed \u2014 check Twilio config');
   else                      toast('Connect failed \u2014 check Twilio config');
@@ -4812,6 +4820,13 @@ function openEditCampaign(btn) {
     +   '<input class="fld" id="ecam-tw-forward" placeholder="+1xxxxxxxxxx">'
     +   '<div style="font-size:10px;color:var(--muted);margin-top:4px">Inbound calls to the number above ring this phone. Defaults to the client&apos;s profile number.</div>'
     + '</div>'
+    + '<div class="form-group"><label class="fld">Inbound call routing</label>'
+    +   '<select class="fld" id="ecam-routing-mode">'
+    +     '<option value="human">Human \u2014 forward / agent</option>'
+    +     '<option value="ai">AI \u2014 Retell answering bridge</option>'
+    +   '</select>'
+    +   '<div style="font-size:10px;color:var(--muted);margin-top:4px">\uD83E\uDD16 <b>AI</b> keeps this number on the Retell bridge. Saving or Connecting will never overwrite an AI number with human forwarding.</div>'
+    + '</div>'
     + '<div class="form-group"><label class="fld">Lead notification emails</label>'
     +   '<input class="fld" id="ecam-emails" placeholder="name@email.com, second@email.com">'
     +   '<div style="font-size:10px;color:var(--muted);margin-top:4px">Who gets emailed when a new lead comes in. Separate multiple with commas. Leave blank for none.</div>'
@@ -4895,6 +4910,11 @@ function openEditCampaign(btn) {
   window._editCamClientId = cam ? cam.client_id : null;
   if (window._editCamClientId) {
     loadTwilioNumbers();
+    // Prefill the AI / Human routing toggle from the client's saved AI status.
+    sbAdmin('/rest/v1/client_integrations?client_id=eq.' + window._editCamClientId + '&select=ai_enabled&limit=1')
+      .then(function(r){ return r.ok ? r.json() : []; })
+      .then(function(rows){ var on = !!(rows && rows[0] && rows[0].ai_enabled); setV('ecam-routing-mode', on ? 'ai' : 'human'); })
+      .catch(function(){});
     // Prefer THIS campaign's own number + forward; fall back to client-level / profile for anything missing.
     sbAdmin('/rest/v1/campaigns?id=eq.' + window._editCampaignId + '&select=twilio_phone,forward_to_phone,notification_emails,welcome_sms,welcome_sms_enabled,ai_profile,meta_capi_token,meta_capi_test_code&limit=1')
       .then(function(res){ return res.ok ? res.json() : []; })
@@ -5132,7 +5152,8 @@ async function saveCampaignEdit() {
   var twClient  = window._editCamClientId;
   if (twClient) {
     try {
-      var twBody = { twilio_phone: twPhone || null, forward_to_phone: twForward || null };
+      var aiMode = ((document.getElementById('ecam-routing-mode')||{}).value === 'ai');
+      var twBody = { twilio_phone: twPhone || null, forward_to_phone: twForward || null, ai_enabled: aiMode };
       var gr = await sbAdmin('/rest/v1/client_integrations?client_id=eq.' + twClient + '&select=id&limit=1');
       var grows = gr.ok ? await gr.json() : [];
       if (grows && grows[0]) {
@@ -5147,15 +5168,21 @@ async function saveCampaignEdit() {
           body: JSON.stringify(twBody)
         });
       }
-      // Auto-point this number's inbound voice webhook at our function (best-effort)
+      // Point the number's webhooks at us (best-effort).
       if (twPhone) {
-        try {
-          var wr = await sbAdmin('/functions/v1/twilio-voice?action=set-inbound-webhook', {
-            method: 'POST', body: JSON.stringify({ phone: twPhone })
-          });
-          if (!wr.ok) toast('Number saved, but auto-wiring its call webhook failed — set it manually in Twilio.');
-        } catch(e){ toast('Number saved, but auto-wiring its call webhook failed — set it manually in Twilio.'); }
-        // Also point its inbound SMS webhook at us so replies are captured into the chat.
+        if (aiMode) {
+          // AI client: DO NOT touch the inbound VOICE webhook — re-pointing it would
+          // overwrite the Retell AI bridge and break AI answering. Leave it intact.
+          toast('\uD83E\uDD16 AI routing kept — Retell bridge left untouched.');
+        } else {
+          try {
+            var wr = await sbAdmin('/functions/v1/twilio-voice?action=set-inbound-webhook', {
+              method: 'POST', body: JSON.stringify({ phone: twPhone })
+            });
+            if (!wr.ok) toast('Number saved, but auto-wiring its call webhook failed — set it manually in Twilio.');
+          } catch(e){ toast('Number saved, but auto-wiring its call webhook failed — set it manually in Twilio.'); }
+        }
+        // The SMS webhook is safe in BOTH modes — texts always land in the chat thread.
         try {
           var sr = await sbAdmin('/functions/v1/twilio-voice?action=set-messaging-webhook', {
             method: 'POST', body: JSON.stringify({ phone: twPhone })
