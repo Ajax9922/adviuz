@@ -4526,7 +4526,53 @@ async function loadCustomFields(campaignId){
     var rows = r.ok ? await r.json() : [];
     window._ecamFields = Array.isArray(rows) ? rows : [];
     renderCustomFieldsList(window._ecamFields);
+    _ecamPullFormFields(true);
   }catch(e){ list.innerHTML = '<div style="font-size:12px;color:var(--muted)">Could not load fields.</div>'; }
+}
+function _avFieldOptions(selectedKey, includeAuto){
+  var ff = window._ecamFormFields || [];
+  var html = includeAuto ? '<option value="">&mdash; auto-detect &mdash;</option>' : '';
+  var seen = {};
+  ff.forEach(function(p){ if(p.key && !seen[p.key]){ seen[p.key]=1; html += '<option value="'+_ecfEsc(p.key)+'"'+(p.key===selectedKey?' selected':'')+'>'+_ecfEsc(p.label||p.key)+'</option>'; } });
+  if(selectedKey && !seen[selectedKey]){ html += '<option value="'+_ecfEsc(selectedKey)+'" selected>'+_ecfEsc(selectedKey)+' (manual)</option>'; }
+  return html;
+}
+function _avParseFormFields(html){
+  var out=[], seen={};
+  try{
+    var doc = new DOMParser().parseFromString(html||'', 'text/html');
+    var els = doc.querySelectorAll('input,select,textarea');
+    for(var i=0;i<els.length;i++){
+      var el=els[i];
+      var t=(el.getAttribute('type')||'').toLowerCase();
+      if(t==='hidden'||t==='submit'||t==='button'||t==='password'||t==='file')continue;
+      var key=((el.getAttribute('data-av')||el.getAttribute('name')||'')+'').toLowerCase().trim();
+      if(!key||seen[key])continue;
+      seen[key]=1;
+      var ph=el.getAttribute('placeholder'); var id=el.getAttribute('id'); var lbl='';
+      if(id){ var L=doc.querySelector('label[for="'+id+'"]'); if(L) lbl=(L.textContent||'').trim(); }
+      var disp=(lbl||ph||key);
+      out.push({key:key, label:(disp!==key?(disp+' ('+key+')'):key)});
+    }
+  }catch(e){}
+  return out;
+}
+async function _ecamPullFormFields(silent){
+  var statusEl=document.getElementById('ecam-formfields-status');
+  var camRow=(window._allCampaigns||[]).find(function(c){ return String(c.id)===String(window._editCampaignId); });
+  var adId=(document.getElementById('ecam-ad')||{}).value || (camRow && camRow.ad_id) || null;
+  if(!adId){ window._ecamFormFields=[]; if(statusEl) statusEl.textContent='No landing page linked yet \u2014 type field names manually.'; if(!silent) renderCustomFieldsList(window._ecamFields||[]); return; }
+  try{
+    var r=await sbAdmin('/rest/v1/ads?id=eq.'+adId+'&select=custom_html&limit=1');
+    var rows=r.ok?await r.json():[];
+    var html=(rows[0]&&rows[0].custom_html)||'';
+    var fields=_avParseFormFields(html);
+    window._ecamFormFields=fields;
+    var dl=document.getElementById('ecf-formkey-list');
+    if(dl) dl.innerHTML=fields.map(function(p){ return '<option value="'+_ecfEsc(p.key)+'">'+_ecfEsc(p.label||p.key)+'</option>'; }).join('');
+    if(statusEl) statusEl.textContent = fields.length ? ('Read '+fields.length+' field'+(fields.length>1?'s':'')+' from the landing page.') : 'No form fields found on the landing page \u2014 type names manually.';
+    renderCustomFieldsList(window._ecamFields||[]);
+  }catch(e){ if(statusEl) statusEl.textContent='Could not read the landing page.'; }
 }
 var _AV_CORE = [{k:'name',l:'Name'},{k:'phone',l:'Phone'},{k:'email',l:'Email'},{k:'location',l:'Location'},{k:'service',l:'Service'}];
 var _AV_CORE_KEYS = {name:1,phone:1,email:1,location:1,service:1};
@@ -4537,13 +4583,20 @@ function renderCustomFieldsList(rows){
   var typeLabels = {select:'Dropdown',text:'Text',number:'Number',date:'Date',bool:'Yes/No'};
   var coreMap = {};
   rows.forEach(function(f){ if(f.maps_to && _AV_CORE_KEYS[f.maps_to]) coreMap[f.maps_to]=f; });
+  var ff = window._ecamFormFields || [];
   var coreHtml = _AV_CORE.map(function(c){
     var ov = coreMap[c.k];
-    var formKey = ov ? (ov.field_key||c.k) : c.k;
+    var formKey = ov ? (ov.field_key||'') : '';
+    var control;
+    if(ff.length){
+      control = '<select class="fld _av-core" data-core="'+c.k+'" data-rowid="'+(ov?ov.id:'')+'" style="flex:1;font-size:12px;padding:6px 9px">'+_avFieldOptions(formKey, true)+'</select>';
+    } else {
+      control = '<input class="fld _av-core" data-core="'+c.k+'" data-rowid="'+(ov?ov.id:'')+'" value="'+_ecfEsc(formKey||c.k)+'" placeholder="'+c.k+'" style="flex:1;font-family:var(--mono);font-size:12px;padding:6px 9px">';
+    }
     return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:9px;background:var(--surface);margin-bottom:6px">'
       + '<div style="flex:0 0 74px;font-size:12px;font-weight:700;color:var(--text)">'+c.l+'</div>'
       + '<div style="color:var(--muted);flex-shrink:0">&#8592;</div>'
-      + '<input class="fld _av-core" data-core="'+c.k+'" data-rowid="'+(ov?ov.id:'')+'" value="'+_ecfEsc(formKey)+'" placeholder="'+c.k+'" style="flex:1;font-family:var(--mono);font-size:12px;padding:6px 9px">'
+      + control
       + '</div>';
   }).join('');
   var customRows = rows.filter(function(f){ return !(f.maps_to && _AV_CORE_KEYS[f.maps_to]); });
@@ -4824,12 +4877,13 @@ function openEditCampaign(btn) {
     + '</div>'
     + '<div style="margin-top:6px;padding-top:14px;border-top:1px solid var(--border)">'
     + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">&#128203; Lead Field Mapping <span style="font-weight:400;color:var(--muted)">(form &#8594; CRM fields)</span></div>'
-    + '<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Each form field flows into a CRM field. Name, Phone, Email, Location &amp; Service are built in &mdash; edit the form field name if your HTML uses a different one (e.g. Service &#8592; area_of_concern), then Save mapping. Add custom fields like Branch below.</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Pick which form field feeds each CRM field &mdash; the dropdowns are read straight from this campaign\'s landing page. Name, Phone, Email, Location &amp; Service auto-detect by default; change a dropdown only to override. Then Save mapping. Add custom fields like Branch below.</div>'
+    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><button type="button" onclick="_ecamPullFormFields(false)" style="white-space:nowrap;padding:6px 10px;border:1px solid var(--brand);border-radius:8px;background:var(--brand-light,#f5f3ff);color:var(--brand);font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font)">&#11015; Pull fields from landing page</button><span id="ecam-formfields-status" style="font-size:10px;color:var(--muted)"></span></div>'
     + '<div id="ecam-fields-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px"><div style="font-size:12px;color:var(--muted)">Loading&hellip;</div></div>'
     + '<div style="border:1px dashed var(--border);border-radius:10px;padding:12px;background:var(--surface)">'
     +   '<div style="font-size:11px;font-weight:800;color:var(--text);margin-bottom:8px" id="ecf-form-title">+ Add custom field</div>'
     +   '<div class="form-group"><label class="fld">Label (shown on lead)</label><input class="fld" id="ecf-label" placeholder="e.g. Branch"></div>'
-    +   '<div class="form-group"><label class="fld">Form field name <span style="color:var(--muted);font-weight:400">(the input&apos;s name= / data-av in your HTML)</span></label><input class="fld" id="ecf-formkey" placeholder="e.g. branch" style="font-family:var(--mono)"></div>'
+    +   '<div class="form-group"><label class="fld">Form field <span style="color:var(--muted);font-weight:400">(pick from the landing page, or type one)</span></label><input class="fld" id="ecf-formkey" list="ecf-formkey-list" placeholder="e.g. branch" style="font-family:var(--mono)"><datalist id="ecf-formkey-list"></datalist></div>'
     +   '<div class="form-group"><label class="fld">Type</label><select class="fld" id="ecf-type" onchange="_ecfTypeChange()"><option value="select">Dropdown</option><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="bool">Yes / No</option></select></div>'
     +   '<div class="form-group" id="ecf-options-wrap"><label class="fld">Options (one per line)</label><textarea class="fld" id="ecf-options" rows="3" placeholder="Brampton&#10;Mississauga"></textarea></div>'
     +   '<div class="form-group"><label class="fld">Default value (optional)</label><input class="fld" id="ecf-default" placeholder="e.g. Mississauga"></div>'
