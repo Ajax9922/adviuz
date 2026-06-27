@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-27 dash-rebuild-3</title>
+<title>Adviuz Hub · v2026-06-27 dash-rebuild-4</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3329,7 +3329,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-27 dash-rebuild-3';
+var APP_VERSION = 'v2026-06-27 dash-rebuild-4';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7012,7 +7012,7 @@ function adminCampDetailHTML(campId){
   var cn = (c.clients && c.clients.business_name) || '';
   var stCol = c.status==='active'?'var(--green)':(c.status==='paused'?'var(--amber)':'var(--sub)');
   var pct = c.view_budget>0?Math.min(100,Math.round((c.views_used||0)/c.view_budget*100)):0;
-  setTimeout(function(){ loadCampDash(campId); loadCampLinks(campId); }, 30);
+  setTimeout(function(){ loadCampDash(campId); loadCampLinks(campId); loadCampPnl(campId); }, 30);
   var ist = 'padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-family:var(--f);font-size:13px;color:var(--text);background:var(--white)';
   var h = '<div style="padding:12px 14px">';
   h += '<button onclick="adminBackToCampaigns()" style="background:none;border:none;color:var(--sub);font-family:var(--f);font-size:13px;cursor:pointer;padding:0 0 12px 0;display:flex;align-items:center;gap:5px">\u2039 Campaigns</button>';
@@ -7021,6 +7021,7 @@ function adminCampDetailHTML(campId){
   h += '<div style="height:5px;background:var(--border);border-radius:3px;margin-bottom:4px"><div style="height:100%;width:'+pct+'%;background:var(--green);border-radius:3px"></div></div>';
   h += '<div style="font-size:11px;color:var(--sub);margin-bottom:14px">'+(c.views_used||0)+' / '+(c.view_budget||0)+' views used</div>';
   h += '<div id="cmLinks" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"></div>';
+  h += '<div id="cmPnl" style="margin-bottom:16px"><div style="text-align:center;color:var(--muted);font-size:13px;padding:18px">Loading\u2026</div></div>';
   h += '<div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:8px">\uD83D\uDCCA Performance</div>';
   h += '<div id="cmDateRow" style="display:flex;gap:6px;margin-bottom:8px;overflow-x:auto;-webkit-overflow-scrolling:touch">'+cmDateChips(campId)+'</div>';
   h += '<div id="cmCustom" style="'+(window._cmRange==='custom'?'display:flex':'display:none')+';gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">'
@@ -7142,6 +7143,139 @@ async function loadCampLinks(campId){
     box.innerHTML=out;
   }catch(e){ box.innerHTML=''; }
 }
+// ── Per-campaign Profit & Loss: editable price + expense list + domain nudge ──
+var SHARED_BASES = ['hairtattoopromotion.com','adviuz.ca','adviuz.com'];
+function cmHostOf(u){ if(!u) return ''; return String(u).replace(/^https?:\/\//i,'').split('/')[0].split('?')[0].toLowerCase().replace(/^www\./,''); }
+function cmIsCustomDomain(liveUrl){
+  var host=cmHostOf(liveUrl); if(!host) return false;
+  for(var i=0;i<SHARED_BASES.length;i++){ var b=SHARED_BASES[i].toLowerCase(); if(host===b||host.endsWith('.'+b)) return false; }
+  return true;
+}
+function cmRootDomain(liveUrl){
+  var host=cmHostOf(liveUrl); if(!host) return '';
+  var parts=host.split('.'); if(parts.length<=2) return host; return parts.slice(-2).join('.');
+}
+function cmMoney(n){ n=Number(n)||0; return (n<0?'-$':'$')+Math.abs(n).toFixed(2); }
+
+async function loadCampPnl(campId){
+  var box=document.getElementById('cmPnl'); if(!box) return;
+  var c=((typeof _adminData!=='undefined'&&_adminData.campaigns)||[]).find(function(x){return String(x.id)===String(campId);})||{};
+  try{
+    var exRes=await sbFetch('/rest/v1/campaign_expenses?campaign_id=eq.'+campId+'&select=*&order=created_at.desc');
+    var expenses=exRes.ok?await exRes.json():[]; if(!Array.isArray(expenses)) expenses=[];
+    var lnRes=await sbFetch('/rest/v1/campaigns?id=eq.'+campId+'&select=ads(live_url)&limit=1');
+    var lnRows=lnRes.ok?await lnRes.json():[]; var liveUrl=(Array.isArray(lnRows)&&lnRows[0]&&lnRows[0].ads&&lnRows[0].ads.live_url)||'';
+    renderCampPnl(campId,c,expenses,liveUrl);
+  }catch(e){ box.innerHTML='<div style="color:#c0392b;font-size:13px;padding:12px">Could not load P&amp;L: '+((e&&e.message)?e.message:e)+'</div>'; }
+}
+
+function renderCampPnl(campId,c,expenses,liveUrl){
+  var box=document.getElementById('cmPnl'); if(!box) return;
+  var price=(c.price_per_view!=null)?Number(c.price_per_view):5;
+  var views=Number(c.views_used)||0;
+  var revenue=views*price;
+  var adSpend=(Number(c.fb_spend)||0)+(Number(c.google_spend)||0);
+  var expTotal=expenses.reduce(function(s,e){return s+(Number(e.amount)||0);},0);
+  var profit=revenue-adSpend-expTotal;
+  var editing=!!window._cmPriceEdit;
+  var priceRow='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">'
+    +'<span style="font-size:12px;color:var(--sub)">Price / 25s view</span>';
+  if(editing){
+    priceRow+='<input id="cmPriceInput" type="number" step="0.01" min="0" value="'+price+'" style="width:90px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-family:var(--f);font-size:14px;font-weight:700;color:var(--text)">'
+      +'<button onclick="cmSavePrice(\''+campId+'\')" style="padding:6px 12px;border:none;border-radius:8px;background:var(--green);color:#fff;font-family:var(--f);font-weight:700;font-size:12px;cursor:pointer">Save</button>'
+      +'<button onclick="cmCancelPrice(\''+campId+'\')" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--white);color:var(--sub);font-family:var(--f);font-size:12px;cursor:pointer">Cancel</button>';
+  } else {
+    priceRow+='<b style="font-size:15px;color:var(--text)">'+cmMoney(price)+'</b>'
+      +'<button onclick="cmEditPrice(\''+campId+'\')" style="padding:4px 10px;border:1px solid var(--border);border-radius:8px;background:var(--white);color:#2563eb;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">Edit</button>';
+  }
+  priceRow+='</div>';
+  function pnlRow(lbl,val,col,bold){
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:'+(bold?'10px 0 2px':'5px 0')+'">'
+      +'<span style="font-size:'+(bold?'13px':'12px')+';color:'+(bold?'var(--text)':'var(--sub)')+';font-weight:'+(bold?'800':'600')+'">'+lbl+'</span>'
+      +'<span style="font-size:'+(bold?'17px':'13px')+';font-weight:'+(bold?'800':'700')+';color:'+(col||'var(--text)')+'">'+cmMoney(val)+'</span></div>';
+  }
+  var summary='<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:12px 14px">'
+    +priceRow
+    +pnlRow('Revenue  ('+views.toLocaleString()+' \u00d7 '+cmMoney(price)+')',revenue,'var(--green)')
+    +pnlRow('Ad spend',-adSpend,adSpend>0?'var(--text)':'var(--sub)')
+    +pnlRow('Expenses',-expTotal,expTotal>0?'var(--text)':'var(--sub)')
+    +'<div style="border-top:1px solid var(--border);margin-top:6px"></div>'
+    +pnlRow('Profit',profit,profit>=0?'var(--green)':'var(--red)',true)
+    +(adSpend===0?'<div style="font-size:10px;color:var(--muted);line-height:1.5;margin-top:6px">Ad spend shows $0 until Meta/Google spend syncs.</div>':'')
+    +'</div>';
+  var hasDomainExp=expenses.some(function(e){return /domain/i.test(e.label||'');});
+  var nudge='';
+  if(cmIsCustomDomain(liveUrl)&&!hasDomainExp&&window._cmDomainDismiss!==campId){
+    nudge='<div style="background:#fff8e6;border:1px solid var(--amber);border-radius:10px;padding:10px 12px;margin-top:8px">'
+      +'<div style="font-size:12px;color:var(--text);margin-bottom:6px">\uD83C\uDF10 <b>'+cmRootDomain(liveUrl)+'</b> looks like a custom domain. Add the $17/yr domain cost?</div>'
+      +'<button onclick="cmAddDomain(\''+campId+'\')" style="padding:6px 12px;border:none;border-radius:8px;background:var(--amber);color:#fff;font-family:var(--f);font-weight:700;font-size:12px;cursor:pointer;margin-right:6px">Add $17/yr</button>'
+      +'<button onclick="cmDismissDomain(\''+campId+'\')" style="padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--white);color:var(--sub);font-family:var(--f);font-size:12px;cursor:pointer">Not now</button></div>';
+  }
+  var list='';
+  if(expenses.length){
+    list=expenses.map(function(e){
+      return '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px solid var(--border)">'
+        +'<div style="min-width:0"><div style="font-size:13px;color:var(--text);font-weight:600">'+(e.label||'\u2014')+'</div>'
+        +'<div style="font-size:10px;color:var(--muted)">'+(e.kind==='yearly'?'Yearly':'One-time')+'</div></div>'
+        +'<div style="display:flex;align-items:center;gap:10px"><span style="font-size:13px;font-weight:700;color:var(--text)">'+cmMoney(e.amount)+'</span>'
+        +'<button onclick="cmDelExpense(\''+campId+'\',\''+e.id+'\')" style="background:none;border:none;color:var(--sub);font-size:16px;cursor:pointer;padding:0 2px;line-height:1">\u00d7</button></div></div>';
+    }).join('');
+  } else {
+    list='<div style="font-size:12px;color:var(--muted);padding:6px 0">No expenses added yet.</div>';
+  }
+  var eist='padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-family:var(--f);font-size:13px;color:var(--text);background:var(--white)';
+  var addForm='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;align-items:center">'
+    +'<input id="cmExpLabel" placeholder="Expense (e.g. Design)" style="'+eist+';flex:1;min-width:120px">'
+    +'<input id="cmExpAmt" type="number" step="0.01" min="0" placeholder="$" style="'+eist+';width:80px">'
+    +'<select id="cmExpKind" style="'+eist+'"><option value="one_time">One-time</option><option value="yearly">Yearly</option></select>'
+    +'<button onclick="cmAddExpense(\''+campId+'\')" style="padding:7px 14px;border:none;border-radius:8px;background:var(--text);color:#fff;font-family:var(--f);font-weight:700;font-size:13px;cursor:pointer">Add</button></div>';
+  var domainQuick=hasDomainExp?'':'<button onclick="cmAddDomain(\''+campId+'\')" style="margin-top:8px;padding:6px 12px;border:1px dashed var(--border);border-radius:8px;background:var(--white);color:var(--sub);font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">+ Domain $17/yr</button>';
+  var expBox='<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-top:10px">'
+    +'<div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:4px">Expenses</div>'
+    +list+nudge+addForm+domainQuick+'</div>';
+  box.innerHTML='<div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:8px">\uD83D\uDCB0 Profit &amp; Loss</div>'+summary+expBox;
+}
+
+function cmEditPrice(campId){ window._cmPriceEdit=true; loadCampPnl(campId); }
+function cmCancelPrice(campId){ window._cmPriceEdit=false; loadCampPnl(campId); }
+async function cmSavePrice(campId){
+  var inp=document.getElementById('cmPriceInput'); if(!inp) return;
+  var v=parseFloat(inp.value); if(isNaN(v)||v<0){ alert('Enter a valid price.'); return; }
+  try{
+    var r=await sbFetch('/rest/v1/campaigns?id=eq.'+campId,{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({price_per_view:v})});
+    if(!r.ok&&r.status!==204) throw new Error('save failed');
+    var c=((_adminData&&_adminData.campaigns)||[]).find(function(x){return String(x.id)===String(campId);}); if(c) c.price_per_view=v;
+    window._cmPriceEdit=false; loadCampPnl(campId);
+  }catch(e){ alert('Could not save price: '+((e&&e.message)?e.message:e)); }
+}
+async function cmAddExpense(campId){
+  var lbl=((document.getElementById('cmExpLabel')||{}).value||'').trim();
+  var amt=parseFloat((document.getElementById('cmExpAmt')||{}).value);
+  var kind=(document.getElementById('cmExpKind')||{}).value||'one_time';
+  if(!lbl){ alert('Enter an expense label.'); return; }
+  if(isNaN(amt)||amt<0){ alert('Enter a valid amount.'); return; }
+  var c=((_adminData&&_adminData.campaigns)||[]).find(function(x){return String(x.id)===String(campId);})||{};
+  await cmInsertExpense(campId,c.client_id,lbl,amt,kind);
+}
+async function cmAddDomain(campId){
+  var c=((_adminData&&_adminData.campaigns)||[]).find(function(x){return String(x.id)===String(campId);})||{};
+  await cmInsertExpense(campId,c.client_id,'Domain',17,'yearly');
+}
+async function cmInsertExpense(campId,clientId,label,amount,kind){
+  try{
+    var r=await sbFetch('/rest/v1/campaign_expenses',{method:'POST',headers:{'Prefer':'return=minimal'},body:JSON.stringify({campaign_id:campId,client_id:clientId||null,label:label,amount:amount,kind:kind})});
+    if(!r.ok&&r.status!==201&&r.status!==204) throw new Error('add failed');
+    loadCampPnl(campId);
+  }catch(e){ alert('Could not add expense: '+((e&&e.message)?e.message:e)); }
+}
+async function cmDelExpense(campId,expId){
+  try{
+    var r=await sbFetch('/rest/v1/campaign_expenses?id=eq.'+expId,{method:'DELETE'});
+    if(!r.ok&&r.status!==204) throw new Error('delete failed');
+    loadCampPnl(campId);
+  }catch(e){ alert('Could not delete expense: '+((e&&e.message)?e.message:e)); }
+}
+function cmDismissDomain(campId){ window._cmDomainDismiss=campId; loadCampPnl(campId); }
 async function loadCampDash(campId){
   var cardBox=document.getElementById('cmCards'), tblBox=document.getElementById('cmTable');
   if(cardBox) cardBox.innerHTML='<div style="text-align:center;color:var(--muted);font-size:13px;padding:18px">Loading\u2026</div>';
@@ -16342,6 +16476,17 @@ async function loadAdminData() {
     _adminData.registrations = _pResponses[3].status==='fulfilled' && _pResponses[3].value.ok ? await _pResponses[3].value.json() : [];
     if (qRes.ok)    _adminData.quotes      = await qRes.json();
     if (invRes.ok)  _adminData.invoices    = await invRes.json();
+    // Per-campaign lifetime P&L (revenue, ad spend, expenses, profit) for founder cards
+    try {
+      var pnlRes = await sbFetch('/rest/v1/rpc/campaigns_pnl', { method:'POST', body: JSON.stringify({}) });
+      if (pnlRes.ok) {
+        var pnlRows = await pnlRes.json();
+        var pnlMap = {};
+        (pnlRows||[]).forEach(function(r){ pnlMap[r.campaign_id] = r; });
+        window._pnlMap = pnlMap;
+        (_adminData.campaigns||[]).forEach(function(c){ c._pnl = pnlMap[c.id] || null; });
+      }
+    } catch(e){ console.warn('[Admin pnl]', e.message); }
     _adminLoaded = true;
     if (curTab === 'dashboard') render();
   } catch(e) { console.warn('[Admin]', e.message); }
@@ -16444,6 +16589,9 @@ function founderInsightHTML(){
   var totViews=camps.reduce(function(s,c){return s+(Number(c.views_used)||0);},0);
   var totLeads=(_adminData.allLeads||[]).length;
   var totSpend=camps.reduce(function(s,c){return s+(Number(c.fb_spend)||0)+(Number(c.google_spend)||0);},0);
+  var totRevenue=camps.reduce(function(s,c){ var p=c._pnl; return s+(p?Number(p.revenue)||0:(Number(c.views_used)||0)*(c.price_per_view!=null?Number(c.price_per_view):5)); },0);
+  var totExpenses=camps.reduce(function(s,c){ return s+(c._pnl?Number(c._pnl.expenses)||0:0); },0);
+  var totProfit=totRevenue-totSpend-totExpenses;
   var top=camps.slice().sort(function(a,b){return (Number(b.views_used)||0)-(Number(a.views_used)||0);})[0];
   var lowBudget=active.filter(function(c){return c.view_budget>0&&pctUsed(c)>=0.85;}).sort(function(a,b){return pctUsed(b)-pctUsed(a);})[0];
   var liveNoViews=active.filter(function(c){return (Number(c.views_used)||0)===0&&(Number(c.view_budget)||0)>0;})[0];
@@ -16472,6 +16620,8 @@ function founderInsightHTML(){
   h+='<span style="color:var(--sub)">Views delivered <b style="color:var(--text)">'+totViews.toLocaleString()+'</b></span>';
   h+='<span style="color:var(--sub)">Leads <b style="color:var(--text)">'+totLeads+'</b></span>';
   h+='<span style="color:var(--sub)">Ad spend <b style="color:var(--text)">$'+totSpend.toFixed(2)+'</b></span>';
+  h+='<span style="color:var(--sub)">Revenue <b style="color:var(--text)">$'+totRevenue.toFixed(2)+'</b></span>';
+  h+='<span style="color:var(--sub)">Profit <b style="color:'+(totProfit>=0?'var(--green)':'var(--red)')+'">$'+totProfit.toFixed(2)+'</b></span>';
   h+='</div></div>';
   return h;
 }
