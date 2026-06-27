@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-27 dash-rebuild-1</title>
+<title>Adviuz Hub · v2026-06-27 dash-rebuild-2</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3329,7 +3329,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-27 dash-rebuild-1';
+var APP_VERSION = 'v2026-06-27 dash-rebuild-2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -5528,7 +5528,7 @@ function _showControlBar(){
   // On the dashboard tab: hide for admin management sub-views
   var sub = window._adminDashTab || '';
   if(['affiliates','commissions','invoices'].indexOf(sub) !== -1) return false;
-  return true;
+  return false; // Dashboard tab: no persistent search bar or lead KPI strip (per request)
 }
 function renderStats(){
   var box=document.getElementById('statsStrip'); if(!box) return;
@@ -7012,7 +7012,7 @@ function adminCampDetailHTML(campId){
   var cn = (c.clients && c.clients.business_name) || '';
   var stCol = c.status==='active'?'var(--green)':(c.status==='paused'?'var(--amber)':'var(--sub)');
   var pct = c.view_budget>0?Math.min(100,Math.round((c.views_used||0)/c.view_budget*100)):0;
-  setTimeout(function(){ loadCampDash(campId); }, 30);
+  setTimeout(function(){ loadCampDash(campId); loadCampLinks(campId); }, 30);
   var ist = 'padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-family:var(--f);font-size:13px;color:var(--text);background:var(--white)';
   var h = '<div style="padding:12px 14px">';
   h += '<button onclick="adminBackToCampaigns()" style="background:none;border:none;color:var(--sub);font-family:var(--f);font-size:13px;cursor:pointer;padding:0 0 12px 0;display:flex;align-items:center;gap:5px">\u2039 Campaigns</button>';
@@ -7020,6 +7020,7 @@ function adminCampDetailHTML(campId){
   h += '<div style="font-size:12px;color:var(--muted);margin-bottom:10px">'+cn+'</div>';
   h += '<div style="height:5px;background:var(--border);border-radius:3px;margin-bottom:4px"><div style="height:100%;width:'+pct+'%;background:var(--green);border-radius:3px"></div></div>';
   h += '<div style="font-size:11px;color:var(--sub);margin-bottom:14px">'+(c.views_used||0)+' / '+(c.view_budget||0)+' views used</div>';
+  h += '<div id="cmLinks" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"></div>';
   h += '<div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:8px">\uD83D\uDCCA Performance</div>';
   h += '<div id="cmDateRow" style="display:flex;gap:6px;margin-bottom:8px;overflow-x:auto;-webkit-overflow-scrolling:touch">'+cmDateChips(campId)+'</div>';
   h += '<div id="cmCustom" style="'+(window._cmRange==='custom'?'display:flex':'display:none')+';gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">'
@@ -7116,6 +7117,24 @@ function renderCmTable(rows){
       + '</tr>';
   }).join('');
   box.innerHTML='<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;overflow-x:auto"><table style="width:100%;min-width:460px;border-collapse:collapse">'+head+bodyR+'</table></div>';
+}
+function cmLinkBtn(label,url){
+  return '<a href="'+url.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:5px;padding:8px 12px;border:1px solid var(--border);border-radius:9px;background:var(--white);color:var(--text);font-family:var(--f);font-size:12px;font-weight:700;text-decoration:none;flex-shrink:0">'+label+'</a>';
+}
+async function loadCampLinks(campId){
+  var box=document.getElementById('cmLinks'); if(!box) return;
+  function urlify(u){ if(!u) return ''; return /^https?:\/\//i.test(u) ? u : ('https://'+u); }
+  try{
+    var res=await sbFetch('/rest/v1/campaigns?id=eq.'+campId+'&select=fb_preview_url,google_preview_url,ads(live_url,fb_preview_url,google_preview_url)&limit=1');
+    var rows=await res.json(); var c=(Array.isArray(rows)&&rows[0])||{}; var ad=c.ads||{};
+    var liveU=urlify(ad.live_url||'');
+    var prevU=urlify(c.fb_preview_url||ad.fb_preview_url||c.google_preview_url||ad.google_preview_url||'');
+    var out='';
+    if(liveU) out+=cmLinkBtn('\uD83D\uDD17 25s ad link', liveU);
+    if(prevU) out+=cmLinkBtn('\uD83D\uDC41\uFE0F Ad preview', prevU);
+    if(!out) out='<span style="font-size:11px;color:var(--muted)">No ad link or preview saved yet.</span>';
+    box.innerHTML=out;
+  }catch(e){ box.innerHTML=''; }
 }
 async function loadCampDash(campId){
   var cardBox=document.getElementById('cmCards'), tblBox=document.getElementById('cmTable');
@@ -16884,9 +16903,10 @@ function adCampaignsHTML() {
     var wf = c.workflow_stage||c.status||'active';
     var wfLabel = wfLabels[wf]||wf;
     h += '<div style="padding:12px 14px;'+(i?'border-top:1px solid var(--border)':'')+';cursor:pointer" onclick="openAdminCampDetail(\''+c.id+'\')" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">'     
-      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">'
-      +'<div style="font-size:13px;font-weight:700;color:var(--text)">'+cn+'</div>'
+      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">'
+      +'<div style="font-size:13px;font-weight:700;color:var(--text)">'+(c.name||'Campaign')+'</div>'
       +'<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;color:'+stCol+';background:'+stCol+'18">'+c.status+'</span></div>'
+      +'<div style="font-size:11px;color:var(--sub);margin-bottom:6px">'+cn+'</div>'
       +'<div style="font-size:11px;color:var(--blue);margin-bottom:6px;font-weight:600">'+wfLabel+'</div>'
       +'<div style="height:4px;background:var(--border);border-radius:2px;margin-bottom:4px"><div style="height:100%;width:'+pct+'%;background:var(--green);border-radius:2px"></div></div>'
       +'<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--sub)">'
