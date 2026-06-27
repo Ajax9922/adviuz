@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-27 dash-rebuild-4</title>
+<title>Adviuz Hub · v2026-06-27 dash-rebuild-5</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3329,7 +3329,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-27 dash-rebuild-4';
+var APP_VERSION = 'v2026-06-27 dash-rebuild-5';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7165,16 +7165,19 @@ async function loadCampPnl(campId){
     var expenses=exRes.ok?await exRes.json():[]; if(!Array.isArray(expenses)) expenses=[];
     var lnRes=await sbFetch('/rest/v1/campaigns?id=eq.'+campId+'&select=ads(live_url)&limit=1');
     var lnRows=lnRes.ok?await lnRes.json():[]; var liveUrl=(Array.isArray(lnRows)&&lnRows[0]&&lnRows[0].ads&&lnRows[0].ads.live_url)||'';
-    renderCampPnl(campId,c,expenses,liveUrl);
+    var spRes=await sbFetch('/rest/v1/impressions?campaign_id=eq.'+campId+'&select=spend');
+    var spRows=spRes.ok?await spRes.json():[]; if(!Array.isArray(spRows)) spRows=[];
+    var adSpend=spRows.reduce(function(s,r){return s+(Number(r.spend)||0);},0);
+    renderCampPnl(campId,c,expenses,liveUrl,adSpend);
   }catch(e){ box.innerHTML='<div style="color:#c0392b;font-size:13px;padding:12px">Could not load P&amp;L: '+((e&&e.message)?e.message:e)+'</div>'; }
 }
 
-function renderCampPnl(campId,c,expenses,liveUrl){
+function renderCampPnl(campId,c,expenses,liveUrl,adSpend){
   var box=document.getElementById('cmPnl'); if(!box) return;
   var price=(c.price_per_view!=null)?Number(c.price_per_view):5;
   var views=Number(c.views_used)||0;
   var revenue=views*price;
-  var adSpend=(Number(c.fb_spend)||0)+(Number(c.google_spend)||0);
+  adSpend=Number(adSpend)||0;
   var expTotal=expenses.reduce(function(s,e){return s+(Number(e.amount)||0);},0);
   var profit=revenue-adSpend-expTotal;
   var editing=!!window._cmPriceEdit;
@@ -16588,7 +16591,7 @@ function founderInsightHTML(){
   var active=camps.filter(function(c){return c.status==='active';});
   var totViews=camps.reduce(function(s,c){return s+(Number(c.views_used)||0);},0);
   var totLeads=(_adminData.allLeads||[]).length;
-  var totSpend=camps.reduce(function(s,c){return s+(Number(c.fb_spend)||0)+(Number(c.google_spend)||0);},0);
+  var totSpend=camps.reduce(function(s,c){return s+(c._pnl?Number(c._pnl.ad_spend)||0:(Number(c.fb_spend)||0)+(Number(c.google_spend)||0));},0);
   var totRevenue=camps.reduce(function(s,c){ var p=c._pnl; return s+(p?Number(p.revenue)||0:(Number(c.views_used)||0)*(c.price_per_view!=null?Number(c.price_per_view):5)); },0);
   var totExpenses=camps.reduce(function(s,c){ return s+(c._pnl?Number(c._pnl.expenses)||0:0); },0);
   var totProfit=totRevenue-totSpend-totExpenses;
