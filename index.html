@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-27 dash-rebuild-2</title>
+<title>Adviuz Hub · v2026-06-27 dash-rebuild-3</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3329,7 +3329,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-27 dash-rebuild-2';
+var APP_VERSION = 'v2026-06-27 dash-rebuild-3';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7091,7 +7091,11 @@ function renderCmCards(T){
     + cmCard('Clicks',T.clk)
     + cmCard('Impressions',T.imp)
     + '</div>'
-    + '<div style="font-size:10px;color:var(--muted);line-height:1.5;padding:8px 2px 0">Clicks &amp; Impressions come from Meta\u2019s daily sync. Landed, 25s &amp; Calls track on your ad page; manual view top-ups show as <b>Direct</b>.</div>';
+    + '<div style="display:flex;gap:16px;flex-wrap:wrap;padding:10px 2px 0;font-size:12px">'
+    +   '<span style="color:var(--sub)">Ad spend <b style="color:var(--text)">$'+(T.spend||0).toFixed(2)+'</b></span>'
+    +   '<span style="color:var(--sub)">Cost / 25s view <b style="color:var(--text)">$'+((T.v25>0)?(T.spend/T.v25):0).toFixed(2)+'</b></span>'
+    + '</div>'
+    + '<div style="font-size:10px;color:var(--muted);line-height:1.5;padding:8px 2px 0">Clicks, Impressions &amp; Spend come from Meta\u2019s daily sync (shows $0 until ad spend syncs). Landed, 25s &amp; Calls track on your ad page; manual view top-ups show as <b>Direct</b>.</div>';
 }
 function renderCmTable(rows){
   var box=document.getElementById('cmTable'); if(!box) return;
@@ -7105,18 +7109,20 @@ function renderCmTable(rows){
     + '<th style="'+th+';text-align:right">25s</th>'
     + '<th style="'+th+';text-align:right">Landed</th>'
     + '<th style="'+th+';text-align:right">Clicks</th>'
-    + '<th style="'+th+';text-align:right">Impr.</th></tr>';
+    + '<th style="'+th+';text-align:right">Impr.</th>'
+    + '<th style="'+th+';text-align:right">Spend</th></tr>';
   var sorted=rows.slice().sort(function(a,b){ return a.d<b.d?1:-1; });
   function cell(v,accent){ var n=Number(v)||0; return '<td style="'+td+';text-align:right;font-weight:700;color:'+(n?(accent||'var(--text)'):'var(--sub)')+'">'+n+'</td>'; }
+  function scell(v){ var n=Number(v)||0; return '<td style="'+td+';text-align:right;font-weight:700;color:'+(n?'var(--text)':'var(--sub)')+'">$'+n.toFixed(2)+'</td>'; }
   var bodyR=sorted.map(function(r){
     var dt=new Date(r.d+'T00:00:00');
     var lbl=dt.getDate()+' '+dt.toLocaleString('en-US',{month:'short'});
     return '<tr>'
       + '<td style="'+td+';color:var(--text);position:sticky;left:0;background:var(--white)">'+lbl+'</td>'
-      + cell(r.leads,'var(--green)')+cell(r.calls)+cell(r.views_25s)+cell(r.landings)+cell(r.clicks)+cell(r.impressions)
+      + cell(r.leads,'var(--green)')+cell(r.calls)+cell(r.views_25s)+cell(r.landings)+cell(r.clicks)+cell(r.impressions)+scell(r.spend)
       + '</tr>';
   }).join('');
-  box.innerHTML='<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;overflow-x:auto"><table style="width:100%;min-width:460px;border-collapse:collapse">'+head+bodyR+'</table></div>';
+  box.innerHTML='<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;overflow-x:auto"><table style="width:100%;min-width:520px;border-collapse:collapse">'+head+bodyR+'</table></div>';
 }
 function cmLinkBtn(label,url){
   return '<a href="'+url.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:5px;padding:8px 12px;border:1px solid var(--border);border-radius:9px;background:var(--white);color:var(--text);font-family:var(--f);font-size:12px;font-weight:700;text-decoration:none;flex-shrink:0">'+label+'</a>';
@@ -7146,8 +7152,8 @@ async function loadCampDash(campId){
     var rows=await res.json(); if(!Array.isArray(rows)) rows=[];
     var today=cmYmd(new Date());
     rows=rows.filter(function(x){ return x.d<=today; });
-    var T={imp:0,clk:0,land:0,v25:0,call:0,lead:0};
-    rows.forEach(function(x){ T.imp+=+x.impressions||0; T.clk+=+x.clicks||0; T.land+=+x.landings||0; T.v25+=+x.views_25s||0; T.call+=+x.calls||0; T.lead+=+x.leads||0; });
+    var T={imp:0,clk:0,land:0,v25:0,call:0,lead:0,spend:0};
+    rows.forEach(function(x){ T.imp+=+x.impressions||0; T.clk+=+x.clicks||0; T.land+=+x.landings||0; T.v25+=+x.views_25s||0; T.call+=+x.calls||0; T.lead+=+x.leads||0; T.spend+=+x.spend||0; });
     renderCmCards(T); renderCmTable(rows);
   }catch(e){
     if(cardBox) cardBox.innerHTML='<div style="color:#c0392b;font-size:13px;padding:12px">Could not load metrics: '+((e&&e.message)?e.message:e)+'</div>';
@@ -16403,7 +16409,9 @@ function adminDashHTML() {
   }
   var tot = _adminData.allLeads.length;
   var closed = _adminData.allLeads.filter(function(l){return l.stage==='9. Deal Closed'||l.stage==='Deal Closed';}).length;
-  if (cur !== 'affiliates' && cur !== 'invoices' && !(cur==='campaigns' && window._adminCampDetailId)) {  // Partners + Invoices views are focused — no generic KPI tiles
+  if (cur==='campaigns' && !window._adminCampDetailId) {
+    h += founderInsightHTML();
+  } else if (cur !== 'affiliates' && cur !== 'invoices' && !(cur==='campaigns' && window._adminCampDetailId)) {  // Partners + Invoices views are focused — no generic KPI tiles
     h += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:12px">';
     h += adMini(_adminData.clients.length,'Clients');
     h += adMini(_adminData.campaigns.length,'Campaigns');
@@ -16424,6 +16432,48 @@ function adminDashHTML() {
 
 function adMini(val, lbl) {
   return '<div style="background:var(--white);border-radius:12px;padding:13px;border:1px solid var(--border)"><div style="font-size:24px;font-weight:900;color:var(--text);letter-spacing:-.04em">'+val+'</div><div style="font-size:10px;color:var(--sub);font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-top:3px">'+lbl+'</div></div>';
+}
+
+// Founder view on the Campaigns tab: what's winning + what needs action + a P&L pulse.
+function founderInsightHTML(){
+  var camps=(_adminData.campaigns||[]);
+  function leadsOf(c){ return (_adminData.allLeads||[]).filter(function(l){ return String(l.campaign_id)===String(c.id)||(l.campaign_id==null&&String(l.client_id)===String(c.client_id)); }).length; }
+  function pend(c){ return Math.max(0,(Number(c.view_budget)||0)-(Number(c.views_used)||0)); }
+  function pctUsed(c){ return c.view_budget>0?(Number(c.views_used)||0)/c.view_budget:0; }
+  var active=camps.filter(function(c){return c.status==='active';});
+  var totViews=camps.reduce(function(s,c){return s+(Number(c.views_used)||0);},0);
+  var totLeads=(_adminData.allLeads||[]).length;
+  var totSpend=camps.reduce(function(s,c){return s+(Number(c.fb_spend)||0)+(Number(c.google_spend)||0);},0);
+  var top=camps.slice().sort(function(a,b){return (Number(b.views_used)||0)-(Number(a.views_used)||0);})[0];
+  var lowBudget=active.filter(function(c){return c.view_budget>0&&pctUsed(c)>=0.85;}).sort(function(a,b){return pctUsed(b)-pctUsed(a);})[0];
+  var liveNoViews=active.filter(function(c){return (Number(c.views_used)||0)===0&&(Number(c.view_budget)||0)>0;})[0];
+  var pausedWithBudget=camps.filter(function(c){return c.status==='paused'&&pend(c)>0&&(Number(c.view_budget)||0)>0;}).sort(function(a,b){return pend(b)-pend(a);})[0];
+  var attn=null, reason='';
+  if(lowBudget){ attn=lowBudget; reason=Math.round(pctUsed(lowBudget)*100)+'% of views used \u2014 top up soon'; }
+  else if(liveNoViews){ attn=liveNoViews; reason='Live but 0 views yet \u2014 check the ad'; }
+  else if(pausedWithBudget){ attn=pausedWithBudget; reason='Paused with '+pend(pausedWithBudget)+' views left'; }
+  var h='<div style="padding:12px">';
+  h+='<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:8px">';
+  h+='<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--sub);margin-bottom:4px">\uD83C\uDFC6 Top performer</div>';
+  if(top&&(Number(top.views_used)||0)>0){
+    h+='<div style="font-size:15px;font-weight:800;color:var(--text)">'+(top.name||'\u2014')+'</div>';
+    h+='<div style="font-size:12px;color:var(--sub);margin-top:2px">'+(top.views_used||0)+' views delivered \u00b7 '+leadsOf(top)+' leads</div>';
+  } else { h+='<div style="font-size:13px;color:var(--sub)">No views delivered yet.</div>'; }
+  h+='</div>';
+  h+='<div style="background:var(--white);border:1px solid var(--border);border-left:3px solid var(--amber);border-radius:0 12px 12px 0;padding:12px 14px;margin-bottom:8px">';
+  h+='<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--amber);margin-bottom:4px">\u26A0\uFE0F Needs attention</div>';
+  if(attn){
+    h+='<div style="font-size:15px;font-weight:800;color:var(--text)">'+(attn.name||'\u2014')+'</div>';
+    h+='<div style="font-size:12px;color:var(--sub);margin-top:2px">'+reason+'</div>';
+  } else { h+='<div style="font-size:13px;color:var(--sub)">All campaigns look healthy.</div>'; }
+  h+='</div>';
+  h+='<div style="display:flex;gap:16px;flex-wrap:wrap;background:var(--white);border:1px solid var(--border);border-radius:12px;padding:11px 14px;font-size:12px">';
+  h+='<span style="color:var(--sub)">Active <b style="color:var(--text)">'+active.length+'</b></span>';
+  h+='<span style="color:var(--sub)">Views delivered <b style="color:var(--text)">'+totViews.toLocaleString()+'</b></span>';
+  h+='<span style="color:var(--sub)">Leads <b style="color:var(--text)">'+totLeads+'</b></span>';
+  h+='<span style="color:var(--sub)">Ad spend <b style="color:var(--text)">$'+totSpend.toFixed(2)+'</b></span>';
+  h+='</div></div>';
+  return h;
 }
 
 function adRow(init, col, title, sub, sub2, badge, badgeCol, border) {
@@ -16886,35 +16936,92 @@ function adClientsHTML() {
   return h+'</div></div>';
 }
 
+function campSortOptions(cur){
+  var opts=[['created_desc','Newest first'],['created_asc','Oldest first'],
+            ['active','Active first'],['paused','Paused first'],
+            ['done_desc','Views done (high\u2192low)'],['done_asc','Views done (low\u2192high)'],
+            ['pending_desc','Views left (high\u2192low)'],['pending_asc','Views left (low\u2192high)']];
+  return opts.map(function(o){ return '<option value="'+o[0]+'"'+(cur===o[0]?' selected':'')+'>'+o[1]+'</option>'; }).join('');
+}
+function _campLeadCount(c){
+  return (_adminData.allLeads||[]).filter(function(l){
+    return String(l.campaign_id)===String(c.id) || (l.campaign_id==null && String(l.client_id)===String(c.client_id));
+  }).length;
+}
+function _campListFiltered(){
+  var all=(_adminData.campaigns||[]).slice();
+  var q=(window._campSearch||'').trim().toLowerCase();
+  var camps=all.filter(function(c){
+    if(!q) return true;
+    var cn=((c.clients&&c.clients.business_name)||'').toLowerCase();
+    return String(c.name||'').toLowerCase().indexOf(q)>=0 || cn.indexOf(q)>=0;
+  });
+  var sort=window._campSort||'created_desc';
+  function done(c){return Number(c.views_used)||0;}
+  function pend(c){return Math.max(0,(Number(c.view_budget)||0)-(Number(c.views_used)||0));}
+  function cr(c){return c.created_at||'';}
+  camps.sort(function(a,b){
+    switch(sort){
+      case 'active':       return (a.status==='active'?0:1)-(b.status==='active'?0:1) || cr(b).localeCompare(cr(a));
+      case 'paused':       return (a.status==='paused'?0:1)-(b.status==='paused'?0:1) || cr(b).localeCompare(cr(a));
+      case 'created_asc':  return cr(a).localeCompare(cr(b));
+      case 'pending_desc': return pend(b)-pend(a);
+      case 'pending_asc':  return pend(a)-pend(b);
+      case 'done_desc':    return done(b)-done(a);
+      case 'done_asc':     return done(a)-done(b);
+      default:             return cr(b).localeCompare(cr(a));
+    }
+  });
+  return {all:all, camps:camps};
+}
+function campCardHTML(c, i){
+  var cn=(c.clients&&c.clients.business_name)||'Unknown';
+  var pct=c.view_budget>0?Math.min(100,Math.round((c.views_used||0)/c.view_budget*100)):0;
+  var stCol=c.status==='active'?'var(--green)':c.status==='paused'?'var(--amber)':'var(--sub)';
+  var wfLabels={payment_received:'\uD83D\uDCB0 Payment received',content_pending:'\uD83D\uDCC1 Content pending',design_in_progress:'\uD83C\uDFA8 Design in progress',design_approval:'\uD83D\uDC41 Design approval',campaign_setup:'\u2699\uFE0F Campaign setup',active:'\uD83D\uDE80 Live',paused:'\u23F8 Paused',completed:'\u2705 Completed'};
+  var wf=c.workflow_stage||c.status||'active';
+  var wfLabel=wfLabels[wf]||wf;
+  var leads=_campLeadCount(c);
+  return '<div style="padding:12px 14px;'+(i?'border-top:1px solid var(--border)':'')+';cursor:pointer" onclick="openAdminCampDetail(\''+c.id+'\')" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">'
+    +'<div style="font-size:13px;font-weight:700;color:var(--text)">'+(c.name||'Campaign')+'</div>'
+    +'<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;color:'+stCol+';background:'+stCol+'18">'+c.status+'</span></div>'
+    +'<div style="font-size:11px;color:var(--sub);margin-bottom:6px">'+cn+'</div>'
+    +'<div style="font-size:11px;color:var(--blue);margin-bottom:6px;font-weight:600">'+wfLabel+'</div>'
+    +'<div style="height:4px;background:var(--border);border-radius:2px;margin-bottom:4px"><div style="height:100%;width:'+pct+'%;background:var(--green);border-radius:2px"></div></div>'
+    +'<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--sub)">'
+      +'<span>'+(c.views_used||0)+' / '+(c.view_budget||0)+' views &middot; <b style="color:var(--text)">'+leads+'</b> leads</span>'
+      +(c.budget_total?'<span>$'+Math.round(c.budget_spent||0)+' / $'+Math.round(c.budget_total||0)+' spent</span>':'')
+    +'</div></div>';
+}
+function campListInnerHTML(){
+  var r=_campListFiltered();
+  if(!r.camps.length) return '<div style="text-align:center;padding:30px;color:var(--sub);font-size:13px">No campaigns match your search.</div>';
+  var h='<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
+  r.camps.forEach(function(c,i){ h+=campCardHTML(c,i); });
+  return h+'</div>';
+}
+function _renderCampList(){
+  var wrap=document.getElementById('campListWrap'); if(wrap) wrap.innerHTML=campListInnerHTML();
+  var cnt=document.getElementById('campCount');
+  if(cnt){ var r=_campListFiltered(); cnt.textContent=r.camps.length+(r.camps.length!==r.all.length?(' of '+r.all.length):'')+' campaigns'; }
+}
 function adCampaignsHTML() {
   if (window._adminCampDetailId) return adminCampDetailHTML(window._adminCampDetailId);
-  var camps = _adminData.campaigns;
+  var all=_adminData.campaigns||[];
   var h = '<div style="padding:0 12px 12px;margin-top:10px">';
   h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0 10px">';
-  h += '<div style="font-size:12px;color:var(--sub);font-weight:600">'+camps.length+' campaigns</div>';
+  h += '<div id="campCount" style="font-size:12px;color:var(--sub);font-weight:600">'+all.length+' campaigns</div>';
   h += '<button onclick="openAddCampaignSheet()" style="padding:7px 14px;border-radius:9px;background:var(--navy,#001f3f);color:#fff;border:none;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">+ New Campaign</button></div>';
-  if (!camps.length) return h+'<div style="text-align:center;padding:40px;color:var(--sub)">No campaigns yet.<br><br><button onclick="openAddCampaignSheet()" style="padding:10px 20px;border-radius:9px;background:var(--navy,#001f3f);color:#fff;border:none;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">🚀 Create First Campaign</button></div></div>';
-  h += '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
-  camps.forEach(function(c, i) {
-    var cn = (c.clients&&c.clients.business_name)||'Unknown';
-    var pct = c.view_budget>0?Math.min(100,Math.round((c.views_used||0)/c.view_budget*100)):0;
-    var stCol = c.status==='active'?'var(--green)':c.status==='paused'?'var(--amber)':'var(--sub)';
-    var wfLabels = {payment_received:'💰 Payment received',content_pending:'📁 Content pending',design_in_progress:'🎨 Design in progress',design_approval:'👁 Design approval',campaign_setup:'⚙️ Campaign setup',active:'🚀 Live',paused:'⏸ Paused',completed:'✅ Completed'};
-    var wf = c.workflow_stage||c.status||'active';
-    var wfLabel = wfLabels[wf]||wf;
-    h += '<div style="padding:12px 14px;'+(i?'border-top:1px solid var(--border)':'')+';cursor:pointer" onclick="openAdminCampDetail(\''+c.id+'\')" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">'     
-      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">'
-      +'<div style="font-size:13px;font-weight:700;color:var(--text)">'+(c.name||'Campaign')+'</div>'
-      +'<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;color:'+stCol+';background:'+stCol+'18">'+c.status+'</span></div>'
-      +'<div style="font-size:11px;color:var(--sub);margin-bottom:6px">'+cn+'</div>'
-      +'<div style="font-size:11px;color:var(--blue);margin-bottom:6px;font-weight:600">'+wfLabel+'</div>'
-      +'<div style="height:4px;background:var(--border);border-radius:2px;margin-bottom:4px"><div style="height:100%;width:'+pct+'%;background:var(--green);border-radius:2px"></div></div>'
-      +'<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--sub)">'
-        +'<span>'+(c.views_used||0)+' / '+(c.view_budget||0)+' views</span>'
-        +(c.budget_total?'<span>$'+Math.round(c.budget_spent||0)+' / $'+Math.round(c.budget_total||0)+' spent</span>':'')
-      +'</div></div>';
-  });
-  return h+'</div></div>';
+  if (!all.length) return h+'<div style="text-align:center;padding:40px;color:var(--sub)">No campaigns yet.<br><br><button onclick="openAddCampaignSheet()" style="padding:10px 20px;border-radius:9px;background:var(--navy,#001f3f);color:#fff;border:none;font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">\uD83D\uDE80 Create First Campaign</button></div></div>';
+  var sSvg='<svg fill="none" stroke="var(--muted)" stroke-width="2" viewBox="0 0 24 24" style="width:15px;height:15px;flex-shrink:0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
+  h += '<div style="display:flex;gap:8px;margin-bottom:10px">';
+  h += '<div style="flex:1;display:flex;align-items:center;gap:7px;background:var(--white);border:1px solid var(--border);border-radius:9px;padding:8px 11px;min-width:0">'+sSvg
+     + '<input id="campSearchInp" value="'+(window._campSearch||'').replace(/"/g,'&quot;')+'" placeholder="Search campaign\u2026" oninput="window._campSearch=this.value;_renderCampList()" style="flex:1;min-width:0;border:none;outline:none;background:none;font-family:var(--f);font-size:13px;color:var(--text)"></div>';
+  h += '<select onchange="window._campSort=this.value;_renderCampList()" style="border:1px solid var(--border);border-radius:9px;background:var(--white);font-family:var(--f);font-size:12px;color:var(--text);padding:8px 9px;max-width:46%">'+campSortOptions(window._campSort||'created_desc')+'</select>';
+  h += '</div>';
+  h += '<div id="campListWrap">'+campListInnerHTML()+'</div>';
+  return h+'</div>';
 }
 
 function adAllLeadsHTML() {
