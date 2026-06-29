@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-06-27 dash-rebuild-6</title>
+<title>Adviuz Hub · v2026-06-29 custom-filters-1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3329,7 +3329,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-06-27 dash-rebuild-6';
+var APP_VERSION = 'v2026-06-29 custom-filters-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -21608,6 +21608,7 @@ document.addEventListener('click', function(ev){
       partner: (l.partner_id?String(l.partner_id):'__none__'),
       source:  raw ? (l.source||'') : (l.src||''),
       service: raw ? (l.service||'') : (l.svc||''),
+      ff:      l.form_fields || {},
       closed:  isClosed(l.stage)
     };
   }
@@ -21631,7 +21632,50 @@ document.addEventListener('click', function(ev){
     {key:'services',    title:'Service',               f:'service',  label:idLabel}
   ];
 
+  // ── Custom-field filter sections (filterable + hub-only fields) ──
+  // Loads every readable filterable custom field (RLS scopes to the user's
+  // client). De-duped by field_key, options merged, so one section per field.
+  function gfLoadCustomDefs(cb){
+    if(window._gfCustomDefs){ if(cb)cb(); return; }
+    if(typeof sbFetch!=='function'){ window._gfCustomDefs=[]; if(cb)cb(); return; }
+    sbFetch('/rest/v1/custom_fields?filterable=eq.true&maps_to=is.null&select=field_key,label,field_type,options,sort_order&order=sort_order.asc')
+      .then(function(r){ return r&&r.ok?r.json():[]; })
+      .then(function(rows){
+        var byKey={}, order=[];
+        (rows||[]).forEach(function(f){
+          if(!f.field_key) return;
+          if(!byKey[f.field_key]){ byKey[f.field_key]={field_key:f.field_key,label:f.label||f.field_key,field_type:f.field_type||'select',options:[]}; order.push(f.field_key); }
+          var d=byKey[f.field_key];
+          if(Array.isArray(f.options)) f.options.forEach(function(o){ if(d.options.indexOf(o)===-1) d.options.push(o); });
+          if((!d.label||d.label===d.field_key) && f.label) d.label=f.label;
+        });
+        window._gfCustomDefs = order.map(function(k){return byKey[k];});
+        window._cfFilterLabels = window._cfFilterLabels || {};
+        window._gfCustomDefs.forEach(function(d){ window._cfFilterLabels[d.field_key]=d.label; });
+        if(cb)cb();
+      })
+      .catch(function(){ window._gfCustomDefs = window._gfCustomDefs||[]; if(cb)cb(); });
+  }
+  function gfCustomSections(){
+    return (window._gfCustomDefs||[]).map(function(d){
+      return { key:'cf:'+d.field_key, title:d.label, cf:d };
+    });
+  }
+
   function distinctFor(sec){
+    if(sec.cf){
+      var ccounts={}, crows=leadRows();
+      crows.forEach(function(r){
+        var v=(r.ff && r.ff[sec.cf.field_key]!=null) ? String(r.ff[sec.cf.field_key]) : '';
+        if(v!=='') ccounts[v]=(ccounts[v]||0)+1;
+      });
+      var values=[];
+      if(sec.cf.field_type==='bool'){ values=['Yes','No']; }
+      else if(sec.cf.field_type==='select' && Array.isArray(sec.cf.options) && sec.cf.options.length){ values=sec.cf.options.map(String); }
+      Object.keys(ccounts).forEach(function(v){ if(values.indexOf(v)===-1) values.push(v); });
+      if(!values.length) values=Object.keys(ccounts).sort();
+      return values.map(function(v){ return {value:v,label:v,n:ccounts[v]||0}; });
+    }
     var counts={}, rows=leadRows();
     var selManagers = (SEL && SEL.managers) ? SEL.managers : [];
     rows.forEach(function(r){
@@ -21684,7 +21728,7 @@ document.addEventListener('click', function(ev){
     var openSet = body.__openSet || {};   // remember which sections are expanded
     var html='';
     var shown=0;
-    SECTIONS.forEach(function(sec){
+    SECTIONS.concat(gfCustomSections()).forEach(function(sec){
       // A partner shouldn't filter by Partner; clients don't have partners either
       if(sec.key==='partners' && (window._isPartnerMode || (typeof isClientMode==='function' && isClientMode()))) return;
       var opts=distinctFor(sec);
@@ -21752,12 +21796,14 @@ document.addEventListener('click', function(ev){
     // clone current filters into working selection
     SEL={};
     FKEYS.forEach(function(k){ SEL[k]=(window._advFilters[k]||[]).slice(); });
+    Object.keys(window._advFilters||{}).forEach(function(k){ if(k.indexOf('cf:')===0) SEL[k]=(window._advFilters[k]||[]).slice(); });
     build();
     var ov=document.getElementById('gfsOverlay');
     if(ov){ ov.style.display='flex'; var b=document.getElementById('gfsBody'); if(b) b.__openSet=null; }
     render();
-    // Load telecaller/manager names in the background, then refresh labels
+    // Load telecaller/manager names + custom-field filters in the background, then refresh
     gfLoadUsers(function(){ if(document.getElementById('gfsOverlay') && document.getElementById('gfsOverlay').style.display==='flex') render(); });
+    gfLoadCustomDefs(function(){ if(document.getElementById('gfsOverlay') && document.getElementById('gfsOverlay').style.display==='flex') render(); });
   }
   function close(){
     var ov=document.getElementById('gfsOverlay');
@@ -21766,6 +21812,7 @@ document.addEventListener('click', function(ev){
   function apply(){
     ensureState();
     FKEYS.forEach(function(k){ window._advFilters[k]=(SEL[k]||[]).slice(); });
+    Object.keys(SEL).forEach(function(k){ if(k.indexOf('cf:')===0) window._advFilters[k]=(SEL[k]||[]).slice(); });
     close();
     // If filtering from the admin Dashboard, jump to the "All Leads" list so results are visible
     if(window.curTab==='dashboard'){
@@ -21777,6 +21824,7 @@ document.addEventListener('click', function(ev){
   }
   function clearAll(){
     SEL={}; FKEYS.forEach(function(k){ SEL[k]=[]; });
+    (window._gfCustomDefs||[]).forEach(function(d){ SEL['cf:'+d.field_key]=[]; });
     var b=document.getElementById('gfsBody'); if(b) b.__openSet=null;
     render();
   }
