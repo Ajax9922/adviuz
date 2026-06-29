@@ -4478,6 +4478,71 @@ async function removeFbMap(fbId){
   }catch(e){ toast('Error removing'); }
 }
 
+// ── Facebook Lead Form mapping (per campaign) ────────────────────────────
+window._fbExtras = [];
+async function loadFbLeadForm(campId){
+  var idInp=document.getElementById('ecam-fbform-id'); if(!idInp) return;
+  window._fbExtras=[];
+  try{
+    var r=await sbAdmin('/rest/v1/leadform_map?select=fb_form_id,field_map,label&campaign_id=eq.'+encodeURIComponent(campId)+'&order=created_at.asc&limit=1');
+    var rows=r.ok?await r.json():[];
+    var m=(rows&&rows[0])||null;
+    if(m){
+      idInp.value=m.fb_form_id||'';
+      var fm=m.field_map||{};
+      var n=document.getElementById('ecam-fbmap-name'),  p=document.getElementById('ecam-fbmap-phone'),  e=document.getElementById('ecam-fbmap-email');
+      if(n) n.value=fm.name||''; if(p) p.value=fm.phone||''; if(e) e.value=fm.email||'';
+      window._fbExtras = Array.isArray(fm.extras) ? fm.extras.slice() : [];
+    }
+  }catch(err){}
+  _renderFbExtras();
+}
+function _renderFbExtras(){
+  var box=document.getElementById('ecam-fbform-extras'); if(!box) return;
+  if(!window._fbExtras.length){ box.innerHTML='<div style="font-size:11px;color:var(--muted)">No extra fields.</div>'; return; }
+  box.innerHTML=window._fbExtras.map(function(x,i){
+    return '<div style="display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 10px">'
+      + '<span style="flex:1;font-size:12px;color:var(--text)">'+_ecfEsc(x.label)+' <span style="color:var(--muted)">&#8592; '+_ecfEsc(x.fb)+'</span></span>'
+      + '<button type="button" onclick="removeFbExtra('+i+')" style="border:none;background:none;color:var(--danger);font-size:18px;cursor:pointer;line-height:1" title="Remove">\u00d7</button>'
+      + '</div>';
+  }).join('');
+}
+function addFbExtra(){
+  var l=document.getElementById('ecam-fbextra-label'), k=document.getElementById('ecam-fbextra-fbkey');
+  var label=((l&&l.value)||'').trim(), fb=((k&&k.value)||'').trim();
+  if(!label||!fb){ toast('Enter both a CRM label and a Facebook field'); return; }
+  window._fbExtras.push({ label:label, fb:fb });
+  if(l) l.value=''; if(k) k.value='';
+  _renderFbExtras();
+}
+function removeFbExtra(i){ window._fbExtras.splice(i,1); _renderFbExtras(); }
+async function saveFbLeadForm(){
+  var campId=window._editCampaignId;
+  var idInp=document.getElementById('ecam-fbform-id');
+  var st=document.getElementById('ecam-fbform-status');
+  function setSt(msg,col){ if(st){ st.textContent=msg; st.style.color=col||'var(--muted)'; } }
+  var formId=((idInp&&idInp.value)||'').replace(/[^0-9]/g,'');
+  try{
+    // one form per campaign via the editor — clear any existing mapping for this campaign first
+    await sbAdmin('/rest/v1/leadform_map?campaign_id=eq.'+encodeURIComponent(campId),{ method:'DELETE' });
+    if(!formId){ setSt('Facebook lead form disabled for this campaign.','var(--muted)'); toast('Facebook lead form cleared'); return; }
+    var fm={
+      name:  ((document.getElementById('ecam-fbmap-name')||{}).value||'').trim(),
+      phone: ((document.getElementById('ecam-fbmap-phone')||{}).value||'').trim(),
+      email: ((document.getElementById('ecam-fbmap-email')||{}).value||'').trim(),
+      extras: window._fbExtras||[]
+    };
+    var lbl=((document.getElementById('ecam-name')||{}).value||'').trim();
+    var r=await sbAdmin('/rest/v1/leadform_map?on_conflict=fb_form_id',{
+      method:'POST',
+      headers:{ 'Prefer':'resolution=merge-duplicates,return=minimal' },
+      body:JSON.stringify({ fb_form_id:formId, campaign_id:campId, field_map:fm, label:lbl })
+    });
+    if(r.ok||r.status===201||r.status===204){ setSt('Saved \u2014 leads from this form now flow into this campaign.','var(--green,#16a34a)'); toast('Facebook lead form saved'); }
+    else { var t=await r.text().catch(function(){return'';}); setSt('Could not save ('+r.status+'). '+(t||'').slice(0,80),'var(--danger)'); }
+  }catch(e){ setSt('Error saving','var(--danger)'); }
+}
+
 // ── Manual impressions: load current values into the edit modal ──────────
 async function loadManualImpr(campId){
   var fb=document.getElementById('ecam-manual-fb'), gg=document.getElementById('ecam-manual-gg');
@@ -4836,6 +4901,28 @@ function openEditCampaign(btn) {
     + '<button type="button" class="btn-save" onclick="sendCapiTestLead()" style="margin-top:10px;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-size:12px">&#129514; Send test lead (no client notified)</button>'
     + '<div id="ecam-capi-testresult" style="font-size:12px;margin-top:8px;line-height:1.5"></div>'
     + '</div>'
+    // ── Facebook Lead Form (Instant Form → CRM) ──
+    + '<div style="margin-top:6px;padding-top:14px;border-top:1px solid var(--border)">'
+    + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">&#128241; Facebook Lead Form <span style="font-weight:400;color:var(--muted)">(Instant Form &#8594; CRM)</span></div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Paste this campaign&rsquo;s Facebook <b>Lead Form ID</b> so leads submitted inside Facebook / Instagram flow straight into this campaign. Then map the form&rsquo;s fields to your CRM. Leave the ID blank to disable.</div>'
+    + '<div class="form-group"><label class="fld">Facebook Lead Form ID</label><input class="fld" id="ecam-fbform-id" placeholder="e.g. 1234567890123456" style="font-family:monospace"></div>'
+    + '<div style="font-size:11px;font-weight:700;color:var(--text);margin:8px 0 6px">Field mapping <span style="font-weight:400;color:var(--muted)">(Facebook field &#8594; CRM)</span></div>'
+    + '<div class="form-grid">'
+    +   '<div class="form-group"><label class="fld">Name &#8592; FB field</label><input class="fld" id="ecam-fbmap-name" placeholder="full_name" style="font-family:monospace"></div>'
+    +   '<div class="form-group"><label class="fld">Phone &#8592; FB field</label><input class="fld" id="ecam-fbmap-phone" placeholder="phone_number" style="font-family:monospace"></div>'
+    + '</div>'
+    + '<div class="form-group"><label class="fld">Email &#8592; FB field</label><input class="fld" id="ecam-fbmap-email" placeholder="email" style="font-family:monospace"></div>'
+    + '<div style="font-size:10px;color:var(--muted);margin:-4px 0 10px">Leave a field on its placeholder unless your form uses a different question name. Facebook&rsquo;s standard names are full_name, phone_number, email.</div>'
+    + '<div style="font-size:11px;font-weight:700;color:var(--text);margin:8px 0 6px">Extra fields <span style="font-weight:400;color:var(--muted)">(optional &#8212; e.g. City, Branch)</span></div>'
+    + '<div id="ecam-fbform-extras" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>'
+    + '<div style="display:flex;gap:6px;margin-bottom:6px">'
+    +   '<input class="fld" id="ecam-fbextra-label" placeholder="CRM label (e.g. City)" style="flex:1">'
+    +   '<input class="fld" id="ecam-fbextra-fbkey" placeholder="FB field (e.g. city)" style="flex:1;font-family:monospace">'
+    +   '<button type="button" class="tbl-btn primary" onclick="addFbExtra()">Add</button>'
+    + '</div>'
+    + '<div id="ecam-fbform-status" style="font-size:11px;color:var(--muted);margin-top:2px"></div>'
+    + '<button type="button" class="btn-save" onclick="saveFbLeadForm()" style="margin-top:10px;width:100%;padding:10px;border:none;border-radius:8px;background:var(--brand);color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">&#128190; Save Facebook lead form</button>'
+    + '</div>'
     + '<div style="margin-top:6px;padding-top:14px;border-top:1px solid var(--border)">'
     + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">&#128222; Twilio Number (Calls &amp; SMS)</div>'
     + '<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Assigned to this client for the Dialer, SMS &amp; inbound calls. Pick a number you own, or buy a new one on Twilio then refresh.</div>'
@@ -4902,6 +4989,7 @@ function openEditCampaign(btn) {
     + '</div></div></div>';
   document.body.insertAdjacentHTML('beforeend', modal);
   loadFbMap(window._editCampaignId);
+  loadFbLeadForm(window._editCampaignId);
   loadManualImpr(window._editCampaignId);
   loadCustomFields(window._editCampaignId);
 
