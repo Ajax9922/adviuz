@@ -4602,6 +4602,15 @@ function _avFieldOptions(selectedKey, includeAuto){
   if(selectedKey && !seen[selectedKey]){ html += '<option value="'+_ecfEsc(selectedKey)+'" selected>'+_ecfEsc(selectedKey)+' (manual)</option>'; }
   return html;
 }
+// Options for a CUSTOM field's inline mapping dropdown: a real form field OR "hub filter only".
+function _avCustomOptions(selectedKey, isOnForm){
+  var ff = window._ecamFormFields || [];
+  var html = '<option value="__filter__"'+(!isOnForm?' selected':'')+'>&mdash; Hub filter only (not on form) &mdash;</option>';
+  var seen = {};
+  ff.forEach(function(p){ if(p.key && !seen[p.key]){ seen[p.key]=1; html += '<option value="'+_ecfEsc(p.key)+'"'+(isOnForm&&p.key===selectedKey?' selected':'')+'>'+_ecfEsc(p.label||p.key)+'</option>'; } });
+  if(isOnForm && selectedKey && !seen[selectedKey]){ html += '<option value="'+_ecfEsc(selectedKey)+'" selected>'+_ecfEsc(selectedKey)+' (manual)</option>'; }
+  return html;
+}
 function _avParseFormFields(html){
   var out=[], seen={};
   try{
@@ -4639,7 +4648,7 @@ async function _ecamPullFormFields(silent){
     renderCustomFieldsList(window._ecamFields||[]);
   }catch(e){ if(statusEl) statusEl.textContent='Could not read the landing page.'; }
 }
-var _AV_CORE = [{k:'name',l:'Name'},{k:'phone',l:'Phone'},{k:'email',l:'Email'},{k:'location',l:'Location'},{k:'service',l:'Service'}];
+var _AV_CORE = [{k:'name',l:'Name'},{k:'phone',l:'Phone'},{k:'email',l:'Email'},{k:'location',l:'Location',rename:true},{k:'service',l:'Service',rename:true}];
 var _AV_CORE_KEYS = {name:1,phone:1,email:1,location:1,service:1};
 function renderCustomFieldsList(rows){
   var list = document.getElementById('ecam-fields-list');
@@ -4652,14 +4661,18 @@ function renderCustomFieldsList(rows){
   var coreHtml = _AV_CORE.map(function(c){
     var ov = coreMap[c.k];
     var formKey = ov ? (ov.field_key||'') : '';
+    var curLabel = (ov && ov.label) ? ov.label : c.l;
     var control;
     if(ff.length){
       control = '<select class="fld _av-core" data-core="'+c.k+'" data-rowid="'+(ov?ov.id:'')+'" style="flex:1;font-size:12px;padding:6px 9px">'+_avFieldOptions(formKey, true)+'</select>';
     } else {
       control = '<input class="fld _av-core" data-core="'+c.k+'" data-rowid="'+(ov?ov.id:'')+'" value="'+_ecfEsc(formKey||c.k)+'" placeholder="'+c.k+'" style="flex:1;font-family:var(--mono);font-size:12px;padding:6px 9px">';
     }
+    var labelCtrl = c.rename
+      ? '<input class="fld _av-core-label" data-core="'+c.k+'" value="'+_ecfEsc(curLabel)+'" placeholder="'+c.l+'" title="Rename this field for the client (e.g. Treatment, Area of interest)" style="flex:0 0 92px;font-size:12px;font-weight:700;padding:6px 7px">'
+      : '<div style="flex:0 0 74px;font-size:12px;font-weight:700;color:var(--text)">'+c.l+'</div>';
     return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:9px;background:var(--surface);margin-bottom:6px">'
-      + '<div style="flex:0 0 74px;font-size:12px;font-weight:700;color:var(--text)">'+c.l+'</div>'
+      + labelCtrl
       + '<div style="color:var(--muted);flex-shrink:0">&#8592;</div>'
       + control
       + '</div>';
@@ -4667,48 +4680,90 @@ function renderCustomFieldsList(rows){
   var customRows = rows.filter(function(f){ return !(f.maps_to && _AV_CORE_KEYS[f.maps_to]); });
   var customHtml = customRows.length ? customRows.map(function(f){
     var opts = Array.isArray(f.options) ? f.options : [];
-    return '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:9px 11px;border:1px solid var(--border);border-radius:9px;margin-bottom:6px">'
-      + '<div style="min-width:0">'
-        + '<div style="font-size:12px;font-weight:700;color:var(--text)">'+_ecfEsc(f.label)+' <span style="font-weight:400;color:var(--muted)">&#8592; <span style="font-family:var(--mono)">'+_ecfEsc(f.field_key||'')+'</span></span></div>'
-        + '<div style="font-size:11px;color:var(--muted);margin-top:2px">'+(typeLabels[f.field_type]||f.field_type)+(opts.length?(' &middot; '+opts.map(_ecfEsc).join(', ')):'')+(f.filterable?' &middot; filter':'')+'</div>'
+    var onForm = !!f.on_form;
+    return '<div style="padding:9px 11px;border:1px solid var(--border);border-radius:9px;margin-bottom:6px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">'
+        + '<div style="min-width:0">'
+          + '<div style="font-size:12px;font-weight:700;color:var(--text)">'+_ecfEsc(f.label)+'</div>'
+          + '<div style="font-size:11px;color:var(--muted);margin-top:2px">'+(typeLabels[f.field_type]||f.field_type)+(opts.length?(' &middot; '+opts.map(_ecfEsc).join(', ')):'')+(f.filterable?' &middot; filter':'')+'</div>'
+        + '</div>'
+        + '<div style="display:flex;gap:4px;flex-shrink:0">'
+          + '<button class="tbl-btn" data-id="'+f.id+'" onclick="editCustomField(this.dataset.id)">Edit</button>'
+          + '<button class="tbl-btn danger" data-id="'+f.id+'" onclick="deleteCustomField(this.dataset.id)">Delete</button>'
+        + '</div>'
       + '</div>'
-      + '<div style="display:flex;gap:4px;flex-shrink:0">'
-        + '<button class="tbl-btn" data-id="'+f.id+'" onclick="editCustomField(this.dataset.id)">Edit</button>'
-        + '<button class="tbl-btn danger" data-id="'+f.id+'" onclick="deleteCustomField(this.dataset.id)">Delete</button>'
+      + '<div style="display:flex;align-items:center;gap:8px;margin-top:7px">'
+        + '<div style="color:var(--muted);flex-shrink:0">&#8592;</div>'
+        + '<select class="fld _av-custom" data-rowid="'+f.id+'" style="flex:1;font-size:12px;padding:6px 9px">'+_avCustomOptions(f.field_key||'', onForm)+'</select>'
       + '</div>'
     + '</div>';
   }).join('') : '<div style="font-size:11px;color:var(--muted)">No custom fields yet.</div>';
   list.innerHTML =
       '<div style="font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Built-in fields <span style="font-weight:400;text-transform:none">(CRM &#8592; form field)</span></div>'
     + coreHtml
-    + '<button type="button" onclick="saveCoreMappings()" style="width:100%;margin-top:2px;padding:9px;border:none;border-radius:8px;background:var(--text);color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">Save mapping</button>'
     + '<div style="font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--muted);margin:14px 0 6px">Custom fields</div>'
-    + customHtml;
+    + customHtml
+    + '<button type="button" onclick="saveMappings()" style="width:100%;margin-top:10px;padding:10px;border:none;border-radius:8px;background:var(--text);color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">Save mapping</button>';
 }
-async function saveCoreMappings(){
+async function saveMappings(){
   var campaignId = window._editCampaignId;
   var cam = (window._allCampaigns||[]).find(function(c){ return String(c.id)===String(campaignId); });
   var clientId = cam ? cam.client_id : null;
   if(!clientId){ toast('No client found for this campaign'); return; }
   var coreLabels = {name:'Name',phone:'Phone',email:'Email',location:'Location',service:'Service'};
-  var inputs = document.querySelectorAll('._av-core');
+  var allFields = window._ecamFields || [];
   var ops = [];
-  for(var i=0;i<inputs.length;i++){
-    var el = inputs[i];
+
+  // ── Built-in (core) fields: form-field override + renamed label ──
+  var coreEls = document.querySelectorAll('._av-core');
+  for(var i=0;i<coreEls.length;i++){
+    var el = coreEls[i];
     var core = el.getAttribute('data-core');
     var rowId = el.getAttribute('data-rowid') || '';
     var val = (el.value||'').toLowerCase().trim().replace(/[^a-z0-9_]+/g,'_').replace(/^_+|_+$/g,'');
-    if(val===core || val===''){
+    var lblEl = document.querySelector('._av-core-label[data-core="'+core+'"]');
+    var defLabel = coreLabels[core];
+    var customLabel = lblEl ? (lblEl.value||'').trim() : '';
+    var label = customLabel || defLabel;
+    var hasOverride = (val && val !== core);
+    var hasRename   = (customLabel && customLabel !== defLabel);
+    if(!hasOverride && !hasRename){
+      // pure auto-detect, default label → no row needed
       if(rowId) ops.push(sbAdmin('/rest/v1/custom_fields?id=eq.'+rowId,{method:'DELETE',headers:{Prefer:'return=minimal'}}));
-    } else {
-      var payload = { client_id:clientId, campaign_id:campaignId, field_key:val, label:coreLabels[core], field_type:'core', maps_to:core, on_form:true, filterable:false, editable:false };
-      if(rowId) ops.push(sbAdmin('/rest/v1/custom_fields?id=eq.'+rowId,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify(payload)}));
-      else      ops.push(sbAdmin('/rest/v1/custom_fields',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(payload)}));
+      continue;
     }
+    var existing = allFields.find(function(x){ return String(x.id)===String(rowId); });
+    // keep the existing form field on a rename-only change so intake never breaks
+    var fieldKey = hasOverride ? val : (existing && existing.field_key ? existing.field_key : core);
+    var payload = { client_id:clientId, campaign_id:campaignId, field_key:fieldKey, label:label, field_type:'core', maps_to:core, on_form:true, filterable:false, editable:false };
+    if(rowId) ops.push(sbAdmin('/rest/v1/custom_fields?id=eq.'+rowId,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify(payload)}));
+    else      ops.push(sbAdmin('/rest/v1/custom_fields',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(payload)}));
   }
+
+  // ── Custom fields: map to a form field, or flip to hub-filter-only ──
+  var custEls = document.querySelectorAll('._av-custom');
+  for(var j=0;j<custEls.length;j++){
+    var ce = custEls[j];
+    var rid = ce.getAttribute('data-rowid');
+    var existingC = allFields.find(function(x){ return String(x.id)===String(rid); });
+    if(!existingC) continue;
+    var choice = ce.value;
+    var patchC;
+    if(choice === '__filter__'){
+      // hub filter only — keep the existing field_key as its internal name
+      patchC = { on_form:false, filterable:true };
+    } else {
+      var fk = (choice||'').toLowerCase().trim().replace(/[^a-z0-9_]+/g,'_').replace(/^_+|_+$/g,'') || existingC.field_key;
+      patchC = { on_form:true, field_key:fk };
+    }
+    ops.push(sbAdmin('/rest/v1/custom_fields?id=eq.'+rid,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify(patchC)}));
+  }
+
   try{ await Promise.all(ops); toast('Mapping saved'); loadCustomFields(campaignId); }
   catch(e){ toast('Could not save mapping'); }
 }
+// back-compat alias (old button name)
+function saveCoreMappings(){ return saveMappings(); }
 function editCustomField(id){
   var f = (window._ecamFields||[]).find(function(x){ return String(x.id)===String(id); });
   if(!f) return;
@@ -4739,6 +4794,7 @@ async function addCustomField(){
   var options = (type==='select') ? optionsRaw.split('\n').map(function(s){ return s.trim(); }).filter(Boolean)
               : (type==='bool')   ? ['Yes','No'] : [];
   var defVal = (document.getElementById('ecf-default').value||'').trim() || null;
+  var hasForm = !!formKey.trim();
   var payload = {
     client_id:     clientId,
     campaign_id:   campaignId,
@@ -4748,8 +4804,8 @@ async function addCustomField(){
     options:       options,
     default_value: defVal,
     maps_to:       null,
-    on_form:       true,
-    filterable:    document.getElementById('ecf-filterable').checked,
+    on_form:       hasForm,
+    filterable:    hasForm ? document.getElementById('ecf-filterable').checked : true,
     editable:      document.getElementById('ecf-editable').checked,
     sort_order:    (window._ecamFields||[]).length
   };
@@ -4964,7 +5020,7 @@ function openEditCampaign(btn) {
     + '</div>'
     + '<div style="margin-top:6px;padding-top:14px;border-top:1px solid var(--border)">'
     + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">&#128203; Lead Field Mapping <span style="font-weight:400;color:var(--muted)">(form &#8594; CRM fields)</span></div>'
-    + '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Pick which form field feeds each CRM field &mdash; the dropdowns are read straight from this campaign\'s landing page. Name, Phone, Email, Location &amp; Service auto-detect by default; change a dropdown only to override. Then Save mapping. Add custom fields like Branch below.</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Pick which form field feeds each CRM field &mdash; dropdowns are read from this campaign\'s landing page. Name, Phone &amp; Email auto-detect; change a dropdown only to override. You can rename <b>Location</b> &amp; <b>Service</b> for this client (e.g. Service &#8594; &ldquo;Treatment&rdquo;). Custom fields can map to a form field <b>or</b> be &ldquo;Hub filter only&rdquo;. Then hit Save mapping.</div>'
     + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><button type="button" onclick="_ecamPullFormFields(false)" style="white-space:nowrap;padding:6px 10px;border:1px solid var(--brand);border-radius:8px;background:var(--brand-light,#f5f3ff);color:var(--brand);font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font)">&#11015; Pull fields from landing page</button><span id="ecam-formfields-status" style="font-size:10px;color:var(--muted)"></span></div>'
     + '<div id="ecam-fields-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px"><div style="font-size:12px;color:var(--muted)">Loading&hellip;</div></div>'
     + '<div style="border:1px dashed var(--border);border-radius:10px;padding:12px;background:var(--surface)">'
