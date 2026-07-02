@@ -629,7 +629,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-01 fb-dropdown-mapper</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-01 fb-mapper-2</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -4483,6 +4483,8 @@ window._fbKnownFields = [];   // FB questions discovered from incoming leads
 window._fbCustomDefs  = [];   // this campaign's custom CRM fields
 window._fbCustomMap   = {};   // field_key -> chosen FB field
 window._fbExtras      = [];   // legacy extras, preserved on save
+window._fbCampId      = null; // campaign being edited (for refresh / add-field)
+window._fbClientId    = null; // client owning the campaign (for new custom fields)
 
 // Build <option> markup from discovered FB fields; always keeps the current value selectable.
 function _fbOpt(selected, firstLabel){
@@ -4499,7 +4501,14 @@ function _fbOpt(selected, firstLabel){
 
 async function loadFbLeadForm(campId){
   var idInp=document.getElementById('ecam-fbform-id'); if(!idInp) return;
+  window._fbCampId=campId; window._fbClientId=null;
   window._fbKnownFields=[]; window._fbCustomDefs=[]; window._fbCustomMap={}; window._fbExtras=[];
+  // client owning this campaign (needed to create new custom fields)
+  try{
+    var cc=await sbAdmin('/rest/v1/campaigns?select=client_id&id=eq.'+encodeURIComponent(campId)+'&limit=1');
+    var ccr=cc.ok?await cc.json():[];
+    if(ccr&&ccr[0]) window._fbClientId=ccr[0].client_id||null;
+  }catch(e){}
   var fm={};
   try{
     var r=await sbAdmin('/rest/v1/leadform_map?select=fb_form_id,field_map,label&campaign_id=eq.'+encodeURIComponent(campId)+'&order=created_at.asc&limit=1');
@@ -4534,7 +4543,7 @@ async function loadFbLeadForm(campId){
 
 function _renderFbCustomRows(){
   var box=document.getElementById('ecam-fbform-extras'); if(!box) return;
-  if(!window._fbCustomDefs.length){ box.innerHTML='<div style="font-size:11px;color:var(--muted)">No custom fields on this campaign yet. Add them in the field-mapping editor first.</div>'; return; }
+  if(!window._fbCustomDefs.length){ box.innerHTML='<div style="font-size:11px;color:var(--muted)">No custom fields yet. Use &ldquo;+ Add custom field&rdquo; below to create one (e.g. Company Name).</div>'; return; }
   box.innerHTML=window._fbCustomDefs.map(function(d){
     var sel=window._fbCustomMap[d.field_key]||'';
     return '<div style="display:flex;align-items:center;gap:8px">'
@@ -4575,6 +4584,58 @@ async function saveFbLeadForm(){
     if(r.ok||r.status===201||r.status===204){ setSt('Saved \u2014 leads from this form now flow into this campaign.','var(--green,#16a34a)'); toast('Facebook lead form saved'); }
     else { var t=await r.text().catch(function(){return'';}); setSt('Could not save ('+r.status+'). '+(t||'').slice(0,80),'var(--danger)'); }
   }catch(e){ setSt('Error saving','var(--danger)'); }
+}
+
+// Open the Adviuz Facebook Instant Forms page in a new tab (to copy a Form ID)
+function openFbForms(){
+  window.open('https://business.facebook.com/latest/instant_forms/forms/?asset_id=296205090568923&business_id=149317752757418&nav_source=flyout_menu','_blank','noopener');
+}
+
+// Re-pull the latest fields the engine has recorded for this form, keeping current selections
+async function refreshFbFields(){
+  var campId=window._fbCampId; if(!campId) return;
+  var curr={}; ['name','phone','email','service','location'].forEach(function(k){ var s=document.getElementById('ecam-fbmap-'+k); curr[k]=s?s.value:''; });
+  var currCustom={}; document.querySelectorAll('#ecam-fbform-extras select[data-fbk]').forEach(function(s){ currCustom[s.getAttribute('data-fbk')]=s.value; });
+  try{
+    var r=await sbAdmin('/rest/v1/leadform_map?select=field_map&campaign_id=eq.'+encodeURIComponent(campId)+'&limit=1');
+    var rows=r.ok?await r.json():[]; var fm=(rows&&rows[0]&&rows[0].field_map)||{};
+    if(Array.isArray(fm.known_fields)) window._fbKnownFields=fm.known_fields.slice();
+  }catch(e){}
+  ['name','phone','email','service','location'].forEach(function(k){
+    var s=document.getElementById('ecam-fbmap-'+k);
+    if(s) s.innerHTML=_fbOpt(curr[k]||'', (k==='name'||k==='phone'||k==='email')?'\u2014 select \u2014':'\u2014 none \u2014');
+  });
+  window._fbCustomMap=Object.assign({}, window._fbCustomMap, currCustom);
+  _renderFbCustomRows();
+  var hint=document.getElementById('ecam-fbfields-hint');
+  if(hint){ hint.innerHTML=window._fbKnownFields.length
+    ? 'Detected '+window._fbKnownFields.length+' field(s) from this form: <b>'+window._fbKnownFields.map(_ecfEsc).join('</b>, <b>')+'</b>'
+    : 'No fields detected yet \u2014 send one test lead through this form, then press Refresh.'; }
+  toast('Fields refreshed');
+}
+
+// Create a new campaign custom field (usable on website, Facebook & hub filters), then show it as a mappable row
+async function addFbCustomField(){
+  var inp=document.getElementById('ecam-fbnew-cf'); if(!inp) return;
+  var label=(inp.value||'').trim();
+  if(!label){ toast('Enter a field name'); return; }
+  var campId=window._fbCampId;
+  var key=label.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40);
+  if(!key){ toast('Invalid field name'); return; }
+  if((window._fbCustomDefs||[]).some(function(d){ return d.field_key===key; })){ toast('That field already exists'); return; }
+  try{
+    var body={ campaign_id:campId, field_key:key, label:label, field_type:'text', filterable:true, editable:true, on_form:true, maps_to:null, sort_order:(window._fbCustomDefs||[]).length+1 };
+    if(window._fbClientId) body.client_id=window._fbClientId;
+    var r=await sbAdmin('/rest/v1/custom_fields',{ method:'POST', headers:{ 'Prefer':'return=representation' }, body:JSON.stringify(body) });
+    if(r.ok||r.status===201){
+      var created=await r.json().catch(function(){return null;});
+      var row=(Array.isArray(created)&&created[0])?created[0]:{ field_key:key, label:label };
+      window._fbCustomDefs.push({ field_key:row.field_key, label:row.label, sort_order:body.sort_order });
+      inp.value='';
+      _renderFbCustomRows();
+      toast('Custom field \u201c'+label+'\u201d created \u2014 now pick its Facebook question');
+    } else { var t=await r.text().catch(function(){return'';}); toast('Could not create ('+r.status+') '+t.slice(0,60)); }
+  }catch(e){ toast('Error creating field'); }
 }
 
 // ── Manual impressions: load current values into the edit modal ──────────
@@ -4996,7 +5057,11 @@ function openEditCampaign(btn) {
     + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">&#128241; Facebook Lead Form <span style="font-weight:400;color:var(--muted)">(Instant Form &#8594; CRM)</span></div>'
     + '<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Paste this campaign&rsquo;s Facebook <b>Lead Form ID</b>, send one test lead through the form, then map each CRM field to a Facebook question using the dropdowns. Leave the ID blank to disable.</div>'
     + '<div class="form-group"><label class="fld">Facebook Lead Form ID</label><input class="fld" id="ecam-fbform-id" placeholder="e.g. 1234567890123456" style="font-family:monospace"></div>'
-    + '<div id="ecam-fbfields-hint" style="font-size:10px;color:var(--muted);margin:-4px 0 10px"></div>'
+    + '<div style="display:flex;gap:8px;margin:-4px 0 8px;flex-wrap:wrap">'
+    +   '<button type="button" onclick="openFbForms()" style="flex:1;min-width:150px;padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface,#fff);color:var(--text);font-size:11px;font-weight:600;cursor:pointer;font-family:var(--font)">&#128279; Open Facebook Instant Forms &#8599;</button>'
+    +   '<button type="button" onclick="refreshFbFields()" style="flex:1;min-width:130px;padding:7px;border:1px solid var(--border);border-radius:8px;background:var(--surface,#fff);color:var(--text);font-size:11px;font-weight:600;cursor:pointer;font-family:var(--font)">&#128260; Refresh fields</button>'
+    + '</div>'
+    + '<div id="ecam-fbfields-hint" style="font-size:10px;color:var(--muted);margin:-2px 0 10px"></div>'
     + '<div style="font-size:11px;font-weight:700;color:var(--text);margin:8px 0 6px">Field mapping <span style="font-weight:400;color:var(--muted)">(CRM &#8592; Facebook question)</span></div>'
     + '<div class="form-grid">'
     +   '<div class="form-group"><label class="fld">Name &#8592;</label><select class="fld" id="ecam-fbmap-name"></select></div>'
@@ -5010,6 +5075,10 @@ function openEditCampaign(btn) {
     + '<div style="font-size:10px;color:var(--muted);margin:-4px 0 10px">Name, Phone &amp; Email are required. Service &amp; Location are optional. Facebook&rsquo;s standard questions are first_name, phone_number, email_address.</div>'
     + '<div style="font-size:11px;font-weight:700;color:var(--text);margin:8px 0 6px">Custom fields <span style="font-weight:400;color:var(--muted)">(map extra questions to hub fields)</span></div>'
     + '<div id="ecam-fbform-extras" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>'
+    + '<div style="display:flex;gap:6px;margin-bottom:8px">'
+    +   '<input class="fld" id="ecam-fbnew-cf" placeholder="New field name (e.g. Company Name)" style="flex:1">'
+    +   '<button type="button" onclick="addFbCustomField()" style="flex:0 0 auto;padding:0 14px;border:1px solid var(--border);border-radius:8px;background:var(--surface,#fff);color:var(--text);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">+ Add</button>'
+    + '</div>'
     + '<div id="ecam-fbform-status" style="font-size:11px;color:var(--muted);margin-top:2px"></div>'
     + '<button type="button" class="btn-save" onclick="saveFbLeadForm()" style="margin-top:10px;width:100%;padding:10px;border:none;border-radius:8px;background:var(--brand);color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">&#128190; Save Facebook lead form</button>'
     + '</div>'
