@@ -5567,13 +5567,22 @@ function doSearch(q){schQ=q;render()}
 // ═══════════════════════════════════════════════════════════
 // TASK 3 — ADVANCED FILTER (Glide-style accordion)
 // ═══════════════════════════════════════════════════════════
+// Client-facing source label. Clients only ever see "Adviuz" (we generated it) or
+// "Manually Added" (they typed it in). Any non-client role (super_admin/manager/
+// telecaller) keeps the real source. Central helper so the label is consistent everywhere.
+function srcLabel(s){
+  if (window._staffRole !== 'client') return s || 'Manual';
+  var v = String(s||'').trim().toLowerCase();
+  return (v==='' || v==='manual' || v==='manual entry' || v==='walk-in' || v==='walkin' || v==='other')
+    ? 'Manually Added' : 'Adviuz';
+}
 function afDistinct(){
   var stages={}, execs={}, locs={}, parts={}, srcs={}, svcs={};
   leads.forEach(function(l){
     if(l.stage) stages[l.stage]=(stages[l.stage]||0)+1;
     if(l.assignedName) execs[l.assignedName]=(execs[l.assignedName]||0)+1;
     if(l.location) locs[l.location]=(locs[l.location]||0)+1;
-    if(l.src) srcs[l.src]=(srcs[l.src]||0)+1;
+    var _sl=srcLabel(l.src||''); if(_sl) srcs[_sl]=(srcs[_sl]||0)+1;
     if(l.svc) svcs[l.svc]=(svcs[l.svc]||0)+1;
     var pid = l.partner_id ? String(l.partner_id) : '__none__';
     parts[pid]=(parts[pid]||0)+1;
@@ -6075,7 +6084,7 @@ function leadsHTML(){
     if(af.managers  && af.managers.length  && af.managers.indexOf(gfManagerId(l))===-1) return false;
     if(af.campaigns && af.campaigns.length && af.campaigns.indexOf(gfCampaignId(l))===-1) return false;
     if(af.locations && af.locations.length && af.locations.indexOf(l.location||'')===-1) return false;
-    if(af.sources   && af.sources.length   && af.sources.indexOf(l.src||'')===-1) return false;
+    if(af.sources   && af.sources.length   && af.sources.indexOf(srcLabel(l.src||''))===-1) return false;
     if(af.services  && af.services.length  && af.services.indexOf(l.svc||'')===-1) return false;
     if(af.clients   && af.clients.length   && af.clients.indexOf(l.company||'')===-1) return false;
     // Custom-field filters (keys shaped "cf:<field_key>")
@@ -6896,7 +6905,7 @@ function reportsHTML(){
   var totalNotes  = allActs.filter(function(a){return a.type==='note';}).length;
 
   var srcC={};
-  filtLeads.forEach(function(l){srcC[l.src||'Manual']=(srcC[l.src||'Manual']||0)+1;});
+  filtLeads.forEach(function(l){var _sl=srcLabel(l.src||'Manual');srcC[_sl]=(srcC[_sl]||0)+1;});
   var srcA=Object.entries(srcC).sort(function(a,b){return b[1]-a[1];});
 
   var stgRows=STAGES.map(function(s){
@@ -8810,7 +8819,7 @@ function renderLeadScreen(id) {
 
   // Update topbar — show company if available
   document.getElementById('lsName').textContent = l.company || l.name;
-  document.getElementById('lsSub').textContent  = l.company ? l.name + ' · ' + (l.svc||'Lead') + (l.src?' · '+l.src:'') : (l.svc||'Lead') + (l.src?' · '+l.src:'');
+  document.getElementById('lsSub').textContent  = l.company ? l.name + ' · ' + (l.svc||'Lead') + (l.src?' · '+srcLabel(l.src):'') : (l.svc||'Lead') + (l.src?' · '+srcLabel(l.src):'');
 
   // ── tomorrow default for date picker ──
   var tmrw   = new Date(Date.now()+86400000);
