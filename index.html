@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-05 source-mask-2</title>
+<title>Adviuz Hub · v2026-07-05 toolbar-1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -211,6 +211,7 @@ body.call-mini-open .topbar{padding-top:calc(env(safe-area-inset-top,0px) + 68px
 .ctrlbar .cb-btn svg{width:17px;height:17px}
 .ctrlbar .cb-dot{position:absolute;top:6px;right:6px;width:7px;height:7px;border-radius:50%;background:var(--green);border:2px solid var(--white)}
 .ctrlbar .cb-sort{height:36px;border:1px solid var(--border);border-radius:10px;background:var(--white);color:var(--text);font-family:var(--f);font-size:13px;font-weight:600;padding:0 8px;cursor:pointer}
+.ctrlbar .cb-dot{position:absolute;top:5px;right:5px;width:8px;height:8px;border-radius:50%;background:var(--green);border:2px solid var(--white)}
 .statsstrip{display:flex;background:var(--white);border-bottom:1px solid var(--border);flex-shrink:0}
 .statsstrip .stat-cell{flex:1;text-align:center;padding:9px 6px;border-right:1px solid var(--border)}
 .statsstrip .stat-cell:last-child{border-right:none}
@@ -3329,7 +3330,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-05 source-mask-2';
+var APP_VERSION = 'v2026-07-05 toolbar-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -5489,30 +5490,52 @@ function goTab(tab,btn){
 // Persistent control bar — search (≈half) + filter/sort/views (rest). Same across tabs.
 function renderCtrlBar(){
   var box=document.getElementById('ctrlBar'); if(!box) return;
-  // Hide the search/filter bar on management sub-screens (Partners, Commissions,
-  // Settings, etc.) — it only belongs on the 5 working tabs.
-  if(!_showControlBar()){ box.style.display='none'; box.innerHTML=''; return; }
+  // Hide on management sub-screens AND on Reports (Reports has its own Filters
+  // button; a search box there has nothing meaningful to search).
+  if(!_showControlBar() || curTab==='reports'){ box.style.display='none'; box.innerHTML=''; return; }
   box.style.display='';
-  var isLeads = curTab==='leads';
   var qv=(schQ||'').replace(/"/g,'&quot;');
   var sSvg='<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
   var fSvg='<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>';
+  // Expand / collapse icons for the detail-view toggle (clearer than the old lines icon)
+  var expandSvg='<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+  var collapseSvg='<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+  // Shared filter button — opens the global filter sheet; green dot when active.
+  var fOn=(typeof advFilterCount==='function' && advFilterCount()>0);
+  var filterBtn='<button class="cb-btn'+(fOn?' on':'')+'" onclick="if(typeof openGlobalFilter===\'function\')openGlobalFilter()" title="Filter">'+fSvg+(fOn?'<span class="cb-dot"></span>':'')+'</button>';
   var actions='';
-  if(isLeads){
+  if(curTab==='leads'){
     if(!window._leadSort) window._leadSort='newest';
     if(!window._leadView) window._leadView='compact';
     var sel=function(v){return window._leadSort===v?' selected':'';};
     var sortSel='<select class="cb-sort" onchange="window._leadSort=this.value;render()">'
       +'<option value="newest"'+sel('newest')+'>Newest</option>'
       +'<option value="oldest"'+sel('oldest')+'>Oldest</option>'
-      +'<option value="name"'+sel('name')+'>Name A–Z</option></select>';
-    var vIcon=window._leadView==='compact'
-      ? '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>'
-      : '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/></svg>';
-    var viewBtn='<button class="cb-btn'+(window._leadView==='detailed'?' on':'')+'" onclick="window._leadView=(window._leadView===\'compact\'?\'detailed\':\'compact\');renderCtrlBar();render()" title="'+(window._leadView==='compact'?'Show actions':'Hide actions')+'">'+vIcon+'</button>';
-    actions=sortSel+viewBtn;
+      +'<option value="name"'+sel('name')+'>Name A\u2013Z</option></select>';
+    var viewBtn='<button class="cb-btn'+(window._leadView==='detailed'?' on':'')+'" onclick="window._leadView=(window._leadView===\'compact\'?\'detailed\':\'compact\');renderCtrlBar();render()" title="'+(window._leadView==='compact'?'Expanded view':'Compact view')+'">'+(window._leadView==='compact'?expandSvg:collapseSvg)+'</button>';
+    actions=sortSel+filterBtn+viewBtn;
+  } else if(curTab==='followups'){
+    if(!window._fuSort) window._fuSort='soonest';
+    var fsel=function(v){return window._fuSort===v?' selected':'';};
+    var fuSort='<select class="cb-sort" onchange="window._fuSort=this.value;var c=document.getElementById(\'content\');if(c)c.innerHTML=followupsHTML()">'
+      +'<option value="soonest"'+fsel('soonest')+'>Soonest</option>'
+      +'<option value="latest"'+fsel('latest')+'>Latest</option></select>';
+    // Calendar button reserved for the future list/calendar switch.
+    var calSvg='<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
+    var calBtn='<button class="cb-btn" onclick="showToast(\'Calendar view \u2014 coming soon\')" title="Calendar view (coming soon)">'+calSvg+'</button>';
+    actions=fuSort+filterBtn+calBtn;
+  } else if(curTab==='calls'){
+    if(!window._callSort) window._callSort='newest';
+    if(!window._callView) window._callView='compact';
+    var csel=function(v){return window._callSort===v?' selected':'';};
+    var callSort='<select class="cb-sort" onchange="window._callSort=this.value;var c=document.getElementById(\'content\');if(c)c.innerHTML=callsHTML()">'
+      +'<option value="newest"'+csel('newest')+'>Newest</option>'
+      +'<option value="oldest"'+csel('oldest')+'>Oldest</option>'
+      +'<option value="longest"'+csel('longest')+'>Longest</option></select>';
+    var callViewBtn='<button class="cb-btn'+(window._callView==='detailed'?' on':'')+'" onclick="window._callView=(window._callView===\'compact\'?\'detailed\':\'compact\');renderCtrlBar();var c=document.getElementById(\'content\');if(c)c.innerHTML=callsHTML()" title="'+(window._callView==='compact'?'Expanded view':'Compact view')+'">'+(window._callView==='compact'?expandSvg:collapseSvg)+'</button>';
+    actions=callSort+filterBtn+callViewBtn;
   }
-  box.innerHTML='<div class="cb-search">'+sSvg+'<input id="cbSearch" placeholder="Search…" value="'+qv+'" oninput="doSearch(this.value)"></div>'
+  box.innerHTML='<div class="cb-search">'+sSvg+'<input id="cbSearch" placeholder="Search\u2026" value="'+qv+'" oninput="doSearch(this.value)"></div>'
     +'<div class="cb-actions">'+actions+'</div>';
 }
 
@@ -5772,6 +5795,8 @@ function clientContextName(){
 function updateActiveFilterBar(){
   var bar=document.getElementById('activeFilterBar');
   if(!bar) return;
+  // Dashboard shows campaign/earnings cards, not a lead list \u2014 no filter strip there.
+  if(typeof curTab!=='undefined' && curTab==='dashboard'){ bar.style.display='none'; return; }
   var af=window._advFilters||{};
   var parts=[];
   function add(label, arr){ if(arr&&arr.length) parts.push(label+': '+arr.join(', ')); }
@@ -6684,7 +6709,7 @@ function taskListHTML(){
         || ((ld.ph||'').toLowerCase().indexOf(q)!==-1)
         || ((ld.em||'').toLowerCase().indexOf(q)!==-1)
         || ((t.note||'').toLowerCase().indexOf(q)!==-1);
-  }).filter(gfTaskInScope).sort(function(a,b){return a.time.localeCompare(b.time)});
+  }).filter(gfTaskInScope).sort(function(a,b){var ka=(a.date||'')+' '+(a.time||''),kb=(b.date||'')+' '+(b.time||'');return (window._fuSort==='latest')?kb.localeCompare(ka):ka.localeCompare(kb);});
 
   if(!f.length){
     var icons={past:'🎉',today:'✅',future:'📅'};
@@ -7724,6 +7749,11 @@ function callsHTML(){
     var nm=((ld&&ld.name)||'').toLowerCase();
     var ph=((ld&&ld.ph)||'').toLowerCase();
     return nm.indexOf(_cq)!==-1 || ph.indexOf(_cq)!==-1 || (c.note||'').toLowerCase().indexOf(_cq)!==-1;
+  }).sort(function(a,b){
+    var s=window._callSort||'newest';
+    if(s==='longest') return (b.durS||0)-(a.durS||0);
+    return s==='oldest' ? String(a.date).localeCompare(String(b.date))
+                        : String(b.date).localeCompare(String(a.date));
   }).map(function(c){
     var lead=leads.find(function(l){return l.id===c.lid})||{name:'Unknown',col:'#667781'};
     var init=lead.name.split(' ').map(function(w){return w[0]}).join('').slice(0,2);
@@ -7731,7 +7761,7 @@ function callsHTML(){
     var outTxt=c.out==='answered'?'Answered':c.out==='voicemail'?'Voicemail':'Missed';
     var _ph = (c.ph||'').replace(/[^0-9+]/g,'');
     var _actions = '';
-    if(_ph || c.rec){
+    if((window._callView||'compact')==='detailed' && (_ph || c.rec)){
       _actions = '<div style="padding:0 14px 12px">';
       if(c.rec) _actions += '<audio src="'+c.rec+'" preload="none" controls style="width:100%;height:36px;outline:none'+(_ph?';margin-bottom:8px':'')+'"></audio>';
       if(_ph){
@@ -13354,6 +13384,7 @@ async function loadCallLog() {
         time: dt ? dt.toLocaleString('en-CA',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '',
         note: r.call_note || r.description || '',
         dur:  dur > 0 ? (Math.floor(dur/60)+'m '+(dur%60)+'s') : '—',
+        durS: dur,
         date: r.created_at || '',
         rec:  r.recording_url || '',
         ph:   lead.ph || '',
