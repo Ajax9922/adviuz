@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-05 inbox-2</title>
+<title>Adviuz Hub · v2026-07-05 inbox-3</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3432,7 +3432,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-05 inbox-2';
+var APP_VERSION = 'v2026-07-05 inbox-3';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7881,7 +7881,7 @@ function ibScheduledRows(){
   var now=Date.now(), out=[];
   (leads||[]).forEach(function(l){
     if(!l.appointment_at || !l.ph) return;
-    if(l.ok===false) return;                        // no SMS consent → engine skips it
+    var noConsent = (l.ok === false);               // engine will skip these — show with a warning
     var apptMs=new Date(l.appointment_at).getTime();
     if(isNaN(apptMs) || apptMs<=now) return;
     var tz=l.timezone||'America/Toronto';
@@ -7899,7 +7899,7 @@ function ibScheduledRows(){
         lbl='On the day \u00b7 '+ibFmtHM(it.time);
       }
       if(t==null || t<=now || t>=apptMs) return;    // already sent or invalid
-      out.push({lid:l.id,name:l.name||'Lead',ph:l.ph||'',col:l.col||'#667781',when:t,lbl:lbl,appt:apptMs});
+      out.push({lid:l.id,name:l.name||'Lead',ph:l.ph||'',col:l.col||'#667781',when:t,lbl:lbl,appt:apptMs,noConsent:noConsent});
     });
   });
   out.sort(function(a,b){return a.when-b.when});
@@ -7996,8 +7996,8 @@ function callsHTML(){
     var lead=leads.find(function(l){return l.id===c.lid})||{name:'Unknown',col:'#667781'};
     var init=lead.name.split(' ').map(function(w){return w[0]}).join('').slice(0,2);
     var isSms=(c.kind==='sms');
-    var outTxt=isSms?'Sent':(c.out==='answered'?'Answered':c.out==='voicemail'?'Voicemail':'Missed');
-    var outCol=isSms?'var(--sub)':(c.out==='answered'?'var(--green)':c.out==='voicemail'?'#b45309':'#dc2626');
+    var outTxt=isSms?(c.out==='failed'?'Failed':'Sent'):(c.out==='answered'?'Answered':c.out==='voicemail'?'Voicemail':'Missed');
+    var outCol=isSms?(c.out==='failed'?'#dc2626':'var(--sub)'):(c.out==='answered'?'var(--green)':c.out==='voicemail'?'#b45309':'#dc2626');
     var _ph=(c.ph||'').replace(/[^0-9+]/g,'');
     var _wa=_ph.replace(/\D/g,'');
     var key=String(c.id||c.lid+'_'+c.date);
@@ -8031,6 +8031,7 @@ function callsHTML(){
 
     if(isOpen){
       var det='';
+      if(isSms && c.note) det+='<div style="font-size:11px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">'+c.note+'</div>';
       if(isSms && c.body) det+='<div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:11px 13px;font-size:13.5px;color:var(--text);line-height:1.55;margin-bottom:8px;white-space:pre-wrap">'+String(c.body).replace(/</g,'&lt;')+'</div>';
       if(c.rec) det+='<audio src="'+c.rec+'" preload="none" controls style="width:100%;height:36px;outline:none;margin-bottom:8px"></audio>';
       if(!isSms && c.note && !/^call completed/i.test(c.note)) det+='<div style="font-size:12.5px;color:var(--sub);line-height:1.5;margin-bottom:4px">\uD83D\uDCDD '+String(c.note).replace(/</g,'&lt;')+'</div>';
@@ -8085,6 +8086,7 @@ function callsHTML(){
           +   '<div onclick="openLead('+r.lid+')" style="cursor:pointer;font-size:15px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+r.name+'</div>'
           +   '<div style="font-size:12.5px;color:var(--sub);margin-top:1px">Appointment reminder \u00b7 sends '+ibWhenLabel(r.when)+'</div>'
           +   '<div style="font-size:11.5px;color:var(--sub);margin-top:2px">Appt: '+apptLbl+'</div>'
+          +   (r.noConsent?'<div style="font-size:11.5px;color:#b45309;margin-top:3px;font-weight:700">\u26A0\uFE0F Won\u2019t send \u2014 texting is off for this lead. Re-save the appointment to turn it on.</div>':'')
           + '</div>'
           + '<span style="flex-shrink:0;font-size:10px;font-weight:800;padding:4px 9px;border-radius:20px;background:var(--greenl,#e7f8f3);color:var(--green);white-space:nowrap">'+r.lbl+'</span>'
           + '</div>';
@@ -13644,6 +13646,13 @@ async function loadCallLog() {
     (leads || []).forEach(function(l){ if (l.dbId) byDbId[l.dbId] = l; });
     var _sel = '&select=id,lead_id,activity_type,description,direction,duration_seconds,recording_url,call_note,created_at,call_sid,metadata'
              + '&order=created_at.desc&limit=300';
+    // SMS ledger: every text (welcome, reminders, manual, AI) passes through the
+    // guard, so this is the complete history. Alerts to the business owner are
+    // excluded — the Inbox shows communication with LEADS.
+    var smsUrl = '';
+    var _smsSel = '&status=in.(sent,failed)&purpose=not.eq.client_alert&lead_id=not.is.null'
+                + '&select=id,lead_id,body_preview,purpose,status,created_at'
+                + '&order=created_at.desc&limit=300';
     var url;
     var _partner = (typeof isPartnerMode==='function' && isPartnerMode());
     var _client  = (typeof isClientMode==='function' && isClientMode());
@@ -13651,16 +13660,19 @@ async function loadCallLog() {
       // Partner → calls for THIS partner's own leads (scoped by lead id, not client_id)
       var _ids = Object.keys(byDbId);
       if (!_ids.length) { callLog = []; return; }
-      url = '/rest/v1/lead_activity?activity_type=in.(call,sms)&lead_id=in.('+_ids.join(',')+')'+_sel;
+      url = '/rest/v1/lead_activity?activity_type=eq.call&lead_id=in.('+_ids.join(',')+')'+_sel;
+      var smsUrl = '/rest/v1/sms_guard_log?lead_id=in.('+_ids.join(',')+')'+_smsSel;
     } else if (_client) {
       var cid = window._clientId;
       if (!cid) { callLog = []; return; }
-      url = '/rest/v1/lead_activity?activity_type=in.(call,sms)&client_id=eq.'+cid+_sel;
+      url = '/rest/v1/lead_activity?activity_type=eq.call&client_id=eq.'+cid+_sel;
+      var smsUrl = '/rest/v1/sms_guard_log?client_id=eq.'+cid+_smsSel;
     } else {
       // Operator → the lead view can span multiple client_ids (the Adviuz account
       // plus any Adviuz-product lead). Fetch recent call activity broadly; the
       // byDbId filter below keeps only the leads actually in the operator's view.
-      url = '/rest/v1/lead_activity?activity_type=in.(call,sms)'+_sel;
+      url = '/rest/v1/lead_activity?activity_type=eq.call'+_sel;
+      var smsUrl = '/rest/v1/sms_guard_log?'+_smsSel.slice(1);
     }
     var res = await sbFetch(url);
     if (!res.ok) { callLog = []; return; }
@@ -13669,29 +13681,22 @@ async function loadCallLog() {
     rows.forEach(function(r){
       var lead = byDbId[r.lead_id];
       if (!lead) return;                              // only activity for leads in view
-      var isSms = (r.activity_type === 'sms');
       var dur  = r.duration_seconds || 0;
       var desc = (r.description || '');
       var dl   = desc.toLowerCase();
-      var outcome = isSms ? 'sent' : (dl.indexOf('voicemail') >= 0 ? 'voicemail' : (dur > 0 ? 'answered' : 'missed'));
+      var outcome = dl.indexOf('voicemail') >= 0 ? 'voicemail' : (dur > 0 ? 'answered' : 'missed');
       var dt = r.created_at ? new Date(r.created_at) : null;
-      // SMS body lives inside the description: SMS sent: "..." (SID: ...)
-      var body = '';
-      if (isSms) {
-        body = desc.replace(/^SMS sent:\s*/i, '').replace(/\s*\(SID:[^)]*\)\s*$/i, '').trim();
-        if (body.charAt(0) === '"' && body.charAt(body.length-1) === '"') body = body.slice(1, -1);
-      }
       out.push({
         id:   r.id,
-        kind: isSms ? 'sms' : 'call',
+        kind: 'call',
         lid:  lead.id,
         dir:  (r.direction || '').toLowerCase() === 'inbound' ? 'in' : 'out',
         out:  outcome,
         time: dt ? dt.toLocaleString('en-CA',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '',
         tOnly: dt ? dt.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}) : '',
         dayKey: r.created_at ? String(r.created_at).slice(0,10) : '',
-        note: r.call_note || (isSms ? '' : desc) || '',
-        body: body,
+        note: r.call_note || desc || '',
+        body: '',
         dur:  dur > 0 ? (Math.floor(dur/60)+'m '+(dur%60)+'s') : '—',
         durS: dur,
         date: r.created_at || '',
@@ -13700,6 +13705,43 @@ async function loadCallLog() {
         ai:   !!((r.metadata && (r.metadata.handler === 'ai' || r.metadata.ai === true || r.metadata.retell)) || /^ai\b/i.test(desc))
       });
     });
+
+    // ── SMS from the guard ledger ──
+    try {
+      if (smsUrl) {
+        var sres = await sbFetch(smsUrl);
+        if (sres.ok) {
+          var srows = await sres.json();
+          (Array.isArray(srows) ? srows : []).forEach(function(r){
+            var lead = byDbId[r.lead_id];
+            if (!lead) return;
+            var dt = r.created_at ? new Date(r.created_at) : null;
+            var p  = (r.purpose || '').toLowerCase();
+            var pLbl = p === 'welcome' ? 'Welcome text'
+                     : p === 'reminder' ? 'Appointment reminder'
+                     : p === 'followup' ? 'AI follow-up' : '';
+            out.push({
+              id:   'sms_' + r.id,
+              kind: 'sms',
+              lid:  lead.id,
+              dir:  'out',
+              out:  (r.status === 'sent') ? 'sent' : 'failed',
+              time: dt ? dt.toLocaleString('en-CA',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '',
+              tOnly: dt ? dt.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}) : '',
+              dayKey: r.created_at ? String(r.created_at).slice(0,10) : '',
+              note: pLbl,
+              body: r.body_preview || '',
+              dur:  '—',
+              durS: 0,
+              date: r.created_at || '',
+              rec:  '',
+              ph:   lead.ph || '',
+              ai:   (p === 'followup' || p === 'ai')
+            });
+          });
+        }
+      }
+    } catch(e2) { console.warn('[loadCallLog sms]', e2.message); }
     callLog = out;
     console.log('[Adviuz] callLog loaded', callLog.length);
   } catch(e) { console.warn('[loadCallLog]', e.message); callLog = []; }
@@ -15456,11 +15498,12 @@ async function saveAppt(){
   try{
     var _sn = parseInt((String(l.stage||'').match(/^(\d+)/)||[])[1]||'0',10);
     var _bump = (isNaN(_sn) || _sn < 5);
-    var _patch = { appointment_at: iso, updated_at:new Date().toISOString(), meeting_outcome:null, visit_locked_at:null, meeting_prompt_sent_at:null };
+    var _patch = { appointment_at: iso, sms_consent: true, updated_at:new Date().toISOString(), meeting_outcome:null, visit_locked_at:null, meeting_prompt_sent_at:null };
     if(_bump){ _patch.stage='5. Meeting Booked'; _patch.stage_code='meeting_booked'; _patch.stage_changed_at=new Date().toISOString(); }
     var res = await sbFetch('/rest/v1/leads?id=eq.'+l.dbId, { method:'PATCH', body: JSON.stringify(_patch) });
     if(!res.ok) throw new Error('save failed');
     l.appointment_at = iso;
+    l.ok = true;   // reminders require SMS consent — booking implies wanting them
     l.meeting_outcome = null; l.visit_locked_at = null;
     if(_bump){ l.stage='5. Meeting Booked'; l.stage_code='meeting_booked'; }
     try{ sbFetch('/functions/v1/appt-confirm', { method:'POST', body: JSON.stringify({ lead_id: l.dbId }) }); }catch(_e){}
