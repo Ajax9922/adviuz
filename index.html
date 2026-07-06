@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-05 dash-4</title>
+<title>Adviuz Hub · v2026-07-05 dash-5</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -235,6 +235,8 @@ body.call-mini-open .topbar{padding-top:calc(env(safe-area-inset-top,0px) + 68px
 .cs-h{font-size:12px;font-weight:800;color:var(--text);letter-spacing:.05em;text-transform:uppercase;margin:18px 0 4px}
 .cs-h:first-child{margin-top:4px}
 .cs-in{width:100%;box-sizing:border-box;padding:13px 14px;border:1.5px solid var(--border);border-radius:10px;font-family:var(--f);font-size:14px;color:var(--text);background:var(--white)}
+.cs-ai{margin-top:9px;padding:9px 15px;border-radius:99px;border:1.5px dashed var(--green);background:var(--white);color:var(--green);font-weight:800;font-size:12.5px;cursor:pointer;font-family:var(--f)}
+.cs-ai:disabled{opacity:.55}
 .statsstrip{display:flex;background:var(--white);border-bottom:1px solid var(--border);flex-shrink:0}
 .statsstrip .stat-cell{flex:1;text-align:center;padding:9px 6px;border-right:1px solid var(--border)}
 .statsstrip .stat-cell:last-child{border-right:none}
@@ -3430,7 +3432,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-05 dash-4';
+var APP_VERSION = 'v2026-07-05 dash-5';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -15922,6 +15924,38 @@ function _csNorm(s){
   };
 }
 
+// ── Draft with AI: fills the editor via the existing ai-draft-sms function ──
+function _csAiBtn(edId, msgType, remIdx){
+  var args = "'"+edId+"','"+msgType+"'" + ((typeof remIdx==='number') ? (','+remIdx) : '');
+  return '<div><button class="cs-ai" id="'+edId+'_ai" onclick="csAiDraft('+args+')">\u2728 Draft with AI</button></div>';
+}
+async function csAiDraft(edId, msgType, remIdx){
+  var btn = document.getElementById(edId+'_ai');
+  var cd  = window._clientData || {};
+  var payload = {
+    mode: 'campaign_msg',
+    msg_type: msgType,
+    business: cd.business_name || cd.name || '',
+    campaign: window._csCpName || ''
+  };
+  if (msgType === 'reminder' && typeof remIdx === 'number') {
+    try { payload.timing = _csRemLabel(_csRemRead(remIdx)); } catch(e){}
+  }
+  if (btn){ btn.disabled = true; btn.textContent = '\u2728 Drafting\u2026'; }
+  try {
+    var res  = await sbFetch('/functions/v1/ai-draft-sms', { method:'POST', body: JSON.stringify(payload) });
+    var data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'AI request failed');
+    var text = (data.draft || '').trim();
+    if (text){ csFill(edId, text); showToast('Draft ready \u2014 edit anything you like'); }
+    else { showToast('Could not draft \u2014 please try again'); }
+  } catch(e){
+    console.warn('[csAiDraft]', e.message);
+    showToast('Could not draft \u2014 please try again');
+  }
+  if (btn){ btn.disabled = false; btn.textContent = '\u2728 Draft with AI'; }
+}
+
 function openCampSettings(campId){
   var cp = (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(campId); });
   if (!cp){ showToast('Campaign not found'); return; }
@@ -15935,6 +15969,7 @@ function openCampSettings(campId){
       + '<div class="cs-note">The moment someone enquires on your ad, we text them right away so they know you got their request. Write that text in your own words below \u2014 or leave the box empty and we\u2019ll send our standard message.<br><br><b>Tip:</b> tap a green tag to add a smart field. For example, tap <b>Customer name</b> and every person automatically gets their own name in the text.</div>'
       + _csEdHTML('csWelcome', 'Example: Hi Customer name! Thanks for your interest in Campaign name. We\u2019ll call you shortly \u2014 Business name')
       + _csChipsHTML('csWelcome', false)
+      + _csAiBtn('csWelcome','welcome')
       + '<div class="cs-h">\uD83D\uDCC5 Appointment reminders</div>'
       + '<div class="cs-note">When an appointment is booked for a lead, we can text them automatic reminders so they don\u2019t forget to show up. For each reminder below: turn it on or off, choose exactly when it goes out, and write it in your own words (or leave it empty for our standard reminder).</div>';
     s.appt.reminders.forEach(function(r, i){
@@ -15949,6 +15984,7 @@ function openCampSettings(campId){
         +   '<div id="csRemCtl_'+i+'">'+_csRemCtlHTML(i, r)+'</div>'
         +   _csEdHTML('csM_'+i, 'Leave empty to use our standard reminder text')
         +   _csChipsHTML('csM_'+i, true)
+        +   _csAiBtn('csM_'+i,'reminder',i)
         + '</div>';
     });
     h += '<div class="cs-h">\uD83D\uDD14 Lead alerts for this campaign</div>'
