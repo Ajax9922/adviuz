@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-05 inbox-1</title>
+<title>Adviuz Hub · v2026-07-05 inbox-2</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3432,7 +3432,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-05 inbox-1';
+var APP_VERSION = 'v2026-07-05 inbox-2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7841,6 +7841,80 @@ function clientReportsHTML(){
 // ═══════════════════════════════════════
 // CALLS TAB
 // ═══════════════════════════════════════
+// ══ SCHEDULED (Inbox) — upcoming appointment-reminder texts ══
+// Computed live from appointments + campaign ⚙ settings, exactly the way the
+// sending engine computes them. Nothing is stored; this is a preview of the queue.
+function ibCampaignFor(l){
+  var cid = (typeof gfCampaignId==='function') ? gfCampaignId(l) : '';
+  if(!cid) return null;
+  var lists=[window._clientCampaigns, window._campaigns, (window._adminData&&window._adminData.campaigns)];
+  for(var i=0;i<lists.length;i++){
+    var a=lists[i];
+    if(Array.isArray(a)){ var cp=a.find(function(x){return String(x.id)===String(cid);}); if(cp) return cp; }
+  }
+  return null;
+}
+function ibScheduleFor(l){
+  var cp=ibCampaignFor(l);
+  var s=cp&&cp.settings;
+  var rs=(s&&s.appt&&Array.isArray(s.appt.reminders))?s.appt.reminders:null;
+  if(rs) return rs.map(function(r){
+    if(r&&r.kind==='day_of') return {type:'dayOf',time:r.time||'08:00',enabled:r.on!==false};
+    var mins=Math.max(1,parseInt(r&&r.amount,10)||1)*((r&&r.unit==='days')?1440:60);
+    return {type:'before',minutes:mins,enabled:!r||r.on!==false};
+  });
+  // Default schedule (matches the server): 24h before, 8am day-of, 1h before.
+  return [{type:'before',minutes:1440,enabled:true},{type:'dayOf',time:'08:00',enabled:true},{type:'before',minutes:60,enabled:true}];
+}
+function ibLocalHM(iso,tz){
+  try{
+    var f=new Intl.DateTimeFormat('en-CA',{timeZone:tz,hour:'2-digit',minute:'2-digit',hour12:false});
+    var p={}; f.formatToParts(new Date(iso)).forEach(function(x){p[x.type]=x.value});
+    return {h:+p.hour,mi:+p.mi||+p.minute};
+  }catch(e){ var d=new Date(iso); return {h:d.getHours(),mi:d.getMinutes()}; }
+}
+function ibFmtHM(t){
+  var p=String(t||'08:00').split(':'); var h=parseInt(p[0],10)||0,m=p[1]||'00';
+  var ap=h>=12?'PM':'AM'; return ((h%12)||12)+':'+m+' '+ap;
+}
+function ibScheduledRows(){
+  var now=Date.now(), out=[];
+  (leads||[]).forEach(function(l){
+    if(!l.appointment_at || !l.ph) return;
+    if(l.ok===false) return;                        // no SMS consent → engine skips it
+    var apptMs=new Date(l.appointment_at).getTime();
+    if(isNaN(apptMs) || apptMs<=now) return;
+    var tz=l.timezone||'America/Toronto';
+    ibScheduleFor(l).forEach(function(it){
+      if(it.enabled===false) return;
+      var t=null,lbl='';
+      if(it.type==='before'){
+        t=apptMs-(it.minutes||0)*60000;
+        var m=it.minutes||0;
+        lbl=(m%1440===0)?((m/1440)+(m===1440?' day':' days')+' before'):((m/60)+(m===60?' hour':' hours')+' before');
+      } else {
+        var lp=ibLocalHM(l.appointment_at,tz);
+        var pp=String(it.time||'08:00').split(':');
+        t=apptMs-((lp.h*60+lp.mi)*60000)+(((parseInt(pp[0],10)||0)*60+(parseInt(pp[1],10)||0))*60000);
+        lbl='On the day \u00b7 '+ibFmtHM(it.time);
+      }
+      if(t==null || t<=now || t>=apptMs) return;    // already sent or invalid
+      out.push({lid:l.id,name:l.name||'Lead',ph:l.ph||'',col:l.col||'#667781',when:t,lbl:lbl,appt:apptMs});
+    });
+  });
+  out.sort(function(a,b){return a.when-b.when});
+  return out;
+}
+function ibWhenLabel(ms){
+  var d=new Date(ms), now=new Date();
+  var dk=d.toISOString().slice(0,10), tk=now.toISOString().slice(0,10);
+  var tomorrow=new Date(Date.now()+86400000).toISOString().slice(0,10);
+  var t=d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'});
+  if(dk===tk) return 'Today \u00b7 '+t;
+  if(dk===tomorrow) return 'Tomorrow \u00b7 '+t;
+  return d.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})+' \u00b7 '+t;
+}
+
 function callsHTML(){
   window._ibChan = window._ibChan || 'all';     // all | call | sms
   window._ibWho  = window._ibWho  || 'all';     // all | ai | human
@@ -7882,17 +7956,20 @@ function callsHTML(){
     var on=(window._ibWho===v);
     return '<button onclick="window._ibWho=\''+v+'\';var c=document.getElementById(\'content\');if(c)c.innerHTML=callsHTML()" style="padding:6px 11px;border-radius:99px;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'var(--greenl,#e7f8f3)':'var(--white)')+';color:'+(on?'var(--green)':'var(--sub)')+';font-family:var(--f);font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap">'+lbl+'</button>';
   }
+  var _sched = ibScheduledRows();
   var chipsBar =
       '<div style="padding:10px 14px 4px;display:flex;gap:7px;overflow-x:auto;-webkit-overflow-scrolling:touch">'
     +   chChip('all','All')
     +   chChip('call','\uD83D\uDCDE Calls ('+nCall+')')
     +   chChip('sms','\uD83D\uDCAC SMS ('+nSms+')')
+    +   chChip('sched','\u23F3 Scheduled ('+_sched.length+')')
     + '</div>'
-    + '<div style="padding:4px 14px 8px;display:flex;gap:7px">'
+    + (window._ibChan==='sched' ? '' :
+      '<div style="padding:4px 14px 8px;display:flex;gap:7px">'
     +   whoChip('all','All')
     +   whoChip('ai','\uD83E\uDD16 AI')
     +   whoChip('human','\uD83D\uDC64 Human')
-    + '</div>';
+    + '</div>');
 
   // ── Icons ──
   var iPhone='<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.13.96.36 1.9.68 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.91.32 1.85.55 2.81.68A2 2 0 0122 16.92z"/></svg>';
@@ -7981,6 +8058,40 @@ function callsHTML(){
       listHtml+=cardHTML(c);
     });
     if(openGroup) listHtml+='</div>';
+  }
+
+  // ── Scheduled view: what's queued to go out, grouped by send day ──
+  if (window._ibChan === 'sched'){
+    var sHtml='';
+    if(!_sched.length){
+      sHtml='<div style="text-align:center;padding:32px 16px;color:var(--sub);font-size:13px">Nothing scheduled right now.<br><span style="font-size:12px">Reminders appear here automatically when an appointment is booked for a lead.</span></div>';
+    } else {
+      sHtml='<div style="padding:10px 14px 4px;font-size:12px;color:var(--sub);line-height:1.55">These texts go out automatically. Timing and wording come from each campaign\u2019s \u2699 settings.</div>';
+      var lastK=null, openG=false;
+      var cnts={};
+      _sched.forEach(function(r){ var k=new Date(r.when).toISOString().slice(0,10); cnts[k]=(cnts[k]||0)+1; });
+      _sched.forEach(function(r){
+        var k=new Date(r.when).toISOString().slice(0,10);
+        if(k!==lastK){
+          if(openG) sHtml+='</div>';
+          lastK=k; openG=true;
+          sHtml+='<div style="padding:12px 16px 7px;font-size:11.5px;font-weight:800;letter-spacing:.06em;color:var(--sub);text-transform:uppercase;background:var(--bg)">'+dayLabel(k)+' <span style="color:var(--green)">('+cnts[k]+')</span></div><div style="background:var(--white)">';
+        }
+        var apptD=new Date(r.appt);
+        var apptLbl=apptD.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})+' \u00b7 '+apptD.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'});
+        sHtml+='<div style="border-bottom:1px solid var(--border);display:flex;align-items:center;gap:11px;padding:12px 14px">'
+          + '<div class="call-av" style="background:#fef3c7;color:#b45309">\u23F3</div>'
+          + '<div style="flex:1;min-width:0">'
+          +   '<div onclick="openLead('+r.lid+')" style="cursor:pointer;font-size:15px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+r.name+'</div>'
+          +   '<div style="font-size:12.5px;color:var(--sub);margin-top:1px">Appointment reminder \u00b7 sends '+ibWhenLabel(r.when)+'</div>'
+          +   '<div style="font-size:11.5px;color:var(--sub);margin-top:2px">Appt: '+apptLbl+'</div>'
+          + '</div>'
+          + '<span style="flex-shrink:0;font-size:10px;font-weight:800;padding:4px 9px;border-radius:20px;background:var(--greenl,#e7f8f3);color:var(--green);white-space:nowrap">'+r.lbl+'</span>'
+          + '</div>';
+      });
+      if(openG) sHtml+='</div>';
+    }
+    return '<div id="liveCallsPanel"></div>' + chipsBar + sHtml + '<div style="height:8px"></div>';
   }
 
   var emptyLbl = window._ibChan==='sms' ? 'No text messages yet' : window._ibChan==='call' ? 'No calls yet' : 'Nothing here yet';
