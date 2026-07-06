@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-05 dash-5</title>
+<title>Adviuz Hub · v2026-07-05 dash-6</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1728,8 +1728,8 @@ body.impersonating .ls-topbar{padding-top:8px}
     </div>
     <div class="sh-body" id="csBody" style="padding:10px 16px 20px"></div>
     <div class="sh-foot">
-      <button class="btn btn-ghost" onclick="closeSheet('campSettingsSh')" style="flex:1">Cancel</button>
-      <button class="btn" id="csSaveBtn" onclick="saveCampSettings()" style="flex:2;justify-content:center;background:var(--green);color:#fff">Save settings</button>
+      <button class="btn btn-ghost" id="csBackBtn" onclick="csFooterBack()" style="flex:1">Close</button>
+      <button class="btn" id="campSaveBtn" onclick="saveCampSettings()" style="flex:2;justify-content:center;background:var(--green);color:#fff">Save</button>
     </div>
   </div>
 </div>
@@ -3432,7 +3432,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-05 dash-5';
+var APP_VERSION = 'v2026-07-05 dash-6';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -15956,22 +15956,71 @@ async function csAiDraft(edId, msgType, remIdx){
   if (btn){ btn.disabled = false; btn.textContent = '\u2728 Draft with AI'; }
 }
 
+function _csCp(){
+  return (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(window._csCampId); }) || null;
+}
+function _csMenuRow(icon, title, sub, fn){
+  return '<button onclick="'+fn+'" style="width:100%;display:flex;align-items:center;gap:12px;background:var(--white);border:1px solid var(--border);border-radius:14px;padding:15px 16px;margin-bottom:10px;cursor:pointer;text-align:left;font-family:var(--f)">'
+    +  '<span style="width:40px;height:40px;border-radius:11px;background:var(--greenl,#e7f8f3);display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0">'+icon+'</span>'
+    +  '<span style="flex:1;min-width:0">'
+    +    '<span style="display:block;font-size:14px;font-weight:800;color:var(--text)">'+title+'</span>'
+    +    '<span style="display:block;font-size:12px;color:var(--sub);margin-top:1px">'+sub+'</span>'
+    +  '</span>'
+    +  '<span style="font-size:18px;color:var(--sub);flex-shrink:0">\u203A</span>'
+    + '</button>';
+}
+function _csFooter(page){
+  var back = document.getElementById('csBackBtn');
+  var save = document.getElementById('campSaveBtn');
+  if (back) back.innerHTML = (page==='menu') ? 'Close' : '\u2039 Back';
+  if (save) save.style.display = (page==='menu') ? 'none' : '';
+}
 function openCampSettings(campId){
   var cp = (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(campId); });
   if (!cp){ showToast('Campaign not found'); return; }
   window._csCampId = String(campId);
   window._csCpName = cp.name || 'Campaign';
-  var s = _csNorm(cp.settings);
-  var t = document.getElementById('csTitle'); if (t) t.textContent = (cp.name||'Campaign') + ' \u00b7 Settings';
+  csOpenMenu();
+  openSheet('campSettingsSh');
+}
+function csFooterBack(){
+  if (!window._csPage || window._csPage === 'menu') closeSheet('campSettingsSh');
+  else csOpenMenu();
+}
+// ── Page 0: the settings menu (more entries will be added here over time) ──
+function csOpenMenu(){
+  window._csPage = 'menu';
+  var t = document.getElementById('csTitle'); if (t) t.textContent = (window._csCpName||'Campaign') + ' \u00b7 Settings';
   var body = document.getElementById('csBody');
   if (body){
-    var h = '<div class="cs-h">\uD83D\uDCAC Welcome message</div>'
-      + '<div class="cs-note">The moment someone enquires on your ad, we text them right away so they know you got their request. Write that text in your own words below \u2014 or leave the box empty and we\u2019ll send our standard message.<br><br><b>Tip:</b> tap a green tag to add a smart field. For example, tap <b>Customer name</b> and every person automatically gets their own name in the text.</div>'
+    body.innerHTML =
+        _csMenuRow('\uD83D\uDCAC', 'Welcome Message',      'Text sent instantly to every new lead',        "csOpenPage('welcome')")
+      + _csMenuRow('\uD83D\uDCC5', 'Appointment Settings', 'Reminder timing &amp; messages',               "csOpenPage('appt')")
+      + _csMenuRow('\uD83D\uDD14', 'Lead Alerts',          'Phone &amp; email for this campaign\u2019s leads', "csOpenPage('alerts')");
+  }
+  _csFooter('menu');
+}
+// ── Individual pages: each saves on its own, without touching the others ──
+function csOpenPage(page){
+  var cp = _csCp(); if (!cp){ showToast('Campaign not found'); return; }
+  window._csPage = page;
+  var s = _csNorm(cp.settings);
+  var t = document.getElementById('csTitle');
+  var body = document.getElementById('csBody');
+  if (!body) return;
+
+  if (page === 'welcome'){
+    if (t) t.textContent = (window._csCpName||'Campaign') + ' \u00b7 Welcome Message';
+    body.innerHTML =
+        '<div class="cs-note">The moment someone enquires on your ad, we text them right away so they know you got their request. Write that text in your own words below \u2014 or leave the box empty and we\u2019ll send our standard message.<br><br><b>Tip:</b> tap a green tag to add a smart field. For example, tap <b>Customer name</b> and every person automatically gets their own name in the text.</div>'
       + _csEdHTML('csWelcome', 'Example: Hi Customer name! Thanks for your interest in Campaign name. We\u2019ll call you shortly \u2014 Business name')
       + _csChipsHTML('csWelcome', false)
-      + _csAiBtn('csWelcome','welcome')
-      + '<div class="cs-h">\uD83D\uDCC5 Appointment reminders</div>'
-      + '<div class="cs-note">When an appointment is booked for a lead, we can text them automatic reminders so they don\u2019t forget to show up. For each reminder below: turn it on or off, choose exactly when it goes out, and write it in your own words (or leave it empty for our standard reminder).</div>';
+      + _csAiBtn('csWelcome','welcome');
+    csFill('csWelcome', s.welcome_sms);
+  }
+  else if (page === 'appt'){
+    if (t) t.textContent = (window._csCpName||'Campaign') + ' \u00b7 Appointment Settings';
+    var h = '<div class="cs-note">When an appointment is booked for a lead, we can text them automatic reminders so they don\u2019t forget to show up. For each reminder below: turn it on or off, choose exactly when it goes out, and write it in your own words (or leave it empty for our standard reminder).</div>';
     s.appt.reminders.forEach(function(r, i){
       h += '<div class="cs-card" id="csRem_'+i+'" data-on="'+(r.on?'1':'0')+'" data-kind="'+r.kind+'" data-amount="'+r.amount+'" data-unit="'+r.unit+'" data-time="'+_csEsc(r.time)+'">'
         +   '<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">'
@@ -15987,34 +16036,42 @@ function openCampSettings(campId){
         +   _csAiBtn('csM_'+i,'reminder',i)
         + '</div>';
     });
-    h += '<div class="cs-h">\uD83D\uDD14 Lead alerts for this campaign</div>'
-      + '<div class="cs-note">Normally we alert the phone numbers saved in your account settings whenever a new lead comes in. If <b>this campaign</b> should alert a different phone or email instead, enter it here. Leave both empty to keep your normal alerts.</div>'
+    body.innerHTML = h;
+    s.appt.reminders.forEach(function(r, i){ csFill('csM_'+i, r.msg); });
+  }
+  else if (page === 'alerts'){
+    if (t) t.textContent = (window._csCpName||'Campaign') + ' \u00b7 Lead Alerts';
+    body.innerHTML =
+        '<div class="cs-note">Normally we alert the phone numbers saved in your account settings whenever a new lead comes in. If <b>this campaign</b> should alert a different phone or email instead, enter it here. Leave both empty to keep your normal alerts.</div>'
       + '<input id="csPhone" type="tel" class="cs-in" style="margin-bottom:8px" placeholder="Alert phone \u00b7 e.g. +1 416 555 1234">'
       + '<input id="csEmail" type="email" class="cs-in" placeholder="Alert email \u00b7 e.g. owner@mybusiness.com">';
-    body.innerHTML = h;
-    // Fill editors + alert fields AFTER injecting (keeps token pills intact)
-    csFill('csWelcome', s.welcome_sms);
-    s.appt.reminders.forEach(function(r, i){ csFill('csM_'+i, r.msg); });
     var ph = document.getElementById('csPhone'); if (ph) ph.value = s.alerts.phone;
     var em = document.getElementById('csEmail'); if (em) em.value = s.alerts.email;
   }
-  openSheet('campSettingsSh');
+  _csFooter(page);
+  var b = document.querySelector('#campSettingsSh .sh-body'); if (b) b.scrollTop = 0;
 }
-
+// Save merges ONLY the open page into the campaign's saved settings.
 async function saveCampSettings(){
   var id = window._csCampId; if(!id) return;
+  var cp = _csCp(); if (!cp){ showToast('Campaign not found'); return; }
+  var page = window._csPage;
+  var s = _csNorm(cp.settings);   // start from what's saved, so other sections are untouched
   function v(x){ var el=document.getElementById(x); return el ? String(el.value||'').trim() : ''; }
-  var reminders = [0,1,2].map(function(i){
-    var d = _csRemRead(i);
-    d.msg = csSerialize(document.getElementById('csM_'+i)).trim();
-    return d;
-  });
-  var s = {
-    welcome_sms: csSerialize(document.getElementById('csWelcome')).trim(),
-    appt: { reminders: reminders },
-    alerts: { phone: v('csPhone'), email: v('csEmail') }
-  };
-  var btn = document.getElementById('csSaveBtn');
+
+  if (page === 'welcome'){
+    s.welcome_sms = csSerialize(document.getElementById('csWelcome')).trim();
+  } else if (page === 'appt'){
+    s.appt.reminders = [0,1,2].map(function(i){
+      var d = _csRemRead(i);
+      d.msg = csSerialize(document.getElementById('csM_'+i)).trim();
+      return d;
+    });
+  } else if (page === 'alerts'){
+    s.alerts = { phone: v('csPhone'), email: v('csEmail') };
+  } else { return; }
+
+  var btn = document.getElementById('campSaveBtn');
   if (btn){ btn.disabled = true; btn.textContent = 'Saving\u2026'; }
   try {
     var r = await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(id), {
@@ -16023,15 +16080,14 @@ async function saveCampSettings(){
       body: JSON.stringify({ settings: s })
     });
     if (!r.ok) throw new Error('HTTP '+r.status);
-    var cp = (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(id); });
-    if (cp) cp.settings = s;
-    showToast('Campaign settings saved');
-    closeSheet('campSettingsSh');
+    cp.settings = s;
+    showToast('Saved');
+    csOpenMenu();
   } catch(e){
     console.warn('[campSettings]', e.message);
     showToast('Could not save \u2014 please try again');
   }
-  if (btn){ btn.disabled = false; btn.textContent = 'Save settings'; }
+  if (btn){ btn.disabled = false; btn.textContent = 'Save'; }
 }
 
 // ── Dashboard control row: live search (no re-render, keeps keyboard focus) ──
