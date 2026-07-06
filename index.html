@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-05 dash-7</title>
+<title>Adviuz Hub · v2026-07-05 inbox-1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1267,7 +1267,7 @@ body.impersonating .ls-topbar{padding-top:8px}
     </button>
     <button class="tab" onclick="goTab('calls',this)" id="tab-calls">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 11 19.79 19.79 0 01.11 2.38 2 2 0 012.11.5h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 8.09a16 16 0 006 6l.66-.65a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
-      <span class="tab-lbl">Calls</span>
+      <span class="tab-lbl">Inbox</span>
     </button>
     <button class="tab" onclick="goTab('dashboard',this)" id="tab-dashboard" style="display:none">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
@@ -3432,7 +3432,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-05 dash-7';
+var APP_VERSION = 'v2026-07-05 inbox-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -5521,7 +5521,7 @@ var TAB_CFG={
   leads:    {t:'Leads',     s:'',search:true,plus:true},
   followups:{t:'Follow-ups',s:'Tasks & Meetings',    search:false,plus:false},
   reports:  {t:'Reports',   s:'Analytics & insights',search:false,plus:false},
-  calls:    {t:'Calls',     s:'Call log',            search:true,plus:false},
+  calls:    {t:'Inbox',     s:'Calls & messages',    search:true,plus:false},
   dashboard:{t:'Dashboard', s:'Adviuz Admin',        search:false,plus:false},
 };
 
@@ -7842,52 +7842,155 @@ function clientReportsHTML(){
 // CALLS TAB
 // ═══════════════════════════════════════
 function callsHTML(){
-  var wvBars=Array.from({length:28},function(){var h=3+Math.random()*16,d=(.4+Math.random()*.8).toFixed(2);return'<div class="lw-bar" style="--h:'+h+'px;--d:'+d+'s"></div>'}).join('');
+  window._ibChan = window._ibChan || 'all';     // all | call | sms
+  window._ibWho  = window._ibWho  || 'all';     // all | ai | human
+  window._ibOpen = window._ibOpen || {};        // per-card expand override
 
   var _cq=(schQ||'').toLowerCase();
-  var callRows=callLog.filter(gfCallInScope).filter(function(c){
+  var rows=callLog.filter(gfCallInScope).filter(function(c){
+    if(window._ibChan!=='all' && c.kind!==window._ibChan) return false;
+    if(window._ibWho==='ai' && !c.ai) return false;
+    if(window._ibWho==='human' && c.ai) return false;
     if(!_cq) return true;
     var ld=leads.find(function(l){return l.id===c.lid});
     var nm=((ld&&ld.name)||'').toLowerCase();
     var ph=((ld&&ld.ph)||'').toLowerCase();
-    return nm.indexOf(_cq)!==-1 || ph.indexOf(_cq)!==-1 || (c.note||'').toLowerCase().indexOf(_cq)!==-1;
+    return nm.indexOf(_cq)!==-1 || ph.indexOf(_cq)!==-1
+        || (c.note||'').toLowerCase().indexOf(_cq)!==-1
+        || (c.body||'').toLowerCase().indexOf(_cq)!==-1;
   }).sort(function(a,b){
     var s=window._callSort||'newest';
     if(s==='longest') return (b.durS||0)-(a.durS||0);
     return s==='oldest' ? String(a.date).localeCompare(String(b.date))
                         : String(b.date).localeCompare(String(a.date));
-  }).map(function(c){
+  });
+
+  // Counts for the chips (channel counts ignore the channel filter itself)
+  var base=callLog.filter(gfCallInScope).filter(function(c){
+    if(window._ibWho==='ai' && !c.ai) return false;
+    if(window._ibWho==='human' && c.ai) return false;
+    return true;
+  });
+  var nCall=base.filter(function(c){return c.kind==='call'}).length;
+  var nSms =base.filter(function(c){return c.kind==='sms'}).length;
+
+  function chChip(v,lbl){
+    var on=(window._ibChan===v);
+    return '<button onclick="window._ibChan=\''+v+'\';var c=document.getElementById(\'content\');if(c)c.innerHTML=callsHTML()" style="padding:8px 14px;border-radius:99px;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'var(--green)':'var(--white)')+';color:'+(on?'#fff':'var(--text)')+';font-family:var(--f);font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap">'+lbl+'</button>';
+  }
+  function whoChip(v,lbl){
+    var on=(window._ibWho===v);
+    return '<button onclick="window._ibWho=\''+v+'\';var c=document.getElementById(\'content\');if(c)c.innerHTML=callsHTML()" style="padding:6px 11px;border-radius:99px;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'var(--greenl,#e7f8f3)':'var(--white)')+';color:'+(on?'var(--green)':'var(--sub)')+';font-family:var(--f);font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap">'+lbl+'</button>';
+  }
+  var chipsBar =
+      '<div style="padding:10px 14px 4px;display:flex;gap:7px;overflow-x:auto;-webkit-overflow-scrolling:touch">'
+    +   chChip('all','All')
+    +   chChip('call','\uD83D\uDCDE Calls ('+nCall+')')
+    +   chChip('sms','\uD83D\uDCAC SMS ('+nSms+')')
+    + '</div>'
+    + '<div style="padding:4px 14px 8px;display:flex;gap:7px">'
+    +   whoChip('all','All')
+    +   whoChip('ai','\uD83E\uDD16 AI')
+    +   whoChip('human','\uD83D\uDC64 Human')
+    + '</div>';
+
+  // ── Icons ──
+  var iPhone='<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.13.96.36 1.9.68 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.91.32 1.85.55 2.81.68A2 2 0 0122 16.92z"/></svg>';
+  var iChat='<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>';
+  var iWa='<svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M17.47 14.38c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.96-.94 1.16-.17.2-.35.22-.64.07-.3-.15-1.26-.46-2.39-1.47-.88-.79-1.48-1.76-1.65-2.06-.17-.3-.02-.46.13-.61.13-.13.3-.35.44-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.79.37-.27.3-1.04 1.02-1.04 2.48s1.07 2.87 1.21 3.07c.15.2 2.1 3.2 5.08 4.49.71.3 1.26.49 1.7.63.71.22 1.36.19 1.87.12.57-.09 1.76-.72 2-1.42.25-.7.25-1.29.18-1.42-.08-.13-.28-.2-.57-.35z"/><path d="M12.05 2a9.94 9.94 0 00-8.51 15.07L2 22l5.06-1.5A9.94 9.94 0 1012.05 2zm0 18.15a8.2 8.2 0 01-4.18-1.15l-.3-.18-3 .89.9-2.93-.2-.3a8.2 8.2 0 1114.98-4.53 8.21 8.21 0 01-8.2 8.2z"/></svg>';
+  var iDown='<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>';
+  var iUp='<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg>';
+  var aOut='<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="vertical-align:-1px"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="9 7 17 7 17 15"/></svg>';
+  var aIn='<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="vertical-align:-1px"><line x1="17" y1="7" x2="7" y2="17"/><polyline points="15 17 7 17 7 9"/></svg>';
+
+  var _iconBtn='width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0';
+  var globalOpen = (window._callView==='detailed');
+
+  function dayLabel(key){
+    if(!key) return 'Earlier';
+    var today = new Date(); var tk = today.toISOString().slice(0,10);
+    var y = new Date(Date.now()-86400000).toISOString().slice(0,10);
+    if(key===tk) return 'Today';
+    if(key===y)  return 'Yesterday';
+    try { return new Date(key+'T12:00:00').toLocaleDateString('en-CA',{month:'long',day:'numeric',year:'numeric'}).toUpperCase(); } catch(e){ return key; }
+  }
+
+  function cardHTML(c){
     var lead=leads.find(function(l){return l.id===c.lid})||{name:'Unknown',col:'#667781'};
     var init=lead.name.split(' ').map(function(w){return w[0]}).join('').slice(0,2);
-    var outCls=c.out==='answered'?'co-ans':c.out==='voicemail'?'co-vm':'co-ms';
-    var outTxt=c.out==='answered'?'Answered':c.out==='voicemail'?'Voicemail':'Missed';
-    var _ph = (c.ph||'').replace(/[^0-9+]/g,'');
-    var _actions = '';
-    if((window._callView||'compact')==='detailed' && (_ph || c.rec)){
-      _actions = '<div style="padding:0 14px 12px">';
-      if(c.rec) _actions += '<audio src="'+c.rec+'" preload="none" controls style="width:100%;height:36px;outline:none'+(_ph?';margin-bottom:8px':'')+'"></audio>';
-      if(_ph){
-        _actions += '<div style="display:flex;gap:8px">'
-          + '<button onclick="curLid='+c.lid+';openSms('+c.lid+')" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;background:var(--white);border:1.5px solid var(--border);color:var(--text);font-family:var(--f);font-weight:700;font-size:13px;padding:10px;border-radius:9px;cursor:pointer">&#128172; Text</button>'
-          + '<button onclick="cardCall('+c.lid+')" style="flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-weight:700;font-size:13px;padding:10px;border-radius:9px;cursor:pointer">&#128222; Call</button>'
-          + '</div>';
-      }
-      _actions += '</div>';
-    }
-    return'<div style="border-bottom:1px solid var(--border)">'
-      +'<div class="call-row" style="border-bottom:none">'
-      +'<div class="call-av" style="background:'+lead.col+'18;color:'+lead.col+'">'+init+'</div>'
-      +'<div class="call-body"><div class="call-name" onclick="openLead('+c.lid+')" style="cursor:pointer;display:flex;align-items:center;gap:6px">'+lead.name+(c.ai?'<span style="font-size:9px;font-weight:800;padding:2px 7px;border-radius:20px;background:#ede9fe;color:#7c3aed">🤖 AI</span>':'')+'</div>'
-      +(c.ph?'<div style="font-size:13px;color:var(--text);margin-top:1px">'+c.ph+'</div>':'')
-      +'<div class="call-meta">'+(c.dir==='in'?'&#x2193; Incoming':'&#x2191; Outgoing')+' &middot; '+c.time+'</div>'
-      +'<div style="font-size:12px;color:var(--sub);margin-top:2px">'+c.note+'</div></div>'
-      +'<div class="call-right"><div class="call-dur">'+c.dur+'</div><div class="call-out '+outCls+'">'+outTxt+'</div></div></div>'
-      +_actions
-      +'</div>';
-  }).join('');
+    var isSms=(c.kind==='sms');
+    var outTxt=isSms?'Sent':(c.out==='answered'?'Answered':c.out==='voicemail'?'Voicemail':'Missed');
+    var outCol=isSms?'var(--sub)':(c.out==='answered'?'var(--green)':c.out==='voicemail'?'#b45309':'#dc2626');
+    var _ph=(c.ph||'').replace(/[^0-9+]/g,'');
+    var _wa=_ph.replace(/\D/g,'');
+    var key=String(c.id||c.lid+'_'+c.date);
+    var isOpen=(key in window._ibOpen) ? !!window._ibOpen[key] : globalOpen;
+    var canOpen=!!(c.rec || (isSms&&c.body) || c.note || (c.summary));
 
-  var noCallsMsg = callRows ? '' : '<div style="text-align:center;padding:32px 16px;color:var(--sub);font-size:13px">No calls yet</div>';
-  return'<div id="liveCallsPanel"></div>'    +'<div class="sect-hd" style="margin-top:4px">Recent Calls</div>'    +'<div style="background:var(--white)">'+callRows+noCallsMsg+'</div>'    +'<div style="height:8px"></div>';
+    // Bottom meta line: direction · Answered · 0m 28s · 11:08 AM  (one line only)
+    var meta='<span style="color:var(--sub)">'+(c.dir==='in'?aIn:aOut)+'</span>'
+      +' <span style="color:'+outCol+';font-weight:700">'+outTxt+'</span>'
+      +(!isSms&&c.durS>0?' <span style="color:var(--sub)">\u00b7 '+c.dur+'</span>':'')
+      +' <span style="color:var(--sub)">\u00b7 '+(c.tOnly||c.time)+'</span>';
+
+    var h='<div style="border-bottom:1px solid var(--border);background:var(--white)">'
+      +'<div style="display:flex;align-items:center;gap:11px;padding:12px 14px">'
+      +  '<div class="call-av" style="background:'+lead.col+'18;color:'+lead.col+'">'+(isSms?'\uD83D\uDCAC':init)+'</div>'
+      +  '<div style="flex:1;min-width:0">'
+      +    '<div onclick="openLead('+c.lid+')" style="cursor:pointer;display:flex;align-items:center;gap:6px;font-size:15px;font-weight:700;color:var(--text)">'
+      +      '<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+lead.name+'</span>'
+      +      (c.ai?'<span style="font-size:9px;font-weight:800;padding:2px 7px;border-radius:20px;background:#ede9fe;color:#7c3aed;flex-shrink:0">\uD83E\uDD16 AI</span>':'')
+      +    '</div>'
+      +    (c.ph?'<div style="font-size:12.5px;color:var(--sub);margin-top:1px">'+c.ph+'</div>':'')
+      +    '<div style="font-size:12px;margin-top:3px;display:flex;align-items:center;gap:4px;flex-wrap:wrap">'+meta+'</div>'
+      +  '</div>'
+      +  '<div style="display:flex;align-items:center;gap:7px;flex-shrink:0">'
+      +    (_ph?'<button onclick="curLid='+c.lid+';openSms('+c.lid+')" title="Text" style="'+_iconBtn+';border:1.5px solid var(--border);background:var(--white);color:var(--text)">'+iChat+'</button>':'')
+      +    (_wa?'<a href="https://wa.me/'+_wa+'" target="_blank" rel="noopener" title="WhatsApp" style="'+_iconBtn+';border:1.5px solid #25d366;background:var(--white);color:#25d366;text-decoration:none">'+iWa+'</a>':'')
+      +    (_ph?'<button onclick="cardCall('+c.lid+')" title="Call" style="'+_iconBtn+';border:none;background:var(--green);color:#fff">'+iPhone+'</button>':'')
+      +    (canOpen?'<button onclick="window._ibOpen[\''+key+'\']='+(isOpen?'false':'true')+';var c2=document.getElementById(\'content\');if(c2)c2.innerHTML=callsHTML()" title="Details" style="'+_iconBtn+';border:1.5px solid var(--border);background:var(--bg);color:var(--sub);width:28px;height:28px">'+(isOpen?iUp:iDown)+'</button>':'')
+      +  '</div>'
+      +'</div>';
+
+    if(isOpen){
+      var det='';
+      if(isSms && c.body) det+='<div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:11px 13px;font-size:13.5px;color:var(--text);line-height:1.55;margin-bottom:8px;white-space:pre-wrap">'+String(c.body).replace(/</g,'&lt;')+'</div>';
+      if(c.rec) det+='<audio src="'+c.rec+'" preload="none" controls style="width:100%;height:36px;outline:none;margin-bottom:8px"></audio>';
+      if(!isSms && c.note && !/^call completed/i.test(c.note)) det+='<div style="font-size:12.5px;color:var(--sub);line-height:1.5;margin-bottom:4px">\uD83D\uDCDD '+String(c.note).replace(/</g,'&lt;')+'</div>';
+      if(det) h+='<div style="padding:0 14px 12px">'+det+'</div>';
+    }
+    h+='</div>';
+    return h;
+  }
+
+  // ── Build the list: date groups (Today / Yesterday / dates), like Leads ──
+  var listHtml='';
+  var s=window._callSort||'newest';
+  if(s==='longest'){
+    listHtml='<div class="sect-hd" style="margin-top:4px">Longest first</div>'+rows.map(cardHTML).join('');
+  } else {
+    var lastKey=null, openGroup=false, buf=[];
+    var counts={};
+    rows.forEach(function(c){ counts[c.dayKey]=(counts[c.dayKey]||0)+1; });
+    rows.forEach(function(c){
+      if(c.dayKey!==lastKey){
+        if(openGroup) listHtml+='</div>';
+        lastKey=c.dayKey; openGroup=true;
+        listHtml+='<div style="padding:12px 16px 7px;font-size:11.5px;font-weight:800;letter-spacing:.06em;color:var(--sub);text-transform:uppercase;background:var(--bg)">'+dayLabel(c.dayKey)+' <span style="color:var(--green)">('+counts[c.dayKey]+')</span></div><div style="background:var(--white)">';
+      }
+      listHtml+=cardHTML(c);
+    });
+    if(openGroup) listHtml+='</div>';
+  }
+
+  var emptyLbl = window._ibChan==='sms' ? 'No text messages yet' : window._ibChan==='call' ? 'No calls yet' : 'Nothing here yet';
+  var noRowsMsg = rows.length ? '' : '<div style="text-align:center;padding:32px 16px;color:var(--sub);font-size:13px">'+emptyLbl+'</div>';
+
+  return '<div id="liveCallsPanel"></div>'
+    + chipsBar
+    + listHtml
+    + noRowsMsg
+    + '<div style="height:8px"></div>';
 }
 
 // ═══ LIVE CALLS (inbound + outbound, in progress) ═══
@@ -13428,7 +13531,7 @@ async function loadCallLog() {
   try {
     var byDbId = {};
     (leads || []).forEach(function(l){ if (l.dbId) byDbId[l.dbId] = l; });
-    var _sel = '&select=lead_id,description,direction,duration_seconds,recording_url,call_note,created_at,call_sid,metadata'
+    var _sel = '&select=id,lead_id,activity_type,description,direction,duration_seconds,recording_url,call_note,created_at,call_sid,metadata'
              + '&order=created_at.desc&limit=300';
     var url;
     var _partner = (typeof isPartnerMode==='function' && isPartnerMode());
@@ -13437,16 +13540,16 @@ async function loadCallLog() {
       // Partner → calls for THIS partner's own leads (scoped by lead id, not client_id)
       var _ids = Object.keys(byDbId);
       if (!_ids.length) { callLog = []; return; }
-      url = '/rest/v1/lead_activity?activity_type=eq.call&lead_id=in.('+_ids.join(',')+')'+_sel;
+      url = '/rest/v1/lead_activity?activity_type=in.(call,sms)&lead_id=in.('+_ids.join(',')+')'+_sel;
     } else if (_client) {
       var cid = window._clientId;
       if (!cid) { callLog = []; return; }
-      url = '/rest/v1/lead_activity?activity_type=eq.call&client_id=eq.'+cid+_sel;
+      url = '/rest/v1/lead_activity?activity_type=in.(call,sms)&client_id=eq.'+cid+_sel;
     } else {
       // Operator → the lead view can span multiple client_ids (the Adviuz account
       // plus any Adviuz-product lead). Fetch recent call activity broadly; the
       // byDbId filter below keeps only the leads actually in the operator's view.
-      url = '/rest/v1/lead_activity?activity_type=eq.call'+_sel;
+      url = '/rest/v1/lead_activity?activity_type=in.(call,sms)'+_sel;
     }
     var res = await sbFetch(url);
     if (!res.ok) { callLog = []; return; }
@@ -13454,23 +13557,36 @@ async function loadCallLog() {
     var out = [];
     rows.forEach(function(r){
       var lead = byDbId[r.lead_id];
-      if (!lead) return;                              // only calls for leads in view
+      if (!lead) return;                              // only activity for leads in view
+      var isSms = (r.activity_type === 'sms');
       var dur  = r.duration_seconds || 0;
-      var desc = (r.description || '').toLowerCase();
-      var outcome = desc.indexOf('voicemail') >= 0 ? 'voicemail' : (dur > 0 ? 'answered' : 'missed');
+      var desc = (r.description || '');
+      var dl   = desc.toLowerCase();
+      var outcome = isSms ? 'sent' : (dl.indexOf('voicemail') >= 0 ? 'voicemail' : (dur > 0 ? 'answered' : 'missed'));
       var dt = r.created_at ? new Date(r.created_at) : null;
+      // SMS body lives inside the description: SMS sent: "..." (SID: ...)
+      var body = '';
+      if (isSms) {
+        body = desc.replace(/^SMS sent:\s*/i, '').replace(/\s*\(SID:[^)]*\)\s*$/i, '').trim();
+        if (body.charAt(0) === '"' && body.charAt(body.length-1) === '"') body = body.slice(1, -1);
+      }
       out.push({
+        id:   r.id,
+        kind: isSms ? 'sms' : 'call',
         lid:  lead.id,
         dir:  (r.direction || '').toLowerCase() === 'inbound' ? 'in' : 'out',
         out:  outcome,
         time: dt ? dt.toLocaleString('en-CA',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '',
-        note: r.call_note || r.description || '',
+        tOnly: dt ? dt.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}) : '',
+        dayKey: r.created_at ? String(r.created_at).slice(0,10) : '',
+        note: r.call_note || (isSms ? '' : desc) || '',
+        body: body,
         dur:  dur > 0 ? (Math.floor(dur/60)+'m '+(dur%60)+'s') : '—',
         durS: dur,
         date: r.created_at || '',
         rec:  r.recording_url || '',
         ph:   lead.ph || '',
-        ai:   !!(r.metadata && (r.metadata.handler === 'ai' || r.metadata.ai === true))
+        ai:   !!((r.metadata && (r.metadata.handler === 'ai' || r.metadata.ai === true || r.metadata.retell)) || /^ai\b/i.test(desc))
       });
     });
     callLog = out;
