@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-05 inbox-3</title>
+<title>Adviuz Hub · v2026-07-05 inbox-4</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3432,7 +3432,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-05 inbox-3';
+var APP_VERSION = 'v2026-07-05 inbox-4';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -4762,6 +4762,7 @@ function mapLead(l, i) {
     partner_id: l.partner_id || null,
     meeting_date: l.meeting_date || null,
     appointment_at: l.appointment_at || null,
+    appt_reminders_sent: l.appt_reminders_sent || null,
     timezone: l.timezone || null,
     meeting_outcome: l.meeting_outcome || null,
     visit_locked_at: l.visit_locked_at || null,
@@ -7858,13 +7859,42 @@ function ibScheduleFor(l){
   var cp=ibCampaignFor(l);
   var s=cp&&cp.settings;
   var rs=(s&&s.appt&&Array.isArray(s.appt.reminders))?s.appt.reminders:null;
-  if(rs) return rs.map(function(r){
-    if(r&&r.kind==='day_of') return {type:'dayOf',time:r.time||'08:00',enabled:r.on!==false};
+  if(rs) return rs.map(function(r,i){
+    if(r&&r.kind==='day_of') return {id:'c'+i,type:'dayOf',time:r.time||'08:00',enabled:r.on!==false,msg:(r&&r.msg)||''};
     var mins=Math.max(1,parseInt(r&&r.amount,10)||1)*((r&&r.unit==='days')?1440:60);
-    return {type:'before',minutes:mins,enabled:!r||r.on!==false};
+    return {id:'c'+i,type:'before',minutes:mins,enabled:!r||r.on!==false,msg:(r&&r.msg)||''};
   });
   // Default schedule (matches the server): 24h before, 8am day-of, 1h before.
-  return [{type:'before',minutes:1440,enabled:true},{type:'dayOf',time:'08:00',enabled:true},{type:'before',minutes:60,enabled:true}];
+  return [{id:'r24',type:'before',minutes:1440,enabled:true,msg:''},
+          {id:'rday',type:'dayOf',time:'08:00',enabled:true,msg:''},
+          {id:'r1h',type:'before',minutes:60,enabled:true,msg:''}];
+}
+// Default reminder wording — mirrors the sending engine exactly.
+function ibDefaultMsg(it){
+  if(it.type==='dayOf') return 'Hi {name}, see you today at {time} for your appointment.';
+  if(it.type==='before'&&(it.minutes||0)>=1440) return 'Hi {name}, a reminder that your appointment is coming up on {when}.';
+  if(it.type==='before'&&(it.minutes||0)<=90) return 'Hi {name}, your appointment is in about 1 hour, at {time}.';
+  return 'Hi {name}, reminder: your appointment is on {when}.';
+}
+function ibResolveMsg(tpl, l, apptMs, tz){
+  var d=new Date(apptMs);
+  var cp=ibCampaignFor(l);
+  var cd=window._clientData||{};
+  var ctx={
+    name:(l.name||'there').split(' ')[0],
+    when:d.toLocaleString('en-US',{timeZone:tz,weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}),
+    time:d.toLocaleTimeString('en-US',{timeZone:tz,hour:'numeric',minute:'2-digit'}),
+    date:d.toLocaleDateString('en-US',{timeZone:tz,weekday:'long',month:'long',day:'numeric'}),
+    business:cd.business_name||'',
+    campaign:(cp&&cp.name)||''
+  };
+  return String(tpl)
+    .replace(/\{name\}/g,ctx.name).replace(/\{when\}/g,ctx.when).replace(/\{time\}/g,ctx.time).replace(/\{date\}/g,ctx.date).replace(/\{business\}/g,ctx.business)
+    .replace(/\[Customer Name\]/gi,ctx.name)
+    .replace(/\[Appointment Date\]/gi,ctx.date)
+    .replace(/\[Appointment Time\]/gi,ctx.time)
+    .replace(/\[Business Name\]/gi,ctx.business||'us')
+    .replace(/\[Campaign Name\]/gi,ctx.campaign||ctx.business||'us');
 }
 function ibLocalHM(iso,tz){
   try{
@@ -7885,8 +7915,13 @@ function ibScheduledRows(){
     var apptMs=new Date(l.appointment_at).getTime();
     if(isNaN(apptMs) || apptMs<=now) return;
     var tz=l.timezone||'America/Toronto';
+    // Already sent or cancelled reminders (the engine's own tracker)
+    var _trk=l.appt_reminders_sent||{};
+    var _done=(_trk.appt===l.appointment_at && Array.isArray(_trk.sent)) ? _trk.sent : [];
+    var cp=ibCampaignFor(l);
     ibScheduleFor(l).forEach(function(it){
       if(it.enabled===false) return;
+      if(_done.indexOf(it.id)!==-1) return;         // sent or cancelled
       var t=null,lbl='';
       if(it.type==='before'){
         t=apptMs-(it.minutes||0)*60000;
@@ -7899,11 +7934,52 @@ function ibScheduledRows(){
         lbl='On the day \u00b7 '+ibFmtHM(it.time);
       }
       if(t==null || t<=now || t>=apptMs) return;    // already sent or invalid
-      out.push({lid:l.id,name:l.name||'Lead',ph:l.ph||'',col:l.col||'#667781',when:t,lbl:lbl,appt:apptMs,noConsent:noConsent});
+      var msg=ibResolveMsg((it.msg&&it.msg.trim())?it.msg:ibDefaultMsg(it), l, apptMs, tz);
+      out.push({lid:l.id,dbId:l.dbId,campId:(cp&&cp.id)||'',rkey:it.id,msg:msg,
+                name:l.name||'Lead',ph:l.ph||'',col:l.col||'#667781',when:t,lbl:lbl,appt:apptMs,noConsent:noConsent});
     });
   });
   out.sort(function(a,b){return a.when-b.when});
   return out;
+}
+// Edit → opens that campaign's ⚙ Appointment Settings page directly.
+function ibEditReminder(campId){
+  if(typeof openCampSettings!=='function'){ showToast('Open the campaign\u2019s \u2699 settings to edit'); return; }
+  openCampSettings(campId);
+  if(typeof csOpenPage==='function') setTimeout(function(){ csOpenPage('appt'); }, 50);
+}
+// Cancel = mark this one reminder as handled in the engine's own tracker,
+// so the sender skips it. Two taps to confirm (no accidental cancels).
+async function ibCancelReminder(dbId, rkey, btnId){
+  var btn=document.getElementById(btnId);
+  if(btn && btn.dataset.armed!=='1'){
+    btn.dataset.armed='1';
+    btn.textContent='Tap again to confirm';
+    btn.style.background='#dc2626'; btn.style.color='#fff'; btn.style.borderColor='#dc2626';
+    setTimeout(function(){ if(btn&&btn.dataset.armed==='1'){ btn.dataset.armed='0'; btn.textContent='Cancel this reminder'; btn.style.background='#fef2f2'; btn.style.color='#dc2626'; btn.style.borderColor='#fecaca'; } }, 4000);
+    return;
+  }
+  if(btn){ btn.disabled=true; btn.textContent='Cancelling\u2026'; }
+  try{
+    var r=await sbFetch('/rest/v1/leads?id=eq.'+encodeURIComponent(dbId)+'&select=appointment_at,appt_reminders_sent');
+    var rows=await r.json();
+    var row=(Array.isArray(rows)&&rows[0])||{};
+    if(!row.appointment_at) throw new Error('no appointment');
+    var track=row.appt_reminders_sent||{};
+    if(track.appt!==row.appointment_at) track={appt:row.appointment_at,sent:[]};
+    track.sent=Array.isArray(track.sent)?track.sent:[];
+    if(track.sent.indexOf(rkey)===-1) track.sent.push(rkey);
+    var pr=await sbFetch('/rest/v1/leads?id=eq.'+encodeURIComponent(dbId),{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({appt_reminders_sent:track})});
+    if(!pr.ok) throw new Error('HTTP '+pr.status);
+    var ld=(leads||[]).find(function(l){return String(l.dbId)===String(dbId);});
+    if(ld){ ld.appt_reminders_sent=track; }
+    showToast('Reminder cancelled \u2014 it will not be sent');
+    var c2=document.getElementById('content'); if(c2) c2.innerHTML=callsHTML();
+  }catch(e){
+    console.warn('[ibCancelReminder]',e.message);
+    showToast('Could not cancel \u2014 please try again');
+    if(btn){ btn.disabled=false; btn.dataset.armed='0'; btn.textContent='Cancel this reminder'; btn.style.background='#fef2f2'; btn.style.color='#dc2626'; btn.style.borderColor='#fecaca'; }
+  }
 }
 function ibWhenLabel(ms){
   var d=new Date(ms), now=new Date();
@@ -8080,7 +8156,10 @@ function callsHTML(){
         }
         var apptD=new Date(r.appt);
         var apptLbl=apptD.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})+' \u00b7 '+apptD.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'});
-        sHtml+='<div style="border-bottom:1px solid var(--border);display:flex;align-items:center;gap:11px;padding:12px 14px">'
+        var sKey=String(r.dbId)+'_'+r.rkey;
+        var sOpen=!!(window._ibsOpen&&window._ibsOpen[sKey]);
+        sHtml+='<div style="border-bottom:1px solid var(--border)">'
+          + '<div style="display:flex;align-items:center;gap:11px;padding:12px 14px">'
           + '<div class="call-av" style="background:#fef3c7;color:#b45309">\u23F3</div>'
           + '<div style="flex:1;min-width:0">'
           +   '<div onclick="openLead('+r.lid+')" style="cursor:pointer;font-size:15px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+r.name+'</div>'
@@ -8089,7 +8168,20 @@ function callsHTML(){
           +   (r.noConsent?'<div style="font-size:11.5px;color:#b45309;margin-top:3px;font-weight:700">\u26A0\uFE0F Won\u2019t send \u2014 texting is off for this lead. Re-save the appointment to turn it on.</div>':'')
           + '</div>'
           + '<span style="flex-shrink:0;font-size:10px;font-weight:800;padding:4px 9px;border-radius:20px;background:var(--greenl,#e7f8f3);color:var(--green);white-space:nowrap">'+r.lbl+'</span>'
+          + '<button onclick="window._ibsOpen=window._ibsOpen||{};window._ibsOpen[\''+sKey+'\']='+(sOpen?'false':'true')+';var c2=document.getElementById(\'content\');if(c2)c2.innerHTML=callsHTML()" style="width:28px;height:28px;border-radius:50%;border:1.5px solid var(--border);background:var(--bg);color:var(--sub);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="'+(sOpen?'18 15 12 9 6 15':'6 9 12 15 18 9')+'"/></svg></button>'
           + '</div>';
+        if(sOpen){
+          sHtml+='<div style="padding:0 14px 13px">'
+            + '<div style="font-size:11px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Message that will be sent</div>'
+            + '<div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:11px 13px;font-size:13.5px;color:var(--text);line-height:1.55;white-space:pre-wrap;margin-bottom:9px">'+String(r.msg||'').replace(/</g,'&lt;')+'</div>'
+            + '<div style="display:flex;gap:8px">'
+            +   (r.campId?'<button onclick="ibEditReminder(\''+r.campId+'\')" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-family:var(--f);font-size:12.5px;font-weight:700;cursor:pointer">\u270F\uFE0F Edit message</button>':'')
+            +   '<button id="ibCx_'+sKey+'" onclick="ibCancelReminder(\''+r.dbId+'\',\''+r.rkey+'\',\'ibCx_'+sKey+'\')" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid #fecaca;background:#fef2f2;color:#dc2626;font-family:var(--f);font-size:12.5px;font-weight:700;cursor:pointer">Cancel this reminder</button>'
+            + '</div>'
+            + '<div style="font-size:11px;color:var(--sub);margin-top:7px;line-height:1.5">Editing changes the campaign\u2019s reminder wording for everyone. Cancelling skips only this one text for '+String(r.name||'this lead').split(' ')[0].replace(/</g,'&lt;')+'.</div>'
+            + '</div>';
+        }
+        sHtml+='</div>';
       });
       if(openG) sHtml+='</div>';
     }
