@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-08 invperiod-2</title>
+<title>Adviuz Hub · v2026-07-08 caexport-1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1051,6 +1051,8 @@ body.impersonating .ls-topbar{padding-top:8px}
 .camp-budget{padding:8px 14px 12px;background:var(--white)}
 
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
 
@@ -3432,7 +3434,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-08 invperiod-2';
+var APP_VERSION = 'v2026-07-08 caexport-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -16716,7 +16718,7 @@ function openAddBalanceSheet(){
     openSheet('addBalanceSh');
     return;
   }
-  // v2026-07-08 invperiod-2: 2-step flow — bundle → campaign → server-priced Stripe checkout
+  // v2026-07-08 caexport-1: 2-step flow — bundle → campaign → server-priced Stripe checkout
   window._abSelViews = null;
   window._abSelCamp  = null;
   _abRenderStep1();
@@ -22210,6 +22212,284 @@ function clearInvCustomRange() {
   if (box) box.innerHTML = adminDashHTML();
 }
 
+// ════════════════════════════════════════════════════════════
+// EXPORT FOR CA — branded Excel + PDF ZIP for Humayun Chaudhary @ Indus Canada CPA
+// One-click hand-off: sales report (3 sheets) + every invoice PDF in one download.
+// ════════════════════════════════════════════════════════════
+
+function openExportForCASheet() {
+  renderExportCAPreview();
+  openSheet('exportCASh');
+}
+
+function _caFilterInvsForPeriod() {
+  var _r = _invRange(window._invPeriodFilter || 'last_quarter');
+  var all = (_adminData.invoices || []).slice();
+  var invs = (_r && _r.start)
+    ? all.filter(function(i){
+        var ds = (i.invoice_date || i.created_at || '').slice(0, 10);
+        if (!ds) return false;
+        var dt = new Date(ds + 'T00:00:00');
+        return dt >= _r.start && dt < _r.end;
+      })
+    : all;
+  return { invs: invs, range: _r };
+}
+
+function _caTotals(invs) {
+  var t = { gross:0, sub:0, gst:0, pst:0, hst:0, tax:0 };
+  invs.forEach(function(i){
+    t.gross += parseFloat(i.total || 0);
+    t.sub   += parseFloat(i.subtotal || 0);
+    t.gst   += parseFloat(i.gst_amount || 0);
+    t.pst   += parseFloat(i.pst_amount || 0);
+    t.hst   += parseFloat(i.hst_amount || 0);
+    t.tax   += parseFloat(i.total_tax || 0);
+  });
+  return t;
+}
+
+function _caTile(label, val) {
+  return '<div style="background:var(--bg);border-radius:10px;padding:12px 14px">'
+    +   '<div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);margin-bottom:3px">' + label + '</div>'
+    +   '<div style="font-size:16px;font-weight:800;color:var(--text)">' + val + '</div>'
+    + '</div>';
+}
+
+function renderExportCAPreview() {
+  var pack = _caFilterInvsForPeriod();
+  var invs = pack.invs, _r = pack.range;
+  var totals = _caTotals(invs);
+  var missingPdf = invs.filter(function(i){ return !i.pdf_url; }).length;
+  var body = document.getElementById('exportCABody');
+  if (!body) return;
+
+  var h = '';
+  h += '<div style="background:var(--navy,#001f3f);border-radius:12px;padding:16px;margin-bottom:14px;color:#fff">'
+    +   '<div style="font-size:11px;letter-spacing:.12em;font-weight:700;opacity:.8;text-transform:uppercase;margin-bottom:4px">ADVIUZ \u00B7 Sales Report</div>'
+    +   '<div style="font-size:17px;font-weight:800;margin-bottom:2px">Instad Web Services Ltd</div>'
+    +   '<div style="font-size:12px;opacity:.85">' + (_r ? _r.label : 'All time') + '</div>'
+    + '</div>';
+
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">'
+    + _caTile('Invoices',    invs.length)
+    + _caTile('Total Sales', '$' + fmtCAD(totals.gross))
+    + _caTile('GST/HST',     '$' + fmtCAD(totals.gst + totals.hst))
+    + _caTile('SK PST',      '$' + fmtCAD(totals.pst))
+    + '</div>';
+
+  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px">'
+    +   '<div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);margin-bottom:10px">Package Contents</div>'
+    +   '<div style="font-size:13px;color:var(--text);margin-bottom:6px">\uD83D\uDCCA Sales_Report.xlsx \u00B7 3 sheets</div>'
+    +   '<div style="font-size:13px;color:var(--text)">\uD83D\uDCC1 Invoice_PDFs/ \u00B7 ' + (invs.length - missingPdf) + ' file(s)</div>'
+    + '</div>';
+
+  if (missingPdf > 0) {
+    h += '<div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:10px 14px;font-size:12px;color:#92400e;line-height:1.5">'
+      +    '\u26A0\uFE0F ' + missingPdf + ' invoice(s) have no PDF yet. They will be listed on Sheet 1 with a note so your CA knows.'
+      +  '</div>';
+  }
+
+  var btn = document.getElementById('exportCAGenBtn');
+  if (invs.length === 0) {
+    h += '<div style="background:var(--bg);border-radius:10px;padding:16px;text-align:center;color:var(--sub);font-size:13px;margin-top:8px">No invoices in this period. Pick a different range to export.</div>';
+    if (btn) { btn.disabled = true; btn.style.opacity = '.5'; }
+  } else {
+    if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.textContent = 'Generate & Download'; }
+  }
+
+  body.innerHTML = h;
+}
+
+function _buildCAWorkbook(invs, rangeLabel) {
+  var wb = XLSX.utils.book_new();
+  wb.Props = { Title:'Adviuz Sales Report', Author:'Instad Web Services Ltd', CreatedDate:new Date() };
+
+  var t = _caTotals(invs);
+  var paid   = invs.filter(function(i){ return (i.payment_status||'').toLowerCase()==='paid'; });
+  var unpaid = invs.filter(function(i){ return (i.payment_status||'').toLowerCase()!=='paid'; });
+  var paidGross   = paid.reduce(function(s,i){ return s + parseFloat(i.total||0); }, 0);
+  var unpaidGross = unpaid.reduce(function(s,i){ return s + parseFloat(i.total||0); }, 0);
+  var missing = invs.filter(function(i){ return !i.pdf_url; });
+
+  var s1 = [
+    ['ADVIUZ \u00B7 SALES REPORT'],
+    ['Instad Web Services Ltd'],
+    ['BN 102217382 \u00B7 Saskatoon, SK'],
+    [''],
+    ['Period', rangeLabel],
+    ['Generated', new Date().toLocaleString('en-CA', {dateStyle:'medium', timeStyle:'short'})],
+    [''],
+    ['SUMMARY'],
+    ['Total invoices',    invs.length],
+    ['Paid invoices',     paid.length],
+    ['Outstanding',       unpaid.length],
+    [''],
+    ['Gross sales (with tax)',   t.gross],
+    ['Subtotal (before tax)',    t.sub],
+    ['Total tax collected',      t.tax],
+    [''],
+    ['Paid amount',        paidGross],
+    ['Outstanding amount', unpaidGross]
+  ];
+  if (missing.length) {
+    s1.push(['']);
+    s1.push(['\u26A0 MISSING PDFs (' + missing.length + ')']);
+    missing.forEach(function(i){ s1.push([i.invoice_number, i.client_business || i.client_name]); });
+  }
+  var ws1 = XLSX.utils.aoa_to_sheet(s1);
+  ws1['!cols'] = [{wch:32},{wch:34}];
+  XLSX.utils.book_append_sheet(wb, ws1, 'Overview');
+
+  var byProv = {};
+  invs.forEach(function(i){
+    var p = i.client_province || 'SK';
+    if (!byProv[p]) byProv[p] = { sub:0, gst:0, pst:0, hst:0, count:0 };
+    byProv[p].sub   += parseFloat(i.subtotal || 0);
+    byProv[p].gst   += parseFloat(i.gst_amount || 0);
+    byProv[p].pst   += parseFloat(i.pst_amount || 0);
+    byProv[p].hst   += parseFloat(i.hst_amount || 0);
+    byProv[p].count += 1;
+  });
+  var s2 = [
+    ['TAX RETURN NUMBERS'],
+    ['Period', rangeLabel],
+    [''],
+    ['GST/HST RETURN (file with CRA)'],
+    ['Line 101  Total sales',           t.sub],
+    ['Line 105  GST + HST collected',   (t.gst + t.hst)],
+    ['  \u00B7 GST portion (5%)',                       t.gst],
+    ['  \u00B7 HST portion (13% ON / 15% Atlantic)',    t.hst],
+    [''],
+    ['SK PST RETURN (file with SK Ministry of Finance)'],
+    ['SK sales subtotal',   (byProv.SK ? byProv.SK.sub : 0)],
+    ['SK PST collected (6%)', (byProv.SK ? byProv.SK.pst : 0)],
+    [''],
+    ['QST RETURN (file with Revenu Qu\u00E9bec, if applicable)'],
+    ['QC sales subtotal',   (byProv.QC ? byProv.QC.sub : 0)],
+    ['QST collected',       (byProv.QC ? byProv.QC.pst : 0)],
+    [''],
+    ['BREAKDOWN BY PROVINCE'],
+    ['Province','Invoices','Subtotal','GST','PST/QST','HST']
+  ];
+  Object.keys(byProv).sort().forEach(function(p){
+    var r = byProv[p];
+    s2.push([p, r.count, r.sub, r.gst, r.pst, r.hst]);
+  });
+  var ws2 = XLSX.utils.aoa_to_sheet(s2);
+  ws2['!cols'] = [{wch:44},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14}];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Tax Return Numbers');
+
+  var s3 = [[
+    'Invoice #','Date','Client','Business','Province',
+    'Subtotal','GST','PST/QST','HST','Total','Payment Method','Status','PDF Filename'
+  ]];
+  invs.forEach(function(i){
+    var pdfName = i.pdf_url ? (i.pdf_url.split('/').pop() || '') : '(missing)';
+    s3.push([
+      i.invoice_number || '',
+      (i.invoice_date || '').slice(0,10),
+      i.client_name || '',
+      i.client_business || '',
+      i.client_province || '',
+      parseFloat(i.subtotal || 0),
+      parseFloat(i.gst_amount || 0),
+      parseFloat(i.pst_amount || 0),
+      parseFloat(i.hst_amount || 0),
+      parseFloat(i.total || 0),
+      i.payment_method || '',
+      i.payment_status || '',
+      pdfName
+    ]);
+  });
+  var ws3 = XLSX.utils.aoa_to_sheet(s3);
+  ws3['!cols'] = [
+    {wch:16},{wch:12},{wch:22},{wch:26},{wch:8},
+    {wch:12},{wch:10},{wch:10},{wch:10},{wch:12},{wch:14},{wch:11},{wch:44}
+  ];
+  ws3['!freeze'] = { xSplit:0, ySplit:1 };
+  XLSX.utils.book_append_sheet(wb, ws3, 'Invoice Register');
+
+  return wb;
+}
+
+function _slugPeriod(_r) {
+  if (!_r || !_r.label) return 'All-Time';
+  return _r.label.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+async function generateCAExport() {
+  var btn  = document.getElementById('exportCAGenBtn');
+  var body = document.getElementById('exportCABody');
+  if (!btn || !body) return;
+
+  var pack = _caFilterInvsForPeriod();
+  var invs = pack.invs, _r = pack.range;
+  if (!invs.length) { showToast('No invoices in this period'); return; }
+
+  if (typeof XLSX === 'undefined' || typeof JSZip === 'undefined') {
+    showToast('Export tools still loading \u2014 try again in a moment');
+    return;
+  }
+
+  btn.disabled = true; btn.style.opacity = '.6';
+
+  var prog = document.getElementById('exportCAProgress');
+  if (!prog) {
+    prog = document.createElement('div');
+    prog.id = 'exportCAProgress';
+    prog.style.cssText = 'margin-top:12px;padding:12px 14px;background:var(--bg);border-radius:10px;font-size:12px;color:var(--sub);text-align:center';
+    body.appendChild(prog);
+  }
+  var setProg = function(msg){ prog.textContent = msg; };
+  setProg('Preparing export\u2026');
+
+  try {
+    var zip = new JSZip();
+    var pdfsFolder = zip.folder('Invoice_PDFs');
+    var withPdf = invs.filter(function(i){ return !!i.pdf_url; });
+
+    for (var idx = 0; idx < withPdf.length; idx++) {
+      var inv = withPdf[idx];
+      setProg('Downloading PDF ' + (idx + 1) + ' of ' + withPdf.length + '\u2026');
+      try {
+        var resp = await fetch(inv.pdf_url);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        var buf = await resp.arrayBuffer();
+        var fname = inv.pdf_url.split('/').pop() || (inv.invoice_number + '.pdf');
+        pdfsFolder.file(fname, buf);
+      } catch (e) {
+        console.warn('[CA export] skipped PDF', inv.invoice_number, e.message);
+      }
+    }
+
+    setProg('Building Excel workbook\u2026');
+    var wb = _buildCAWorkbook(invs, _r ? _r.label : 'All time');
+    var xlsxBuf = XLSX.write(wb, { bookType:'xlsx', type:'array' });
+    var xlsxName = 'Sales_Report_' + _slugPeriod(_r) + '.xlsx';
+    zip.file(xlsxName, xlsxBuf);
+
+    setProg('Packaging ZIP\u2026');
+    var blob = await zip.generateAsync({ type:'blob', compression:'DEFLATE', compressionOptions:{level:6} });
+
+    var zipName = 'Adviuz_Sales_' + _slugPeriod(_r) + '_Instad-Web-Services-Ltd.zip';
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = zipName;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+
+    setProg('\u2713 Downloaded ' + zipName);
+    setTimeout(function(){ closeSheet('exportCASh'); }, 1200);
+    showToast('Export ready \u2014 check your Downloads folder');
+  } catch (e) {
+    console.error('[CA export] failed', e);
+    setProg('\u26A0 Export failed: ' + e.message);
+    btn.disabled = false; btn.style.opacity = '1';
+  }
+}
+
 // \u2500\u2500 Invoices Dashboard Tab (Sales vs Tax + monthly list) \u2500\u2500
 function adInvoicesHTML() {
   // Apply date filter (defaults to last quarter — the period you file at CRA)
@@ -22279,9 +22559,12 @@ function adInvoicesHTML() {
   if(keysAsc.length) h += adInvChart(keysAsc, byMonth);
 
   // ── List header ──
-  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin:18px 0 6px">'
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin:18px 0 6px;gap:8px">'
     + '<div style="font-size:16px;font-weight:800;color:var(--text)">Tax Invoices</div>'
-    + '<button onclick="openCreateInvoiceSheet()" style="padding:7px 14px;border-radius:9px;background:var(--navy,#001f3f);border:none;color:#fff;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">+ New</button>'
+    + '<div style="display:flex;gap:6px">'
+    +   '<button onclick="openExportForCASheet()" style="padding:7px 12px;border-radius:9px;background:var(--white);border:1.5px solid var(--border);color:var(--text);font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">\uD83D\uDCE6 Export for CA</button>'
+    +   '<button onclick="openCreateInvoiceSheet()" style="padding:7px 14px;border-radius:9px;background:var(--navy,#001f3f);border:none;color:#fff;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">+ New</button>'
+    + '</div>'
     + '</div>';
 
   if(!invs.length){
@@ -22529,6 +22812,8 @@ async function markQuotePaid(quoteId) {
 // ════════════════════════════════════════════════════════════════════
 window.openAddBalanceSheet      = openAddBalanceSheet;
 window.setInvPeriod             = setInvPeriod;
+window.openExportForCASheet     = openExportForCASheet;
+window.generateCAExport         = generateCAExport;
 window.openInvCustomRange       = openInvCustomRange;
 window.applyInvCustomRange      = applyInvCustomRange;
 window.clearInvCustomRange      = clearInvCustomRange;
@@ -22687,6 +22972,22 @@ document.addEventListener('click', function(ev){
     <div class="sh-foot">
       <button class="btn btn-ghost" onclick="skipDealValueAndClose()" style="flex:1">Skip</button>
       <button class="btn btn-dark" onclick="saveDealValueAndClose()" style="flex:2;justify-content:center">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════ EXPORT FOR CA SHEET ════════════════════════════ -->
+<div class="sheet-ov" id="exportCASh" onclick="if(event.target===this)closeSheet('exportCASh')" style="z-index:785">
+  <div class="sheet" style="max-height:88dvh">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">📦 Export for CA</div>
+      <button class="sheet-x" onclick="closeSheet('exportCASh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" style="padding:16px" id="exportCABody"></div>
+    <div class="sh-foot">
+      <button class="btn btn-ghost" onclick="closeSheet('exportCASh')" style="flex:1">Cancel</button>
+      <button class="btn btn-dark" id="exportCAGenBtn" onclick="generateCAExport()" style="flex:2;justify-content:center">Generate &amp; Download</button>
     </div>
   </div>
 </div>
