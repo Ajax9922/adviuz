@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-08 accountant-1</title>
+<title>Adviuz Hub · v2026-07-08 careview-1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3434,7 +3434,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-08 accountant-1';
+var APP_VERSION = 'v2026-07-08 careview-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -16718,7 +16718,7 @@ function openAddBalanceSheet(){
     openSheet('addBalanceSh');
     return;
   }
-  // v2026-07-08 accountant-1: 2-step flow — bundle → campaign → server-priced Stripe checkout
+  // v2026-07-08 careview-1: 2-step flow — bundle → campaign → server-priced Stripe checkout
   window._abSelViews = null;
   window._abSelCamp  = null;
   _abRenderStep1();
@@ -17599,7 +17599,7 @@ function openPartnersManager() {
   if (btn) goTab('dashboard', btn);
 }
 
-var _adminData = { clients:[], campaigns:[], allLeads:[], affiliates:[], commissions:[], quotes:[], invoices:[] };
+var _adminData = { clients:[], campaigns:[], allLeads:[], affiliates:[], commissions:[], quotes:[], invoices:[], caReports:[] };
 
 // Task 2: Accountant settings row loaded from app_settings.key='accountant'.
 // Structure: { ca_name, ca_firm, ca_email, cc_emails:[...], auto_approve:bool, review_delay_hours:int }
@@ -17622,6 +17622,7 @@ window._adminDashTab = 'clients';
 
 async function loadAdminData() {
   loadAccountantSettings(); // Task 2: fetch CA settings in parallel
+  loadCaReports();          // Task 3c: fetch pending CA reports in parallel
   try {
     var [cRes, campRes, lRes, affRes, commRes, pcRes, lrRes, qRes, invRes] = await Promise.all([
       sbFetch('/rest/v1/clients?select=*&order=created_at.desc&limit=200'),
@@ -17722,6 +17723,8 @@ function adminDashHTML() {
     h += '<div style="flex-shrink:0;padding:6px 14px;border-radius:20px;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid '+(cur===t.k?'var(--text)':'var(--border)')+';background:'+(cur===t.k?'var(--text)':'var(--white)')+';color:'+(cur===t.k?'#fff':'var(--sub)')+'" onclick="window._adminDashTab=\'' + t.k + '\';document.getElementById(\'content\').innerHTML=adminDashHTML();if(typeof renderCtrlBar===\'function\')renderCtrlBar();if(typeof renderStats===\'function\')renderStats()">'+t.l+'</div>';
   });
   h += '</div>';
+  // Task 3c: yellow attention card(s) for any pending CA quarterly reviews
+  h += caReviewCardsHTML();
   if (!_adminLoaded) {
     return h + '<div style="text-align:center;padding:60px 20px;color:var(--sub)"><div style="font-size:32px;margin-bottom:12px">&#x231B;</div><div style="font-size:14px">Loading...</div></div>';
   }
@@ -23075,11 +23078,284 @@ async function loadAccountantSettings() {
   window._accountantSettings = Object.assign({}, window._accountantDefaults);
 }
 
+// ══════════════════════════════════════════════════════════════
+// TASK 3c: CA quarterly report review card + actions
+// ══════════════════════════════════════════════════════════════
+async function loadCaReports() {
+  try {
+    var res = await sbFetch('/rest/v1/ca_reports?status=eq.pending_review&select=*&order=period_end.desc');
+    _adminData.caReports = res.ok ? await res.json() : [];
+  } catch(e) { _adminData.caReports = []; }
+}
+
+function caReviewCardsHTML() {
+  var role = window._staffRole || 'client';
+  if (role !== 'super_admin') return '';
+  var rows = _adminData.caReports || [];
+  if (!rows.length) return '';
+  var out = '';
+  rows.forEach(function(r) { out += caReviewCardHTML(r); });
+  return out;
+}
+
+function caReviewCardHTML(r) {
+  var acc = (typeof _accSettings === 'function') ? _accSettings() : (window._accountantSettings || window._accountantDefaults);
+  var autoOn = !!(acc && acc.auto_approve);
+  var esc = function(x){ return String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
+  var id  = esc(r.id);
+
+  var now = Date.now();
+  var deadline = r.scheduled_send_at ? new Date(r.scheduled_send_at).getTime() : now;
+  var hoursLeft = Math.round((deadline - now) / 3600000);
+
+  var statusMsg;
+  if (autoOn && hoursLeft > 0) {
+    statusMsg = '\u23F0 Auto-send in ' + hoursLeft + ' hour' + (hoursLeft === 1 ? '' : 's') + ' unless reviewed';
+  } else if (autoOn) {
+    statusMsg = '\u26A0 Auto-send deadline passed \u2014 will send on next scheduler tick';
+  } else {
+    statusMsg = 'Awaiting your review (auto-send is OFF)';
+  }
+
+  var h = '';
+  h += '<div style="background:#fef3c7;border:2px solid #f59e0b;border-radius:12px;margin:12px 12px 4px;padding:14px 16px;position:relative">';
+  h +=   '<div style="display:flex;align-items:start;gap:12px">';
+  h +=     '<div style="font-size:28px;line-height:1;flex-shrink:0">\uD83D\uDCCB</div>';
+  h +=     '<div style="flex:1;min-width:0">';
+  h +=       '<div style="font-size:10px;font-weight:800;letter-spacing:.1em;color:#92400e;text-transform:uppercase;margin-bottom:2px">Quarterly Report Ready</div>';
+  h +=       '<div style="font-size:15px;font-weight:800;color:#78350f;margin-bottom:2px">' + esc(r.quarter) + ' Sales Report</div>';
+  h +=       '<div style="font-size:12px;color:#92400e;margin-bottom:6px">' + esc(r.period_start) + ' \u2192 ' + esc(r.period_end) + '</div>';
+  h +=       '<div style="font-size:12px;color:#92400e;margin-bottom:12px;line-height:1.4">' + esc(statusMsg) + '</div>';
+  h +=       '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+  h +=         '<button onclick="openCaReviewSheet(\'' + id + '\')" style="padding:8px 14px;border-radius:8px;background:#78350f;color:#fff;border:none;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">Review</button>';
+  h +=         '<button onclick="confirmSendCaReport(\'' + id + '\')" style="padding:8px 14px;border-radius:8px;background:#dc2626;color:#fff;border:none;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">\uD83D\uDE80 Send Now</button>';
+  h +=         '<button onclick="snoozeCaReport(\'' + id + '\')" style="padding:8px 14px;border-radius:8px;background:var(--white);color:#78350f;border:1.5px solid #f59e0b;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">Snooze 24h</button>';
+  h +=         '<button onclick="openCaRejectSheet(\'' + id + '\')" style="padding:8px 14px;border-radius:8px;background:var(--white);color:var(--sub);border:1.5px solid var(--border);font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">Reject</button>';
+  h +=       '</div>';
+  h +=     '</div>';
+  h +=   '</div>';
+  h += '</div>';
+  return h;
+}
+
+function openCaReviewSheet(caReportId) {
+  window._caReviewId = caReportId;
+  window._caReviewMode = 'preview';
+  renderCaReviewSheet();
+  openSheet('caReviewSh');
+}
+
+function confirmSendCaReport(caReportId) {
+  window._caReviewId = caReportId;
+  window._caReviewMode = 'confirm';
+  renderCaReviewSheet();
+  openSheet('caReviewSh');
+}
+
+function renderCaReviewSheet() {
+  var body = document.getElementById('caReviewBody');
+  var foot = document.getElementById('caReviewFoot');
+  if (!body || !foot) return;
+
+  var r = (_adminData.caReports || []).find(function(x){ return x.id === window._caReviewId; });
+  if (!r) {
+    body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--sub);font-size:14px">Report not found or already actioned.</div>';
+    foot.innerHTML = '<button class="btn btn-ghost" onclick="closeSheet(\'caReviewSh\')" style="flex:1">Close</button>';
+    return;
+  }
+
+  var invs = (_adminData.invoices || []).filter(function(i){
+    var ds = (i.invoice_date || '').slice(0, 10);
+    return ds && ds >= r.period_start && ds <= r.period_end;
+  });
+
+  var t = { gross:0, sub:0, gst:0, pst:0, hst:0, tax:0 };
+  invs.forEach(function(i){
+    t.gross += parseFloat(i.total || 0);
+    t.sub   += parseFloat(i.subtotal || 0);
+    t.gst   += parseFloat(i.gst_amount || 0);
+    t.pst   += parseFloat(i.pst_amount || 0);
+    t.hst   += parseFloat(i.hst_amount || 0);
+    t.tax   += parseFloat(i.total_tax || 0);
+  });
+
+  var acc = (typeof _accSettings === 'function') ? _accSettings() : (window._accountantSettings || window._accountantDefaults);
+  var esc = function(x){ return String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
+  var ccList = Array.isArray(acc.cc_emails) ? acc.cc_emails.filter(function(c){return c;}).join(', ') : '';
+
+  var h = '';
+
+  h += '<div style="background:var(--navy,#001f3f);border-radius:12px;padding:16px;margin-bottom:14px;color:#fff">';
+  h +=   '<div style="font-size:11px;letter-spacing:.12em;font-weight:700;opacity:.8;text-transform:uppercase;margin-bottom:4px">ADVIUZ \u00B7 Sales Report</div>';
+  h +=   '<div style="font-size:17px;font-weight:800;margin-bottom:2px">' + esc(r.quarter) + '</div>';
+  h +=   '<div style="font-size:12px;opacity:.85">' + esc(r.period_start) + ' \u2192 ' + esc(r.period_end) + '</div>';
+  h += '</div>';
+
+  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px">';
+  h +=   '<div style="font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--sub);margin-bottom:8px">Recipient</div>';
+  h +=   '<div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px">' + esc(acc.ca_name) + '</div>';
+  h +=   '<div style="font-size:12px;color:var(--sub);margin-bottom:6px">' + esc(acc.ca_firm) + '</div>';
+  h +=   '<div style="font-size:13px;color:var(--text)">\uD83D\uDCE7 ' + esc(acc.ca_email) + '</div>';
+  if (ccList) {
+    h += '<div style="font-size:11px;color:var(--sub);margin-top:4px">CC: ' + esc(ccList) + '</div>';
+  }
+  h += '</div>';
+
+  h += '<div style="background:var(--bg);border-radius:12px;padding:14px 16px;margin-bottom:14px">';
+  h +=   '<div style="font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--sub);margin-bottom:10px">Numbers</div>';
+  h +=   '<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13px"><span style="color:var(--sub)">Invoices</span><span style="font-weight:700;color:var(--text)">' + invs.length + '</span></div>';
+  h +=   '<div style="display:flex;justify-content:space-between;padding:8px 0 5px 0;font-size:13px;border-top:1px solid var(--border);margin-top:6px"><span style="color:var(--sub)">Gross sales</span><span style="font-weight:700;color:var(--text)">$' + fmtCAD(t.gross) + '</span></div>';
+  h +=   '<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13px"><span style="color:var(--sub)">Subtotal (pre-tax)</span><span style="color:var(--text)">$' + fmtCAD(t.sub) + '</span></div>';
+  h +=   '<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13px"><span style="color:var(--sub)">GST + HST collected</span><span style="color:var(--text)">$' + fmtCAD(t.gst + t.hst) + '</span></div>';
+  h +=   '<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:13px"><span style="color:var(--sub)">SK PST collected</span><span style="color:var(--text)">$' + fmtCAD(t.pst) + '</span></div>';
+  h += '</div>';
+
+  if (window._caReviewMode === 'confirm') {
+    h += '<div style="background:#fee2e2;border:1.5px solid #dc2626;border-radius:10px;padding:14px 16px;margin-bottom:6px">';
+    h +=   '<div style="font-size:14px;font-weight:800;color:#7f1d1d;margin-bottom:6px">\u26A0 Ready to send?</div>';
+    h +=   '<div style="font-size:12px;color:#991b1b;line-height:1.5">This will immediately email the report ZIP to <strong>' + esc(acc.ca_email) + '</strong>' + (ccList ? ' (CC: ' + esc(ccList) + ')' : '') + '. This cannot be undone.</div>';
+    h += '</div>';
+  }
+
+  if (window._caReviewMode === 'sending') {
+    h += '<div style="background:var(--bg);border-radius:10px;padding:24px;text-align:center;margin-bottom:6px">';
+    h +=   '<div style="font-size:24px;margin-bottom:8px">\uD83D\uDCE4</div>';
+    h +=   '<div style="font-size:14px;color:var(--sub);line-height:1.5">Generating report and sending to your CA\u2026<br>This may take up to 30 seconds.</div>';
+    h += '</div>';
+  }
+
+  body.innerHTML = h;
+
+  var fh = '';
+  if (window._caReviewMode === 'sending') {
+    fh = '<button class="btn btn-ghost" disabled style="flex:1;opacity:.5">Sending\u2026</button>';
+  } else if (window._caReviewMode === 'confirm') {
+    fh += '<button class="btn btn-ghost" onclick="window._caReviewMode=\'preview\';renderCaReviewSheet()" style="flex:1">Cancel</button>';
+    fh += '<button onclick="sendCaReportNow(\'' + esc(r.id) + '\')" style="flex:2;padding:12px;border-radius:10px;background:#dc2626;color:#fff;border:none;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer">Yes, send to CA</button>';
+  } else {
+    fh += '<button class="btn btn-ghost" onclick="closeSheet(\'caReviewSh\')" style="flex:1">Cancel</button>';
+    fh += '<button class="btn btn-dark" onclick="window._caReviewMode=\'confirm\';renderCaReviewSheet()" style="flex:2;justify-content:center">\uD83D\uDE80 Approve & Send</button>';
+  }
+  foot.innerHTML = fh;
+}
+
+async function sendCaReportNow(caReportId) {
+  window._caReviewMode = 'sending';
+  renderCaReviewSheet();
+  try {
+    var res = await sbFetch('/functions/v1/ca-report-generate-send', {
+      method: 'POST',
+      body: JSON.stringify({ ca_report_id: caReportId, force_send: true })
+    });
+    if (res.ok) {
+      var data = await res.json();
+      showToast('\u2705 Report sent (' + (data.attached ? 'attachment' : 'link') + ')');
+      closeSheet('caReviewSh');
+      await loadCaReports();
+      var box = document.getElementById('content');
+      if (box) box.innerHTML = adminDashHTML();
+    } else {
+      var errTxt = '';
+      try { errTxt = (await res.json()).error || ''; } catch(_e) {}
+      showToast('Send failed: ' + (errTxt || 'try again'));
+      window._caReviewMode = 'preview';
+      renderCaReviewSheet();
+    }
+  } catch(e) {
+    showToast('Network error \u2014 try again');
+    window._caReviewMode = 'preview';
+    renderCaReviewSheet();
+  }
+}
+
+async function snoozeCaReport(caReportId) {
+  var r = (_adminData.caReports || []).find(function(x){ return x.id === caReportId; });
+  if (!r) return;
+  var current = r.scheduled_send_at ? new Date(r.scheduled_send_at).getTime() : Date.now();
+  var newDeadline = new Date(current + 24 * 3600 * 1000).toISOString();
+  try {
+    var res = await sbFetch('/rest/v1/ca_reports?id=eq.' + caReportId, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ scheduled_send_at: newDeadline })
+    });
+    if (res.ok) {
+      showToast('\u23F0 Snoozed 24 hours');
+      await loadCaReports();
+      var box = document.getElementById('content');
+      if (box) box.innerHTML = adminDashHTML();
+    } else {
+      showToast('Snooze failed');
+    }
+  } catch(e) {
+    showToast('Network error');
+  }
+}
+
+function openCaRejectSheet(caReportId) {
+  window._caRejectId = caReportId;
+  var body = document.getElementById('caRejectBody');
+  if (body) {
+    body.innerHTML = ''
+      + '<div style="font-size:13px;color:var(--sub);margin-bottom:14px;line-height:1.5">Rejecting removes this report from the queue. Add a note explaining why (kept in the audit trail).</div>'
+      + '<label style="display:block;margin-bottom:6px;font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.06em;text-transform:uppercase">Reason for rejection</label>'
+      + '<textarea id="caRejectNote" placeholder="e.g. Wrong invoice included \u2014 need to correct data first" style="width:100%;padding:12px;border:1.5px solid var(--border);border-radius:10px;background:var(--white);font-size:14px;font-family:var(--f);min-height:100px;resize:vertical;box-sizing:border-box"></textarea>';
+  }
+  openSheet('caRejectSh');
+}
+
+async function submitCaReject() {
+  var note = (document.getElementById('caRejectNote') || {}).value || '';
+  note = note.trim();
+  if (!note) { showToast('Please provide a reason'); return; }
+  try {
+    var res = await sbFetch('/rest/v1/ca_reports?id=eq.' + window._caRejectId, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ status: 'rejected', notes: note })
+    });
+    if (res.ok) {
+      showToast('Report rejected');
+      closeSheet('caRejectSh');
+      await loadCaReports();
+      var box = document.getElementById('content');
+      if (box) box.innerHTML = adminDashHTML();
+    } else {
+      showToast('Reject failed');
+    }
+  } catch(e) {
+    showToast('Network error');
+  }
+}
+
+window.openCaReviewByPushId = function(caReportId) {
+  var tries = 0;
+  var iv = setInterval(function () {
+    tries++;
+    if (typeof _adminData !== 'undefined' && _adminData.caReports && typeof openCaReviewSheet === 'function') {
+      var r = (_adminData.caReports || []).find(function(x){ return x.id === caReportId; });
+      if (r) { try { openCaReviewSheet(caReportId); } catch(e) {} clearInterval(iv); return; }
+      if (_adminData.caReports.length > 0 || tries > 20) {
+        clearInterval(iv);
+        if (typeof showToast === 'function') showToast('Report already actioned');
+        return;
+      }
+    }
+    if (tries > 40) clearInterval(iv);
+  }, 600);
+};
+
 window.openAddBalanceSheet      = openAddBalanceSheet;
 window.setInvPeriod             = setInvPeriod;
 window.openExportForCASheet     = openExportForCASheet;
 window.generateCAExport         = generateCAExport;
 window.openAccountantSheet      = openAccountantSheet;
+window.openCaReviewSheet        = openCaReviewSheet;
+window.confirmSendCaReport      = confirmSendCaReport;
+window.sendCaReportNow          = sendCaReportNow;
+window.snoozeCaReport           = snoozeCaReport;
+window.openCaRejectSheet        = openCaRejectSheet;
+window.submitCaReject           = submitCaReject;
 window.saveAccountantSettings   = saveAccountantSettings;
 window.sendAccountantTestEmail  = sendAccountantTestEmail;
 window.openInvCustomRange       = openInvCustomRange;
@@ -23246,6 +23522,35 @@ document.addEventListener('click', function(ev){
 
 <!-- ════════════════════════════ EXPORT FOR CA SHEET ════════════════════════════ -->
 <!-- ════════════════════════ ACCOUNTANT SETTINGS SHEET ════════════════════════ -->
+<!-- ══════════════════════ CA REPORT REVIEW SHEET ══════════════════════ -->
+<div class="sheet-ov" id="caReviewSh" onclick="if(event.target===this)closeSheet('caReviewSh')" style="z-index:786">
+  <div class="sheet" style="max-height:92dvh">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">📋 Quarterly Report Review</div>
+      <button class="sheet-x" onclick="closeSheet('caReviewSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" style="padding:16px" id="caReviewBody"></div>
+    <div class="sh-foot" id="caReviewFoot"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════ CA REPORT REJECT SHEET ══════════════════════ -->
+<div class="sheet-ov" id="caRejectSh" onclick="if(event.target===this)closeSheet('caRejectSh')" style="z-index:786">
+  <div class="sheet" style="max-height:80dvh">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">❌ Reject Report</div>
+      <button class="sheet-x" onclick="closeSheet('caRejectSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" style="padding:16px" id="caRejectBody"></div>
+    <div class="sh-foot">
+      <button class="btn btn-ghost" onclick="closeSheet('caRejectSh')" style="flex:1">Cancel</button>
+      <button onclick="submitCaReject()" style="flex:1;padding:12px;border-radius:10px;background:#dc2626;color:#fff;border:none;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer">Reject</button>
+    </div>
+  </div>
+</div>
+
 <div class="sheet-ov" id="accountantSh" onclick="if(event.target===this)closeSheet('accountantSh')" style="z-index:785">
   <div class="sheet" style="max-height:92dvh">
     <div class="sheet-handle"></div>
@@ -24371,9 +24676,11 @@ document.addEventListener('click', function(ev){
       var qs = (url || '').split('?')[1] || '';
       var p = new URLSearchParams(qs);
       var ld = p.get('lead'); var rv = p.get('review'); var sm = p.get('sms');
+      var cr = p.get('ca_review');
       if (sm) window.openSmsByDbId(sm);
       else if (ld) window.openLeadByDbId(ld);
       if (rv) window.openReviewByDbId(rv);
+      if (cr && typeof window.openCaReviewByPushId === 'function') window.openCaReviewByPushId(cr);
     } catch (e) {}
   };
 
@@ -24385,11 +24692,13 @@ document.addEventListener('click', function(ev){
     var ld = sp.get('lead');
     var sm = sp.get('sms');
     var tp = sp.get('topup');
+    var cr = sp.get('ca_review');
     if (rv) window.openReviewByDbId(rv);
     if (sm) window.openSmsByDbId(sm);
     else if (ld) window.openLeadByDbId(ld);
+    if (cr && typeof window.openCaReviewByPushId === 'function') window.openCaReviewByPushId(cr);
     if (tp === 'success') { setTimeout(function(){ try{ showToast('Payment received \u2014 your views are being added'); }catch(_t){} }, 900); }
-    if (ld || rv || sm || tp) history.replaceState(null, '', window.location.pathname);
+    if (ld || rv || sm || tp || cr) history.replaceState(null, '', window.location.pathname);
   } catch (e) {}
 
   // When the app is ALREADY open and a notification is tapped, the service worker
