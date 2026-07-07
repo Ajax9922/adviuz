@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-08 topup-2</title>
+<title>Adviuz Hub · v2026-07-08 invperiod-2</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3432,7 +3432,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-08 topup-2';
+var APP_VERSION = 'v2026-07-08 invperiod-2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -16716,7 +16716,7 @@ function openAddBalanceSheet(){
     openSheet('addBalanceSh');
     return;
   }
-  // v2026-07-08 topup-2: 2-step flow — bundle → campaign → server-priced Stripe checkout
+  // v2026-07-08 invperiod-2: 2-step flow — bundle → campaign → server-priced Stripe checkout
   window._abSelViews = null;
   window._abSelCamp  = null;
   _abRenderStep1();
@@ -17598,6 +17598,11 @@ function openPartnersManager() {
 }
 
 var _adminData = { clients:[], campaigns:[], allLeads:[], affiliates:[], commissions:[], quotes:[], invoices:[] };
+
+// Invoice tab: date-range filter. Default = last_quarter (the period you file at CRA/SK PST time).
+window._invPeriodFilter = window._invPeriodFilter || 'last_quarter';
+window._invCustomFrom   = window._invCustomFrom   || '';
+window._invCustomTo     = window._invCustomTo     || '';
 var _adminLoaded = false;
 window._adminDashTab = 'clients';
 
@@ -22092,9 +22097,132 @@ function seqWrap(firstName, body, sig, fromEmail) {
 
 
 
-// ── Invoices Dashboard Tab (Sales vs Tax + monthly list) ──
+// ── Returns {start, end, label} for the chosen filter key. `end` is EXCLUSIVE. ──
+function _invRange(key) {
+  var now = new Date();
+  var y = now.getFullYear(), m = now.getMonth(), d = now.getDate();
+  var q = Math.floor(m / 3);
+  var start, end, label;
+  switch (key) {
+    case 'today':
+      start = new Date(y, m, d);
+      end   = new Date(y, m, d + 1);
+      label = 'Today'; break;
+    case 'this_week': {
+      var day = now.getDay();
+      var off = day === 0 ? 6 : day - 1;
+      start = new Date(y, m, d - off);
+      end   = new Date(y, m, d - off + 7);
+      label = 'This week'; break;
+    }
+    case 'this_month':
+      start = new Date(y, m, 1);
+      end   = new Date(y, m + 1, 1);
+      label = 'This month'; break;
+    case 'this_quarter':
+      start = new Date(y, q * 3, 1);
+      end   = new Date(y, q * 3 + 3, 1);
+      label = 'This quarter (Q' + (q + 1) + ' ' + y + ')'; break;
+    case 'last_quarter': {
+      var lq = q - 1, ly = y;
+      if (lq < 0) { lq = 3; ly = y - 1; }
+      start = new Date(ly, lq * 3, 1);
+      end   = new Date(ly, lq * 3 + 3, 1);
+      label = 'Last quarter (Q' + (lq + 1) + ' ' + ly + ')'; break;
+    }
+    case 'last_year':
+      start = new Date(y - 1, 0, 1);
+      end   = new Date(y, 0, 1);
+      label = 'Last year (' + (y - 1) + ')'; break;
+    case 'custom': {
+      var f = window._invCustomFrom, t = window._invCustomTo;
+      if (!f || !t) return null;
+      start = new Date(f + 'T00:00:00');
+      end   = new Date(t + 'T00:00:00');
+      end.setDate(end.getDate() + 1);
+      label = f + ' \u2192 ' + t; break;
+    }
+    default:
+      return { start: null, end: null, label: 'All time' };
+  }
+  return { start: start, end: end, label: label };
+}
+
+function _invPeriodPills() {
+  var f = window._invPeriodFilter || 'last_quarter';
+  var customLbl = (window._invCustomFrom && window._invCustomTo)
+    ? (window._invCustomFrom + ' \u2192 ' + window._invCustomTo)
+    : 'Custom\u2026';
+  var opts = [
+    ['today',        'Today'],
+    ['this_week',    'This week'],
+    ['this_month',   'This month'],
+    ['this_quarter', 'This qtr'],
+    ['last_quarter', 'Last qtr'],
+    ['last_year',    'Last year'],
+    ['custom',       customLbl]
+  ];
+  var h = '<div style="display:flex;gap:6px;padding:8px 0 12px;overflow-x:auto;-webkit-overflow-scrolling:touch">';
+  opts.forEach(function(o){
+    var k = o[0], lbl = o[1], on = (f === k);
+    var onc = (k === 'custom') ? 'openInvCustomRange()' : ('setInvPeriod(\'' + k + '\')');
+    h += '<button onclick="' + onc + '" '
+      +  'style="flex-shrink:0;padding:6px 14px;border-radius:20px;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer;'
+      +  'border:1.5px solid ' + (on ? 'var(--text)' : 'var(--border)') + ';'
+      +  'background:' + (on ? 'var(--text)' : 'var(--white)') + ';'
+      +  'color:' + (on ? '#fff' : 'var(--sub)') + '">' + lbl + '</button>';
+  });
+  h += '</div>';
+  return h;
+}
+
+function setInvPeriod(k) {
+  window._invPeriodFilter = k;
+  var box = document.getElementById('content');
+  if (box) box.innerHTML = adminDashHTML();
+}
+
+function openInvCustomRange() {
+  var f = document.getElementById('invCustomFromInp');
+  var t = document.getElementById('invCustomToInp');
+  if (f) f.value = window._invCustomFrom || '';
+  if (t) t.value = window._invCustomTo   || '';
+  openSheet('invCustomSh');
+}
+function applyInvCustomRange() {
+  var fv = (document.getElementById('invCustomFromInp') || {}).value || '';
+  var tv = (document.getElementById('invCustomToInp')   || {}).value || '';
+  if (!fv || !tv) { showToast('Pick both From and To dates'); return; }
+  if (fv > tv)    { showToast('From date must be before To date'); return; }
+  window._invCustomFrom   = fv;
+  window._invCustomTo     = tv;
+  window._invPeriodFilter = 'custom';
+  closeSheet('invCustomSh');
+  var box = document.getElementById('content');
+  if (box) box.innerHTML = adminDashHTML();
+}
+function clearInvCustomRange() {
+  window._invCustomFrom   = '';
+  window._invCustomTo     = '';
+  window._invPeriodFilter = 'last_quarter';
+  closeSheet('invCustomSh');
+  var box = document.getElementById('content');
+  if (box) box.innerHTML = adminDashHTML();
+}
+
+// \u2500\u2500 Invoices Dashboard Tab (Sales vs Tax + monthly list) \u2500\u2500
 function adInvoicesHTML() {
-  var invs = (_adminData.invoices || []).slice();
+  // Apply date filter (defaults to last quarter — the period you file at CRA)
+  var _r  = _invRange(window._invPeriodFilter || 'last_quarter');
+  var _all = (_adminData.invoices || []).slice();
+  var invs = (_r && _r.start)
+    ? _all.filter(function(i){
+        var ds = (i.invoice_date || i.created_at || '').slice(0, 10);
+        if (!ds) return false;
+        var dt = new Date(ds + 'T00:00:00');
+        return dt >= _r.start && dt < _r.end;
+      })
+    : _all;
 
   // ── All-time totals ──
   var grossAll = 0, beforeAll = 0, taxAll = 0, collected = 0, gstAll = 0, pstAll = 0, hstAll = 0;
@@ -22127,6 +22255,11 @@ function adInvoicesHTML() {
   window._adInvMonths = byMonth;
 
   var h = '<div style="padding:0 12px 16px">';
+
+  // ── Date-range filter (drives the whole page) ──
+  h += _invPeriodPills();
+  h += '<div style="font-size:11px;color:var(--sub);margin:-4px 2px 10px">Period: '
+    + (_r ? _r.label : 'All time') + ' \u00B7 ' + invs.length + ' invoices</div>';
 
   // ── Summary stat tiles ──
   h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:6px 0 8px">'
@@ -22395,6 +22528,10 @@ async function markQuotePaid(quoteId) {
 // explicitly placed on window so HTML-attribute onclick always resolves.
 // ════════════════════════════════════════════════════════════════════
 window.openAddBalanceSheet      = openAddBalanceSheet;
+window.setInvPeriod             = setInvPeriod;
+window.openInvCustomRange       = openInvCustomRange;
+window.applyInvCustomRange      = applyInvCustomRange;
+window.clearInvCustomRange      = clearInvCustomRange;
 window._abRenderStep1           = _abRenderStep1;
 window._abPickBundle            = _abPickBundle;
 window._abPickCamp              = _abPickCamp;
@@ -22550,6 +22687,30 @@ document.addEventListener('click', function(ev){
     <div class="sh-foot">
       <button class="btn btn-ghost" onclick="skipDealValueAndClose()" style="flex:1">Skip</button>
       <button class="btn btn-dark" onclick="saveDealValueAndClose()" style="flex:2;justify-content:center">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ INVOICE CUSTOM DATE RANGE SHEET ════════════════════ -->
+<div class="sheet-ov" id="invCustomSh" onclick="if(event.target===this)closeSheet('invCustomSh')" style="z-index:785">
+  <div class="sheet" style="max-height:80dvh">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">Custom Date Range</div>
+      <button class="sheet-x" onclick="closeSheet('invCustomSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" style="padding:16px">
+      <div style="font-size:13px;color:var(--sub);margin-bottom:14px;line-height:1.5">
+        Pick any start and end date. The Invoices tab will only show invoices dated in that range.
+      </div>
+      <label class="flbl" style="display:block;margin-bottom:6px">From</label>
+      <input class="finp" id="invCustomFromInp" type="date" style="width:100%;padding:12px;border:1.5px solid var(--border);border-radius:10px;background:var(--white);font-size:15px;margin-bottom:14px">
+      <label class="flbl" style="display:block;margin-bottom:6px">To</label>
+      <input class="finp" id="invCustomToInp" type="date" style="width:100%;padding:12px;border:1.5px solid var(--border);border-radius:10px;background:var(--white);font-size:15px">
+    </div>
+    <div class="sh-foot">
+      <button class="btn btn-ghost" onclick="clearInvCustomRange()" style="flex:1">Reset</button>
+      <button class="btn btn-dark" onclick="applyInvCustomRange()" style="flex:2;justify-content:center">Apply</button>
     </div>
   </div>
 </div>
