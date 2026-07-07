@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-05 inbox-5</title>
+<title>Adviuz Hub · v2026-07-08 topup-1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3432,7 +3432,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-05 inbox-5';
+var APP_VERSION = 'v2026-07-08 topup-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -16702,12 +16702,24 @@ function openAddBalanceSheet(){
     if (intro) intro.textContent = 'Here\u2019s your current lead package. To extend it or add more leads, contact your Adviuz manager and we\u2019ll set it up for you.';
     if (box)   box.innerHTML = _leadPkgSheetCard();
     if (foot)  foot.textContent = 'Lead packages are managed for you \u2014 no online checkout needed.';
-  } else {
-    if (intro) intro.textContent = "Pick a flyer-views bundle. You'll be taken to Stripe to pay securely. Once payment succeeds, your balance is credited automatically and you'll receive an invoice + confirmation email \u2014 then you can allocate the views to any campaign.";
-    if (box)   box.innerHTML = window._viewBundles.map(_bundleCard).join('');
-    if (foot)  foot.textContent = 'Powered by Stripe \u00B7 CAD pricing \u00B7 Includes invoice + 25-second view guarantee';
+    openSheet('addBalanceSh');
+    return;
   }
+  // v2026-07-08 topup-1: 2-step flow — bundle → campaign → server-priced Stripe checkout
+  window._abSelViews = null;
+  window._abSelCamp  = null;
+  _abRenderStep1();
   openSheet('addBalanceSh');
+}
+
+// ── Add Balance · STEP 1: pick a bundle ──────────────────────────────
+function _abRenderStep1(){
+  var box   = document.getElementById('addBalanceBundles');
+  var intro = document.getElementById('addBalanceIntro');
+  var foot  = document.getElementById('addBalanceFootnote');
+  if (intro) intro.textContent = 'Step 1 of 2 \u2014 pick a flyer-views bundle. Next you\u2019ll choose which campaign these views go to.';
+  if (box)   box.innerHTML = (window._viewBundles||[]).map(_bundleCard).join('');
+  if (foot)  foot.textContent = 'Powered by Stripe \u00B7 CAD pricing \u00B7 Includes invoice + 25-second view guarantee';
 }
 
 function _leadPkgSheetCard(){
@@ -16722,24 +16734,107 @@ function _leadPkgSheetCard(){
 
 function _bundleCard(b){
   var perView = (b.price / b.views).toFixed(2);
-  // Pre-fill client email into Stripe checkout if Stripe supports it via URL.
-  // Stripe Payment Links accept ?prefilled_email=… for autofill on the checkout page.
-  var email = (window._clientData && window._clientData.email) ? window._clientData.email : '';
-  var sep = b.link.indexOf('?')>-1 ? '&' : '?';
-  var clientRef = (window._clientId||'') + ':' + b.views;
-  var fullLink = b.link
-    + (email ? (sep + 'prefilled_email=' + encodeURIComponent(email)) : '')
-    + ((email ? '&' : sep) + 'client_reference_id=' + encodeURIComponent(clientRef));
-
-  return '<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:16px;margin-bottom:10px;display:flex;align-items:center;gap:12px">'
+  return '<div onclick="_abPickBundle('+b.views+')" data-action="_abPickBundle:'+b.views+'" role="button" '
+    +    'style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:16px;margin-bottom:10px;display:flex;align-items:center;gap:12px;cursor:pointer">'
     +    '<div style="flex:1;min-width:0">'
     +      '<div style="font-size:18px;font-weight:800;color:var(--text);letter-spacing:-.01em">'+b.views.toLocaleString()+' Flyer Views</div>'
-    +      '<div style="font-size:12px;color:var(--sub);margin-top:2px">CAD $'+perView+' per view · 25-second guaranteed</div>'
+    +      '<div style="font-size:12px;color:var(--sub);margin-top:2px">CAD $'+perView+' per view \u00B7 25-second guaranteed</div>'
     +    '</div>'
-    +    '<a href="'+fullLink+'" target="_blank" rel="noopener" style="text-decoration:none;flex-shrink:0;padding:10px 18px;border-radius:10px;background:var(--green);color:#fff;font-family:var(--f);font-size:14px;font-weight:800;display:inline-flex;align-items:center;gap:6px">'
-    +      '$'+b.price.toLocaleString()
-    +    '</a>'
+    +    '<div style="flex-shrink:0;padding:10px 18px;border-radius:10px;background:var(--green);color:#fff;font-size:14px;font-weight:800">$'+b.price.toLocaleString()+'</div>'
     +  '</div>';
+}
+
+// ── Add Balance · STEP 2: pick a campaign + pay ──────────────────────
+function _abSortedCamps(){
+  var camps = (window._clientCampaigns||[]).slice();
+  camps.sort(function(a,b){
+    var aa = a.status==='active'?0:1, bb = b.status==='active'?0:1;
+    if (aa!==bb) return aa-bb;
+    return String(a.name||'').localeCompare(String(b.name||''));
+  });
+  return camps;
+}
+
+function _abPickBundle(views){
+  window._abSelViews = Number(views)||0;
+  var camps = _abSortedCamps();
+  window._abSelCamp = camps.length ? String(camps[0].id) : null;
+  _abRenderStep2();
+}
+
+function _abRenderStep2(){
+  var box   = document.getElementById('addBalanceBundles');
+  var intro = document.getElementById('addBalanceIntro');
+  var foot  = document.getElementById('addBalanceFootnote');
+  var b = (window._viewBundles||[]).find(function(x){ return x.views===window._abSelViews; });
+  if (!b) { _abRenderStep1(); return; }
+  if (intro) intro.textContent = 'Step 2 of 2 \u2014 choose the campaign these views should be credited to, then pay.';
+  var camps = _abSortedCamps();
+  var h = '';
+  h += '<div style="background:var(--white);border:1.5px solid var(--green);border-radius:13px;padding:14px 16px;margin-bottom:12px;display:flex;align-items:center;gap:12px">'
+    +   '<div style="flex:1;min-width:0">'
+    +     '<div style="font-size:16px;font-weight:800;color:var(--text)">'+b.views.toLocaleString()+' Flyer Views \u2014 $'+b.price.toLocaleString()+'</div>'
+    +     '<div style="font-size:12px;color:var(--sub);margin-top:2px">Tax added at checkout based on your province</div>'
+    +   '</div>'
+    +   '<div onclick="_abRenderStep1()" data-action="_abRenderStep1" role="button" style="flex-shrink:0;font-size:12px;font-weight:700;color:var(--green);cursor:pointer;padding:6px 10px">Change</div>'
+    + '</div>';
+  if (!camps.length) {
+    h += '<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:18px;text-align:center;color:var(--sub);font-size:13px">No campaigns found on your account yet. Contact your Adviuz manager and we\u2019ll set one up for you.</div>';
+    if (box)  box.innerHTML = h;
+    if (foot) foot.textContent = 'Powered by Stripe \u00B7 CAD pricing';
+    return;
+  }
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.06em;text-transform:uppercase;margin:2px 2px 8px">Credit views to</div>';
+  camps.forEach(function(c){
+    var sel = String(c.id)===String(window._abSelCamp);
+    var stat = c.status==='active'
+      ? '<span style="color:var(--green);font-weight:700">Active</span>'
+      : '<span style="color:var(--sub)">'+String(c.status||'').replace(/^\w/,function(m){return m.toUpperCase();})+'</span>';
+    h += '<div onclick="_abPickCamp(\''+c.id+'\')" data-action="_abPickCamp:'+c.id+'" role="button" '
+      +  'style="background:var(--white);border:1.5px solid '+(sel?'var(--green)':'var(--border)')+';border-radius:13px;padding:13px 14px;margin-bottom:8px;display:flex;align-items:center;gap:11px;cursor:pointer">'
+      +  '<div style="width:20px;height:20px;border-radius:50%;flex-shrink:0;border:2px solid '+(sel?'var(--green)':'var(--border)')+';display:flex;align-items:center;justify-content:center">'
+      +    (sel?'<div style="width:10px;height:10px;border-radius:50%;background:var(--green)"></div>':'')
+      +  '</div>'
+      +  '<div style="flex:1;min-width:0">'
+      +    '<div style="font-size:14px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(c.name||'(unnamed)')+'</div>'
+      +    '<div style="font-size:11px;margin-top:1px">'+stat+'</div>'
+      +  '</div>'
+      + '</div>';
+  });
+  h += '<button id="abPayBtn" onclick="_abPay()" data-action="_abPay" style="margin-top:12px;width:100%;padding:14px;border-radius:11px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:15px;font-weight:800;cursor:pointer">Pay $'+b.price.toLocaleString()+' \u2014 Continue to Stripe</button>';
+  if (box)  box.innerHTML = h;
+  if (foot) foot.textContent = 'You\u2019ll pay securely on Stripe \u00B7 Views are credited automatically after payment';
+}
+
+function _abPickCamp(id){
+  window._abSelCamp = String(id);
+  _abRenderStep2();
+}
+
+async function _abPay(){
+  if (!window._abSelViews) { _abRenderStep1(); return; }
+  if (!window._abSelCamp)  { showToast('Pick a campaign first'); return; }
+  var btn = document.getElementById('abPayBtn');
+  var oldLabel = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.style.opacity = '.6'; btn.textContent = 'Opening secure checkout\u2026'; }
+  try {
+    var res = await sbFetch('/functions/v1/stripe-checkout', {
+      method: 'POST',
+      body: JSON.stringify({
+        topup:       true,
+        client_id:   window._clientId,
+        campaign_id: window._abSelCamp,
+        views:       window._abSelViews
+      })
+    });
+    var data = null;
+    try { data = await res.json(); } catch(_j) {}
+    if (res.ok && data && data.checkout_url) { location.href = data.checkout_url; return; }
+    showToast((data && data.error) || 'Could not start checkout \u2014 please try again');
+  } catch(e) {
+    showToast('Network error \u2014 please try again');
+  }
+  if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.textContent = oldLabel; }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -22289,6 +22384,10 @@ async function markQuotePaid(quoteId) {
 // explicitly placed on window so HTML-attribute onclick always resolves.
 // ════════════════════════════════════════════════════════════════════
 window.openAddBalanceSheet      = openAddBalanceSheet;
+window._abRenderStep1           = _abRenderStep1;
+window._abPickBundle            = _abPickBundle;
+window._abPickCamp              = _abPickCamp;
+window._abPay                   = _abPay;
 window.openCampaignFilterSheet  = openCampaignFilterSheet;
 window.clientCampClearFilter    = clientCampClearFilter;
 window.applyCampaignFilter      = applyCampaignFilter;
@@ -23526,10 +23625,12 @@ document.addEventListener('click', function(ev){
     var rv = sp.get('review');
     var ld = sp.get('lead');
     var sm = sp.get('sms');
+    var tp = sp.get('topup');
     if (rv) window.openReviewByDbId(rv);
     if (sm) window.openSmsByDbId(sm);
     else if (ld) window.openLeadByDbId(ld);
-    if (ld || rv || sm) history.replaceState(null, '', window.location.pathname);
+    if (tp === 'success') { setTimeout(function(){ try{ showToast('Payment received \u2014 your views are being added'); }catch(_t){} }, 900); }
+    if (ld || rv || sm || tp) history.replaceState(null, '', window.location.pathname);
   } catch (e) {}
 
   // When the app is ALREADY open and a notification is tapped, the service worker
