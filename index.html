@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-08 caexport-4</title>
+<title>Adviuz Hub · v2026-07-08 caexport-6</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3434,7 +3434,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-08 caexport-4';
+var APP_VERSION = 'v2026-07-08 caexport-6';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -16718,7 +16718,7 @@ function openAddBalanceSheet(){
     openSheet('addBalanceSh');
     return;
   }
-  // v2026-07-08 caexport-4: 2-step flow — bundle → campaign → server-priced Stripe checkout
+  // v2026-07-08 caexport-6: 2-step flow — bundle → campaign → server-priced Stripe checkout
   window._abSelViews = null;
   window._abSelCamp  = null;
   _abRenderStep1();
@@ -22467,12 +22467,21 @@ async function generateCAExport() {
   // Sort by invoice date ASC (oldest first) so serials align with chronology,
   // then enrich each with _serial + _caFilename. Safe local copies — does not
   // mutate _adminData.invoices.
+  // Sort purely by invoice-number counter (trailing digits) — e.g., MSI1 → 1,
+  // KMV10 → 10. That's the DB-assigned sequence, so it always matches the true
+  // creation order regardless of date or timestamp.
+  function _invCounter(inv) {
+    var m = String(inv.invoice_number || '').match(/(\d+)$/);
+    return m ? parseInt(m[1], 10) : Number.MAX_SAFE_INTEGER;
+  }
   var raw = pack.invs.slice().sort(function(a, b){
-    var da = (a.invoice_date || a.created_at || '');
-    var db = (b.invoice_date || b.created_at || '');
-    if (da < db) return -1;
-    if (da > db) return 1;
-    return (a.invoice_number || '').localeCompare(b.invoice_number || '');
+    var ca = _invCounter(a), cb = _invCounter(b);
+    if (ca !== cb) return ca - cb;
+    // Fallback (extremely rare): if two invoices have no trailing counter,
+    // use invoice_date so the order is at least deterministic.
+    var da = (a.invoice_date || '').slice(0, 10);
+    var db = (b.invoice_date || '').slice(0, 10);
+    return da < db ? -1 : (da > db ? 1 : 0);
   });
   var pad = Math.max(2, String(raw.length).length);
   var invs = raw.map(function(inv, idx){
