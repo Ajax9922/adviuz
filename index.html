@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-08 caexport-1</title>
+<title>Adviuz Hub · v2026-07-08 caexport-3</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3434,7 +3434,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-08 caexport-1';
+var APP_VERSION = 'v2026-07-08 caexport-3';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -16718,7 +16718,7 @@ function openAddBalanceSheet(){
     openSheet('addBalanceSh');
     return;
   }
-  // v2026-07-08 caexport-1: 2-step flow — bundle → campaign → server-priced Stripe checkout
+  // v2026-07-08 caexport-3: 2-step flow — bundle → campaign → server-priced Stripe checkout
   window._abSelViews = null;
   window._abSelCamp  = null;
   _abRenderStep1();
@@ -22306,10 +22306,21 @@ function _buildCAWorkbook(invs, rangeLabel) {
   wb.Props = { Title:'Adviuz Sales Report', Author:'Instad Web Services Ltd', CreatedDate:new Date() };
 
   var t = _caTotals(invs);
-  var paid   = invs.filter(function(i){ return (i.payment_status||'').toLowerCase()==='paid'; });
-  var unpaid = invs.filter(function(i){ return (i.payment_status||'').toLowerCase()!=='paid'; });
-  var paidGross   = paid.reduce(function(s,i){ return s + parseFloat(i.total||0); }, 0);
-  var unpaidGross = unpaid.reduce(function(s,i){ return s + parseFloat(i.total||0); }, 0);
+  var fullyPaid = invs.filter(function(i){ return (i.payment_status||'').toLowerCase()==='paid'; });
+  var partial   = invs.filter(function(i){ return (i.payment_status||'').toLowerCase()==='partial'; });
+  var unpaid    = invs.filter(function(i){ var st=(i.payment_status||'').toLowerCase(); return st!=='paid' && st!=='partial'; });
+
+  // Money math uses amount_paid so partial invoices contribute the received portion only
+  var totalReceived    = 0;
+  var totalOutstanding = 0;
+  invs.forEach(function(i){
+    var tot = parseFloat(i.total || 0);
+    var ap  = (i.amount_paid != null && i.amount_paid !== '')
+      ? (parseFloat(i.amount_paid) || 0)
+      : ((i.payment_status||'').toLowerCase() === 'paid' ? tot : 0);
+    totalReceived    += ap;
+    totalOutstanding += Math.max(0, tot - ap);
+  });
   var missing = invs.filter(function(i){ return !i.pdf_url; });
 
   var s1 = [
@@ -22321,16 +22332,17 @@ function _buildCAWorkbook(invs, rangeLabel) {
     ['Generated', new Date().toLocaleString('en-CA', {dateStyle:'medium', timeStyle:'short'})],
     [''],
     ['SUMMARY'],
-    ['Total invoices',    invs.length],
-    ['Paid invoices',     paid.length],
-    ['Outstanding',       unpaid.length],
+    ['Total invoices',      invs.length],
+    ['Fully paid',          fullyPaid.length],
+    ['Partial',             partial.length],
+    ['Outstanding',         unpaid.length],
     [''],
     ['Gross sales (with tax)',   t.gross],
     ['Subtotal (before tax)',    t.sub],
     ['Total tax collected',      t.tax],
     [''],
-    ['Paid amount',        paidGross],
-    ['Outstanding amount', unpaidGross]
+    ['Total received',      totalReceived],
+    ['Outstanding balance', totalOutstanding]
   ];
   if (missing.length) {
     s1.push(['']);
@@ -22382,10 +22394,16 @@ function _buildCAWorkbook(invs, rangeLabel) {
 
   var s3 = [[
     'Invoice #','Date','Client','Business','Province',
-    'Subtotal','GST','PST/QST','HST','Total','Payment Method','Status','PDF Filename'
+    'Subtotal','GST','PST/QST','HST','Total','Amount Paid','Amount Due','Payment Method','Status','PDF Filename'
   ]];
   invs.forEach(function(i){
     var pdfName = i.pdf_url ? (i.pdf_url.split('/').pop() || '') : '(missing)';
+    var invTot  = parseFloat(i.total || 0);
+    // amount_paid falls back to total when status is 'paid' but the column is empty
+    var amtPaid = (i.amount_paid != null && i.amount_paid !== '')
+      ? (parseFloat(i.amount_paid) || 0)
+      : ((i.payment_status||'').toLowerCase() === 'paid' ? invTot : 0);
+    var amtDue = Math.max(0, invTot - amtPaid);
     s3.push([
       i.invoice_number || '',
       (i.invoice_date || '').slice(0,10),
@@ -22396,7 +22414,9 @@ function _buildCAWorkbook(invs, rangeLabel) {
       parseFloat(i.gst_amount || 0),
       parseFloat(i.pst_amount || 0),
       parseFloat(i.hst_amount || 0),
-      parseFloat(i.total || 0),
+      invTot,
+      amtPaid,
+      amtDue,
       i.payment_method || '',
       i.payment_status || '',
       pdfName
@@ -22405,7 +22425,7 @@ function _buildCAWorkbook(invs, rangeLabel) {
   var ws3 = XLSX.utils.aoa_to_sheet(s3);
   ws3['!cols'] = [
     {wch:16},{wch:12},{wch:22},{wch:26},{wch:8},
-    {wch:12},{wch:10},{wch:10},{wch:10},{wch:12},{wch:14},{wch:11},{wch:44}
+    {wch:12},{wch:10},{wch:10},{wch:10},{wch:12},{wch:13},{wch:12},{wch:14},{wch:11},{wch:44}
   ];
   ws3['!freeze'] = { xSplit:0, ySplit:1 };
   XLSX.utils.book_append_sheet(wb, ws3, 'Invoice Register');
