@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-08 caexport-3</title>
+<title>Adviuz Hub · v2026-07-08 caexport-4</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3434,7 +3434,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-08 caexport-3';
+var APP_VERSION = 'v2026-07-08 caexport-4';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -16718,7 +16718,7 @@ function openAddBalanceSheet(){
     openSheet('addBalanceSh');
     return;
   }
-  // v2026-07-08 caexport-3: 2-step flow — bundle → campaign → server-priced Stripe checkout
+  // v2026-07-08 caexport-4: 2-step flow — bundle → campaign → server-priced Stripe checkout
   window._abSelViews = null;
   window._abSelCamp  = null;
   _abRenderStep1();
@@ -22301,6 +22301,21 @@ function renderExportCAPreview() {
   body.innerHTML = h;
 }
 
+function _slugName(s) {
+  return String(s || 'Client')
+    .replace(/[^A-Za-z0-9 ]/g, '')
+    .trim()
+    .replace(/\s+/g, '_')
+    .slice(0, 30);
+}
+
+function _caPdfName(inv, serial) {
+  if (!inv || !inv.pdf_url) return '';
+  var slug = _slugName(inv.client_business || inv.client_name || 'Client');
+  var amt  = Math.round(parseFloat(inv.total) || 0);
+  return serial + '_' + (inv.invoice_number || 'Invoice') + '_' + slug + '_' + amt + '.pdf';
+}
+
 function _buildCAWorkbook(invs, rangeLabel) {
   var wb = XLSX.utils.book_new();
   wb.Props = { Title:'Adviuz Sales Report', Author:'Instad Web Services Ltd', CreatedDate:new Date() };
@@ -22393,11 +22408,11 @@ function _buildCAWorkbook(invs, rangeLabel) {
   XLSX.utils.book_append_sheet(wb, ws2, 'Tax Return Numbers');
 
   var s3 = [[
-    'Invoice #','Date','Client','Business','Province',
+    '#','Invoice #','Date','Client','Business','Province',
     'Subtotal','GST','PST/QST','HST','Total','Amount Paid','Amount Due','Payment Method','Status','PDF Filename'
   ]];
   invs.forEach(function(i){
-    var pdfName = i.pdf_url ? (i.pdf_url.split('/').pop() || '') : '(missing)';
+    var pdfName = i._caFilename || (i.pdf_url ? (i.pdf_url.split('/').pop() || '') : '(missing)');
     var invTot  = parseFloat(i.total || 0);
     // amount_paid falls back to total when status is 'paid' but the column is empty
     var amtPaid = (i.amount_paid != null && i.amount_paid !== '')
@@ -22405,6 +22420,7 @@ function _buildCAWorkbook(invs, rangeLabel) {
       : ((i.payment_status||'').toLowerCase() === 'paid' ? invTot : 0);
     var amtDue = Math.max(0, invTot - amtPaid);
     s3.push([
+      i._serial || '',
       i.invoice_number || '',
       (i.invoice_date || '').slice(0,10),
       i.client_name || '',
@@ -22424,6 +22440,7 @@ function _buildCAWorkbook(invs, rangeLabel) {
   });
   var ws3 = XLSX.utils.aoa_to_sheet(s3);
   ws3['!cols'] = [
+    {wch:5},
     {wch:16},{wch:12},{wch:22},{wch:26},{wch:8},
     {wch:12},{wch:10},{wch:10},{wch:10},{wch:12},{wch:13},{wch:12},{wch:14},{wch:11},{wch:44}
   ];
@@ -22444,8 +22461,27 @@ async function generateCAExport() {
   if (!btn || !body) return;
 
   var pack = _caFilterInvsForPeriod();
-  var invs = pack.invs, _r = pack.range;
-  if (!invs.length) { showToast('No invoices in this period'); return; }
+  var _r = pack.range;
+  if (!pack.invs.length) { showToast('No invoices in this period'); return; }
+
+  // Sort by invoice date ASC (oldest first) so serials align with chronology,
+  // then enrich each with _serial + _caFilename. Safe local copies — does not
+  // mutate _adminData.invoices.
+  var raw = pack.invs.slice().sort(function(a, b){
+    var da = (a.invoice_date || a.created_at || '');
+    var db = (b.invoice_date || b.created_at || '');
+    if (da < db) return -1;
+    if (da > db) return 1;
+    return (a.invoice_number || '').localeCompare(b.invoice_number || '');
+  });
+  var pad = Math.max(2, String(raw.length).length);
+  var invs = raw.map(function(inv, idx){
+    var serial = String(idx + 1).padStart(pad, '0');
+    return Object.assign({}, inv, {
+      _serial:     serial,
+      _caFilename: _caPdfName(inv, serial)
+    });
+  });
 
   if (typeof XLSX === 'undefined' || typeof JSZip === 'undefined') {
     showToast('Export tools still loading \u2014 try again in a moment');
@@ -22476,7 +22512,8 @@ async function generateCAExport() {
         var resp = await fetch(inv.pdf_url);
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         var buf = await resp.arrayBuffer();
-        var fname = inv.pdf_url.split('/').pop() || (inv.invoice_number + '.pdf');
+        // Use the pre-computed standardized filename (serial_invoice_business_amount.pdf)
+        var fname = inv._caFilename || (inv.pdf_url.split('/').pop() || (inv.invoice_number + '.pdf'));
         pdfsFolder.file(fname, buf);
       } catch (e) {
         console.warn('[CA export] skipped PDF', inv.invoice_number, e.message);
