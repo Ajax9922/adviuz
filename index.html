@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-08 caexport-6</title>
+<title>Adviuz Hub · v2026-07-08 accountant-1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3434,7 +3434,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-08 caexport-6';
+var APP_VERSION = 'v2026-07-08 accountant-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -16718,7 +16718,7 @@ function openAddBalanceSheet(){
     openSheet('addBalanceSh');
     return;
   }
-  // v2026-07-08 caexport-6: 2-step flow — bundle → campaign → server-priced Stripe checkout
+  // v2026-07-08 accountant-1: 2-step flow — bundle → campaign → server-priced Stripe checkout
   window._abSelViews = null;
   window._abSelCamp  = null;
   _abRenderStep1();
@@ -17601,6 +17601,18 @@ function openPartnersManager() {
 
 var _adminData = { clients:[], campaigns:[], allLeads:[], affiliates:[], commissions:[], quotes:[], invoices:[] };
 
+// Task 2: Accountant settings row loaded from app_settings.key='accountant'.
+// Structure: { ca_name, ca_firm, ca_email, cc_emails:[...], auto_approve:bool, review_delay_hours:int }
+window._accountantSettings = window._accountantSettings || null;
+window._accountantDefaults = {
+  ca_name: 'Humayun Chaudhary',
+  ca_firm: 'Indus Canada CPA',
+  ca_email: 'info@induscanadacpa.ca',
+  cc_emails: ['induscpa@gmail.com', 'sales@adviuz.ca'],
+  auto_approve: false,
+  review_delay_hours: 48
+};
+
 // Invoice tab: date-range filter. Default = last_quarter (the period you file at CRA/SK PST time).
 window._invPeriodFilter = window._invPeriodFilter || 'last_quarter';
 window._invCustomFrom   = window._invCustomFrom   || '';
@@ -17609,6 +17621,7 @@ var _adminLoaded = false;
 window._adminDashTab = 'clients';
 
 async function loadAdminData() {
+  loadAccountantSettings(); // Task 2: fetch CA settings in parallel
   try {
     var [cRes, campRes, lRes, affRes, commRes, pcRes, lrRes, qRes, invRes] = await Promise.all([
       sbFetch('/rest/v1/clients?select=*&order=created_at.desc&limit=200'),
@@ -22628,6 +22641,7 @@ function adInvoicesHTML() {
   h += '<div style="display:flex;align-items:center;justify-content:space-between;margin:18px 0 6px;gap:8px">'
     + '<div style="font-size:16px;font-weight:800;color:var(--text)">Tax Invoices</div>'
     + '<div style="display:flex;gap:6px">'
+    +   '<button onclick="openAccountantSheet()" title="Accountant settings" style="padding:7px 10px;border-radius:9px;background:var(--white);border:1.5px solid var(--border);color:var(--text);font-family:var(--f);font-size:14px;font-weight:700;cursor:pointer">\u2699\uFE0F</button>'
     +   '<button onclick="openExportForCASheet()" style="padding:7px 12px;border-radius:9px;background:var(--white);border:1.5px solid var(--border);color:var(--text);font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">\uD83D\uDCE6 Export for CA</button>'
     +   '<button onclick="openCreateInvoiceSheet()" style="padding:7px 14px;border-radius:9px;background:var(--navy,#001f3f);border:none;color:#fff;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">+ New</button>'
     + '</div>'
@@ -22876,10 +22890,198 @@ async function markQuotePaid(quoteId) {
 // with data-action="<fnName:arg>" gets handled here. Functions are also
 // explicitly placed on window so HTML-attribute onclick always resolves.
 // ════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
+// ACCOUNTANT SETTINGS (Task 2) — stored in app_settings.key='accountant'
+// ════════════════════════════════════════════════════════════
+
+function _accSettings() {
+  return window._accountantSettings || window._accountantDefaults;
+}
+
+function openAccountantSheet() {
+  renderAccountantForm();
+  openSheet('accountantSh');
+}
+
+function renderAccountantForm() {
+  var v = _accSettings();
+  var body = document.getElementById('accountantBody');
+  if (!body) return;
+
+  var esc = function(x){ return String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
+  var ccStr = Array.isArray(v.cc_emails) ? v.cc_emails.join(', ') : (v.cc_emails || '');
+  var autoOn = !!v.auto_approve;
+  var hrs = Number(v.review_delay_hours) || 48;
+
+  var h = '';
+  // Intro
+  h += '<div style="font-size:13px;color:var(--sub);margin-bottom:16px;line-height:1.5">'
+    +    'These details are used when quarterly sales reports are sent to your CA. Nothing sends automatically until you turn on Auto-approval (below).'
+    +  '</div>';
+
+  // CA Name
+  h += '<label class="flbl" style="display:block;margin-bottom:6px;font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.06em;text-transform:uppercase">CA Name</label>'
+    +  '<input class="finp" id="accName" type="text" value="' + esc(v.ca_name) + '" placeholder="Full name" style="width:100%;padding:12px;border:1.5px solid var(--border);border-radius:10px;background:var(--white);font-size:14px;margin-bottom:14px;font-family:var(--f)">';
+
+  // Firm
+  h += '<label class="flbl" style="display:block;margin-bottom:6px;font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.06em;text-transform:uppercase">Firm</label>'
+    +  '<input class="finp" id="accFirm" type="text" value="' + esc(v.ca_firm) + '" placeholder="Firm name" style="width:100%;padding:12px;border:1.5px solid var(--border);border-radius:10px;background:var(--white);font-size:14px;margin-bottom:14px;font-family:var(--f)">';
+
+  // CA Email
+  h += '<label class="flbl" style="display:block;margin-bottom:6px;font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.06em;text-transform:uppercase">CA Email <span style="color:var(--red,#cc0000)">*</span></label>'
+    +  '<input class="finp" id="accEmail" type="email" value="' + esc(v.ca_email) + '" placeholder="name@firm.ca" style="width:100%;padding:12px;border:1.5px solid var(--border);border-radius:10px;background:var(--white);font-size:14px;margin-bottom:14px;font-family:var(--f)">';
+
+  // CC Emails
+  h += '<label class="flbl" style="display:block;margin-bottom:6px;font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.06em;text-transform:uppercase">CC Emails</label>'
+    +  '<input class="finp" id="accCc" type="text" value="' + esc(ccStr) + '" placeholder="email1@x.com, email2@x.com" style="width:100%;padding:12px;border:1.5px solid var(--border);border-radius:10px;background:var(--white);font-size:14px;margin-bottom:4px;font-family:var(--f)">'
+    +  '<div style="font-size:11px;color:var(--sub);margin-bottom:14px;line-height:1.4">Separate multiple emails with a comma.</div>';
+
+  // Auto-approval toggle (custom, matching existing pattern)
+  h += '<div style="background:var(--bg);border-radius:12px;padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:12px">'
+    +   '<div style="flex:1;min-width:0">'
+    +     '<div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px">Auto-approval</div>'
+    +     '<div style="font-size:12px;color:var(--sub);line-height:1.4">When ON, quarterly reports are emailed automatically after the review delay. Recommended OFF until tested end-to-end.</div>'
+    +   '</div>'
+    +   '<div id="accAutoTog" onclick="this.classList.toggle(\'on\')" class="' + (autoOn ? 'on' : '') + '" '
+    +     'style="width:44px;height:24px;border-radius:14px;background:' + (autoOn ? 'var(--green)' : '#d1d5db') + ';position:relative;cursor:pointer;flex-shrink:0;transition:background .18s">'
+    +     '<div style="position:absolute;top:2px;left:' + (autoOn ? '22px' : '2px') + ';width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:left .18s"></div>'
+    +   '</div>'
+    +  '</div>';
+
+  // Review delay
+  h += '<label class="flbl" style="display:block;margin-bottom:6px;font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.06em;text-transform:uppercase">Review Delay (hours)</label>'
+    +  '<input class="finp" id="accDelay" type="number" min="0" max="720" step="1" value="' + hrs + '" style="width:100%;padding:12px;border:1.5px solid var(--border);border-radius:10px;background:var(--white);font-size:14px;margin-bottom:4px;font-family:var(--f)">'
+    +  '<div style="font-size:11px;color:var(--sub);margin-bottom:6px;line-height:1.4">How long after quarter-end to wait before flagging the report. 48 hours gives room for last-minute invoice corrections.</div>';
+
+  body.innerHTML = h;
+
+  // Toggle-click handler: swap background + thumb position without full re-render
+  var tog = document.getElementById('accAutoTog');
+  if (tog) {
+    tog.addEventListener('click', function(){
+      var on = tog.classList.contains('on');
+      tog.style.background = on ? 'var(--green)' : '#d1d5db';
+      var thumb = tog.firstElementChild;
+      if (thumb) thumb.style.left = on ? '22px' : '2px';
+    });
+  }
+}
+
+function _accReadForm() {
+  var n = (document.getElementById('accName')  || {}).value || '';
+  var f = (document.getElementById('accFirm')  || {}).value || '';
+  var e = (document.getElementById('accEmail') || {}).value || '';
+  var c = (document.getElementById('accCc')    || {}).value || '';
+  var d = parseInt((document.getElementById('accDelay') || {}).value || '48', 10);
+  var tog = document.getElementById('accAutoTog');
+  var autoOn = tog ? tog.classList.contains('on') : false;
+  var ccArr = String(c).split(/[,;\s]+/).map(function(x){return x.trim();}).filter(Boolean);
+  return {
+    ca_name:            String(n).trim(),
+    ca_firm:            String(f).trim(),
+    ca_email:           String(e).trim(),
+    cc_emails:          ccArr,
+    auto_approve:       !!autoOn,
+    review_delay_hours: (isFinite(d) && d >= 0 && d <= 720) ? d : 48
+  };
+}
+
+function _accValidEmail(x) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(x||'').trim());
+}
+
+async function saveAccountantSettings(btn) {
+  var v = _accReadForm();
+  if (!v.ca_email) { showToast('CA email is required'); return; }
+  if (!_accValidEmail(v.ca_email)) { showToast('CA email does not look valid'); return; }
+  var badCC = v.cc_emails.find(function(x){ return !_accValidEmail(x); });
+  if (badCC) { showToast('CC email "' + badCC + '" is not valid'); return; }
+
+  if (btn) { btn.disabled = true; btn.style.opacity = '.6'; btn.textContent = 'Saving\u2026'; }
+  try {
+    var res = await sbFetch('/rest/v1/app_settings', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ key: 'accountant', value: v, updated_at: new Date().toISOString() })
+    });
+    if (res.ok) {
+      window._accountantSettings = v;
+      showToast('\u2705 Accountant settings saved');
+      closeSheet('accountantSh');
+    } else {
+      showToast('Could not save \u2014 please try again');
+    }
+  } catch(e) {
+    showToast('Could not save \u2014 please try again');
+  }
+  if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.textContent = 'Save'; }
+}
+
+async function sendAccountantTestEmail(btn) {
+  var v = _accReadForm();
+  if (!v.ca_email || !_accValidEmail(v.ca_email)) {
+    showToast('Enter a valid CA email first');
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.style.opacity = '.6'; btn.textContent = 'Sending\u2026'; }
+  try {
+    var subj = 'Adviuz \u2014 Test Email from Ajax';
+    var greeting = v.ca_name ? ('Hi ' + v.ca_name + ',') : 'Hello,';
+    var html = '<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px">'
+      +   '<h2 style="margin:0 0 12px;color:#001f3f">\u2699\ufe0f Test Email from Adviuz</h2>'
+      +   '<p style="margin:0 0 12px;font-size:14px;color:#333;line-height:1.6">' + greeting + '</p>'
+      +   '<p style="margin:0 0 12px;font-size:14px;color:#333;line-height:1.6">This is a test message to confirm your email address is correctly configured to receive quarterly sales reports from Adviuz Hub.</p>'
+      +   '<p style="margin:0 0 12px;font-size:14px;color:#333;line-height:1.6">You do not need to reply. If you received this, everything is working.</p>'
+      +   '<p style="margin:20px 0 0;font-size:13px;color:#666">\u2014 Ajay Sheria<br>Instad Web Services Ltd</p>'
+      + '</div>';
+    var body = {
+      to:         v.ca_email,
+      cc:         v.cc_emails,
+      subject:    subj,
+      type:       'transactional',
+      from_email: 'accounts@adviuz.com',
+      from_name:  'Adviuz Accounts',
+      reply_to:   'sales@adviuz.ca',
+      html:       html
+    };
+    var res = await sbFetch('/functions/v1/send-email', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+    if (res.ok) {
+      showToast('\u2705 Test email sent to ' + v.ca_email);
+    } else {
+      var errTxt = '';
+      try { errTxt = (await res.json()).error || ''; } catch(_e) {}
+      showToast(errTxt ? ('Send failed: ' + errTxt) : 'Send failed \u2014 please try again');
+    }
+  } catch(e) {
+    showToast('Network error \u2014 could not send');
+  }
+  if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.textContent = 'Send test email'; }
+}
+
+async function loadAccountantSettings() {
+  try {
+    var res = await sbFetch('/rest/v1/app_settings?key=eq.accountant&select=value');
+    if (res.ok) {
+      var arr = await res.json();
+      if (arr && arr[0] && arr[0].value) {
+        window._accountantSettings = Object.assign({}, window._accountantDefaults, arr[0].value);
+        return;
+      }
+    }
+  } catch(e) { /* fall through to defaults */ }
+  window._accountantSettings = Object.assign({}, window._accountantDefaults);
+}
+
 window.openAddBalanceSheet      = openAddBalanceSheet;
 window.setInvPeriod             = setInvPeriod;
 window.openExportForCASheet     = openExportForCASheet;
 window.generateCAExport         = generateCAExport;
+window.openAccountantSheet      = openAccountantSheet;
+window.saveAccountantSettings   = saveAccountantSettings;
+window.sendAccountantTestEmail  = sendAccountantTestEmail;
 window.openInvCustomRange       = openInvCustomRange;
 window.applyInvCustomRange      = applyInvCustomRange;
 window.clearInvCustomRange      = clearInvCustomRange;
@@ -23043,6 +23245,24 @@ document.addEventListener('click', function(ev){
 </div>
 
 <!-- ════════════════════════════ EXPORT FOR CA SHEET ════════════════════════════ -->
+<!-- ════════════════════════ ACCOUNTANT SETTINGS SHEET ════════════════════════ -->
+<div class="sheet-ov" id="accountantSh" onclick="if(event.target===this)closeSheet('accountantSh')" style="z-index:785">
+  <div class="sheet" style="max-height:92dvh">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">⚙️ Accountant Settings</div>
+      <button class="sheet-x" onclick="closeSheet('accountantSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" style="padding:16px" id="accountantBody">
+      <!-- rendered by renderAccountantForm() -->
+    </div>
+    <div class="sh-foot">
+      <button class="btn btn-ghost" onclick="sendAccountantTestEmail(this)" style="flex:1">Send test email</button>
+      <button class="btn btn-dark" onclick="saveAccountantSettings(this)" style="flex:1;justify-content:center">Save</button>
+    </div>
+  </div>
+</div>
+
 <div class="sheet-ov" id="exportCASh" onclick="if(event.target===this)closeSheet('exportCASh')" style="z-index:785">
   <div class="sheet" style="max-height:88dvh">
     <div class="sheet-handle"></div>
