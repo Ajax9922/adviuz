@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-08 careview-1</title>
+<title>Adviuz Hub · v2026-07-08 history-1</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3434,7 +3434,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-08 careview-1';
+var APP_VERSION = 'v2026-07-08 history-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -16718,7 +16718,7 @@ function openAddBalanceSheet(){
     openSheet('addBalanceSh');
     return;
   }
-  // v2026-07-08 careview-1: 2-step flow — bundle → campaign → server-priced Stripe checkout
+  // v2026-07-08 history-1: 2-step flow — bundle → campaign → server-priced Stripe checkout
   window._abSelViews = null;
   window._abSelCamp  = null;
   _abRenderStep1();
@@ -22645,6 +22645,7 @@ function adInvoicesHTML() {
     + '<div style="font-size:16px;font-weight:800;color:var(--text)">Tax Invoices</div>'
     + '<div style="display:flex;gap:6px">'
     +   '<button onclick="openAccountantSheet()" title="Accountant settings" style="padding:7px 10px;border-radius:9px;background:var(--white);border:1.5px solid var(--border);color:var(--text);font-family:var(--f);font-size:14px;font-weight:700;cursor:pointer">\u2699\uFE0F</button>'
+    +   '<button onclick="openCaHistorySheet()" title="Reports history" style="padding:7px 10px;border-radius:9px;background:var(--white);border:1.5px solid var(--border);color:var(--text);font-family:var(--f);font-size:14px;font-weight:700;cursor:pointer">\uD83D\uDCDC</button>'
     +   '<button onclick="openExportForCASheet()" style="padding:7px 12px;border-radius:9px;background:var(--white);border:1.5px solid var(--border);color:var(--text);font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">\uD83D\uDCE6 Export for CA</button>'
     +   '<button onclick="openCreateInvoiceSheet()" style="padding:7px 14px;border-radius:9px;background:var(--navy,#001f3f);border:none;color:#fff;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">+ New</button>'
     + '</div>'
@@ -23345,6 +23346,122 @@ window.openCaReviewByPushId = function(caReportId) {
   }, 600);
 };
 
+// ══════════════════════════════════════════════════════════════
+// TASK 3e: CA Reports History sheet — audit trail of every quarterly report
+// ══════════════════════════════════════════════════════════════
+function openCaHistorySheet() {
+  openSheet('caHistorySh');
+  loadAndRenderCaHistory();
+}
+
+async function loadAndRenderCaHistory() {
+  var body = document.getElementById('caHistoryBody');
+  if (!body) return;
+  body.innerHTML = '<div style="text-align:center;color:var(--sub);padding:24px;font-size:14px">Loading\u2026</div>';
+  try {
+    var res = await sbFetch('/rest/v1/ca_reports?select=*&order=period_end.desc&limit=50');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    var rows = await res.json();
+    renderCaHistory(rows || []);
+  } catch(e) {
+    body.innerHTML = '<div style="text-align:center;color:var(--red,#cc0000);padding:24px;font-size:13px">Could not load history \u2014 pull down to retry</div>';
+  }
+}
+
+function renderCaHistory(rows) {
+  var body = document.getElementById('caHistoryBody');
+  if (!body) return;
+  var esc = function(x){ return String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
+
+  if (!rows.length) {
+    body.innerHTML = '<div style="text-align:center;color:var(--sub);padding:40px 20px;font-size:14px;line-height:1.6">No quarterly reports yet.<br><span style="font-size:12px">Reports appear here after each quarter ends.</span></div>';
+    return;
+  }
+
+  // Status badge config
+  var badges = {
+    pending_review: { color:'#92400e', bg:'#fef3c7', icon:'\u23F0', label:'Pending' },
+    approved:       { color:'#1e40af', bg:'#dbeafe', icon:'\u2713',  label:'Approved' },
+    sent:           { color:'#065f46', bg:'#d1fae5', icon:'\u2705', label:'Sent' },
+    rejected:       { color:'#991b1b', bg:'#fee2e2', icon:'\u274C', label:'Rejected' },
+    failed:         { color:'#7c2d12', bg:'#fed7aa', icon:'\u26A0', label:'Failed' }
+  };
+
+  var h = '';
+  h += '<div style="font-size:12px;color:var(--sub);margin-bottom:14px;line-height:1.5">Every quarterly report that has been created, sent, or rejected. Audit trail for your records.</div>';
+
+  rows.forEach(function(r) {
+    var b = badges[r.status] || { color:'#666', bg:'#f3f4f6', icon:'?', label:esc(r.status||'') };
+    var sentDate = r.sent_at ? new Date(r.sent_at).toLocaleDateString('en-CA', {year:'numeric',month:'short',day:'numeric',timeZone:'America/Regina'}) : '';
+
+    h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:10px">';
+
+    // Header row: quarter + status badge
+    h +=   '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">';
+    h +=     '<div style="font-size:15px;font-weight:800;color:var(--text)">' + esc(r.quarter) + '</div>';
+    h +=     '<div style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:20px;background:' + b.bg + ';color:' + b.color + ';white-space:nowrap">' + b.icon + ' ' + b.label + '</div>';
+    h +=   '</div>';
+
+    // Period
+    h +=   '<div style="font-size:12px;color:var(--sub);margin-bottom:6px">' + esc(r.period_start) + ' \u2192 ' + esc(r.period_end) + '</div>';
+
+    // Status-specific detail
+    if (r.status === 'sent') {
+      h += '<div style="font-size:12px;color:var(--sub);line-height:1.5">';
+      if (sentDate) h += 'Sent ' + sentDate;
+      if (r.sent_to) h += (sentDate ? ' \u00B7 ' : '') + 'to ' + esc(r.sent_to);
+      h += '</div>';
+      if (r.invoice_count != null || r.total_sales != null) {
+        h += '<div style="font-size:12px;color:var(--sub);margin-top:2px">';
+        if (r.invoice_count != null) h += (r.invoice_count) + ' invoice' + (r.invoice_count === 1 ? '' : 's');
+        if (r.total_sales != null)   h += (r.invoice_count != null ? ' \u00B7 ' : '') + '$' + fmtCAD(parseFloat(r.total_sales));
+        h += '</div>';
+      }
+      // Actions: Download + Copy link
+      if (r.zip_url) {
+        var safeUrl = esc(r.zip_url);
+        h += '<div style="display:flex;gap:6px;margin-top:10px">';
+        h +=   '<a href="' + safeUrl + '" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:8px 12px;border-radius:8px;background:var(--navy,#001f3f);color:#fff;text-decoration:none;font-family:var(--f);font-size:12px;font-weight:700">\uD83D\uDCE5 Download ZIP</a>';
+        h +=   '<button onclick="caHistoryCopyUrl(\'' + safeUrl.replace(/'/g,"\\'") + '\', this)" style="padding:8px 12px;border-radius:8px;background:var(--white);border:1.5px solid var(--border);color:var(--text);font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">\uD83D\uDD17 Copy link</button>';
+        h += '</div>';
+      }
+    } else if (r.status === 'rejected') {
+      h += '<div style="font-size:12px;color:var(--sub);line-height:1.5">' + (r.notes ? 'Reason: ' + esc(r.notes) : 'No reason recorded') + '</div>';
+    } else if (r.status === 'pending_review') {
+      h += '<div style="font-size:12px;color:#92400e;line-height:1.5;margin-bottom:8px">Awaiting your review</div>';
+      h += '<button onclick="closeSheet(\'caHistorySh\');openCaReviewSheet(\'' + esc(r.id) + '\')" style="width:100%;padding:8px 12px;border-radius:8px;background:#78350f;color:#fff;border:none;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">Open Review</button>';
+    } else if (r.status === 'failed') {
+      h += '<div style="font-size:12px;color:#7c2d12;line-height:1.5">' + (r.notes ? esc(r.notes) : 'Send failed \u2014 check logs') + '</div>';
+    }
+
+    h += '</div>';
+  });
+
+  body.innerHTML = h;
+}
+
+function caHistoryCopyUrl(url, btn) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function() {
+        if (btn) { var orig = btn.innerHTML; btn.innerHTML = '\u2705 Copied'; setTimeout(function(){ btn.innerHTML = orig; }, 1500); }
+        showToast('Link copied to clipboard');
+      });
+    } else {
+      // Fallback
+      var t = document.createElement('textarea');
+      t.value = url;
+      document.body.appendChild(t);
+      t.select();
+      document.execCommand('copy');
+      document.body.removeChild(t);
+      showToast('Link copied');
+    }
+  } catch(e) {
+    showToast('Copy failed \u2014 try tapping and holding the link instead');
+  }
+}
+
 window.openAddBalanceSheet      = openAddBalanceSheet;
 window.setInvPeriod             = setInvPeriod;
 window.openExportForCASheet     = openExportForCASheet;
@@ -23356,6 +23473,8 @@ window.sendCaReportNow          = sendCaReportNow;
 window.snoozeCaReport           = snoozeCaReport;
 window.openCaRejectSheet        = openCaRejectSheet;
 window.submitCaReject           = submitCaReject;
+window.openCaHistorySheet       = openCaHistorySheet;
+window.caHistoryCopyUrl         = caHistoryCopyUrl;
 window.saveAccountantSettings   = saveAccountantSettings;
 window.sendAccountantTestEmail  = sendAccountantTestEmail;
 window.openInvCustomRange       = openInvCustomRange;
@@ -23523,6 +23642,20 @@ document.addEventListener('click', function(ev){
 <!-- ════════════════════════════ EXPORT FOR CA SHEET ════════════════════════════ -->
 <!-- ════════════════════════ ACCOUNTANT SETTINGS SHEET ════════════════════════ -->
 <!-- ══════════════════════ CA REPORT REVIEW SHEET ══════════════════════ -->
+<!-- ════════════════════ CA REPORTS HISTORY SHEET ════════════════════ -->
+<div class="sheet-ov" id="caHistorySh" onclick="if(event.target===this)closeSheet('caHistorySh')" style="z-index:786">
+  <div class="sheet" style="max-height:92dvh">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">📜 Reports History</div>
+      <button class="sheet-x" onclick="closeSheet('caHistorySh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" style="padding:16px" id="caHistoryBody">
+      <div style="text-align:center;color:var(--sub);padding:24px;font-size:14px">Loading…</div>
+    </div>
+  </div>
+</div>
+
 <div class="sheet-ov" id="caReviewSh" onclick="if(event.target===this)closeSheet('caReviewSh')" style="z-index:786">
   <div class="sheet" style="max-height:92dvh">
     <div class="sheet-handle"></div>
