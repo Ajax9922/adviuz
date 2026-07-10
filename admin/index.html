@@ -334,6 +334,9 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
 .topup-views{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--brand);}
 .topup-price{font-size:13px;color:var(--muted);margin-top:2px;}
 .topup-tag{font-size:10px;font-weight:700;color:var(--brand);text-transform:uppercase;letter-spacing:0.06em;margin-top:4px;}
+.addbal-chip{padding:12px 8px;border:2px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);font-size:15px;font-weight:800;font-family:var(--font);cursor:pointer;transition:.15s;}
+.addbal-chip:hover{border-color:var(--brand);}
+.addbal-chip.sel{border-color:var(--brand);background:var(--brand-light);color:var(--brand);}
 /* ── TOAST ── */
 .toast{
   position:fixed;bottom:24px;right:24px;z-index:200;
@@ -4961,6 +4964,7 @@ async function deleteCustomField(id){
 
 function openEditCampaign(btn) {
   window._editCampaignId = btn.dataset.id;
+  var _remain = Math.max(0, (parseInt(btn.dataset.budget||0,10)||0) - (parseInt(btn.dataset.used||0,10)||0));
   var modal = '<div class="modal-overlay open" id="editCampaignModal" onclick="if(event.target===this)this.remove()">'
     + '<div class="modal" style="max-width:480px">'
     + '<div class="modal-head"><div class="modal-title">Edit campaign</div>'
@@ -4974,6 +4978,28 @@ function openEditCampaign(btn) {
     + '<div class="form-group"><label class="fld">Views used (editable)</label>'
     + '<input class="fld" type="number" id="ecam-used" value="' + btn.dataset.used + '">'
     + '<div style="font-size:11px;color:var(--muted);margin-top:4px">Set to 0 to remove test views</div></div>'
+    + '</div>'
+    + '<div class="form-group" style="margin-top:2px">'
+    +   '<label class="fld">Balance remaining</label>'
+    +   '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+    +     '<div id="ecam-remaining" style="font-size:20px;font-weight:800;color:var(--brand)">' + _remain.toLocaleString() + ' views</div>'
+    +     '<button type="button" class="tbl-btn primary" onclick="toggleAddBalance()" style="margin-left:auto">+ Add Balance</button>'
+    +   '</div>'
+    +   '<div id="ecam-addbal" style="display:none;margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:12px;background:var(--surface)">'
+    +     '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Choose an amount to add. It is recorded as a new top-up.</div>'
+    +     '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">'
+    +       '<button type="button" class="addbal-chip" onclick="pickAddBal(this,200)">200</button>'
+    +       '<button type="button" class="addbal-chip" onclick="pickAddBal(this,500)">500</button>'
+    +       '<button type="button" class="addbal-chip" onclick="pickAddBal(this,1000)">1,000</button>'
+    +       '<button type="button" class="addbal-chip" onclick="pickAddBal(this,2500)">2,500</button>'
+    +       '<button type="button" class="addbal-chip" onclick="pickAddBal(this,5000)">5,000</button>'
+    +       '<button type="button" class="addbal-chip" onclick="pickAddBal(this,10000)">10,000</button>'
+    +     '</div>'
+    +     '<div style="display:flex;gap:8px;align-items:flex-end">'
+    +       '<div class="form-group" style="flex:1;margin:0"><label class="fld">Custom views</label><input class="fld" type="number" id="ecam-addbal-custom" placeholder="e.g. 750" oninput="clearAddBalChips()"></div>'
+    +       '<button type="button" class="tbl-btn primary" id="ecam-addbal-go" onclick="doAddBalance()">Add</button>'
+    +     '</div>'
+    +   '</div>'
     + '</div>'
     + '<div class="form-group"><label class="fld">Status</label>'
     + '<select class="fld" id="ecam-status">'
@@ -5390,6 +5416,52 @@ async function sendCapiTestLead() {
     if (out) { out.style.color = 'var(--danger)'; out.textContent = '\u274C ' + (e && e.message ? e.message : String(e)); }
   }
   if (btn) { btn.disabled = false; btn.innerHTML = '\uD83E\uDDEA Send test lead (no client notified)'; }
+}
+function toggleAddBalance(){
+  var pnl=document.getElementById('ecam-addbal');
+  if(pnl) pnl.style.display=(pnl.style.display==='none'||!pnl.style.display)?'block':'none';
+}
+function clearAddBalChips(){
+  var els=document.querySelectorAll('#ecam-addbal .addbal-chip.sel');
+  for(var i=0;i<els.length;i++) els[i].classList.remove('sel');
+}
+function pickAddBal(btn, v){
+  clearAddBalChips();
+  if(btn) btn.classList.add('sel');
+  var c=document.getElementById('ecam-addbal-custom'); if(c) c.value=v;
+}
+async function doAddBalance(){
+  var id=window._editCampaignId;
+  var input=document.getElementById('ecam-addbal-custom');
+  var views=parseInt((input&&input.value)||'0',10);
+  if(!id){ toast('No campaign selected'); return; }
+  if(!views||views<=0){ toast('Enter how many views to add'); return; }
+  if(views>1000000){ toast('That amount looks too large'); return; }
+  var go=document.getElementById('ecam-addbal-go');
+  if(go){ go.disabled=true; go.textContent='Adding\u2026'; }
+  try{
+    var r=await sbAdmin('/rest/v1/rpc/credit_campaign_budget', {
+      method:'POST', headers:{ Prefer:'return=minimal' },
+      body: JSON.stringify({ p_campaign_id:id, p_views:views })
+    });
+    if(!r.ok){ var et=await r.text(); throw new Error(et||'Add failed'); }
+    var bEl=document.getElementById('ecam-budget');
+    var newBudget=(parseInt((bEl&&bEl.value)||'0',10)||0)+views;
+    if(bEl) bEl.value=newBudget;
+    var usedEl=document.getElementById('ecam-used');
+    var usedNow=parseInt((usedEl&&usedEl.value)||'0',10)||0;
+    var remEl=document.getElementById('ecam-remaining');
+    if(remEl) remEl.textContent=(Math.max(0,newBudget-usedNow)).toLocaleString()+' views';
+    var cam=(window._allCampaigns||[]).find(function(c){ return String(c.id)===String(id); });
+    if(cam) cam.view_budget=newBudget;
+    clearAddBalChips(); if(input) input.value='';
+    var pnl=document.getElementById('ecam-addbal'); if(pnl) pnl.style.display='none';
+    toast('\u2705 Added '+views.toLocaleString()+' views \u2014 balance updated');
+  }catch(err){
+    toast('Could not add balance: '+((err&&err.message)||err));
+  }finally{
+    if(go){ go.disabled=false; go.textContent='Add'; }
+  }
 }
 async function saveCampaignEdit() {
   var id     = window._editCampaignId;
