@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-09 proposal-rich-9</title>
+<title>Adviuz Hub · v2026-07-09 proposal-rich-10</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3453,7 +3453,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-09 proposal-rich-9';
+var APP_VERSION = 'v2026-07-09 proposal-rich-10';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -4797,6 +4797,8 @@ function mapLead(l, i) {
     // Custom-field support: raw jsonb bag + owning client (Phase 2/3)
     form_fields:   l.form_fields || {},
     client_id:     l.client_id || null,
+    proposal_pdf_url: l.proposal_pdf_url || null,
+    proposal_pdf_at:  l.proposal_pdf_at || null,
     // Post-call wrap-up + action-card fields
     call_wrapup_pending: !!l.call_wrapup_pending,
     next_followup: l.next_followup || null,
@@ -12158,13 +12160,36 @@ function openPartnerProposal(id){
   var co = l.company || l.name || '';
   var el = document.getElementById('ppCompanyName');
   if(el) el.textContent = co || 'Your business';
-  var r = document.getElementById('ppResult'); if(r){ r.style.display='none'; r.innerHTML=''; }
+  var gen = document.getElementById('ppGenBtn');
+  var r = document.getElementById('ppResult');
+  if (l.proposal_pdf_url) {
+    renderPpResult(l.proposal_pdf_url);
+    if(gen) gen.innerHTML = '↻ Generate New PDF';
+  } else {
+    window._ppLastUrl = null;
+    if(r){ r.style.display='none'; r.innerHTML=''; }
+    if(gen) gen.innerHTML = '📄 Generate Proposal PDF';
+  }
   openSheet('partnerProposalSh');
 }
 function partnerGenerateProposal(btnEl){
   window._proposalClientName = null;
   window._proposalCompanyName = null;
-  downloadProposalPdf(btnEl);
+  downloadProposalPdf(btnEl, true);
+}
+function renderPpResult(url){
+  window._ppLastUrl = url;
+  var ppr = document.getElementById('ppResult');
+  if(!ppr) return;
+  ppr.style.display = 'block';
+  ppr.innerHTML =
+    '<button type="button" onclick="ppShare()" style="width:100%;padding:13px;border-radius:12px;background:#25D366;border:none;color:#fff;font-family:var(--f);font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px">Share on WhatsApp</button>'
+  + '<a href="'+url+'" download style="display:block;text-align:center;padding:13px;border-radius:12px;background:#001f3f;color:#fff;text-decoration:none;font-size:14px;font-weight:700">⬇ Download PDF</a>';
+}
+function ppShare(){
+  var u = window._ppLastUrl || '';
+  if(!u) return;
+  window.open('https://wa.me/?text='+encodeURIComponent(u),'_blank');
 }
 
 var _emailLeadId = null;
@@ -12229,7 +12254,7 @@ var FROM_NAMES = {
 // ── PDF DOWNLOAD via PDFMonkey (reuses existing generate-invoice function) ──
 var PDFMONKEY_PROPOSAL_TEMPLATE = '60B0654A-296A-4FB6-9223-6AADAE6F9B62';
 
-async function downloadProposalPdf(btnEl) {
+async function downloadProposalPdf(btnEl, isPartner) {
   var l = _emailLeadId ? leads.find(function(x){ return x.id === _emailLeadId; }) : null;
   var clientName  = window._proposalClientName  || (l && l.name ? l.name.split(' ')[0] : '');
   var companyName = window._proposalCompanyName || (l ? l.company || l.name || '' : '');
@@ -12242,7 +12267,6 @@ async function downloadProposalPdf(btnEl) {
   if (btn) { btn.textContent = '⏳ Generating PDF...'; btn.disabled = true; }
 
   try {
-    // Reuse the existing generate-invoice edge function
     var res = await fetch(SB_URL + '/functions/v1/generate-proposal-pdf', {
       method: 'POST',
       headers: {
@@ -12253,6 +12277,7 @@ async function downloadProposalPdf(btnEl) {
       body: JSON.stringify({
         pdf_type:    'proposal',
         template_id: PDFMONKEY_PROPOSAL_TEMPLATE,
+        lead_id:     (l ? l.dbId : null),
         payload: {
           company_name: companyName || clientName,
           client_name:  clientName,
@@ -12267,12 +12292,9 @@ async function downloadProposalPdf(btnEl) {
 
     var pdfUrl = data.pdf_url || data.download_url || data.url;
     if (pdfUrl) {
-      var ppr = document.getElementById('ppResult');
-      if (ppr) {
-        ppr.style.display = 'block';
-        ppr.innerHTML =
-          '<a href="'+pdfUrl+'" target="_blank" rel="noopener" style="display:block;text-align:center;padding:13px;border-radius:12px;background:#001f3f;color:#fff;text-decoration:none;font-size:14px;font-weight:700;margin-bottom:8px">📄 Download PDF</a>'
-        + '<a href="https://wa.me/?text='+encodeURIComponent(pdfUrl)+'" target="_blank" rel="noopener" style="display:block;text-align:center;padding:13px;border-radius:12px;background:#25D366;color:#fff;text-decoration:none;font-size:14px;font-weight:700">Share on WhatsApp</a>';
+      if (isPartner) {
+        if (l) { l.proposal_pdf_url = pdfUrl; l.proposal_pdf_at = new Date().toISOString(); }
+        renderPpResult(pdfUrl);
       } else {
         window.open(pdfUrl, '_blank');
       }
@@ -12285,7 +12307,11 @@ async function downloadProposalPdf(btnEl) {
     console.error('[ProposalPDF]', e);
     showToast('PDF failed: ' + e.message);
   } finally {
-    if (btn) { btn.innerHTML = _ppOrig; btn.disabled = false; }
+    if (btn) {
+      btn.disabled = false;
+      if (isPartner) { btn.innerHTML = (l && l.proposal_pdf_url) ? '↻ Generate New PDF' : _ppOrig; }
+      else { btn.innerHTML = _ppOrig; }
+    }
   }
 }
 
