@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-10 meeting-3</title>
+<title>Adviuz Hub · v2026-07-10 meeting-4</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3456,7 +3456,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-10 meeting-3';
+var APP_VERSION = 'v2026-07-10 meeting-4';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -10227,7 +10227,7 @@ function requireLeadInfo(l, fields, actionLabel, onComplete) {
   var missing = fields.filter(function(f) {
     if (f.field === 'name')     return !l.name || l.name === l.company || l.name === 'Lead';
     if (f.field === 'em')       return !l.em;
-    if (f.field === 'location') return !l.location;
+    if (f.field === 'location') { var _lc=(l.location||'').trim(); return !_lc || _lc.toLowerCase()==='unknown'; }
     return false;
   });
 
@@ -20329,8 +20329,9 @@ async function openMeetingScreen(lid) {
   var l = leads.find(function(x){return x.id===lid;});
   if (!l) return;
 
-  // Require location for timezone
-  if (!l.location) {
+  // Require a REAL location for timezone (blank OR "Unknown" both count as missing)
+  var _mloc = (l.location||'').trim();
+  if (!_mloc || _mloc.toLowerCase()==='unknown') {
     requireLeadInfo(l,[
       {field:'location', label:'Client City / Province', placeholder:'e.g. Saskatoon, SK'}
     ], 'Meeting Booking', function(){ openMeetingScreen(lid); });
@@ -20647,10 +20648,14 @@ function renderScheduleInline(lid) {
 
   lsBody.innerHTML = h;
   document.getElementById('mt-date').value = new Date().toISOString().slice(0,10);
-  // Auto-fetch the client's province from their saved location so it's pre-selected
+  // Auto-fetch the client's province from their saved location (full name or 2-letter code)
   if (l.location) {
-    var _pm = {Alberta:'AB','British Columbia':'BC',Manitoba:'MB',Ontario:'ON',Quebec:'QC',Saskatchewan:'SK','New Brunswick':'NB','Nova Scotia':'NS',Newfoundland:'NL','Prince Edward Island':'PE'};
-    for (var _pn in _pm){ if(l.location.indexOf(_pn)>-1){ var _pel=document.getElementById('mt-province'); if(_pel)_pel.value=_pm[_pn]; break; } }
+    var _loc = String(l.location);
+    var _pm = {Alberta:'AB','British Columbia':'BC',Manitoba:'MB',Ontario:'ON','Qu\u00e9bec':'QC',Quebec:'QC',Saskatchewan:'SK','New Brunswick':'NB','Nova Scotia':'NS','Newfoundland':'NL','Prince Edward Island':'PE',PEI:'PE'};
+    var _prov = '';
+    for (var _pn in _pm){ if(_loc.toLowerCase().indexOf(_pn.toLowerCase())>-1){ _prov=_pm[_pn]; break; } }
+    if(!_prov){ var _mm=_loc.match(/\b(ON|SK|AB|BC|MB|QC|NB|NS|NL|PE)\b/i); if(_mm) _prov=_mm[1].toUpperCase(); }
+    if(_prov){ var _pel=document.getElementById('mt-province'); if(_pel)_pel.value=_prov; }
   }
   buildEmailCheckboxes();
   setupMeetingTypeForRole();
