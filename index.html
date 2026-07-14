@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-10 meeting-8</title>
+<title>Adviuz Hub · v2026-07-14 meeting-9</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3456,7 +3456,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-10 meeting-8';
+var APP_VERSION = 'v2026-07-14 meeting-9';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -20637,13 +20637,12 @@ function renderScheduleInline(lid) {
   // Meet notice
   h += '<div style="background:var(--white);padding:14px 16px;border-bottom:1px solid var(--border)">';
   h += '<div style="background:var(--greenl);border:1px solid var(--green);border-radius:10px;padding:11px 14px;font-size:12px;color:#065f46">';
-  h += '<strong>⚡ Google Meet link auto-generated</strong> — unique link created when you click Send Now</div></div>';
+  h += '<strong>⚡ Google Meet link auto-generated</strong> — created when you confirm the meeting</div></div>';
 
   // Buttons — sticky at bottom
   h += '<div style="background:var(--white);padding:14px 16px;display:flex;gap:8px;position:sticky;bottom:0;border-top:1px solid var(--border)">';
   h += '<button onclick="openMeetingScreen('+lid+')" style="flex:1;padding:13px;border-radius:10px;border:1px solid var(--border);background:var(--bg);font-family:var(--f);font-size:13px;font-weight:600;cursor:pointer;color:var(--sub)">Cancel</button>';
-  h += '<button onclick="saveMeetingDraft()" style="flex:1;padding:13px;border-radius:10px;border:1px solid var(--border);background:var(--white);font-family:var(--f);font-size:13px;font-weight:600;cursor:pointer;color:var(--text)">Schedule</button>';
-  h += '<button id="saveMeetingBtn" onclick="saveMeeting(true)" style="flex:2;padding:13px;border-radius:10px;border:none;background:var(--purple);color:#fff;font-family:var(--f);font-size:14px;font-weight:700;cursor:pointer">Send Now →</button>';
+  h += '<button id="saveMeetingBtn" onclick="openMeetingConfirm()" style="flex:2;padding:13px;border-radius:10px;border:none;background:var(--purple);color:#fff;font-family:var(--f);font-size:15px;font-weight:800;cursor:pointer">Schedule Meeting</button>';
   h += '</div>';
 
   lsBody.innerHTML = h;
@@ -20768,6 +20767,7 @@ function selectMtType(btn) {
 // ── Province → timezone offset map ─────────────────────────
 var MT_PROV_TZ = {SK:-6,AB:-7,BC:-8,MB:-6,ON:-5,QC:-5,NB:-4,NS:-4,PE:-4,NL:-3.5};
 var MT_PROV_NAMES = {SK:'Saskatchewan',AB:'Alberta',BC:'British Columbia',MB:'Manitoba',ON:'Ontario',QC:'Quebec',NB:'New Brunswick',NS:'Nova Scotia',PE:'Prince Edward Island',NL:'Newfoundland'};
+var MT_PROV_TZID = {SK:'America/Regina',AB:'America/Edmonton',BC:'America/Vancouver',MB:'America/Winnipeg',ON:'America/Toronto',QC:'America/Toronto',NB:'America/Halifax',NS:'America/Halifax',PE:'America/Halifax',NL:'America/St_Johns'};
 var MT_DST_PROVINCES = ['AB','BC','MB','ON','QC','NB','NS','PE','NL'];
 
 function getMtClientOffset(prov) {
@@ -20952,6 +20952,143 @@ function selectTimeSlot(key) {
 }
 
 // ── Save as draft ────────────────────────────────────────────
+// ── Confirm-before-send meeting flow ─────────────────────────
+function _mtEsc(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function openMeetingConfirm() {
+  var _dtEl  = document.getElementById('mt-datetime');
+  var date   = (_dtEl && _dtEl.value) ? _dtEl.value.split('T')[0] : (document.getElementById('mt-date')||{}).value;
+  var timeStr= (_dtEl && _dtEl.value) ? (_dtEl.value.split('T')[1]||'') : (document.getElementById('mt-client-time-inp')||{}).value;
+  var dur    = parseInt((document.getElementById('mt-dur')||{}).value||30);
+  var prov   = (document.getElementById('mt-province')||{}).value || 'SK';
+  var emails = getMtSelectedEmails();
+  var notes  = ((document.getElementById('mt-notes')||{}).value||'').trim();
+  var custType = ((document.getElementById('mt-type-custom')||{}).value||'').trim();
+  var mtype  = custType || (typeof _meetingType!=='undefined' && _meetingType) || 'Demo';
+
+  if (!date || !timeStr) { showToast('Please pick a date & time'); return; }
+  if (window._mtCSTH === null || window._mtCSTH === undefined) { showToast('Enter the time the client gave you'); return; }
+  if (!emails.length) { showToast('Please tick at least one email to invite'); return; }
+
+  var cstH = window._mtCSTH, cstM = window._mtCSTM || 0;
+  var tp = timeStr.split(':'); var clientH = parseInt(tp[0],10), clientM = parseInt(tp[1],10)||0;
+  var myOffset = getLoggedUserOffset();
+  var dp = date.split('-');
+  var startsAt = new Date(Date.UTC(parseInt(dp[0]),parseInt(dp[1])-1,parseInt(dp[2]), cstH - myOffset, cstM));
+  var endsAt   = new Date(startsAt.getTime() + dur*60000);
+
+  var lead = _meetingLeadId ? leads.find(function(x){return x.id===_meetingLeadId;}) : null;
+  var leadName = lead ? (lead.name||'') : '';
+  var leadCompany = lead ? (lead.company||'') : '';
+  var execEmail = (typeof currentUser!=='undefined' && currentUser) ? currentUser.email : '';
+  var execName  = (typeof currentUser!=='undefined' && currentUser) ? ((currentUser.user_metadata && currentUser.user_metadata.full_name) || currentUser.email) : '';
+  var clientTz  = (typeof MT_PROV_TZID!=='undefined' && MT_PROV_TZID[prov]) || 'America/Regina';
+
+  window._meetingPending = {
+    lead_id: _meetingLeadId || null,
+    lead_dbId: lead ? (lead.dbId||null) : null,
+    meeting_type: mtype,
+    starts_at: startsAt.toISOString(),
+    ends_at: endsAt.toISOString(),
+    duration_mins: dur,
+    guest_name: leadName, guest_company: leadCompany,
+    guest_phone: lead ? (lead.ph||'') : '',
+    guest_province: prov, client_timezone: clientTz,
+    emails: emails, exec_email: execEmail, exec_name: execName, notes: notes
+  };
+
+  var clientLabel = mtFmt12(clientH, clientM) + ' ' + mtClientTZAbbr(prov);
+  var yourLabel   = formatCSTTime(cstH, cstM) + ' ' + (typeof getLoggedUserTZLabel==='function'?getLoggedUserTZLabel():'');
+  var dateLabel   = new Date(date+'T12:00:00').toLocaleDateString('en-CA',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+
+  function row(lbl,val){ return '<div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">'
+      + '<div style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.04em">'+lbl+'</div>'
+      + '<div style="font-size:14px;font-weight:600;color:var(--text);text-align:right">'+val+'</div></div>'; }
+
+  var recipHtml = emails.map(function(e){ return '<div style="font-size:13.5px;color:var(--text);font-weight:600">'+_mtEsc(e)+'</div>'; }).join('');
+
+  var body = ''
+    + '<div style="width:40px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 14px"></div>'
+    + '<div style="font-size:19px;font-weight:800;color:var(--text);margin-bottom:3px">Confirm Meeting</div>'
+    + '<div style="font-size:12.5px;color:var(--sub);margin-bottom:14px">Review the details \u2014 nothing is sent until you confirm.</div>'
+    + row('Client', _mtEsc(leadName||leadCompany||'\u2014') + (leadCompany && leadName ? ' <span style=\"color:var(--sub);font-weight:500\">('+_mtEsc(leadCompany)+')</span>':''))
+    + row('Type', _mtEsc(mtype))
+    + row('When', dateLabel)
+    + row('Time', '<span style="color:var(--purple)">'+clientLabel+'</span> &middot; <span style="color:var(--green)">You '+yourLabel+'</span>')
+    + row('Duration', dur + ' minutes')
+    + '<div style="padding:12px 0;border-bottom:1px solid var(--border)"><div style="font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">Invite goes to</div>'+recipHtml+'</div>'
+    + row('BCC (your copy)', _mtEsc(execEmail||'\u2014'))
+    + (notes ? row('Notes', _mtEsc(notes)) : '')
+    + '<div style="background:#ecfdf5;border:1px solid var(--green);border-radius:10px;padding:11px 13px;font-size:12.5px;color:#065f46;margin:14px 0 4px">\u2705 On confirm: a Google Meet link is created, the client gets a confirmation email + calendar invite, and you\u2019re BCC\u2019d.</div>'
+    + '<div style="display:flex;gap:10px;margin-top:16px">'
+    +   '<button onclick="closeMtConfirm()" style="flex:1;padding:14px;border-radius:11px;border:1px solid var(--border);background:var(--white);font-family:var(--f);font-size:14px;font-weight:700;cursor:pointer;color:var(--text)">\u2190 Back</button>'
+    +   '<button id="mtConfirmBtn" onclick="confirmMeetingSend()" style="flex:2;padding:14px;border-radius:11px;border:none;background:var(--green);color:#fff;font-family:var(--f);font-size:15px;font-weight:800;cursor:pointer">Confirm &amp; Send</button>'
+    + '</div>';
+
+  var ov = document.getElementById('mtConfirmOv');
+  if (ov) ov.parentNode.removeChild(ov);
+  ov = document.createElement('div');
+  ov.id = 'mtConfirmOv';
+  ov.setAttribute('style','position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99999;display:flex;align-items:flex-end;justify-content:center');
+  ov.onclick = function(e){ if(e.target===ov) closeMtConfirm(); };
+  ov.innerHTML = '<div style="background:var(--white);width:100%;max-width:520px;border-radius:18px 18px 0 0;max-height:88vh;overflow:auto;box-shadow:0 -8px 30px rgba(0,0,0,.25)">'
+    + '<div style="padding:18px 18px calc(24px + env(safe-area-inset-bottom))">' + body + '</div></div>';
+  document.body.appendChild(ov);
+}
+
+function closeMtConfirm() {
+  var ov = document.getElementById('mtConfirmOv');
+  if (ov) ov.parentNode.removeChild(ov);
+}
+
+async function confirmMeetingSend() {
+  var p = window._meetingPending; if (!p) { closeMtConfirm(); return; }
+  var btn = document.getElementById('mtConfirmBtn');
+  if (btn) { btn.textContent = 'Sending\u2026'; btn.disabled = true; }
+  try {
+    var res = await sbFetch('/functions/v1/create-meeting', {
+      method: 'POST',
+      body: JSON.stringify({
+        lead_id:          p.lead_dbId || p.lead_id || null,
+        client_id:        window._clientId || null,
+        meeting_type:     p.meeting_type,
+        title:            p.meeting_type,
+        starts_at:        p.starts_at,
+        ends_at:          p.ends_at,
+        duration_mins:    p.duration_mins,
+        guest_name:       p.guest_name,
+        guest_email:      p.emails[0],
+        recipient_emails: p.emails.join(','),
+        guest_province:   p.guest_province,
+        guest_province_name: (MT_PROV_NAMES && MT_PROV_NAMES[p.guest_province]) || p.guest_province,
+        guest_company:    p.guest_company,
+        guest_phone:      p.guest_phone,
+        client_timezone:  p.client_timezone,
+        bcc:              p.exec_email || '',
+        partner_name:     p.exec_name || 'Adviuz',
+        partner_email:    p.exec_email || '',
+        notes:            p.notes || null,
+        send_now:         true
+      })
+    });
+    if (!res.ok) { var e = await res.json().catch(function(){return {};}); throw new Error(e.error || 'Failed to create meeting'); }
+    var data = await res.json();
+    if (p.lead_id) {
+      var l = leads.find(function(x){return x.id===p.lead_id;});
+      if (l) { l.stage = 'Meeting Locked'; l.stage_code = 'meeting_locked'; l.appointment_at = p.starts_at; }
+      if (!leadAct[p.lead_id]) leadAct[p.lead_id] = [];
+      leadAct[p.lead_id].unshift({ type:'meeting', label:'Meeting Booked (' + p.meeting_type + ')', time:'Just now', body: (data.meet_link || '') });
+    }
+    closeMtConfirm();
+    showToast('Meeting booked \u00b7 invite + confirmation sent \u2705');
+    if (_meetingLeadId) openMeetingScreen(_meetingLeadId);
+    else if (typeof render === 'function') render();
+  } catch (err) {
+    if (btn) { btn.textContent = 'Confirm & Send'; btn.disabled = false; }
+    showToast('\u274c ' + err.message);
+  }
+}
+
 async function saveMeetingDraft() {
   var result = await saveMeetingCore(false);
   if (result) { showToast('Meeting saved as draft'); if(_meetingLeadId) openMeetingScreen(_meetingLeadId); }
