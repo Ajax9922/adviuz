@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-10 meeting-5</title>
+<title>Adviuz Hub · v2026-07-10 meeting-6</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3456,7 +3456,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-10 meeting-5';
+var APP_VERSION = 'v2026-07-10 meeting-6';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -20663,6 +20663,7 @@ function renderScheduleInline(lid) {
   buildEmailCheckboxes();
   setupMeetingTypeForRole();
   calcSaskatoonTime();
+  setTimeout(calcSaskatoonTime, 60);
 }
 
 // ═══════════════════════════════════════
@@ -20780,35 +20781,37 @@ function mtClientTZAbbr(prov){
   return parts[0];
 }
 function calcSaskatoonTime() {
-  var prov   = (document.getElementById('mt-province')||{}).value || 'SK';
-  var dispEl = document.getElementById('mt-cst-display');
   var lblEl  = document.getElementById('mt-cst-label');
-  var _dtEl = document.getElementById('mt-datetime');
-  var timeStr = '';
-  if (_dtEl && _dtEl.value) { timeStr = (_dtEl.value.split('T')[1] || ''); }
-  else {
-    var timeEl = document.getElementById('mt-client-time-inp');
-    var dateEl = document.getElementById('mt-date');
-    if (timeEl && timeEl.value && dateEl && dateEl.value) timeStr = timeEl.value;
+  var dispEl = document.getElementById('mt-cst-display');
+  var pfxEl  = document.getElementById('mt-cst-prefix');
+  if (dispEl) dispEl.style.display = 'block';   // ALWAYS show the box first
+  if (pfxEl)  pfxEl.textContent = '';
+  try {
+    var prov = (document.getElementById('mt-province')||{}).value || 'SK';
+    var timeStr = '';
+    var dt = document.getElementById('mt-datetime');
+    if (dt && dt.value) { timeStr = (dt.value.split('T')[1] || ''); }
+    else {
+      var te = document.getElementById('mt-client-time-inp');
+      var de = document.getElementById('mt-date');
+      if (te && te.value && de && de.value) timeStr = te.value;
+    }
+    if (!timeStr) { if (lblEl) lblEl.textContent = 'Pick a date & time to see your Saskatoon time'; window._mtCSTH = null; return; }
+    var parts = timeStr.split(':');
+    var cH = parseInt(parts[0],10), cM = parseInt(parts[1],10) || 0;
+    var clientOffset = getMtClientOffset(prov);
+    var myOffset     = getLoggedUserOffset();
+    var localMin = (cH*60 + cM) + Math.round((myOffset - clientOffset)*60);
+    var dayShift = 0;
+    while (localMin < 0)     { localMin += 1440; dayShift--; }
+    while (localMin >= 1440) { localMin -= 1440; dayShift++; }
+    var lH = Math.floor(localMin/60), lM = localMin % 60;
+    var shiftTxt = dayShift ? ' <span style="opacity:.7">(' + (dayShift>0?'next day':'prev day') + ')</span>' : '';
+    if (lblEl) lblEl.innerHTML = '<b>Client ' + mtFmt12(cH,cM) + ' ' + mtClientTZAbbr(prov) + '</b> &nbsp;&rarr;&nbsp; <b>You ' + mtFmt12(lH,lM) + ' ' + getLoggedUserTZLabel() + '</b>' + shiftTxt;
+    window._mtCSTH = lH; window._mtCSTM = lM;
+  } catch (e) {
+    if (lblEl) lblEl.textContent = 'Pick a date & time to see your Saskatoon time';
   }
-  if (!timeStr) { if (dispEl) dispEl.style.display = 'none'; return; }
-  var parts  = timeStr.split(':');
-  var cH     = parseInt(parts[0]), cM = parseInt(parts[1]);
-  var clientOffset = getMtClientOffset(prov);      // client's UTC offset (e.g. -4 for Ontario EDT)
-  var myOffset     = getLoggedUserOffset();         // logged-in user's UTC offset (auto from browser)
-  var diff   = myOffset - clientOffset;             // hours to add to get user's local time
-  var localH = cH + diff;
-  // Handle day wrap
-  if (localH < 0)   localH += 24;
-  if (localH >= 24) localH -= 24;
-  // Show BOTH the client's time (their zone) and your local time side by side
-  var clientStr = 'Client ' + mtFmt12(cH, cM) + ' ' + mtClientTZAbbr(prov);
-  var prefix = document.getElementById('mt-cst-prefix');
-  if (prefix) prefix.textContent = clientStr + ' \u00B7 ';
-  if (lblEl) lblEl.textContent = 'Your time ' + formatCSTTime(localH, cM);
-  if (dispEl) dispEl.style.display = 'block';
-  // Store local H/M for booking (convert to UTC when saving)
-  window._mtCSTH = localH; window._mtCSTM = cM;
 }
 
 function buildEmailCheckboxes() {
