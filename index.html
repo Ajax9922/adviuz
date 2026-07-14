@@ -10,7 +10,7 @@
 <meta name="application-name" content="Adviuz">
 <meta name="theme-color" content="#001f3f">
 <link rel="manifest" href="/manifest.json">
-<title>Adviuz Hub · v2026-07-10 meeting-4</title>
+<title>Adviuz Hub · v2026-07-10 meeting-5</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -3456,7 +3456,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-10 meeting-4';
+var APP_VERSION = 'v2026-07-10 meeting-5';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -20614,11 +20614,9 @@ function renderScheduleInline(lid) {
   h += '<div style="background:var(--white);border-bottom:1px solid var(--border);padding:14px 16px">';
   h += '<div style="background:var(--bluel);border-radius:10px;padding:10px 13px;font-size:12px;color:var(--blue);margin-bottom:12px">';
   h += 'Enter the time <strong>the client told you</strong> — converts to <strong>your local time</strong> automatically</div>';
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">';
-  h += '<div><div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Date</div>';
-  h += '<input class="finp" id="mt-date" type="date" onchange="calcSaskatoonTime()" style="width:100%"></div>';
-  h += '<div><div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Client Said Time</div>';
-  h += '<input class="finp" id="mt-client-time-inp" type="time" onchange="calcSaskatoonTime()" style="width:100%"></div></div>';
+  h += '<div style="margin-bottom:10px">';
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Client Said Date &amp; Time</div>';
+  h += '<input class="finp" id="mt-datetime" type="datetime-local" onchange="calcSaskatoonTime()" oninput="calcSaskatoonTime()" style="width:100%"></div>';
   h += '<div id="mt-cst-display" style="display:none;background:var(--greenl);border:1px solid var(--green);border-radius:8px;padding:9px 13px;font-size:13px;color:#065f46;font-weight:600">';
   h += '🕑 <span id="mt-cst-prefix">Your time:</span> <span id="mt-cst-label">—</span></div>';
   h += '</div>';
@@ -20647,18 +20645,24 @@ function renderScheduleInline(lid) {
   h += '</div>';
 
   lsBody.innerHTML = h;
-  document.getElementById('mt-date').value = new Date().toISOString().slice(0,10);
-  // Auto-fetch the client's province from their saved location (full name or 2-letter code)
+  // Default the combined field to tomorrow at 10:00 (client's local time)
+  var _def = new Date(Date.now()+86400000);
+  var _dtEl = document.getElementById('mt-datetime');
+  if (_dtEl) _dtEl.value = _def.getFullYear()+'-'+String(_def.getMonth()+1).padStart(2,'0')+'-'+String(_def.getDate()).padStart(2,'0')+'T10:00';
+  // Auto-fetch the client's province from their saved location (province name, city, or 2-letter code)
   if (l.location) {
-    var _loc = String(l.location);
+    var _loc = String(l.location), _low = _loc.toLowerCase();
     var _pm = {Alberta:'AB','British Columbia':'BC',Manitoba:'MB',Ontario:'ON','Qu\u00e9bec':'QC',Quebec:'QC',Saskatchewan:'SK','New Brunswick':'NB','Nova Scotia':'NS','Newfoundland':'NL','Prince Edward Island':'PE',PEI:'PE'};
+    var _cities = {toronto:'ON',ottawa:'ON',mississauga:'ON',brampton:'ON',hamilton:'ON',london:'ON',markham:'ON',vaughan:'ON',kitchener:'ON',windsor:'ON',montreal:'QC','montr\u00e9al':'QC',laval:'QC',gatineau:'QC',vancouver:'BC',victoria:'BC',surrey:'BC',burnaby:'BC',kelowna:'BC',calgary:'AB',edmonton:'AB','red deer':'AB',winnipeg:'MB',brandon:'MB',saskatoon:'SK',regina:'SK',halifax:'NS',sydney:'NS',fredericton:'NB',moncton:'NB','saint john':'NB',charlottetown:'PE'};
     var _prov = '';
-    for (var _pn in _pm){ if(_loc.toLowerCase().indexOf(_pn.toLowerCase())>-1){ _prov=_pm[_pn]; break; } }
+    for (var _pn in _pm){ if(_low.indexOf(_pn.toLowerCase())>-1){ _prov=_pm[_pn]; break; } }
+    if(!_prov){ for(var _cn in _cities){ if(_low.indexOf(_cn)>-1){ _prov=_cities[_cn]; break; } } }
     if(!_prov){ var _mm=_loc.match(/\b(ON|SK|AB|BC|MB|QC|NB|NS|NL|PE)\b/i); if(_mm) _prov=_mm[1].toUpperCase(); }
-    if(_prov){ var _pel=document.getElementById('mt-province'); if(_pel)_pel.value=_prov; }
+    if(_prov){ var _pel=document.getElementById('mt-province'); if(_pel) _pel.value=_prov; }
   }
   buildEmailCheckboxes();
   setupMeetingTypeForRole();
+  calcSaskatoonTime();
 }
 
 // ═══════════════════════════════════════
@@ -20777,14 +20781,18 @@ function mtClientTZAbbr(prov){
 }
 function calcSaskatoonTime() {
   var prov   = (document.getElementById('mt-province')||{}).value || 'SK';
-  var timeEl = document.getElementById('mt-client-time-inp');
-  var dateEl = document.getElementById('mt-date');
   var dispEl = document.getElementById('mt-cst-display');
   var lblEl  = document.getElementById('mt-cst-label');
-  if (!timeEl || !timeEl.value || !dateEl || !dateEl.value) {
-    if (dispEl) dispEl.style.display = 'none'; return;
+  var _dtEl = document.getElementById('mt-datetime');
+  var timeStr = '';
+  if (_dtEl && _dtEl.value) { timeStr = (_dtEl.value.split('T')[1] || ''); }
+  else {
+    var timeEl = document.getElementById('mt-client-time-inp');
+    var dateEl = document.getElementById('mt-date');
+    if (timeEl && timeEl.value && dateEl && dateEl.value) timeStr = timeEl.value;
   }
-  var parts  = timeEl.value.split(':');
+  if (!timeStr) { if (dispEl) dispEl.style.display = 'none'; return; }
+  var parts  = timeStr.split(':');
   var cH     = parseInt(parts[0]), cM = parseInt(parts[1]);
   var clientOffset = getMtClientOffset(prov);      // client's UTC offset (e.g. -4 for Ontario EDT)
   var myOffset     = getLoggedUserOffset();         // logged-in user's UTC offset (auto from browser)
@@ -20941,7 +20949,8 @@ async function saveMeeting(sendNow) {
 }
 
 async function saveMeetingCore(sendNow) {
-  var date   = (document.getElementById('mt-date')||{}).value;
+  var _dtEl2 = document.getElementById('mt-datetime');
+  var date   = (_dtEl2 && _dtEl2.value) ? _dtEl2.value.split('T')[0] : (document.getElementById('mt-date')||{}).value;
   var dur    = parseInt((document.getElementById('mt-dur')||{}).value||30);
   var prov   = (document.getElementById('mt-province')||{}).value || 'SK';
   var emails = getMtSelectedEmails();
