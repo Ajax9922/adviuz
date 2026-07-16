@@ -3460,7 +3460,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-15 meeting-10';
+var APP_VERSION = 'v2026-07-15 meeting-10 + qdate-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -19574,7 +19574,9 @@ async function openLeadQuotes(lid) {
   try {
     var res = await sbFetch('/rest/v1/quotes?lead_id=eq.'+(l.dbId||lid)+'&select=*&order=created_at.desc&limit=20');
     var quotes = res.ok ? await res.json() : [];
-    var fmtDate = function(s){ return s ? new Date(s).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : ''; };
+    // qdate fix: date-only ('YYYY-MM-DD') must be read as LOCAL noon, not UTC midnight,
+    // or it renders one day early in Canada. Matches the global fmtDate().
+    var fmtDate = function(s){ if(!s) return ''; var dt = (typeof s==='string' && s.length<=10) ? new Date(s+'T12:00:00') : new Date(s); return isNaN(dt.getTime()) ? '' : dt.toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}); };
     var fmtAmt  = function(n){ return 'CAD $'+parseFloat(n||0).toLocaleString('en-CA',{minimumFractionDigits:2}); };
     var stColors = {sent:'#d97706',viewed:'#3b82f6',accepted:'#059669',paid:'#059669',expired:'#6b7280',draft:'#9ca3af'};
 
@@ -19620,8 +19622,25 @@ function _quoteRemindersHTML(q){
   var num   = q.quote_number || 'quote';
   function plusDays(base, n){ var d = new Date(base); d.setDate(d.getDate()+n); d.setHours(0,0,0,0); return d; }
 
+  // Reminders go out at 9am in the RECIPIENT's local time (process-reminders derives the
+  // timezone from recipient_province), so label the row with THEIR zone, not Saskatoon's.
+  var _provTzLabel = (function(p){
+    var t = String(p||'').trim(); if(!t) return 'CT';
+    var names = {'british columbia':'BC','alberta':'AB','saskatchewan':'SK','manitoba':'MB',
+      'ontario':'ON','quebec':'QC','qu\u00e9bec':'QC','new brunswick':'NB','nova scotia':'NS',
+      'prince edward island':'PE','pei':'PE','newfoundland and labrador':'NL','newfoundland':'NL',
+      'yukon':'YT','nunavut':'NU','northwest territories':'NT'};
+    var code = t.length===2 ? t.toUpperCase() : '';
+    if(!code){ var low=t.toLowerCase(); for(var n in names){ if(low.indexOf(n)>-1){ code=names[n]; break; } } }
+    var zone = {ON:'ET',QC:'ET',NU:'ET',MB:'CT',SK:'CT',AB:'MT',NT:'MT',BC:'PT',YT:'PT',
+                NB:'AT',NS:'AT',PE:'AT',NL:'NT'};
+    return zone[code] || 'CT';
+  })(q.recipient_province);
+
   var sentBase = new Date(q.sent_at || q.created_at);
-  var expiry   = q.valid_until ? new Date(q.valid_until) : null;
+  // qdate fix: 'YYYY-MM-DD' parses as UTC midnight, which is the PREVIOUS day in Canada.
+  // Anchor to local noon so plusDays() lands on the calendar day the backend actually uses.
+  var expiry   = q.valid_until ? new Date(String(q.valid_until).slice(0,10)+'T12:00:00') : null;
 
   var rems = [{
     label:'Check-in', date:plusDays(sentBase,2), sent:!!q.reminder_1_sent,
@@ -19656,7 +19675,7 @@ function _quoteRemindersHTML(q){
       +       '<span style="font-size:13px;font-weight:700;color:var(--text)">'+r.label+'</span>'
       +       '<span style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:'+st.c+'">'+st.t+'</span>'
       +     '</div>'
-      +     '<div style="font-size:11px;color:var(--sub);margin-top:1px">'+fmtD(r.date)+' &middot; 9:00 AM CT</div>'
+      +     '<div style="font-size:11px;color:var(--sub);margin-top:1px">'+fmtD(r.date)+' &middot; 9:00 AM '+_provTzLabel+'</div>'
       +     '<div id="'+rid+'" style="display:none;margin-top:8px;padding:10px;background:var(--bg);border-radius:8px">'
       +       '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:3px">'+r.subject+'</div>'
       +       '<div style="font-size:12px;color:var(--sub);line-height:1.5">'+r.body+'</div>'
@@ -19758,7 +19777,9 @@ async function openLeadInvoices(lid) {
       return idx > -1 ? num.slice(0, idx) : num;
     };
 
-    var fmtDate = function(s){ return s ? new Date(s).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : ''; };
+    // qdate fix: date-only ('YYYY-MM-DD') must be read as LOCAL noon, not UTC midnight,
+    // or it renders one day early in Canada. Matches the global fmtDate().
+    var fmtDate = function(s){ if(!s) return ''; var dt = (typeof s==='string' && s.length<=10) ? new Date(s+'T12:00:00') : new Date(s); return isNaN(dt.getTime()) ? '' : dt.toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}); };
     var pmLabels = {stripe:'💳 Stripe',etransfer:'🏦 E-Transfer',cash:'💵 Cash',cheque:'📝 Cheque',pending:'⏳ Pending'};
 
     var html = '';
