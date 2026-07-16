@@ -3468,7 +3468,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-16 sms-1';
+var APP_VERSION = 'v2026-07-16 sms-2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -8470,16 +8470,31 @@ function openLead(id) {
 
 async function loadLeadActivity(localId, dbId) {
   try {
-    // Read from BOTH tables — lead_activity (webhook events) + activity_log (panel events)
-    var [r1, r2] = await Promise.all([
+    // Read from THREE tables:
+    //   lead_activity — webhook events (calls, the lead's SMS replies)
+    //   activity_log  — panel events (notes, stage changes)
+    //   sms_guard_log — every outbound SMS Twilio actually sent to this lead.
+    // Outbound SMS was never written to lead_activity, which is why the timeline
+    // showed replies with nothing to reply to.
+    var _lLead  = (typeof leads!=='undefined' ? leads : []).find(function(x){ return x.id === localId; });
+    var _last10 = String((_lLead && _lLead.ph) || '').replace(/\D/g,'').slice(-10);
+    var [r1, r2, r3] = await Promise.all([
       sbFetch('/rest/v1/lead_activity?lead_id=eq.'+dbId+'&select=*&order=created_at.desc&limit=50'),
-      sbFetch('/rest/v1/activity_log?lead_id=eq.'+dbId+'&select=*&order=created_at.desc&limit=50')
+      sbFetch('/rest/v1/activity_log?lead_id=eq.'+dbId+'&select=*&order=created_at.desc&limit=50'),
+      // to_number holds the last 10 digits, so matching the LEAD's number means a
+      // client_alert can never leak in — those are sent to the client's phone.
+      // status=sent only: a message that never arrived must not look delivered.
+      _last10
+        ? sbFetch('/rest/v1/sms_guard_log?lead_id=eq.'+dbId+'&to_number=eq.'+encodeURIComponent(_last10)
+            +'&status=eq.sent&select=body_preview,purpose,created_at&order=created_at.desc&limit=50')
+        : Promise.resolve(null)
     ]);
 
     var rows1 = (r1.ok ? await r1.json().catch(function(){return[];}) : []) || [];
     var rows2 = (r2.ok ? await r2.json().catch(function(){return[];}) : []) || [];
+    var rows3 = (r3 && r3.ok ? await r3.json().catch(function(){return[];}) : []) || [];
 
-    console.log('[Adviuz] Activity: lead_activity='+rows1.length+' activity_log='+rows2.length);
+    console.log('[Adviuz] Activity: lead_activity='+rows1.length+' activity_log='+rows2.length+' sms_guard_log='+rows3.length);
 
     // Normalize lead_activity (webhook writes: activity_type, description)
     var norm1 = rows1.map(function(row) {
@@ -8523,8 +8538,36 @@ async function loadLeadActivity(localId, dbId) {
         id:           row.id,
         call_note:    row.call_note || null,
         is_ai:        !!(row.metadata && (row.metadata.handler === 'ai' || row.metadata.ai === true)),
-        transcript:   (row.metadata && row.metadata.transcript) || ''
+        transcript:   (row.metadata && row.metadata.transcript) || '',
+        // Anything logged here as sms_sent was typed by a person in the hub.
+        sender_tag:   (type === 'sms_sent') ? 'Human' : ''
       };
+    });
+
+    // Normalize sms_guard_log — body_preview holds the FULL message despite the name.
+    var norm3 = rows3.map(function(row) {
+      var p = (row.purpose||'').toLowerCase();
+      return {
+        type:'sms_sent', label:'SMS Sent', time:row.created_at,
+        body:(row.body_preview||'').trim(), rec:false,
+        direction:'outbound', isInbound:false, callType:'outbound',
+        // welcome + reminder fire on a schedule with nobody involved. Everything
+        // else (appointment confirmations, older manual sends) is indistinguishable
+        // in the data today, so it stays untagged rather than wrongly tagged.
+        sender_tag: (p==='welcome' || p==='reminder') ? 'Automated' : ''
+      };
+    }).filter(function(m){ return m.body; });
+
+    // A message typed in the hub lands in BOTH tables. Keep the lead_activity copy
+    // (we know a person sent that one) and drop the guard-log twin.
+    var _nrm = function(t){ return String(t||'').replace(/\s+/g,' ').trim().toLowerCase(); };
+    norm3 = norm3.filter(function(m){
+      var tm = new Date(m.time).getTime();
+      return !norm1.some(function(a){
+        if (a.type !== 'sms_sent' || _nrm(a.body) !== _nrm(m.body)) return false;
+        var ta = new Date(a.time).getTime();
+        return !isNaN(ta) && !isNaN(tm) && Math.abs(ta - tm) < 300000;
+      });
     });
 
     // Normalize activity_log (panel writes: type, label, body)
@@ -8552,7 +8595,7 @@ async function loadLeadActivity(localId, dbId) {
       if (g2 !== 'call' && g2 !== 'sms') return true;
       var t2 = new Date(a2.time).getTime();
       if (isNaN(t2)) return true;
-      var dup = norm1.some(function(a1){
+      var dup = norm1.concat(norm3).some(function(a1){
         if (groupOf(a1.type) !== g2) return false;
         var t1 = new Date(a1.time).getTime();
         if (isNaN(t1)) return false;
@@ -8562,7 +8605,7 @@ async function loadLeadActivity(localId, dbId) {
     });
 
     // Merge both, sort newest first
-    var all = norm1.concat(norm2).sort(function(a,b){ return new Date(b.time)-new Date(a.time); });
+    var all = norm1.concat(norm3).concat(norm2).sort(function(a,b){ return new Date(b.time)-new Date(a.time); });
 
     // Format timestamps
     var dbActs = all.map(function(row) {
@@ -9792,7 +9835,13 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
       h += '<div class="ld-act-dot">'+(isInboundSms?'📩':'💬')+'</div>';
       h += '<div class="ld-act-body" style="width:100%">';
       h += '<span class="ld-act-label">'+item.label+'</span><span class="ld-act-time">'+item.time+'</span>';
-      h += '<div style="margin-top:6px;padding:9px 12px;background:'+smsBg+';border-left:3px solid '+smsBdr+';border-radius:0 8px 8px 0;font-size:13px;color:var(--text);line-height:1.5">'+item.body+'</div>';
+      if (item.sender_tag) {
+        var _tagAuto = item.sender_tag === 'Automated';
+        h += '<div style="margin-top:5px"><span style="font-size:10px;font-weight:800;padding:3px 8px;border-radius:20px;background:'
+           + (_tagAuto?'#f3f4f6':'#eff6ff') + ';color:' + (_tagAuto?'#4b5563':'#2563eb')
+           + ';white-space:nowrap">' + (_tagAuto?'\u2699\uFE0F Automated':'\uD83D\uDC64 Human') + '</span></div>';
+      }
+      h += '<div style="margin-top:6px;padding:9px 12px;background:'+smsBg+';border-left:3px solid '+smsBdr+';border-radius:0 8px 8px 0;font-size:13px;color:var(--text);line-height:1.5;white-space:pre-wrap">'+item.body+'</div>';
       if (isInboundSms) h += '<button onclick="lsQuickSmsReply('+l.id+')" style="margin-top:6px;padding:5px 12px;border-radius:20px;border:1.5px solid var(--green);background:#fff;color:var(--green);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">↩ Reply</button>';
 
     } else {
@@ -13855,22 +13904,38 @@ async function preloadActivity() {
       var cid = window._clientId; if (!cid) return;
       qs = '?client_id=eq.'+cid+'&select=*&order=created_at.desc&limit=800';
     }
+    // Third source: outbound SMS. Same reason as loadLeadActivity — it lives in
+    // sms_guard_log, not lead_activity. Without it the list's "last event" claims
+    // a reply was the last thing that happened when it was actually our reminder.
+    var qsLog = qs.replace('&select=*','&select=lead_id,to_number,body_preview,purpose,created_at') + '&status=eq.sent';
     var rs = await Promise.all([
       sbFetch('/rest/v1/lead_activity'+qs),
-      sbFetch('/rest/v1/activity_log'+qs)
+      sbFetch('/rest/v1/activity_log'+qs),
+      sbFetch('/rest/v1/sms_guard_log'+qsLog)
     ]);
     var rows1 = rs[0].ok ? (await rs[0].json().catch(function(){return[];})) : [];
     var rows2 = rs[1].ok ? (await rs[1].json().catch(function(){return[];})) : [];
-    var g1={}, g2={};
+    var rows3 = rs[2].ok ? (await rs[2].json().catch(function(){return[];})) : [];
+    // Keep only messages addressed to the LEAD's own number — this is what stops a
+    // client_alert (sent to the client's phone) appearing in the lead's timeline.
+    var phByDbId = {}; (leads||[]).forEach(function(l){
+      if (l.dbId) phByDbId[l.dbId] = String(l.ph||'').replace(/\D/g,'').slice(-10);
+    });
+    rows3 = rows3.filter(function(r){
+      var want = phByDbId[r.lead_id];
+      return want && String(r.to_number||'').replace(/\D/g,'').slice(-10) === want;
+    });
+    var g1={}, g2={}, g3={};
     rows1.forEach(function(r){ var lid=byDbId[r.lead_id]; if(lid==null) return; (g1[lid]=g1[lid]||[]).push(r); });
     rows2.forEach(function(r){ var lid=byDbId[r.lead_id]; if(lid==null) return; (g2[lid]=g2[lid]||[]).push(r); });
+    rows3.forEach(function(r){ var lid=byDbId[r.lead_id]; if(lid==null) return; (g3[lid]=g3[lid]||[]).push(r); });
     function fmt(t){ var d=new Date(t); return isNaN(d)?t:(d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit',hour12:true})); }
     var TG={call:'call',sms_sent:'sms',sms_received:'sms',sms:'sms'};
     function go(t){ return TG[t]||t; }
     var allLids={}; Object.keys(g1).forEach(function(k){allLids[k]=1;}); Object.keys(g2).forEach(function(k){allLids[k]=1;});
     Object.keys(allLids).forEach(function(lidStr){
       var localId = parseInt(lidStr,10);
-      var lr1 = g1[localId]||[], lr2 = g2[localId]||[];
+      var lr1 = g1[localId]||[], lr2 = g2[localId]||[], lr3 = g3[localId]||[];
       var norm1 = lr1.map(function(row){
         var type=row.activity_type||'note';
         var rawBody=(row.description||'').replace(/\s*\(SID:[^)]+\)/g,'').trim();
@@ -13882,15 +13947,30 @@ async function preloadActivity() {
         var dir=(row.direction||'').toLowerCase();
         var isInbound=dir==='inbound'||type==='sms_received';
         if(type==='call') label=isInbound?'📞 Inbound Call':'📞 Outbound Call';
-        return {type:type,label:label,time:row.created_at,body:body,rec:!!row.recording_url,recording_url:row.recording_url||null,dur:durStr,duration_seconds:durSec,call_sid:row.call_sid||null,direction:dir,callType:isInbound?'inbound':'outbound',isInbound:isInbound,summary:row.ai_summary||row.summary||null,id:row.id,call_note:row.call_note||null};
+        return {sender_tag:(type==='sms_sent')?'Human':'', type:type,label:label,time:row.created_at,body:body,rec:!!row.recording_url,recording_url:row.recording_url||null,dur:durStr,duration_seconds:durSec,call_sid:row.call_sid||null,direction:dir,callType:isInbound?'inbound':'outbound',isInbound:isInbound,summary:row.ai_summary||row.summary||null,id:row.id,call_note:row.call_note||null};
       });
       var norm2 = lr2.map(function(row){ var body=(row.body||'').replace(/\s*\(SID:[^)]+\)/g,'').trim(); return {type:row.type||'note',label:row.label||row.type,time:row.created_at,body:body,rec:false}; });
+      var norm3 = lr3.map(function(row){
+        var p=(row.purpose||'').toLowerCase();
+        return {type:'sms_sent',label:'\uD83D\uDCAC SMS Sent',time:row.created_at,body:(row.body_preview||'').trim(),
+                rec:false,direction:'outbound',isInbound:false,
+                sender_tag:(p==='welcome'||p==='reminder')?'Automated':''};
+      }).filter(function(m){ return m.body; });
+      var _n=function(t){ return String(t||'').replace(/\s+/g,' ').trim().toLowerCase(); };
+      norm3 = norm3.filter(function(m){
+        var tm=new Date(m.time).getTime();
+        return !norm1.some(function(a){
+          if(a.type!=='sms_sent'||_n(a.body)!==_n(m.body)) return false;
+          var ta=new Date(a.time).getTime();
+          return !isNaN(ta)&&!isNaN(tm)&&Math.abs(ta-tm)<300000;
+        });
+      });
       norm2 = norm2.filter(function(a2){
         var g=go(a2.type); if(g!=='call'&&g!=='sms') return true;
         var t2=new Date(a2.time).getTime(); if(isNaN(t2)) return true;
-        return !norm1.some(function(a1){ if(go(a1.type)!==g) return false; var t1=new Date(a1.time).getTime(); return !isNaN(t1) && Math.abs(t1-t2)<=90000; });
+        return !norm1.concat(norm3).some(function(a1){ if(go(a1.type)!==g) return false; var t1=new Date(a1.time).getTime(); return !isNaN(t1) && Math.abs(t1-t2)<=90000; });
       });
-      var all = norm1.concat(norm2).sort(function(a,b){ return new Date(b.time)-new Date(a.time); });
+      var all = norm1.concat(norm3).concat(norm2).sort(function(a,b){ return new Date(b.time)-new Date(a.time); });
       var dbActs = all.map(function(row){ return Object.assign({}, row, {time:fmt(row.time)}); });
       var existing = leadAct[localId]||[];
       var justNow = existing.filter(function(a){ return a.time==='Just now'; });
