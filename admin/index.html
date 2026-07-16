@@ -632,7 +632,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-16 fbforms-1</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-16 fbforms-2</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -4553,6 +4553,102 @@ async function loadFbLeadForm(campId){
     window._fbCustomDefs=cr.ok?(await cr.json()||[]):[];
   }catch(e){ window._fbCustomDefs=[]; }
   _renderFbFormsList();
+  await loadFbPending();
+}
+
+// ── New forms detected ──────────────────────────────────────────────────────
+// Meta fires a test lead the moment a form is connected to Google Sheets, and mints
+// a brand-new form id every time a form is edited. Intake v7 records those arrivals
+// in leadform_pending, so a new form announces itself here — id and questions
+// included — instead of Ajax reading an id off a screenshot.
+async function loadFbPending(){
+  var box=document.getElementById('ecam-fbpending'); if(!box) return;
+  window._fbPending=[];
+  try{
+    var pr=await sbAdmin('/rest/v1/leadform_pending?select=fb_form_id,form_name,discovered,meta,is_test,hits,last_seen&order=last_seen.desc&limit=25');
+    var pend=pr.ok?(await pr.json()||[]):[];
+    if(pend.length){
+      // A form already mapped to ANY campaign is not new — never offer it twice.
+      var mr=await sbAdmin('/rest/v1/leadform_map?select=fb_form_id');
+      var mapped=mr.ok?(await mr.json()||[]):[];
+      var have={}; mapped.forEach(function(m){ have[m.fb_form_id]=1; });
+      pend=pend.filter(function(p){ return !have[p.fb_form_id]; });
+    }
+    window._fbPending=pend;
+  }catch(e){ window._fbPending=[]; }
+  _renderFbPending();
+}
+
+function _renderFbPending(){
+  var box=document.getElementById('ecam-fbpending'); if(!box) return;
+  var rows=window._fbPending||[];
+  if(!rows.length){ box.innerHTML=''; return; }
+  box.innerHTML='<div style="padding:10px;border:1px solid var(--brand);border-radius:10px;background:var(--surface,#fff)">'
+    + '<div style="font-size:11px;font-weight:800;color:var(--brand);margin-bottom:2px">&#10024; New forms detected ('+rows.length+')</div>'
+    + '<div style="font-size:10px;color:var(--muted);margin-bottom:8px">Facebook forms that have sent us something but aren\u2019t mapped to any campaign yet. Map one to <b>this</b> campaign, or dismiss it.</div>'
+    + rows.map(function(p){
+        var qs=Array.isArray(p.discovered)?p.discovered:[];
+        var meta=p.meta||{};
+        var sub=[meta.ad_name,meta.campaign_name].filter(Boolean).join(' \u00b7 ');
+        var fid=_ecfEsc(p.fb_form_id||'');
+        return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border)">'
+          + '<div style="flex:1;min-width:0">'
+          +   '<div style="font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_ecfEsc(p.form_name||'Unnamed form')+'</div>'
+          +   '<div style="font-size:10px;color:var(--muted);font-family:monospace;margin-top:1px">'+fid+'</div>'
+          +   (sub?'<div style="font-size:10px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_ecfEsc(sub)+'</div>':'')
+          +   '<div style="font-size:10px;margin-top:3px;color:'+(p.is_test?'var(--muted)':'var(--danger,#dc2626)')+'">'
+          +     (p.is_test?'Introduced itself \u00b7 ':'&#9888; A REAL lead was dropped by this form \u00b7 ')
+          +     (qs.length?qs.length+' question(s) ready':'no questions seen')
+          +   '</div>'
+          + '</div>'
+          + '<button type="button" onclick="useFbPending(\'' + fid + '\')" style="flex:0 0 auto;padding:6px 12px;border:none;border-radius:7px;background:var(--brand);color:#fff;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font)">Map here</button>'
+          + '<button type="button" onclick="dismissFbPending(\'' + fid + '\')" title="Dismiss" style="flex:0 0 auto;padding:6px 9px;border:1px solid var(--border);border-radius:7px;background:var(--surface,#fff);color:var(--muted);font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font)">&times;</button>'
+          + '</div>';
+      }).join('')
+    + '</div>';
+}
+
+// Pre-fill the editor from a detected form — id, name and questions all carried over.
+function useFbPending(fbId){
+  var p=(window._fbPending||[]).filter(function(x){ return x.fb_form_id===fbId; })[0];
+  if(!p) return;
+  openFbFormEditor(null);
+  var idInp=document.getElementById('ecam-fbform-id');
+  if(idInp){ idInp.value=p.fb_form_id||''; idInp.readOnly=false; idInp.style.opacity='1'; }
+  var lbInp=document.getElementById('ecam-fbform-label');
+  if(lbInp) lbInp.value=p.form_name||'';
+  window._fbKnownFields=Array.isArray(p.discovered)?p.discovered.slice():[];
+  ['name','phone','email','service','location'].forEach(function(k){
+    var sel=document.getElementById('ecam-fbmap-'+k);
+    if(sel) sel.innerHTML=_fbOpt(_guessFbField(k), (k==='name'||k==='phone'||k==='email')?'\u2014 select \u2014':'\u2014 none \u2014');
+  });
+  _renderFbFieldsHint();
+  _renderFbCustomRows();
+  var t=document.getElementById('ecam-fbform-editor-title');
+  if(t) t.innerHTML='Mapping <b>'+_ecfEsc(p.form_name||p.fb_form_id)+'</b>';
+}
+
+// Best-guess the obvious ones so Ajax only corrects, never types. Same matching rule
+// the intake uses (lowercase, strip non-alphanumerics), so a guess that looks right
+// here behaves identically at lead time.
+function _guessFbField(k){
+  var n=function(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]/g,''); };
+  var want={ name:['firstname','fullname','name'], phone:['phonenumber','phone','mobile','contact'],
+             email:['emailaddress','email'], service:[], location:['city','location'] }[k]||[];
+  var list=window._fbKnownFields||[];
+  for(var i=0;i<want.length;i++){
+    for(var j=0;j<list.length;j++){ if(n(list[j])===want[i]) return list[j]; }
+  }
+  return '';
+}
+
+async function dismissFbPending(fbId){
+  if(!confirm('Dismiss form '+fbId+'?\n\nIt disappears from this list. If the form sends anything again it will reappear.')) return;
+  try{
+    var r=await sbAdmin('/rest/v1/leadform_pending?fb_form_id=eq.'+encodeURIComponent(fbId),{ method:'DELETE' });
+    if(r.ok||r.status===204){ window._fbPending=(window._fbPending||[]).filter(function(p){ return p.fb_form_id!==fbId; }); _renderFbPending(); toast('Dismissed'); }
+    else { toast('Could not dismiss ('+r.status+')'); }
+  }catch(e){ toast('Error dismissing'); }
 }
 
 // One row per mapped form. Nothing is hidden, so nothing can be silently wiped.
@@ -4687,6 +4783,8 @@ async function saveFbLeadForm(){
       body:JSON.stringify({ fb_form_id:formId, campaign_id:campId, field_map:fm, label:lbl })
     });
     if(r.ok||r.status===201||r.status===204){
+      // Mapped now — it is no longer a "new form detected".
+      try{ await sbAdmin('/rest/v1/leadform_pending?fb_form_id=eq.'+encodeURIComponent(formId),{ method:'DELETE' }); }catch(e){}
       toast('Facebook form saved');
       closeFbFormEditor();
       await loadFbLeadForm(campId);
@@ -5212,6 +5310,7 @@ function openEditCampaign(btn) {
     + '<div style="margin-top:6px;padding-top:14px;border-top:1px solid var(--border)">'
     + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">&#128241; Facebook Lead Form <span style="font-weight:400;color:var(--muted)">(Instant Form &#8594; CRM)</span></div>'
     + '<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Every Facebook Instant Form feeding this campaign is listed below. Facebook mints a <b>brand-new Form ID</b> every time a form is edited &mdash; so when you edit an ad&rsquo;s form, add the new ID here. Old forms can stay linked safely.</div>'
+    + '<div id="ecam-fbpending" style="margin-bottom:10px"></div>'
     + '<div id="ecam-fbforms-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px"></div>'
     + '<div style="display:flex;gap:8px;margin-bottom:4px;flex-wrap:wrap">'
     +   '<button type="button" onclick="openFbFormEditor(null)" style="flex:1;min-width:120px;padding:8px;border:1px solid var(--brand);border-radius:8px;background:var(--surface,#fff);color:var(--brand);font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font)">+ Add form</button>'
