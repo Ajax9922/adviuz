@@ -3468,7 +3468,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-16 sms-2';
+var APP_VERSION = 'v2026-07-16 sms-3';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -8110,8 +8110,8 @@ function callsHTML(){
     var lead=leads.find(function(l){return l.id===c.lid})||{name:'Unknown',col:'#667781'};
     var init=lead.name.split(' ').map(function(w){return w[0]}).join('').slice(0,2);
     var isSms=(c.kind==='sms');
-    var outTxt=isSms?(c.out==='failed'?'Failed':'Sent'):(c.out==='answered'?'Answered':c.out==='voicemail'?'Voicemail':'Missed');
-    var outCol=isSms?(c.out==='failed'?'#dc2626':'var(--sub)'):(c.out==='answered'?'var(--green)':c.out==='voicemail'?'#b45309':'#dc2626');
+    var outTxt=isSms?(c.out==='failed'?'Failed':c.out==='received'?'Received':'Sent'):(c.out==='answered'?'Answered':c.out==='voicemail'?'Voicemail':'Missed');
+    var outCol=isSms?(c.out==='failed'?'#dc2626':c.out==='received'?'var(--green)':'var(--sub)'):(c.out==='answered'?'var(--green)':c.out==='voicemail'?'#b45309':'#dc2626');
     var _ph=(c.ph||'').replace(/[^0-9+]/g,'');
     var _wa=_ph.replace(/\D/g,'');
     var key=String(c.id||c.lid+'_'+c.date);
@@ -14081,11 +14081,19 @@ async function loadCallLog() {
     var _sel = '&select=id,lead_id,activity_type,description,direction,duration_seconds,recording_url,call_note,created_at,call_sid,metadata'
              + '&order=created_at.desc&limit=300';
     // SMS ledger: every text (welcome, reminders, manual, AI) passes through the
-    // guard, so this is the complete history. Alerts to the business owner are
-    // excluded — the Inbox shows communication with LEADS.
+    // guard, so this is the complete history.
+    //
+    // The old filter here was purpose=not.eq.client_alert. In PostgREST that becomes
+    // NOT (purpose = 'client_alert'), which for a NULL purpose evaluates to NULL —
+    // not TRUE — so the row is dropped. 64 messages (every manual send and every
+    // appointment confirmation) were silently missing from the Inbox because of it.
+    //
+    // Alerts to the business owner are excluded a safer way: below we keep only
+    // messages addressed to the LEAD's own number. A blacklist breaks the day
+    // someone adds a new client-facing purpose; matching the recipient cannot.
     var smsUrl = '';
-    var _smsSel = '&status=in.(sent,failed)&purpose=not.eq.client_alert&lead_id=not.is.null'
-                + '&select=id,lead_id,body_preview,purpose,status,created_at'
+    var _smsSel = '&status=in.(sent,failed)&lead_id=not.is.null'
+                + '&select=id,lead_id,to_number,body_preview,purpose,status,created_at'
                 + '&order=created_at.desc&limit=300';
     var url;
     var _partner = (typeof isPartnerMode==='function' && isPartnerMode());
@@ -14094,18 +14102,18 @@ async function loadCallLog() {
       // Partner → calls for THIS partner's own leads (scoped by lead id, not client_id)
       var _ids = Object.keys(byDbId);
       if (!_ids.length) { callLog = []; return; }
-      url = '/rest/v1/lead_activity?activity_type=eq.call&lead_id=in.('+_ids.join(',')+')'+_sel;
+      url = '/rest/v1/lead_activity?activity_type=in.(call,sms_received)&lead_id=in.('+_ids.join(',')+')'+_sel;
       var smsUrl = '/rest/v1/sms_guard_log?lead_id=in.('+_ids.join(',')+')'+_smsSel;
     } else if (_client) {
       var cid = window._clientId;
       if (!cid) { callLog = []; return; }
-      url = '/rest/v1/lead_activity?activity_type=eq.call&client_id=eq.'+cid+_sel;
+      url = '/rest/v1/lead_activity?activity_type=in.(call,sms_received)&client_id=eq.'+cid+_sel;
       var smsUrl = '/rest/v1/sms_guard_log?client_id=eq.'+cid+_smsSel;
     } else {
       // Operator → the lead view can span multiple client_ids (the Adviuz account
       // plus any Adviuz-product lead). Fetch recent call activity broadly; the
       // byDbId filter below keeps only the leads actually in the operator's view.
-      url = '/rest/v1/lead_activity?activity_type=eq.call'+_sel;
+      url = '/rest/v1/lead_activity?activity_type=in.(call,sms_received)'+_sel;
       var smsUrl = '/rest/v1/sms_guard_log?'+_smsSel.slice(1);
     }
     var res = await sbFetch(url);
@@ -14115,6 +14123,27 @@ async function loadCallLog() {
     rows.forEach(function(r){
       var lead = byDbId[r.lead_id];
       if (!lead) return;                              // only activity for leads in view
+
+      // The lead's own SMS replies. The Inbox used to load calls only, so it showed
+      // our reminders going out with no sign of anyone answering them.
+      if (r.activity_type === 'sms_received') {
+        var rRaw = (r.description || '').replace(/\s*\(SID:[^)]+\)/g,'').trim();
+        var rBody = rRaw;
+        var rm = rRaw.match(/:\s*"?([\s\S]+?)"?\s*$/);   // 📩 Reply from Name: "the text"
+        if (rm) rBody = rm[1];
+        if (!rBody) return;
+        var rdt = r.created_at ? new Date(r.created_at) : null;
+        out.push({
+          id: 'rx_' + r.id, kind: 'sms', lid: lead.id, dir: 'in', out: 'received',
+          time: rdt ? rdt.toLocaleString('en-CA',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '',
+          tOnly: rdt ? rdt.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}) : '',
+          dayKey: r.created_at ? String(r.created_at).slice(0,10) : '',
+          note: 'Reply', body: rBody, dur: '—', durS: 0,
+          date: r.created_at || '', rec: '', ph: lead.ph || '', ai: false
+        });
+        return;
+      }
+
       var dur  = r.duration_seconds || 0;
       var desc = (r.description || '');
       var dl   = desc.toLowerCase();
@@ -14149,6 +14178,10 @@ async function loadCallLog() {
           (Array.isArray(srows) ? srows : []).forEach(function(r){
             var lead = byDbId[r.lead_id];
             if (!lead) return;
+            // Keep only what was sent to the LEAD. to_number holds the last 10 digits.
+            // This is what keeps a client_alert (sent to the owner's phone) out.
+            var _want = String(lead.ph || '').replace(/\D/g,'').slice(-10);
+            if (!_want || String(r.to_number || '').replace(/\D/g,'').slice(-10) !== _want) return;
             var dt = r.created_at ? new Date(r.created_at) : null;
             var p  = (r.purpose || '').toLowerCase();
             var pLbl = p === 'welcome' ? 'Welcome text'
