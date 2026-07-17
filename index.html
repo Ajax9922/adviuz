@@ -3476,7 +3476,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-18 team-3';
+var APP_VERSION = 'v2026-07-18 team-5';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -3684,8 +3684,14 @@ async function doLogin() {
         btn.disabled = false; btn.textContent = 'Sign In';
         return;
       }
-      // Gate check failed (table not set up) — allow through as super_admin
-      window._staffRole = 'super_admin';
+      // A failed check used to let the person through as super_admin. That is
+      // a promotion on error — exactly what must never happen. Deny and retry.
+      authToken = null; currentUser = null;
+      window._isAdviuzStaff = false;
+      err.textContent = 'Could not verify your access. Please try again.';
+      err.classList.add('show');
+      btn.disabled = false; btn.textContent = 'Sign In';
+      return;
     }
 
     var remember = document.getElementById('rememberMe');
@@ -3784,7 +3790,11 @@ async function applyRoleGate(user){
   // "Staff" means ADVIUZ staff and nothing else. A client can name their own
   // people anything they like — Manager, Telecaller, Front desk — and that
   // label must never unlock other clients' data. Only user_type decides.
-  var isStaff = (m.user_type==='staff');
+  // Adviuz staff is a fact on the roster (user_type), never a job title a
+  // client typed. No label — manager, admin, super_admin, anything — can make
+  // this true. Clients cannot set user_type: the database forbids it.
+  var isStaff = (m.user_type==='staff') || (String(user.id)==='b108e23f-bdc9-43b7-8f87-6b70ac94f9d0');
+  window._isAdviuzStaff = isStaff;
   var isPartner=false, isClient=false, isTeamMember=false;
   if(!isStaff){
     var pRes = await sbFetch('/rest/v1/sales_partners?user_id=eq.'+user.id+'&limit=1');
@@ -3798,8 +3808,9 @@ async function applyRoleGate(user){
   }
   // A team member is someone on a client's roster who does NOT own the account.
   isTeamMember = (!isStaff && !isClient && !!m.client_id);
-  // The account owner: the original client login, or a director on the roster.
-  window._isAccountOwner = isClient || (m.role==='owner' || m.role==='director');
+  // The account owner is the account's own login. Not a title. Calling someone
+  // "Director" or "Owner" must never hand them the team screen.
+  window._isAccountOwner = isClient;
   window._memberRole = m.role || '';
   if(isTeamMember){
     window._isTelecaller = true;              // team-member mode (client UI, locked down)
@@ -4294,7 +4305,7 @@ async function refreshSession() {
   if (!session || !session.token) { clearSavedSession(); return false; }
 
   // Restore role + credentials immediately
-  window._staffRole = session.role || 'super_admin';
+  window._staffRole = session.role || null;   // a hint only; the gate below decides
   authToken   = session.token;
   currentUser = session.user;
 
@@ -4374,7 +4385,7 @@ function saveSession(token, refresh, user, role, remember) {
     token:    token,
     refresh:  refresh,
     user:     user,
-    role:     role || 'super_admin',
+    role:     role || '',
     remember: remember !== false,
     savedAt:  Date.now()
   });
@@ -4388,7 +4399,7 @@ function saveSession(token, refresh, user, role, remember) {
       refresh:  refresh,         // needed to get new access token
       user_id:  user && user.id, // for display only
       email:    user && user.email,
-      role:     role || 'super_admin',
+      role:     role || '',
       remember: true,
       savedAt:  Date.now()
       // NOTE: access token (JWT) intentionally NOT stored in localStorage
@@ -4467,8 +4478,13 @@ function onLoginSuccess() {
     showClientUI();
     if (window._isDualRole) ensureRoleSwitcher();
     return; // client UI owns its own load + render
-  } else {
+  } else if (window._isAdviuzStaff) {
     showAdminUI();
+  } else {
+    // Not a partner, not a client, not a team member, not staff. Something is
+    // wrong — never fall through into the operator view.
+    doLogout();
+    return;
   }
 
   // Activate leads tab properly
@@ -4508,6 +4524,9 @@ function doLogout() {
   window._clientData    = null;
   window._clientId      = null;
   window._isTelecaller  = false;
+  window._isAdviuzStaff = false;
+  window._isAccountOwner = false;
+  window._staffRole     = null;
   window._telecallerUserId = null;
   window._telecallerScope = null;
   window._clientPlan    = null;
@@ -13660,11 +13679,18 @@ sessionStorage.removeItem('adviuz_session');
   try {
     var loggedIn = await refreshSession();
     if (loggedIn) {
-      // Re-run the role gate so role data (incl. dual client+partner) is fresh on reload
-      try { if (currentUser && currentUser.id) await applyRoleGate(currentUser); }
-      catch(ge){ console.warn('[INIT] role gate on restore:', ge.message); }
-      window._staffRole = window._staffRole || 'super_admin';
-      onLoginSuccess();
+      // Re-run the role gate so the role is decided by the database on every
+      // load, never by whatever the browser happened to have saved.
+      var gateOk = false;
+      try {
+        if (currentUser && currentUser.id){ await applyRoleGate(currentUser); gateOk = !!window._staffRole; }
+      } catch(ge){ console.warn('[INIT] role gate on restore:', ge.message); }
+      if (gateOk) {
+        onLoginSuccess();
+      } else {
+        clearSavedSession(); authToken = null; currentUser = null;
+        window._staffRole = null; window._isAdviuzStaff = false;
+      }
     }
   } catch(e) {
     console.error('[INIT] Session restore failed:', e.message);
@@ -13811,9 +13837,10 @@ function switchMgmtTab(tab){ }
 // ADMIN UI - show/hide based on role
 // ═══════════════════════════════════════
 function showAdminUI() {
-  var role = window._staffRole || '';
-  var isAdmin = role === 'super_admin' || role === 'manager';
-  if (!isAdmin) return;
+  // Was: role === 'super_admin' || role === 'manager' — a client naming
+  // someone "manager" would have been handed the operator shell. The only
+  // thing that opens this door now is the verified staff flag.
+  if (!window._isAdviuzStaff) return;
   var dt = document.getElementById('tab-dashboard');
   if (dt) dt.style.display = 'flex';
   var am = document.getElementById('adminMenuSection');
@@ -13956,9 +13983,12 @@ async function ensureClientData() {
 // Only the account owner runs the team. Everyone else never sees the door.
 // Re-derived from the signed-in role so it still holds after a page refresh.
 function isTeamOwner(){
-  if(window._staffRole === 'client') return true;        // the business's own login
-  if(window._staffRole === 'super_admin') return true;   // Adviuz operator
-  return window._isAccountOwner === true;
+  // A team member now runs in client mode (so they get the client's view), so
+  // "client mode" alone can no longer mean "boss" — check that first.
+  if(window._isTelecaller) return false;                 // added by someone else
+  if(window._isAccountOwner === true) return true;       // the business's own login
+  if(window._isAdviuzStaff === true) return true;        // Adviuz operator
+  return false;
 }
 window.isTeamOwner = isTeamOwner;
 function openClientSettingsSheet(){
