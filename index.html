@@ -1744,6 +1744,14 @@ body.impersonating .ls-topbar{padding-top:8px}
         </span>
         <span style="font-size:18px;color:var(--sub);flex-shrink:0">&#x203A;</span>
       </button>
+      <button id="csTeamRow" onclick="closeSheet('clientSettingsSh');openTeamSheet()" style="width:100%;display:none;align-items:center;gap:12px;background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-top:10px;margin-bottom:4px;cursor:pointer;text-align:left;font-family:var(--f)">
+        <span style="width:38px;height:38px;border-radius:11px;background:var(--greenl,#e7f8f3);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">&#x1F465;</span>
+        <span style="flex:1;min-width:0">
+          <span style="display:block;font-size:14px;font-weight:800;color:var(--text)">Team &amp; Access</span>
+          <span style="display:block;font-size:12px;color:var(--sub);margin-top:1px" id="csTeamSub">Add staff and choose their campaigns</span>
+        </span>
+        <span style="font-size:18px;color:var(--sub);flex-shrink:0">&#x203A;</span>
+      </button>
       <button onclick="closeSheet('clientSettingsSh');doLogout()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;background:#fef2f2;border:1px solid #fecaca;border-radius:14px;padding:14px 16px;margin-top:14px;cursor:pointer;font-family:var(--f);font-size:14px;font-weight:800;color:#dc2626">
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
         Sign out
@@ -3468,7 +3476,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-17 fields-7';
+var APP_VERSION = 'v2026-07-18 team-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -3792,24 +3800,32 @@ async function sendPartnerOTP() {
 // Unified role gate for both password and OTP logins. Sets window._staffRole
 // plus the relevant data (partner / client / telecaller). Throws if no access.
 async function applyRoleGate(user){
-  var mRes = await sbFetch('/rest/v1/client_members?select=role,user_type,client_id&user_id=eq.'+user.id+'&limit=1');
+  var mRes = await sbFetch('/rest/v1/client_members?select=role,user_type,client_id,lead_scope,is_active&user_id=eq.'+user.id+'&limit=1');
   var members = mRes.ok ? await mRes.json() : [];
   var m = members[0] || {};
-  var isStaff = (m.user_type==='staff') || (m.role==='super_admin') || (m.role==='manager');
-  var isTelecaller = (m.role==='telecaller');
-  var isPartner=false, isClient=false;
-  if(!isStaff && !isTelecaller){
+  if(m.is_active === false) m = {};
+  // "Staff" means ADVIUZ staff and nothing else. A client can name their own
+  // people anything they like — Manager, Telecaller, Front desk — and that
+  // label must never unlock other clients' data. Only user_type decides.
+  var isStaff = (m.user_type==='staff');
+  var isPartner=false, isClient=false, isTeamMember=false;
+  if(!isStaff){
     var pRes = await sbFetch('/rest/v1/sales_partners?user_id=eq.'+user.id+'&limit=1');
     var pArr = pRes.ok ? await pRes.json() : [];
     if(pArr.length){ isPartner=true; window._partnerData=pArr[0]; }
   }
-  if(!isStaff && !isTelecaller){
+  if(!isStaff){
     var cRes = await sbFetch('/rest/v1/clients?select=*&auth_user_id=eq.'+user.id+'&limit=1');
     var cArr = cRes.ok ? await cRes.json() : [];
     if(cArr.length){ isClient=true; window._clientData=cArr[0]; window._clientId=cArr[0].id; }
   }
-  if(isTelecaller){
-    window._isTelecaller = true;
+  // A team member is someone on a client's roster who does NOT own the account.
+  isTeamMember = (!isStaff && !isClient && !!m.client_id);
+  // The account owner: the original client login, or a director on the roster.
+  window._isAccountOwner = isClient || (m.role==='owner' || m.role==='director');
+  window._memberRole = m.role || '';
+  if(isTeamMember){
+    window._isTelecaller = true;              // team-member mode (client UI, locked down)
     window._telecallerUserId = user.id;
     window._clientId = m.client_id;
     try {
@@ -3817,15 +3833,15 @@ async function applyRoleGate(user){
       var tcArr = tcRes.ok ? await tcRes.json() : [];
       if(tcArr.length){ window._clientData = tcArr[0]; }
     } catch(e){}
-    try {
-      var tsRes = await sbFetch('/rest/v1/user_profiles?select=lead_scope&user_id=eq.'+user.id+'&client_id=eq.'+m.client_id+'&limit=1');
-      var tsArr = tsRes.ok ? await tsRes.json() : [];
-      window._telecallerScope = (tsArr[0] && tsArr[0].lead_scope) || {};
-    } catch(e){ window._telecallerScope = {}; }
+    // Which campaigns they may work on. This comes from the roster row because
+    // that is the exact same record the database checks — one source, so the
+    // screen can never show something the database would refuse, or hide
+    // something it would allow.
+    window._telecallerScope = (m.lead_scope && typeof m.lead_scope==='object') ? m.lead_scope : {};
   }
-  if(!isStaff && !isPartner && !isClient && !isTelecaller){
+  if(!isStaff && !isPartner && !isClient && !isTeamMember){
     authToken=null; currentUser=null;
-    throw new Error('Access denied — not an authorised user. Contact relations@adviuz.com');
+    throw new Error('Access denied \u2014 not an authorised user. Contact relations@adviuz.com');
   }
   window._authUserId = user.id;
   window._isDualRole = (isPartner && isClient);
@@ -3837,9 +3853,9 @@ async function applyRoleGate(user){
   } else {
     window._activeRole = isPartner ? 'partner' : (isClient ? 'client' : null);
     window._staffRole  = isPartner ? 'sales_partner'
-                       : isTelecaller ? 'telecaller'
+                       : isTeamMember ? 'telecaller'
                        : isClient ? 'client'
-                       : (m.role || 'super_admin');
+                       : 'super_admin';
   }
   return window._staffRole;
 }
@@ -13959,6 +13975,21 @@ async function ensureClientData() {
   return false;
 }
 
+// Only the account owner runs the team. Everyone else never sees the door.
+// Re-derived from the signed-in role so it still holds after a page refresh.
+function isTeamOwner(){
+  if(window._staffRole === 'client') return true;        // the business's own login
+  if(window._staffRole === 'super_admin') return true;   // Adviuz operator
+  return window._isAccountOwner === true;
+}
+window.isTeamOwner = isTeamOwner;
+function openClientSettingsSheet(){
+  var row = document.getElementById('csTeamRow');
+  if(row) row.style.display = isTeamOwner() ? 'flex' : 'none';
+  openSheet('clientSettingsSh');
+}
+window.openClientSettingsSheet = openClientSettingsSheet;
+
 function applyTelecallerRestrictions(){
   // No team management for telecallers — hide the menu entry point.
   var menuBtn = document.querySelector('.tb-menu');
@@ -14786,7 +14817,7 @@ function clientCampaignListHTML() {
     +     '<input id="campSearch" placeholder="Search\u2026" value="'+_qv2+'" oninput="campSearchInput(this.value)" style="flex:1;min-width:0;border:none;outline:none;background:none;font-family:var(--f);font-size:14px;color:var(--text)">'
     +   '</div>'
     +   '<button onclick="openCampSortSheet()" title="Sort" style="'+_btnS+(window._campSort?';color:var(--green);border-color:var(--green)':'')+'"><svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 5h10M11 9h7M11 13h4"/><path d="M3 17l3 3 3-3"/><path d="M6 6v14"/></svg></button>'
-    +   '<button onclick="openSheet(\'clientSettingsSh\')" title="Settings" style="'+_btnS+'"><svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>'
+    +   '<button onclick="openClientSettingsSheet()" title="Settings" style="'+_btnS+'"><svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>'
     + '</div>';
 
   // ── AI Minutes meter — ONLY shown to AI-enabled clients (e.g. Gul). ──
@@ -25050,121 +25081,100 @@ document.addEventListener('click', function(ev){
 
 <script>
 (function(){
-  var FEATURES = [
-    {k:'leads',        name:'View Leads',        sub:'See the leads list'},
-    {k:'campaigns',    name:'View Campaigns',    sub:'Digital flyer campaigns + views'},
-    {k:'reports',      name:'View Reports',      sub:'Analytics & performance'},
-    {k:'calls',        name:'Call Logs',         sub:'See call history'},
-    {k:'followups',    name:'Follow-ups',        sub:'Tasks & appointments'},
-    {k:'assign',       name:'Assign Leads',      sub:'Route leads to others'},
-    {k:'close',        name:'Close Deals',       sub:'Move leads to Deal Closed'},
-    {k:'export',       name:'Export Data',       sub:'Download CSV'},
-    {k:'launch',       name:'Launch Outreach',   sub:'AI / Bulk SMS / Email'},
-    {k:'manage_users', name:'Manage Team',       sub:'Add/edit users (admin)'}
-  ];
-  var SCOPES = [
-    {k:'all_locations',     name:'All locations',     sub:'Every dealership / branch'},
-    {k:'location',          name:'Assigned location', sub:'Only their location(s)'},
-    {k:'location_assigned', name:'Own leads only',    sub:'Only leads assigned to them'}
-  ];
-  function feats(on){ var o={}; FEATURES.forEach(function(f){o[f.k]=0;}); (on||[]).forEach(function(k){o[k]=1;}); return o; }
-  var ROLE_PRESETS = {
-    owner:      {label:'Owner',            scope:'all_locations',     features:feats(['leads','campaigns','reports','calls','followups','assign','close','export','launch','manage_users'])},
-    manager:    {label:'Location Manager', scope:'location',          features:feats(['leads','campaigns','reports','calls','followups','assign','close','export'])},
-    telecaller: {label:'Telecaller',       scope:'location_assigned', features:feats(['leads','calls','followups'])},
-    closer:     {label:'Sales Closer',     scope:'location_assigned', features:feats(['leads','calls','followups','close'])},
-    custom:     {label:'Custom',           scope:'location',          features:feats(['leads','calls','followups'])}
-  };
-  var ROLE_COLOR = {owner:'#7c3aed',manager:'#2563eb',telecaller:'#0891b2',closer:'#d97706',custom:'#667781'};
+  // ══════════════════════════════════════════════════════════════
+  // TEAM & ACCESS  (account owner only)
+  // The role is a LABEL the owner chooses — Manager, Telecaller, Front desk,
+  // anything. It grants nothing. What a person can reach is decided by two
+  // things the DATABASE itself enforces:
+  //   • they are on this account's roster (client_members)
+  //   • the campaigns ticked for them (client_members.lead_scope.campaign_id)
+  // Everything else — calls, SMS, email, follow-ups, reports — works exactly
+  // as it does for the owner. Only the Dashboard is owner-only.
+  // Nothing on this screen is decorative; every control is honoured server-side.
+  // ══════════════════════════════════════════════════════════════
+  var ROLE_IDEAS = ['Manager','Telecaller','Closer','Front desk','Receptionist'];
+  var ROLE_COLORS = ['#7c3aed','#2563eb','#0891b2','#d97706','#00a884'];
 
-  var users = [];
+  var users = [];          // user_profiles rows for this account
+  var memberBy = {};       // user_id -> client_members row (authoritative)
   var teamCampaigns = [];
-  var teamFilterVals = {location:[],stage:[],service:[]};
   var draft = null;
 
   function cid(){ return window._clientId || ''; }
-  function clientName(){ return window._clientName || 'Client'; }
-  function knownLocations(){
-    var set={};
-    (window.leads||[]).forEach(function(l){ if(l.location) set[l.location]=1; });
-    ((window._adminData&&window._adminData.allLeads)||[]).forEach(function(l){ if(l.location) set[l.location]=1; });
-    return Object.keys(set).sort();
-  }
-  function knownVals(col){ return (teamFilterVals[col]||[]).slice(); }
-  function dimGroup(dim,label,options){
-    var sc = (draft._scope && draft._scope[dim]) || {any:true,vals:[]};
-    var h = '<div style="margin-bottom:10px;border:1.5px solid var(--border);border-radius:11px;padding:10px 12px">';
-    h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:'+(sc.any?'0':'6px')+'">'
-       + '<span style="font-size:12px;font-weight:800;color:var(--text)">'+label+'</span>'
-       + '<label style="font-size:12px;color:var(--sub);display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" '+(sc.any?'checked':'')+' onchange="_teDimAny(\''+dim+'\',this.checked)"> All</label>'
-       + '</div>';
-    if(!sc.any){
-      if(!options.length){ h += '<div style="font-size:12px;color:var(--sub)">No values found in leads yet.</div>'; }
-      else { h += options.map(function(o){
-        var on = sc.vals.indexOf(o.value)>=0;
-        return '<label style="display:flex;gap:8px;align-items:center;padding:5px 0;font-size:13px;color:var(--text);cursor:pointer"><input type="checkbox" '+(on?'checked':'')+' onchange="_teDimVal(\''+dim+'\',this.value)" value="'+String(o.value).replace(/"/g,'&quot;')+'"> '+String(o.label).replace(/</g,'&lt;')+'</label>';
-      }).join(''); }
-    }
-    h += '</div>';
-    return h;
+  function clientName(){ return window._clientName || (window._clientData && window._clientData.business_name) || 'your account'; }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c];}); }
+  function colorFor(n){ var t=0; String(n||'?').split('').forEach(function(c){ t+=c.charCodeAt(0); }); return ROLE_COLORS[t%ROLE_COLORS.length]; }
+  function campName(id){ var c=teamCampaigns.filter(function(x){return String(x.id)===String(id);})[0]; return c?(c.name||'Campaign'):'Campaign'; }
+  function scopeCamps(u){
+    var m = memberBy[String(u.user_id||'')] || {};
+    var ls = (m.lead_scope && typeof m.lead_scope==='object') ? m.lead_scope : {};
+    return Array.isArray(ls.campaign_id) ? ls.campaign_id.slice() : [];
   }
 
+  // ── data ───────────────────────────────────────────────────
+  function loadTeam(cb){
+    if(typeof sbFetch!=='function' || !cid()){ users=[]; memberBy={}; cb&&cb(); return; }
+    var pReq = sbFetch('/rest/v1/user_profiles?client_id=eq.'+encodeURIComponent(cid())+'&select=*&order=display_name.asc')
+                 .then(function(r){ return r&&r.ok?r.json():[]; }).catch(function(){ return []; });
+    var mReq = sbFetch('/rest/v1/client_members?client_id=eq.'+encodeURIComponent(cid())+'&select=id,user_id,role,lead_scope,is_active,user_type')
+                 .then(function(r){ return r&&r.ok?r.json():[]; }).catch(function(){ return []; });
+    Promise.all([pReq,mReq]).then(function(res){
+      memberBy = {};
+      (res[1]||[]).forEach(function(m){ memberBy[String(m.user_id)] = m; });
+      // The roster is what the database goes by, so show that — minus Adviuz
+      // staff and minus the owner's own login, which can't be edited here.
+      users = (res[0]||[]).filter(function(u){
+        var m = memberBy[String(u.user_id)];
+        if(!m) return false;
+        if(m.user_type==='staff') return false;
+        if(String(u.user_id)===String(window._authUserId||'')) return false;
+        return true;
+      });
+      cb&&cb();
+    });
+  }
+  function loadTeamCampaigns(cb){
+    if(typeof sbFetch!=='function' || !cid()){ teamCampaigns=[]; cb&&cb(); return; }
+    sbFetch('/rest/v1/campaigns?client_id=eq.'+encodeURIComponent(cid())+'&select=id,name&order=created_at.desc&limit=100')
+      .then(function(r){ return r&&r.ok?r.json():[]; })
+      .then(function(rows){ teamCampaigns=rows||[]; cb&&cb(); })
+      .catch(function(){ teamCampaigns=[]; cb&&cb(); });
+  }
+
+  // ── roster screen ──────────────────────────────────────────
   window.openTeamSheet = function(){
-    document.getElementById('teamClientName').textContent = '· '+clientName();
+    if(typeof isTeamOwner==='function' && !isTeamOwner()){ if(typeof showToast==='function') showToast('Only the account owner can manage the team'); return; }
+    var nm=document.getElementById('teamClientName'); if(nm) nm.textContent = '\u00b7 '+clientName();
     var body=document.getElementById('teamBody');
-    body.innerHTML='<div style="text-align:center;padding:24px;color:var(--sub);font-size:13px">Loading team…</div>';
+    if(body) body.innerHTML='<div style="text-align:center;padding:24px;color:var(--sub);font-size:13px">Loading team\u2026</div>';
     if(typeof openSheet==='function') openSheet('teamSh');
-    loadUsers(function(){ renderTeam(); });
-    loadTeamCampaigns();
-    loadTeamFilterValues();
+    loadTeamCampaigns(function(){ loadTeam(function(){ renderTeam(); }); });
   };
 
-  function loadUsers(cb){
-    if(typeof sbFetch!=='function'){ users=[]; cb&&cb(); return; }
-    var q = cid() ? ('?client_id=eq.'+encodeURIComponent(cid())+'&select=*&order=display_name.asc') : '?select=*&order=display_name.asc&limit=100';
-    sbFetch('/rest/v1/user_profiles'+q).then(function(r){return r&&r.ok?r.json():[];}).then(function(rows){
-      users = rows||[]; cb&&cb();
-    }).catch(function(){ users=[]; cb&&cb(); });
-  }
-
-  function loadTeamCampaigns(){
-    if(typeof sbFetch!=='function' || !cid()){ teamCampaigns=[]; return; }
-    sbFetch('/rest/v1/campaigns?client_id=eq.'+encodeURIComponent(cid())+'&select=id,name&order=created_at.desc&limit=100')
-      .then(function(r){return r&&r.ok?r.json():[];})
-      .then(function(rows){ teamCampaigns=rows||[]; })
-      .catch(function(){ teamCampaigns=[]; });
-  }
-  function loadTeamFilterValues(){
-    if(typeof sbFetch!=='function' || !cid()){ teamFilterVals={location:[],stage:[],service:[]}; return; }
-    sbFetch('/rest/v1/leads?client_id=eq.'+encodeURIComponent(cid())+'&select=location,stage,service&limit=1000')
-      .then(function(r){return r&&r.ok?r.json():[];})
-      .then(function(rows){
-        var L={},S={},V={};
-        (rows||[]).forEach(function(l){ if(l.location)L[l.location]=1; if(l.stage)S[l.stage]=1; if(l.service)V[l.service]=1; });
-        teamFilterVals = { location:Object.keys(L).sort(), stage:Object.keys(S).sort(), service:Object.keys(V).sort() };
-      })
-      .catch(function(){ teamFilterVals={location:[],stage:[],service:[]}; });
-  }
-
   function renderTeam(){
-    var body=document.getElementById('teamBody');
-    var h = '<button onclick="openUserEdit()" style="width:100%;padding:12px;border:none;border-radius:11px;background:var(--green);color:#fff;font-weight:700;font-size:14px;font-family:var(--f);cursor:pointer;margin-bottom:14px">+ Add User</button>';
+    var body=document.getElementById('teamBody'); if(!body) return;
+    var h = '<button onclick="openUserEdit()" style="width:100%;padding:12px;border:none;border-radius:11px;background:var(--green);color:#fff;font-weight:700;font-size:14px;font-family:var(--f);cursor:pointer;margin-bottom:6px">+ Add User</button>'
+      + '<div style="font-size:11.5px;color:var(--sub);text-align:center;margin-bottom:14px;line-height:1.45">They get their own login and see only the campaigns you tick. Everything else \u2014 calls, texts, emails, follow-ups \u2014 works the same as it does for you.</div>';
     if(!users.length){
-      h += '<div style="text-align:center;padding:24px 12px;color:var(--sub);font-size:13px">No team members yet. Add the owner, managers, telecallers and closers.</div>';
+      h += '<div style="text-align:center;padding:24px 12px;color:var(--sub);font-size:13px">No one added yet.</div>';
     } else {
       h += '<div>';
       users.forEach(function(u){
-        var role = u.role || 'custom';
-        var col = ROLE_COLOR[role] || '#667781';
-        var label = (ROLE_PRESETS[role]&&ROLE_PRESETS[role].label) || role;
-        var init = (u.display_name||u.email||'?').split(' ').map(function(w){return w[0];}).join('').slice(0,2).toUpperCase();
-        var loc = u.location ? (' · '+u.location) : '';
-        var active = (u.is_active!==false);
-        h += '<div class="usr-row" onclick="openUserEdit(\''+String(u.user_id||u.id||'').replace(/\x27/g,"")+'\')">'
-          +'<div class="usr-av" style="background:'+col+'22;color:'+col+'">'+init+'</div>'
-          +'<div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:700;color:var(--text)">'+(u.display_name||'(no name)')+(active?'':' <span style="color:var(--sub);font-weight:500">· inactive</span>')+'</div>'
-          +'<div style="font-size:11.5px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(u.email||'')+loc+'</div></div>'
-          +'<span class="usr-badge" style="background:'+col+'18;color:'+col+'">'+label+'</span>'
+        var m = memberBy[String(u.user_id)] || {};
+        var col = colorFor(u.display_name||u.email);
+        var label = m.role || u.role || 'Team';
+        var init = (u.display_name||u.email||'?').split(' ').map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase();
+        var camps = scopeCamps(u);
+        var sub = camps.length ? camps.map(campName).join(', ') : 'All campaigns';
+        var active = (m.is_active!==false && u.is_active!==false);
+        h += '<div class="usr-row" onclick="openUserEdit(\'' + esc(String(u.user_id||'')) + '\')">'
+          +'<div class="usr-av" style="background:'+col+'22;color:'+col+'">'+esc(init)+'</div>'
+          +'<div style="flex:1;min-width:0">'
+          +  '<div style="font-size:14px;font-weight:700;color:var(--text)">'+esc(u.display_name||'(no name)')+(active?'':' <span style="color:var(--sub);font-weight:500">\u00b7 paused</span>')+'</div>'
+          +  '<div style="font-size:11.5px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(u.email||'')+'</div>'
+          +  '<div style="font-size:11px;color:var(--green);font-weight:700;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(sub)+'</div>'
+          +'</div>'
+          +'<span class="usr-badge" style="background:'+col+'18;color:'+col+'">'+esc(label)+'</span>'
         +'</div>';
       });
       h += '</div>';
@@ -25172,176 +25182,146 @@ document.addEventListener('click', function(ev){
     body.innerHTML=h;
   }
 
+  // ── add / edit ─────────────────────────────────────────────
   window.openUserEdit = function(userId){
-    var existing = userId ? users.find(function(u){return String(u.user_id||u.id)===String(userId);}) : null;
-    var role = existing ? (existing.role||'custom') : 'telecaller';
-    var preset = ROLE_PRESETS[role] || ROLE_PRESETS.custom;
-    var perm = (existing && existing.permissions && typeof existing.permissions==='object') ? existing.permissions : {};
-    var exLs = (existing && existing.lead_scope && typeof existing.lead_scope==='object') ? existing.lead_scope : {};
+    var existing = userId ? users.filter(function(u){ return String(u.user_id)===String(userId); })[0] : null;
+    var m = existing ? (memberBy[String(existing.user_id)]||{}) : {};
+    var camps = existing ? scopeCamps(existing) : [];
     draft = {
-      user_id: existing ? (existing.user_id||existing.id) : null,
+      user_id: existing ? existing.user_id : null,
       display_name: existing ? (existing.display_name||'') : '',
       email: existing ? (existing.email||'') : '',
-      phone: existing ? (existing.phone||'') : '',
-      location: existing ? (existing.location|| (Array.isArray(exLs.location)?exLs.location[0]:'') ||'') : '',
-      role: role,
-      scope: perm.scope || preset.scope,
-      features: Object.assign({}, preset.features, perm.features||{}),
-      is_active: existing ? (existing.is_active!==false) : true,
-      _scope: (function(){ var o={}; ['location','stage','service','campaign_id'].forEach(function(d){ var v=(exLs && Array.isArray(exLs[d]))?exLs[d].slice():null; o[d]={any:!v||!v.length, vals:v||[]}; }); return o; })()
+      phone: existing ? (existing.phone||m.phone||'') : '',
+      role: existing ? (m.role||existing.role||'Telecaller') : 'Telecaller',
+      is_active: existing ? (m.is_active!==false) : true,
+      all_camps: !camps.length,
+      camps: camps
     };
-    document.getElementById('userEditTitle').textContent = existing ? 'Edit User' : 'Add User';
+    var t=document.getElementById('userEditTitle'); if(t) t.textContent = existing ? 'Edit User' : 'Add User';
     renderUserEdit();
     if(typeof openSheet==='function') openSheet('userEditSh');
   };
 
-  function applyPreset(role){
-    var p = ROLE_PRESETS[role] || ROLE_PRESETS.custom;
-    draft.role = role;
-    if(role!=='custom'){ draft.scope = p.scope; draft.features = Object.assign({}, p.features); }
-    renderUserEdit();
-  }
-  window._teApplyPreset = applyPreset;
-  window._teSetField = function(k,v){ draft[k]=v; };
-  window._teDimAny = function(dim,on){ if(!draft._scope[dim]) draft._scope[dim]={any:true,vals:[]}; draft._scope[dim].any=!!on; if(on) draft._scope[dim].vals=[]; renderUserEdit(); };
-  window._teDimVal = function(dim,val){ var sc=draft._scope[dim]; if(!sc){ sc=draft._scope[dim]={any:false,vals:[]}; } var i=sc.vals.indexOf(val); if(i>=0) sc.vals.splice(i,1); else sc.vals.push(val); };
-  window._teToggleFeat = function(k){
-    draft.features[k] = draft.features[k]?0:1;
-    draft.role='custom';
-    document.querySelectorAll('#roleChips .role-chip').forEach(function(c){ c.classList.toggle('on', c.dataset.r==='custom'); });
-    var sw=document.querySelector('.te-sw[data-fk="'+k+'"]'); if(sw) sw.classList.toggle('on', !!draft.features[k]);
+  window._teSet = function(k,v){ draft[k]=v; };
+  window._teRole = function(v){ draft.role=v; renderUserEdit(); };
+  window._teAllCamps = function(on){ draft.all_camps=!!on; if(on) draft.camps=[]; renderUserEdit(); };
+  window._teCamp = function(id){
+    var i=draft.camps.indexOf(id);
+    if(i>=0) draft.camps.splice(i,1); else draft.camps.push(id);
   };
-  window._teSetScope = function(s){
-    draft.scope=s; draft.role='custom';
-    document.querySelectorAll('#roleChips .role-chip').forEach(function(c){ c.classList.toggle('on', c.dataset.r==='custom'); });
-    document.querySelectorAll('.te-scope[data-s]').forEach(function(el){
-      var on=el.dataset.s===s;
-      el.classList.toggle('on', on);
-      el.style.borderColor = on ? 'var(--green)' : 'var(--border)';
-      var dot=el.querySelector('span span'); var ring=el.querySelector('span');
-      if(ring) ring.style.borderColor = on?'var(--green)':'var(--border)';
-      if(ring) ring.innerHTML = on?'<span style="width:9px;height:9px;border-radius:50%;background:var(--green)"></span>':'';
-    });
-  };
+  window._teActive = function(){ draft.is_active=!draft.is_active; renderUserEdit(); };
 
   function renderUserEdit(){
-    var locs = knownLocations();
-    var dl = locs.map(function(l){return '<option value="'+l.replace(/"/g,'&quot;')+'">';}).join('');
-    var filterGroups = dimGroup('location','Location', knownVals('location').map(function(v){return {value:v,label:v};}))
-      + dimGroup('stage','Lead stage', knownVals('stage').map(function(v){return {value:v,label:v};}))
-      + dimGroup('service','Service', knownVals('service').map(function(v){return {value:v,label:v};}))
-      + dimGroup('campaign_id','Campaign', (teamCampaigns||[]).map(function(c){return {value:c.id,label:c.name||'(campaign)'};}));
-    var chips = Object.keys(ROLE_PRESETS).map(function(r){
-      return '<span class="role-chip '+(draft.role===r?'on':'')+'" data-r="'+r+'" onclick="_teApplyPreset(\''+r+'\')">'+ROLE_PRESETS[r].label+'</span>';
+    var isNew = !draft.user_id;
+    var roleChips = ROLE_IDEAS.map(function(r){
+      return '<span class="role-chip'+(draft.role===r?' on':'')+'" onclick="_teRole(\''+r+'\')">'+r+'</span>';
     }).join('');
-    var scopeRows = SCOPES.map(function(s){
-      var on=draft.scope===s.k;
-      return '<div class="te-scope'+(on?' on':'')+'" data-s="'+s.k+'" onclick="_teSetScope(\''+s.k+'\')" style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';border-radius:10px;margin-bottom:7px;cursor:pointer">'
-        +'<span style="width:18px;height:18px;border-radius:50%;border:2px solid '+(on?'var(--green)':'var(--border)')+';display:flex;align-items:center;justify-content:center">'+(on?'<span style="width:9px;height:9px;border-radius:50%;background:var(--green)"></span>':'')+'</span>'
-        +'<div><div class="te-rname">'+s.name+'</div><div class="te-rsub">'+s.sub+'</div></div></div>';
-    }).join('');
-    var featRows = FEATURES.map(function(f){
-      var on = !!draft.features[f.k];
-      return '<div class="te-row"><div><div class="te-rname">'+f.name+'</div><div class="te-rsub">'+f.sub+'</div></div>'
-        +'<div class="te-sw '+(on?'on':'')+'" data-fk="'+f.k+'" onclick="_teToggleFeat(\''+f.k+'\')"></div></div>';
-    }).join('');
+    var campRows = teamCampaigns.length
+      ? teamCampaigns.map(function(c){
+          var on = draft.camps.indexOf(String(c.id))>=0;
+          return '<label style="display:flex;gap:9px;align-items:center;padding:7px 0;font-size:13.5px;color:var(--text);cursor:pointer">'
+               + '<input type="checkbox" '+(on?'checked':'')+' onchange="_teCamp(\''+esc(String(c.id))+'\')"> '+esc(c.name||'(campaign)')+'</label>';
+        }).join('')
+      : '<div style="font-size:12px;color:var(--sub)">No campaigns on this account yet.</div>';
 
-    document.getElementById('userEditBody').innerHTML =
-       '<div class="te-field"><label class="te-label">Full name</label><input class="te-input" id="teName" value="'+(draft.display_name||'').replace(/"/g,'&quot;')+'" oninput="_teSetField(\'display_name\',this.value)" placeholder="e.g. Priya Sharma"></div>'
-      +'<div class="te-field"><label class="te-label">Email</label><input class="te-input" id="teEmail" type="email" value="'+(draft.email||'').replace(/"/g,'&quot;')+'" oninput="_teSetField(\'email\',this.value)" placeholder="name@company.com"></div>'
-      +'<div class="te-field"><label class="te-label">Phone (for call routing)</label><input class="te-input" id="tePhone" type="tel" value="'+(draft.phone||'').replace(/"/g,'&quot;')+'" oninput="_teSetField(\'phone\',this.value)" placeholder="+1xxxxxxxxxx"></div>'
-      +'<div class="te-field"><label class="te-label">Location / Dealership</label><input class="te-input" id="teLoc" list="teLocList" value="'+(draft.location||'').replace(/"/g,'&quot;')+'" oninput="_teSetField(\'location\',this.value)" placeholder="e.g. Skoda Saskatoon"><datalist id="teLocList">'+dl+'</datalist></div>'
-      +'<div class="te-field"><label class="te-label">Which leads they work on</label>'
-       +'<div style="font-size:11px;color:var(--sub);margin-bottom:8px">Pick the leads this person works on. Leave a section on \u201cAll\u201d for no limit on that column. Sections combine (e.g. Brampton + Nail Spa).</div>'
-       + filterGroups
+    var body = document.getElementById('userEditBody'); if(!body) return;
+    body.innerHTML =
+       '<div class="te-field"><label class="te-label">Full name</label><input class="te-input" value="'+esc(draft.display_name)+'" oninput="_teSet(\'display_name\',this.value)" placeholder="e.g. Derek Smith"></div>'
+      +'<div class="te-field"><label class="te-label">Email (this is their login)</label><input class="te-input" type="email" '+(isNew?'':'disabled style="opacity:.6"')+' value="'+esc(draft.email)+'" oninput="_teSet(\'email\',this.value)" placeholder="name@company.com"></div>'
+      +(isNew?'':'<div style="font-size:11px;color:var(--sub);margin:-8px 0 12px">The email can\u2019t be changed. Remove the person and add them again to use a different one.</div>')
+      +'<div class="te-field"><label class="te-label">Phone (for call routing)</label><input class="te-input" type="tel" value="'+esc(draft.phone)+'" oninput="_teSet(\'phone\',this.value)" placeholder="+1xxxxxxxxxx"></div>'
+      +'<div class="te-field"><label class="te-label">What you call them</label>'
+       +'<input class="te-input" value="'+esc(draft.role)+'" oninput="_teSet(\'role\',this.value)" placeholder="e.g. Manager">'
+       +'<div style="margin-top:8px">'+roleChips+'</div>'
+       +'<div style="font-size:11px;color:var(--sub);margin-top:6px">Just a title. What they can actually see is set below.</div>'
       +'</div>'
-      +'<div class="te-field"><label class="te-label">Role (preset)</label><div id="roleChips">'+chips+'</div></div>'
-      +'<div class="te-field"><label class="te-label">Data access</label>'+scopeRows+'</div>'
-      +'<div class="te-field"><label class="te-label">Feature access</label><div style="border:1.5px solid var(--border);border-radius:11px;padding:2px 12px">'+featRows+'</div></div>'
-      +'<button onclick="saveTeamUser()" id="teSaveBtn" style="width:100%;padding:13px;border:none;border-radius:11px;background:var(--green);color:#fff;font-weight:700;font-size:14px;font-family:var(--f);cursor:pointer;margin-top:6px">Save</button>'
-      +(draft.user_id?'<button onclick="toggleUserActive()" style="width:100%;padding:11px;border:1.5px solid var(--border);border-radius:11px;background:var(--white);color:var(--sub);font-weight:700;font-size:13px;font-family:var(--f);cursor:pointer;margin-top:8px">'+(draft.is_active?'Deactivate user':'Reactivate user')+'</button>':'')
-      +'<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:10px;line-height:1.4">'+((draft.role==='telecaller'&&!draft.user_id)?'A login is created automatically and a welcome email with sign-in steps is sent.':'Saving stores the user &amp; permissions.')+'</div>';
+      +'<div class="te-field"><label class="te-label">Campaigns they can work on</label>'
+       +'<div style="border:1.5px solid var(--border);border-radius:11px;padding:10px 12px">'
+        +'<label style="display:flex;gap:9px;align-items:center;padding:5px 0;font-size:13.5px;font-weight:700;color:var(--text);cursor:pointer">'
+         +'<input type="checkbox" '+(draft.all_camps?'checked':'')+' onchange="_teAllCamps(this.checked)"> All campaigns</label>'
+        +(draft.all_camps?'':'<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:4px">'+campRows+'</div>')
+       +'</div>'
+       +'<div style="font-size:11px;color:var(--sub);margin-top:6px">They will not see leads, calls or reports from any other campaign \u2014 and the Dashboard stays yours alone.</div>'
+      +'</div>'
+      +(isNew?'':'<div class="te-row" style="border:1.5px solid var(--border);border-radius:11px;padding:10px 12px;margin-bottom:12px">'
+        +'<div><div class="te-rname">Access</div><div class="te-rsub">'+(draft.is_active?'They can sign in':'Signed out \u2014 no access')+'</div></div>'
+        +'<div class="te-sw '+(draft.is_active?'on':'')+'" onclick="_teActive()"></div></div>')
+      +'<button onclick="saveTeamUser()" id="teSaveBtn" style="width:100%;padding:13px;border:none;border-radius:11px;background:var(--green);color:#fff;font-weight:700;font-size:14px;font-family:var(--f);cursor:pointer;margin-top:2px">Save</button>'
+      +(isNew?'':'<button onclick="removeTeamUser()" id="teDelBtn" style="width:100%;padding:11px;border:1.5px solid #fecaca;border-radius:11px;background:#fef2f2;color:#dc2626;font-weight:700;font-size:13px;font-family:var(--f);cursor:pointer;margin-top:8px">Remove from team</button>')
+      +'<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:10px;line-height:1.45">'
+       +(isNew?'They get an email with sign-in steps. No password \u2014 they sign in with a 6-digit code.':'Changes apply the next time they load the app.')
+      +'</div>';
   }
 
-  window.toggleUserActive = function(){ draft.is_active=!draft.is_active; saveTeamUser(); };
-
+  // ── save ───────────────────────────────────────────────────
   window.saveTeamUser = function(){
     if(!draft.display_name && !draft.email){ if(typeof showToast==='function') showToast('Name or email required'); return; }
-    var btn=document.getElementById('teSaveBtn'); if(btn){ btn.textContent='Saving…'; btn.disabled=true; }
-    // Which leads this person works on (filter -> visibility + auto-assignment)
-    var ls = {};
-    ['location','stage','service','campaign_id'].forEach(function(dim){
-      var sc = draft._scope && draft._scope[dim];
-      if(sc && !sc.any && sc.vals && sc.vals.length) ls[dim] = sc.vals.slice();
-    });
-    function _teDone(msg){ if(typeof showToast==='function') showToast(msg||'Saved'); closeSheet('userEditSh'); loadUsers(function(){ renderTeam(); }); }
-    function _teFail(e){ if(btn){ btn.textContent='Save'; btn.disabled=false; } if(typeof showToast==='function') showToast('Could not save: '+((e&&e.message)||e||'error')); }
+    var btn=document.getElementById('teSaveBtn'); if(btn){ btn.textContent='Saving\u2026'; btn.disabled=true; }
+    var ls = draft.all_camps ? {} : { campaign_id: draft.camps.slice() };
+    var roleLabel = String(draft.role||'Telecaller').trim() || 'Telecaller';
 
-    // NEW telecaller -> create login (server) + branded welcome email
-    if(draft.role==='telecaller' && !draft.user_id){
-      if(!draft.email){ _teFail('Email required for a telecaller login'); return; }
-      sbFetch('/functions/v1/create-telecaller',{ method:'POST', body: JSON.stringify({ client_id: cid(), name: draft.display_name, email: draft.email, phone: draft.phone, lead_scope: ls }) })
+    function done(msg){ if(typeof showToast==='function') showToast(msg||'Saved'); closeSheet('userEditSh'); loadTeam(function(){ renderTeam(); }); }
+    function fail(e){ if(btn){ btn.textContent='Save'; btn.disabled=false; } if(typeof showToast==='function') showToast('Could not save: '+((e&&e.message)||e||'error')); }
+
+    // NEW: the server creates the login, the roster row and the profile together.
+    if(!draft.user_id){
+      if(!draft.email){ fail('Email is needed \u2014 it is their login'); return; }
+      sbFetch('/functions/v1/create-telecaller',{ method:'POST', body: JSON.stringify({
+        client_id: cid(), name: draft.display_name, email: draft.email,
+        phone: draft.phone, lead_scope: ls, role: roleLabel }) })
         .then(function(res){ return res.json().then(function(d){ return {ok:res.ok,d:d}; }); })
         .then(function(r){
-          if(!r.ok || !r.d || r.d.ok===false){ throw new Error((r.d&&r.d.error)||'Could not create login'); }
+          if(!r.ok || !r.d || r.d.ok===false) throw new Error((r.d&&r.d.error)||'Could not create login');
           sbFetch('/functions/v1/send-email',{ method:'POST', body: JSON.stringify({
             to: draft.email, toName: draft.display_name,
-            subject: 'You have been added to '+(window._clientName||'your team')+' on Adviuz',
+            subject: 'You have been added to '+clientName()+' on Adviuz',
             html: '<h2>Welcome'+(draft.display_name?(', '+draft.display_name):'')+'!</h2>'
-              +'<p>You have been added as a telecaller'+(window._clientName?(' for <strong>'+window._clientName+'</strong>'):'')+' on Adviuz.</p>'
+              +'<p>You have been added to <strong>'+clientName()+'</strong> on Adviuz.</p>'
               +'<p><strong>How to log in:</strong></p>'
               +'<ol><li>Go to <a href="https://hub.adviuz.ca/">https://hub.adviuz.ca</a></li>'
               +'<li>Choose <strong>Login with email code</strong></li>'
               +'<li>Enter this email address ('+draft.email+')</li>'
               +'<li>We will email you a 6-digit code &mdash; enter it to sign in.</li></ol>'
-              +'<p>No password needed &mdash; you get a fresh code each time you log in.</p>'
-              +'<p>Questions? Just reply to this email.</p>' }) }).catch(function(){});
-          _teDone('Telecaller added — login email sent');
+              +'<p>No password needed &mdash; you get a fresh code each time you log in.</p>' }) }).catch(function(){});
+          done('User added \u2014 login email sent');
         })
-        .catch(_teFail);
+        .catch(fail);
       return;
     }
 
-    var payload = {
-      display_name: draft.display_name,
-      email: draft.email,
-      phone: draft.phone || null,
-      role: draft.role,
-      location: draft.location,
-      is_active: draft.is_active,
-      lead_scope: ls,
-      permissions: { scope: draft.scope, features: draft.features }
-    };
-    if(cid()) payload.client_id = cid();
+    // EXISTING: the roster row is what the database reads, so it must save
+    // first. The profile is only what people see on screen.
+    sbFetch('/rest/v1/client_members?user_id=eq.'+encodeURIComponent(draft.user_id)+'&client_id=eq.'+encodeURIComponent(cid()),
+      { method:'PATCH', headers:{'Prefer':'return=representation'},
+        body: JSON.stringify({ role: roleLabel, lead_scope: ls, is_active: draft.is_active, phone: draft.phone||null }) })
+      .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
+      .then(function(r){
+        if(!r.ok) throw new Error((r.d && (r.d.message||r.d.hint)) || 'Access update refused');
+        if(!r.d || !r.d.length) throw new Error('Nothing was updated \u2014 you may not own this account');
+        return sbFetch('/rest/v1/user_profiles?user_id=eq.'+encodeURIComponent(draft.user_id)+'&client_id=eq.'+encodeURIComponent(cid()),
+          { method:'PATCH', body: JSON.stringify({
+              display_name: draft.display_name, phone: draft.phone||null,
+              role: roleLabel, is_active: draft.is_active, lead_scope: ls }) });
+      })
+      .then(function(){ done('Saved'); })
+      .catch(fail);
+  };
 
-    if(typeof sbFetch!=='function'){ if(typeof showToast==='function') showToast('Saved (local only)'); closeSheet('userEditSh'); return; }
-    var p = draft.user_id
-      ? sbFetch('/rest/v1/user_profiles?user_id=eq.'+encodeURIComponent(draft.user_id),{method:'PATCH',headers:{'Prefer':'return=representation'},body:JSON.stringify(payload)})
-      : sbFetch('/rest/v1/user_profiles',{method:'POST',headers:{'Prefer':'return=representation'},body:JSON.stringify(payload)});
-    p.then(function(res){ return res.json().then(function(data){ return {ok:(res.ok||res.status===201), data:data}; }); })
-     .then(function(r){
-        if(!r.ok){
-          var msg=(r.data&&(r.data.message||r.data.hint))||'';
-          if(/permission|column|schema/i.test(msg)){
-            var minimal=Object.assign({},payload); delete minimal.permissions; delete minimal.lead_scope; delete minimal.phone;
-            var retry = draft.user_id
-              ? sbFetch('/rest/v1/user_profiles?user_id=eq.'+encodeURIComponent(draft.user_id),{method:'PATCH',headers:{'Prefer':'return=representation'},body:JSON.stringify(minimal)})
-              : sbFetch('/rest/v1/user_profiles',{method:'POST',headers:{'Prefer':'return=representation'},body:JSON.stringify(minimal)});
-            return retry.then(function(rr){ return {ok:(rr.ok||rr.status===201), warn:'Saved without custom permissions — add a "permissions" JSONB column to store them.'}; });
-          }
-          throw new Error(msg||'Save failed');
-        }
-        return r;
-     })
-     .then(function(r){
-        if(typeof showToast==='function') showToast(r.warn || 'Saved');
-        closeSheet('userEditSh');
-        loadUsers(function(){ renderTeam(); });
-     })
-     .catch(function(e){
-        if(btn){ btn.textContent='Save'; btn.disabled=false; }
-        if(typeof showToast==='function') showToast('Could not save: '+(e.message||'error'));
-     });
+  window.removeTeamUser = function(){
+    if(!draft || !draft.user_id) return;
+    if(!confirm('Remove '+(draft.display_name||'this person')+' from '+clientName()+'?\n\nThey lose access immediately. Their leads, calls and notes stay.')) return;
+    var btn=document.getElementById('teDelBtn'); if(btn){ btn.textContent='Removing\u2026'; btn.disabled=true; }
+    sbFetch('/rest/v1/client_members?user_id=eq.'+encodeURIComponent(draft.user_id)+'&client_id=eq.'+encodeURIComponent(cid()), { method:'DELETE' })
+      .then(function(r){ if(!r.ok) throw new Error('Could not remove'); 
+        return sbFetch('/rest/v1/user_profiles?user_id=eq.'+encodeURIComponent(draft.user_id)+'&client_id=eq.'+encodeURIComponent(cid()), { method:'DELETE' }); })
+      .then(function(){
+        if(typeof showToast==='function') showToast('Removed');
+        closeSheet('userEditSh'); loadTeam(function(){ renderTeam(); });
+      })
+      .catch(function(e){
+        if(btn){ btn.textContent='Remove from team'; btn.disabled=false; }
+        if(typeof showToast==='function') showToast('Could not remove: '+(e.message||'error'));
+      });
   };
 
   console.log('[Team&Access] ready');
