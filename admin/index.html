@@ -674,7 +674,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-17 fields-2</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-17 fields-3</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -5095,7 +5095,12 @@ async function _ecamPullFormFields(silent){
   var statusEl=document.getElementById('ecam-formfields-status');
   var camRow=(window._allCampaigns||[]).find(function(c){ return String(c.id)===String(window._editCampaignId); });
   var adId=(document.getElementById('ecam-ad')||{}).value || (camRow && camRow.ad_id) || null;
-  if(!adId){ window._ecamFormFields=[]; if(statusEl) statusEl.textContent='No landing page linked yet \u2014 type field names manually.'; if(!silent) renderCustomFieldsList(window._ecamFields||[]); return; }
+  if(!adId){
+    window._ecamFormFields=[];
+    if(statusEl) statusEl.textContent='No landing page linked yet \u2014 type field names manually.';
+    if(!silent){ toast('No landing page linked to this campaign'); renderCustomFieldsList(window._ecamFields||[]); }
+    return;
+  }
   try{
     var r=await sbAdmin('/rest/v1/ads?id=eq.'+adId+'&select=custom_html&limit=1');
     var rows=r.ok?await r.json():[];
@@ -5105,8 +5110,16 @@ async function _ecamPullFormFields(silent){
     var dl=document.getElementById('ecf-formkey-list');
     if(dl) dl.innerHTML=fields.map(function(p){ return '<option value="'+_ecfEsc(p.key)+'">'+_ecfEsc(p.label||p.key)+'</option>'; }).join('');
     if(statusEl) statusEl.textContent = fields.length ? ('Read '+fields.length+' field'+(fields.length>1?'s':'')+' from the landing page.') : 'No form fields found on the landing page \u2014 type names manually.';
+    if(!silent){
+      toast(fields.length
+        ? ('Read '+fields.length+' field'+(fields.length>1?'s':'')+' from the landing page')
+        : 'No form fields found on the landing page');
+    }
     renderCustomFieldsList(window._ecamFields||[]);
-  }catch(e){ if(statusEl) statusEl.textContent='Could not read the landing page.'; }
+  }catch(e){
+    if(statusEl) statusEl.textContent='Could not read the landing page.';
+    if(!silent) toast('Could not read the landing page');
+  }
 }
 var _AV_CORE = [{k:'name',l:'Name'},{k:'phone',l:'Phone'},{k:'email',l:'Email'},{k:'location',l:'Location',rename:true},{k:'service',l:'Service',rename:true}];
 var _AV_CORE_KEYS = {name:1,phone:1,email:1,location:1,service:1};
