@@ -3476,7 +3476,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-18 team-1';
+var APP_VERSION = 'v2026-07-18 team-2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -25041,22 +25041,22 @@ document.addEventListener('click', function(ev){
      are enforced server-side — see notes delivered with this build.
      ══════════════════════════════════════════════════════════════════ -->
 <div class="sheet-ov" id="teamSh">
-  <div class="sheet" style="max-height:90vh">
+  <div class="sheet" style="max-height:90dvh">
     <div class="sheet-head">
       <div class="sheet-title">Team &amp; Access <span id="teamClientName" style="font-weight:500;color:var(--sub)"></span></div>
       <button class="sheet-x" onclick="closeSheet('teamSh')">&#x2715;</button>
     </div>
-    <div class="sh-body" id="teamBody" style="padding:14px 16px"></div>
+    <div class="sh-body" id="teamBody" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom,16px))"></div>
   </div>
 </div>
 
 <div class="sheet-ov" id="userEditSh">
-  <div class="sheet" style="max-height:92vh">
+  <div class="sheet" style="max-height:92dvh">
     <div class="sheet-head">
       <div class="sheet-title" id="userEditTitle">Add User</div>
       <button class="sheet-x" onclick="closeSheet('userEditSh')">&#x2715;</button>
     </div>
-    <div class="sh-body" id="userEditBody" style="padding:14px 16px"></div>
+    <div class="sh-body" id="userEditBody" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom,16px))"></div>
   </div>
 </div>
 
@@ -25083,14 +25083,15 @@ document.addEventListener('click', function(ev){
 (function(){
   // ══════════════════════════════════════════════════════════════
   // TEAM & ACCESS  (account owner only)
-  // The role is a LABEL the owner chooses — Manager, Telecaller, Front desk,
-  // anything. It grants nothing. What a person can reach is decided by two
-  // things the DATABASE itself enforces:
+  // The role is a LABEL the owner chooses — Manager, Telecaller, anything.
+  // It grants nothing. What a person can reach is decided by things the
+  // DATABASE itself enforces, from this one record:
   //   • they are on this account's roster (client_members)
-  //   • the campaigns ticked for them (client_members.lead_scope.campaign_id)
+  //   • the campaigns ticked for them
+  //   • optionally, the locations and services ticked for them
   // Everything else — calls, SMS, email, follow-ups, reports — works exactly
   // as it does for the owner. Only the Dashboard is owner-only.
-  // Nothing on this screen is decorative; every control is honoured server-side.
+  // Nothing here is decorative; every control is honoured server-side.
   // ══════════════════════════════════════════════════════════════
   var ROLE_IDEAS = ['Manager','Telecaller','Closer','Front desk','Receptionist'];
   var ROLE_COLORS = ['#7c3aed','#2563eb','#0891b2','#d97706','#00a884'];
@@ -25098,6 +25099,7 @@ document.addEventListener('click', function(ev){
   var users = [];          // user_profiles rows for this account
   var memberBy = {};       // user_id -> client_members row (authoritative)
   var teamCampaigns = [];
+  var teamLeadRows = [];   // {campaign_id, location, service} for building the lists
   var draft = null;
 
   function cid(){ return window._clientId || ''; }
@@ -25105,18 +25107,21 @@ document.addEventListener('click', function(ev){
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c];}); }
   function colorFor(n){ var t=0; String(n||'?').split('').forEach(function(c){ t+=c.charCodeAt(0); }); return ROLE_COLORS[t%ROLE_COLORS.length]; }
   function campName(id){ var c=teamCampaigns.filter(function(x){return String(x.id)===String(id);})[0]; return c?(c.name||'Campaign'):'Campaign'; }
-  function scopeCamps(u){
+  function nrm(v){ return (typeof window.advNorm==='function') ? window.advNorm(v) : String(v==null?'':v).toLowerCase().replace(/[^a-z0-9]+/g,''); }
+  function prettier(a,b){ return (typeof window.advPretty==='function') ? window.advPretty(a,b) : (b.length>a.length?b:a); }
+  function ls(u){
     var m = memberBy[String(u.user_id||'')] || {};
-    var ls = (m.lead_scope && typeof m.lead_scope==='object') ? m.lead_scope : {};
-    return Array.isArray(ls.campaign_id) ? ls.campaign_id.slice() : [];
+    var o = (m.lead_scope && typeof m.lead_scope==='object') ? m.lead_scope : {};
+    return o;
   }
+  function arr(o,k){ return Array.isArray(o[k]) ? o[k].slice() : []; }
 
   // ── data ───────────────────────────────────────────────────
   function loadTeam(cb){
     if(typeof sbFetch!=='function' || !cid()){ users=[]; memberBy={}; cb&&cb(); return; }
     var pReq = sbFetch('/rest/v1/user_profiles?client_id=eq.'+encodeURIComponent(cid())+'&select=*&order=display_name.asc')
                  .then(function(r){ return r&&r.ok?r.json():[]; }).catch(function(){ return []; });
-    var mReq = sbFetch('/rest/v1/client_members?client_id=eq.'+encodeURIComponent(cid())+'&select=id,user_id,role,lead_scope,is_active,user_type')
+    var mReq = sbFetch('/rest/v1/client_members?client_id=eq.'+encodeURIComponent(cid())+'&select=id,user_id,role,lead_scope,is_active,user_type,phone')
                  .then(function(r){ return r&&r.ok?r.json():[]; }).catch(function(){ return []; });
     Promise.all([pReq,mReq]).then(function(res){
       memberBy = {};
@@ -25140,6 +25145,31 @@ document.addEventListener('click', function(ev){
       .then(function(rows){ teamCampaigns=rows||[]; cb&&cb(); })
       .catch(function(){ teamCampaigns=[]; cb&&cb(); });
   }
+  function loadTeamLeadRows(cb){
+    if(typeof sbFetch!=='function' || !cid()){ teamLeadRows=[]; cb&&cb(); return; }
+    sbFetch('/rest/v1/leads?client_id=eq.'+encodeURIComponent(cid())+'&select=campaign_id,location,service&limit=2000')
+      .then(function(r){ return r&&r.ok?r.json():[]; })
+      .then(function(rows){ teamLeadRows=rows||[]; cb&&cb(); })
+      .catch(function(){ teamLeadRows=[]; cb&&cb(); });
+  }
+
+  // Values for Location / Service, taken only from the campaigns that are
+  // ticked. Each campaign words its answers its own way, so this never mixes
+  // one campaign's wording into another's list. Spelling variants of the same
+  // answer are merged into one line.
+  function valuesFor(field){
+    var camps = draft.camps.slice();
+    var order=[], byN={};
+    (teamLeadRows||[]).forEach(function(l){
+      if(camps.length && camps.indexOf(String(l.campaign_id||''))===-1) return;
+      var v = (field==='location') ? (l.location||'') : (l.service||'');
+      if(!v) return;
+      var k = nrm(v) || v;
+      if(byN[k]==null){ byN[k]=v; order.push(k); }
+      else byN[k]=prettier(byN[k], v);
+    });
+    return order.map(function(k){ return byN[k]; }).sort(function(a,b){ return a.localeCompare(b); });
+  }
 
   // ── roster screen ──────────────────────────────────────────
   window.openTeamSheet = function(){
@@ -25148,13 +25178,27 @@ document.addEventListener('click', function(ev){
     var body=document.getElementById('teamBody');
     if(body) body.innerHTML='<div style="text-align:center;padding:24px;color:var(--sub);font-size:13px">Loading team\u2026</div>';
     if(typeof openSheet==='function') openSheet('teamSh');
-    loadTeamCampaigns(function(){ loadTeam(function(){ renderTeam(); }); });
+    loadTeamCampaigns(function(){
+      loadTeamLeadRows(function(){
+        loadTeam(function(){ renderTeam(); });
+      });
+    });
   };
+
+  function scopeSummary(u){
+    var o = ls(u);
+    var c = arr(o,'campaign_id'), l = arr(o,'location'), s = arr(o,'service');
+    var bits = [];
+    bits.push(c.length ? c.map(campName).join(', ') : 'All campaigns');
+    if(l.length) bits.push(l.join(', '));
+    if(s.length) bits.push(s.join(', '));
+    return bits.join(' \u00b7 ');
+  }
 
   function renderTeam(){
     var body=document.getElementById('teamBody'); if(!body) return;
     var h = '<button onclick="openUserEdit()" style="width:100%;padding:12px;border:none;border-radius:11px;background:var(--green);color:#fff;font-weight:700;font-size:14px;font-family:var(--f);cursor:pointer;margin-bottom:6px">+ Add User</button>'
-      + '<div style="font-size:11.5px;color:var(--sub);text-align:center;margin-bottom:14px;line-height:1.45">They get their own login and see only the campaigns you tick. Everything else \u2014 calls, texts, emails, follow-ups \u2014 works the same as it does for you.</div>';
+      + '<div style="font-size:11.5px;color:var(--sub);text-align:center;margin-bottom:14px;line-height:1.45">They get their own login and see only what you tick. Everything else \u2014 calls, texts, emails, follow-ups \u2014 works the same as it does for you.</div>';
     if(!users.length){
       h += '<div style="text-align:center;padding:24px 12px;color:var(--sub);font-size:13px">No one added yet.</div>';
     } else {
@@ -25164,15 +25208,13 @@ document.addEventListener('click', function(ev){
         var col = colorFor(u.display_name||u.email);
         var label = m.role || u.role || 'Team';
         var init = (u.display_name||u.email||'?').split(' ').map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase();
-        var camps = scopeCamps(u);
-        var sub = camps.length ? camps.map(campName).join(', ') : 'All campaigns';
         var active = (m.is_active!==false && u.is_active!==false);
         h += '<div class="usr-row" onclick="openUserEdit(\'' + esc(String(u.user_id||'')) + '\')">'
           +'<div class="usr-av" style="background:'+col+'22;color:'+col+'">'+esc(init)+'</div>'
           +'<div style="flex:1;min-width:0">'
           +  '<div style="font-size:14px;font-weight:700;color:var(--text)">'+esc(u.display_name||'(no name)')+(active?'':' <span style="color:var(--sub);font-weight:500">\u00b7 paused</span>')+'</div>'
           +  '<div style="font-size:11.5px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(u.email||'')+'</div>'
-          +  '<div style="font-size:11px;color:var(--green);font-weight:700;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(sub)+'</div>'
+          +  '<div style="font-size:11px;color:var(--green);font-weight:700;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(scopeSummary(u))+'</div>'
           +'</div>'
           +'<span class="usr-badge" style="background:'+col+'18;color:'+col+'">'+esc(label)+'</span>'
         +'</div>';
@@ -25186,7 +25228,7 @@ document.addEventListener('click', function(ev){
   window.openUserEdit = function(userId){
     var existing = userId ? users.filter(function(u){ return String(u.user_id)===String(userId); })[0] : null;
     var m = existing ? (memberBy[String(existing.user_id)]||{}) : {};
-    var camps = existing ? scopeCamps(existing) : [];
+    var o = existing ? ls(existing) : {};
     draft = {
       user_id: existing ? existing.user_id : null,
       display_name: existing ? (existing.display_name||'') : '',
@@ -25194,8 +25236,9 @@ document.addEventListener('click', function(ev){
       phone: existing ? (existing.phone||m.phone||'') : '',
       role: existing ? (m.role||existing.role||'Telecaller') : 'Telecaller',
       is_active: existing ? (m.is_active!==false) : true,
-      all_camps: !camps.length,
-      camps: camps
+      camps: arr(o,'campaign_id'),
+      locs:  arr(o,'location'),
+      svcs:  arr(o,'service')
     };
     var t=document.getElementById('userEditTitle'); if(t) t.textContent = existing ? 'Edit User' : 'Add User';
     renderUserEdit();
@@ -25204,23 +25247,79 @@ document.addEventListener('click', function(ev){
 
   window._teSet = function(k,v){ draft[k]=v; };
   window._teRole = function(v){ draft.role=v; renderUserEdit(); };
-  window._teAllCamps = function(on){ draft.all_camps=!!on; if(on) draft.camps=[]; renderUserEdit(); };
-  window._teCamp = function(id){
-    var i=draft.camps.indexOf(id);
-    if(i>=0) draft.camps.splice(i,1); else draft.camps.push(id);
-  };
   window._teActive = function(){ draft.is_active=!draft.is_active; renderUserEdit(); };
+
+  // "All" is simply an empty list — no limit. Ticking All clears the list;
+  // unticking one box out of All keeps every other box ticked.
+  window._teAllCamps = function(on){
+    draft.camps = on ? [] : teamCampaigns.map(function(c){ return String(c.id); });
+    if(!on && draft.camps.length) draft.camps.pop();
+    draft.locs=[]; draft.svcs=[];
+    renderUserEdit();
+  };
+  window._teCamp = function(id){
+    var all = !draft.camps.length;
+    if(all) draft.camps = teamCampaigns.map(function(c){ return String(c.id); });
+    var i = draft.camps.indexOf(id);
+    if(i>=0) draft.camps.splice(i,1); else draft.camps.push(id);
+    if(draft.camps.length===teamCampaigns.length) draft.camps=[];   // all ticked = no limit
+    // Locations / services belong to campaigns, so drop any that no longer apply.
+    var okL = valuesFor('location').map(nrm), okS = valuesFor('service').map(nrm);
+    draft.locs = draft.locs.filter(function(v){ return okL.indexOf(nrm(v))>=0; });
+    draft.svcs = draft.svcs.filter(function(v){ return okS.indexOf(nrm(v))>=0; });
+    renderUserEdit();
+  };
+  window._teAllVals = function(field, on){
+    var key = field==='location' ? 'locs' : 'svcs';
+    if(on){ draft[key]=[]; }
+    else {
+      var all = valuesFor(field);
+      draft[key] = all.slice(0, Math.max(0, all.length-1));
+    }
+    renderUserEdit();
+  };
+  window._teVal = function(field, v){
+    var key = field==='location' ? 'locs' : 'svcs';
+    var all = valuesFor(field);
+    if(!draft[key].length) draft[key] = all.slice();
+    var i = draft[key].map(nrm).indexOf(nrm(v));
+    if(i>=0) draft[key].splice(i,1); else draft[key].push(v);
+    if(draft[key].length===all.length) draft[key]=[];
+    renderUserEdit();
+  };
+
+  function checkBoxRow(label, checked, onchange, bold){
+    return '<label style="display:flex;gap:9px;align-items:center;padding:7px 0;font-size:13.5px;'
+      + (bold?'font-weight:700;':'') + 'color:var(--text);cursor:pointer">'
+      + '<input type="checkbox" '+(checked?'checked':'')+' onchange="'+onchange+'"> '+esc(label)+'</label>';
+  }
+
+  function pickerBlock(title, field){
+    var key = field==='location' ? 'locs' : 'svcs';
+    var vals = valuesFor(field);
+    if(!vals.length) return '';
+    var all = !draft[key].length;
+    var rows = vals.map(function(v){
+      var on = all || draft[key].map(nrm).indexOf(nrm(v))>=0;
+      return checkBoxRow(v, on, '_teVal(\''+field+'\',this.value)').replace('<input type="checkbox"', '<input type="checkbox" value="'+esc(v)+'"');
+    }).join('');
+    return '<div class="te-field"><label class="te-label">'+esc(title)+'</label>'
+      + '<div style="border:1.5px solid var(--border);border-radius:11px;padding:10px 12px">'
+      +   checkBoxRow('All '+title.toLowerCase(), all, '_teAllVals(\''+field+'\',this.checked)', true)
+      +   '<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:4px">'+rows+'</div>'
+      + '</div></div>';
+  }
 
   function renderUserEdit(){
     var isNew = !draft.user_id;
     var roleChips = ROLE_IDEAS.map(function(r){
       return '<span class="role-chip'+(draft.role===r?' on':'')+'" onclick="_teRole(\''+r+'\')">'+r+'</span>';
     }).join('');
+    var allCamps = !draft.camps.length;
     var campRows = teamCampaigns.length
       ? teamCampaigns.map(function(c){
-          var on = draft.camps.indexOf(String(c.id))>=0;
-          return '<label style="display:flex;gap:9px;align-items:center;padding:7px 0;font-size:13.5px;color:var(--text);cursor:pointer">'
-               + '<input type="checkbox" '+(on?'checked':'')+' onchange="_teCamp(\''+esc(String(c.id))+'\')"> '+esc(c.name||'(campaign)')+'</label>';
+          var on = allCamps || draft.camps.indexOf(String(c.id))>=0;
+          return checkBoxRow(c.name||'(campaign)', on, '_teCamp(\''+esc(String(c.id))+'\')');
         }).join('')
       : '<div style="font-size:12px;color:var(--sub)">No campaigns on this account yet.</div>';
 
@@ -25237,12 +25336,12 @@ document.addEventListener('click', function(ev){
       +'</div>'
       +'<div class="te-field"><label class="te-label">Campaigns they can work on</label>'
        +'<div style="border:1.5px solid var(--border);border-radius:11px;padding:10px 12px">'
-        +'<label style="display:flex;gap:9px;align-items:center;padding:5px 0;font-size:13.5px;font-weight:700;color:var(--text);cursor:pointer">'
-         +'<input type="checkbox" '+(draft.all_camps?'checked':'')+' onchange="_teAllCamps(this.checked)"> All campaigns</label>'
-        +(draft.all_camps?'':'<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:4px">'+campRows+'</div>')
-       +'</div>'
-       +'<div style="font-size:11px;color:var(--sub);margin-top:6px">They will not see leads, calls or reports from any other campaign \u2014 and the Dashboard stays yours alone.</div>'
-      +'</div>'
+        + checkBoxRow('All campaigns', allCamps, '_teAllCamps(this.checked)', true)
+        + '<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:4px">'+campRows+'</div>'
+       +'</div></div>'
+      + pickerBlock('Locations','location')
+      + pickerBlock('Services','service')
+      +'<div style="font-size:11px;color:var(--sub);margin:-4px 0 14px;line-height:1.45">They will not see leads, calls or reports outside these \u2014 and the Dashboard stays yours alone.</div>'
       +(isNew?'':'<div class="te-row" style="border:1.5px solid var(--border);border-radius:11px;padding:10px 12px;margin-bottom:12px">'
         +'<div><div class="te-rname">Access</div><div class="te-rsub">'+(draft.is_active?'They can sign in':'Signed out \u2014 no access')+'</div></div>'
         +'<div class="te-sw '+(draft.is_active?'on':'')+'" onclick="_teActive()"></div></div>')
@@ -25251,13 +25350,30 @@ document.addEventListener('click', function(ev){
       +'<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:10px;line-height:1.45">'
        +(isNew?'They get an email with sign-in steps. No password \u2014 they sign in with a 6-digit code.':'Changes apply the next time they load the app.')
       +'</div>';
+    bindKeyboardScroll(body);
+  }
+
+  // On a phone the keyboard covers the lower half of the sheet, and the field
+  // you just tapped can end up hidden behind it. Nudge it into view once the
+  // keyboard has settled, so you can always see what you are typing.
+  function bindKeyboardScroll(box){
+    box.querySelectorAll('input').forEach(function(inp){
+      inp.addEventListener('focus', function(){
+        setTimeout(function(){
+          try{ inp.scrollIntoView({block:'center', behavior:'smooth'}); }catch(e){ try{ inp.scrollIntoView(); }catch(_e){} }
+        }, 320);
+      });
+    });
   }
 
   // ── save ───────────────────────────────────────────────────
   window.saveTeamUser = function(){
     if(!draft.display_name && !draft.email){ if(typeof showToast==='function') showToast('Name or email required'); return; }
     var btn=document.getElementById('teSaveBtn'); if(btn){ btn.textContent='Saving\u2026'; btn.disabled=true; }
-    var ls = draft.all_camps ? {} : { campaign_id: draft.camps.slice() };
+    var scope = {};
+    if(draft.camps.length) scope.campaign_id = draft.camps.slice();
+    if(draft.locs.length)  scope.location    = draft.locs.slice();
+    if(draft.svcs.length)  scope.service     = draft.svcs.slice();
     var roleLabel = String(draft.role||'Telecaller').trim() || 'Telecaller';
 
     function done(msg){ if(typeof showToast==='function') showToast(msg||'Saved'); closeSheet('userEditSh'); loadTeam(function(){ renderTeam(); }); }
@@ -25268,7 +25384,7 @@ document.addEventListener('click', function(ev){
       if(!draft.email){ fail('Email is needed \u2014 it is their login'); return; }
       sbFetch('/functions/v1/create-telecaller',{ method:'POST', body: JSON.stringify({
         client_id: cid(), name: draft.display_name, email: draft.email,
-        phone: draft.phone, lead_scope: ls, role: roleLabel }) })
+        phone: draft.phone, lead_scope: scope, role: roleLabel }) })
         .then(function(res){ return res.json().then(function(d){ return {ok:res.ok,d:d}; }); })
         .then(function(r){
           if(!r.ok || !r.d || r.d.ok===false) throw new Error((r.d&&r.d.error)||'Could not create login');
@@ -25293,7 +25409,7 @@ document.addEventListener('click', function(ev){
     // first. The profile is only what people see on screen.
     sbFetch('/rest/v1/client_members?user_id=eq.'+encodeURIComponent(draft.user_id)+'&client_id=eq.'+encodeURIComponent(cid()),
       { method:'PATCH', headers:{'Prefer':'return=representation'},
-        body: JSON.stringify({ role: roleLabel, lead_scope: ls, is_active: draft.is_active, phone: draft.phone||null }) })
+        body: JSON.stringify({ role: roleLabel, lead_scope: scope, is_active: draft.is_active, phone: draft.phone||null }) })
       .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
       .then(function(r){
         if(!r.ok) throw new Error((r.d && (r.d.message||r.d.hint)) || 'Access update refused');
@@ -25301,7 +25417,7 @@ document.addEventListener('click', function(ev){
         return sbFetch('/rest/v1/user_profiles?user_id=eq.'+encodeURIComponent(draft.user_id)+'&client_id=eq.'+encodeURIComponent(cid()),
           { method:'PATCH', body: JSON.stringify({
               display_name: draft.display_name, phone: draft.phone||null,
-              role: roleLabel, is_active: draft.is_active, lead_scope: ls }) });
+              role: roleLabel, is_active: draft.is_active, lead_scope: scope }) });
       })
       .then(function(){ done('Saved'); })
       .catch(fail);
@@ -25312,7 +25428,7 @@ document.addEventListener('click', function(ev){
     if(!confirm('Remove '+(draft.display_name||'this person')+' from '+clientName()+'?\n\nThey lose access immediately. Their leads, calls and notes stay.')) return;
     var btn=document.getElementById('teDelBtn'); if(btn){ btn.textContent='Removing\u2026'; btn.disabled=true; }
     sbFetch('/rest/v1/client_members?user_id=eq.'+encodeURIComponent(draft.user_id)+'&client_id=eq.'+encodeURIComponent(cid()), { method:'DELETE' })
-      .then(function(r){ if(!r.ok) throw new Error('Could not remove'); 
+      .then(function(r){ if(!r.ok) throw new Error('Could not remove');
         return sbFetch('/rest/v1/user_profiles?user_id=eq.'+encodeURIComponent(draft.user_id)+'&client_id=eq.'+encodeURIComponent(cid()), { method:'DELETE' }); })
       .then(function(){
         if(typeof showToast==='function') showToast('Removed');
