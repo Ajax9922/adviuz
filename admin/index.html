@@ -674,7 +674,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-16 fields-1</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-17 fields-2</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -5000,9 +5000,17 @@ async function pullFieldOptionsFromAd(){
   fields.forEach(function(f){
     var key = f.field_key || '';
     if(!key) return;
-    // id first, then data-av (the page writes f-area as data-av="f_area")
-    var sel = doc.querySelector('select[id="'+key.replace(/"/g,'')+'"]')
-           || doc.querySelector('select[data-av="'+key.replace(/-/g,'_').replace(/"/g,'')+'"]');
+    // Ad pages and CRM keys don't agree on dashes vs underscores: Moritint's key is
+    // f-area and its select is id="f-area", but Hair Tattoo's key is f_location while
+    // its select is id="f-location". Matching only the exact key silently misses it,
+    // so try every spelling before giving up.
+    var k = key.replace(/"/g,'');
+    var cands = [k, k.replace(/_/g,'-'), k.replace(/-/g,'_')];
+    var sel = null;
+    for (var ci=0; ci<cands.length && !sel; ci++){
+      sel = doc.querySelector('select[id="'+cands[ci]+'"]') || doc.querySelector('select[name="'+cands[ci]+'"]');
+    }
+    if(!sel) sel = doc.querySelector('select[data-av="'+k.replace(/-/g,'_')+'"]');
     if(!sel){ missed.push(f.label||key); return; }
     var opts = [];
     Array.prototype.forEach.call(sel.options, function(o){
