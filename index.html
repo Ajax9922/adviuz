@@ -3468,7 +3468,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-17 fields-4';
+var APP_VERSION = 'v2026-07-17 fields-5';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -9297,7 +9297,11 @@ async function loadLeadCustomFields(l){
   try{
     var rf = await sbFetch('/rest/v1/custom_fields?campaign_id=eq.'+l.campaign_id+'&order=sort_order.asc,created_at.asc');
     var fields = rf.ok ? (await rf.json().catch(function(){return [];})) : [];
-    if(!Array.isArray(fields) || !fields.length) return;
+    if(!Array.isArray(fields)) fields = [];
+    // NO early return on an empty list. A campaign on pure auto-detect (Skin
+    // Pigmentation) has zero custom_fields rows — bailing here left the Location and
+    // Service rows unrendered and a blank gap in the header. The rows are ours to
+    // draw whether or not anyone has customised them.
     var rv = await sbFetch('/rest/v1/leads?id=eq.'+l.dbId+'&select=form_fields,service,location');
     var rows = rv.ok ? (await rv.json().catch(function(){return [];})) : [];
     var row = rows[0] || {};
@@ -9306,7 +9310,13 @@ async function loadLeadCustomFields(l){
     window._ldCfService    = (row.service  != null) ? row.service  : (l.svc || '');
     window._ldCfLocation   = (row.location != null) ? row.location : (l.location || '');
     renderLeadCustomFields(l, fields);
-  }catch(e){ /* silent — card just stays empty */ }
+  }catch(e){
+    // Even on a failed fetch the header still owes its rows — fall back to the lead.
+    window._ldCfFields = [];
+    window._ldCfService  = (l.svc || '');
+    window._ldCfLocation = (l.location || '');
+    try{ renderLeadCustomFields(l, []); }catch(_e){}
+  }
 }
 // Compare values the way the intake matches fields: lowercase, strip everything
 // non-alphanumeric. The ad page offers "Front Hairline"; Facebook sends
