@@ -400,7 +400,7 @@ body.call-mini-open .topbar{padding-top:calc(env(safe-area-inset-top,0px) + 68px
 .sheet-ov.open{display:flex}
 /* Lift any open bottom sheet above the on-screen keyboard (var set by JS via visualViewport). */
 .sheet-ov.open,.act-sheet-ov.open{padding-bottom:var(--kb,0px)}
-.sheet{background:var(--white);border-radius:18px 18px 0 0;width:100%;max-width:430px;max-height:94dvh;animation:shUp .26s cubic-bezier(.34,1.1,.64,1);padding-bottom:calc(18px + env(safe-area-inset-bottom,16px));display:flex;flex-direction:column;overflow:hidden}
+.sheet{background:var(--white);border-radius:18px 18px 0 0;width:100%;max-width:430px;max-height:calc(94dvh - var(--kb,0px));animation:shUp .26s cubic-bezier(.34,1.1,.64,1);padding-bottom:calc(18px + env(safe-area-inset-bottom,16px));display:flex;flex-direction:column;overflow:hidden}
 
 .sheet::-webkit-scrollbar{display:none}
 @keyframes shUp{from{transform:translateY(50px);opacity:0}to{transform:translateY(0);opacity:1}}
@@ -3476,7 +3476,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-18 team-2';
+var APP_VERSION = 'v2026-07-18 team-3';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -3668,37 +3668,14 @@ async function doLogin() {
     authToken   = token;
     currentUser = user;
 
-    // ── STAFF GATE: verify role ──
+    // ── ROLE GATE ──
+    // This used to be a second, hand-written copy of the role check, and it had
+    // drifted: it treated anyone a client called "manager" as ADVIUZ staff, and
+    // it knew nothing about team members. Both logins now run the one gate, so
+    // they can never disagree again.
     btn.textContent = 'Verifying access...';
     try {
-      var mRes = await sbFetch('/rest/v1/client_members?select=role,user_type&user_id=eq.'+user.id+'&limit=1');
-      var members = mRes.ok ? await mRes.json() : [];
-      var m = members[0] || {};
-      var isStaff = (m.user_type === 'staff') || (m.role === 'super_admin') || (m.role === 'manager');
-
-      // Check if sales_partner
-      var isPartner = false;
-      if (!isStaff) {
-        var pRes = await sbFetch('/rest/v1/sales_partners?user_id=eq.'+user.id+'&limit=1');
-        var pArr = pRes.ok ? await pRes.json() : [];
-        if (pArr.length) { isPartner = true; window._partnerData = pArr[0]; }
-      }
-
-      // Check if client — detected by clients.auth_user_id, the SAME field
-      // every client-scoped RLS policy uses, so the gate and the database
-      // can never disagree about who this client is.
-      var isClient = false;
-      if (!isStaff && !isPartner) {
-        var cRes = await sbFetch('/rest/v1/clients?select=*&auth_user_id=eq.'+user.id+'&limit=1');
-        var cArr = cRes.ok ? await cRes.json() : [];
-        if (cArr.length) { isClient = true; window._clientData = cArr[0]; window._clientId = cArr[0].id; }
-      }
-
-      if (!isStaff && !isPartner && !isClient) {
-        authToken = null; currentUser = null;
-        throw new Error('Access denied — not an authorised user. Contact relations@adviuz.com');
-      }
-      window._staffRole = isPartner ? 'sales_partner' : (isClient ? 'client' : (m.role || 'super_admin'));
+      await applyRoleGate(user);
     } catch(gateErr) {
       if (gateErr.message.indexOf('Access denied') > -1) {
         authToken = null; currentUser = null;
@@ -3853,8 +3830,7 @@ async function applyRoleGate(user){
   } else {
     window._activeRole = isPartner ? 'partner' : (isClient ? 'client' : null);
     window._staffRole  = isPartner ? 'sales_partner'
-                       : isTeamMember ? 'telecaller'
-                       : isClient ? 'client'
+                       : (isTeamMember || isClient) ? 'client'
                        : 'super_admin';
   }
   return window._staffRole;
@@ -4483,12 +4459,14 @@ function onLoginSuccess() {
     showPartnerUI();
     if (window._isDualRole) ensureRoleSwitcher();
   } else if (window._staffRole === 'client') {
+    // A team member gets the client view, then the extra locks on top.
+    if (window._isTelecaller) {
+      showClientUI().then(function(){ applyTelecallerRestrictions(); });
+      return;
+    }
     showClientUI();
     if (window._isDualRole) ensureRoleSwitcher();
     return; // client UI owns its own load + render
-  } else if (window._staffRole === 'telecaller') {
-    showClientUI().then(function(){ applyTelecallerRestrictions(); });
-    return; // telecaller uses the client UI, locked down
   } else {
     showAdminUI();
   }
@@ -25041,7 +25019,7 @@ document.addEventListener('click', function(ev){
      are enforced server-side — see notes delivered with this build.
      ══════════════════════════════════════════════════════════════════ -->
 <div class="sheet-ov" id="teamSh">
-  <div class="sheet" style="max-height:90dvh">
+  <div class="sheet" style="max-height:calc(90dvh - var(--kb,0px))">
     <div class="sheet-head">
       <div class="sheet-title">Team &amp; Access <span id="teamClientName" style="font-weight:500;color:var(--sub)"></span></div>
       <button class="sheet-x" onclick="closeSheet('teamSh')">&#x2715;</button>
@@ -25051,7 +25029,7 @@ document.addEventListener('click', function(ev){
 </div>
 
 <div class="sheet-ov" id="userEditSh">
-  <div class="sheet" style="max-height:92dvh">
+  <div class="sheet" style="max-height:calc(92dvh - var(--kb,0px))">
     <div class="sheet-head">
       <div class="sheet-title" id="userEditTitle">Add User</div>
       <button class="sheet-x" onclick="closeSheet('userEditSh')">&#x2715;</button>
