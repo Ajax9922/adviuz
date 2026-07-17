@@ -3468,7 +3468,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-16 sms-3';
+var APP_VERSION = 'v2026-07-16 fields-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -9290,10 +9290,10 @@ function _ldCfValue(f){
   return (ff[f.field_key] != null) ? ff[f.field_key] : '';
 }
 async function loadLeadCustomFields(l){
-  var box = document.getElementById('ld-custom-fields');
+  var box = document.getElementById('ld-cf-rows');
   if(!box) return;
-  box.innerHTML = '';
-  if(!l || !l.campaign_id || !l.dbId) return;
+  // Always render — with no custom fields at all we still owe the Service row.
+  if(!l || !l.campaign_id || !l.dbId){ renderLeadCustomFields(l, []); return; }
   try{
     var rf = await sbFetch('/rest/v1/custom_fields?campaign_id=eq.'+l.campaign_id+'&order=sort_order.asc,created_at.asc');
     var fields = rf.ok ? (await rf.json().catch(function(){return [];})) : [];
@@ -9308,40 +9308,95 @@ async function loadLeadCustomFields(l){
     renderLeadCustomFields(l, fields);
   }catch(e){ /* silent — card just stays empty */ }
 }
+// Compare values the way the intake matches fields: lowercase, strip everything
+// non-alphanumeric. The ad page offers "Front Hairline"; Facebook sends
+// "front_hairline". Same answer, different spelling — norm() makes them one.
+function _cfNorm(v){ return String(v==null?'':v).toLowerCase().replace(/[^a-z0-9]/g,''); }
+
+// Renders the mapped Service row + any real custom fields, INLINE in the header.
 function renderLeadCustomFields(l, fields){
-  var box = document.getElementById('ld-custom-fields'); if(!box) return;
-  // The lead header already shows Name, Phone, Email & Location — don't repeat
-  // those here. Show only genuine extras: custom fields (maps_to null) and a
-  // renamed Service (maps_to 'service').
-  var _HIDE_CORE = {name:1,phone:1,email:1,location:1};
-  var show = (fields||[]).filter(function(f){ return !(f.maps_to && _HIDE_CORE[f.maps_to]); });
-  if(!show.length){ box.innerHTML=''; return; }
-  var h = '<div style="height:4px;background:var(--bg)"></div>'
-        + '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">'
-        + '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Details</div>'
-        + '<div style="display:flex;flex-direction:column;gap:10px">';
-  show.forEach(function(f){
-    var val = _ldCfValue(f);
-    var ctrl;
-    if(!f.editable){
-      ctrl = '<div style="font-size:14px;color:var(--text);font-weight:600">'+((val!=='' && val!=null) ? _cfEsc(val) : '<span style="color:var(--sub);font-weight:400">—</span>')+'</div>';
-    } else if(f.field_type==='select' || f.field_type==='bool'){
-      var opts = (f.field_type==='bool') ? ['Yes','No'] : (Array.isArray(f.options)?f.options:[]);
-      var o = '<option value="">— Select —</option>';
-      opts.forEach(function(op){ o += '<option value="'+_cfEsc(op)+'"'+(String(op)===String(val)?' selected':'')+'>'+_cfEsc(op)+'</option>'; });
-      ctrl = '<select data-fid="'+f.id+'" onchange="saveLeadCustomField(this.dataset.fid, this.value)" style="'+_cfInputCss+'">'+o+'</select>';
-    } else {
-      var itype = (f.field_type==='number') ? 'number' : (f.field_type==='date' ? 'date' : 'text');
-      ctrl = '<input type="'+itype+'" data-fid="'+f.id+'" value="'+_cfEsc(val)+'" onchange="saveLeadCustomField(this.dataset.fid, this.value)" style="'+_cfInputCss+'">';
-    }
-    h += '<div style="display:flex;align-items:center;gap:10px">'
-       + '<div style="flex:0 0 38%;font-size:12px;color:var(--sub);font-weight:600">'+_cfEsc(f.label)+'</div>'
-       + '<div style="flex:1;min-width:0">'+ctrl+'</div>'
-       + '</div>';
-  });
-  h += '</div></div>';
+  var box = document.getElementById('ld-cf-rows'); if(!box) return;
+  fields = fields || [];
+  var _CORE = {name:1,phone:1,email:1,location:1};
+  // Name / phone / email / location already have their own header rows — a maps_to
+  // for those is only a relabel of something shown above, so skip them here.
+  var svcField = fields.filter(function(f){ return f.maps_to==='service'; })[0] || null;
+  var extras   = fields.filter(function(f){ return !f.maps_to; });
+
+  var h = '';
+  var svcVal = (window._ldCfService != null && window._ldCfService !== '') ? window._ldCfService : (l && l.svc) || '';
+  if (svcVal || svcField) {
+    h += _cfRow(svcField ? svcField.label : 'Product', '🛠', svcVal, svcField);
+  }
+  extras.forEach(function(f){ h += _cfRow(f.label, '📋', _ldCfValue(f), f); });
   box.innerHTML = h;
 }
+
+// One row, matching ldInfoRow's shape. Tappable when the field has options.
+function _cfRow(label, icon, val, f){
+  var opts = (f && Array.isArray(f.options)) ? f.options : [];
+  var has  = (val !== '' && val != null);
+  var shown = val;
+  // Show the ad page's clean label for whatever is stored underneath.
+  if (has && opts.length) {
+    var m = opts.filter(function(o){ return _cfNorm(o) === _cfNorm(val); })[0];
+    if (m) shown = m;
+  }
+  var body;
+  if (opts.length) {
+    body = '<span onclick="openCfSheet(\'' + (f?f.id:'') + '\')" style="cursor:pointer;border-bottom:1px dashed var(--border);font-weight:600">'
+         + (has ? _cfEsc(shown) : '<span style="color:var(--green)">+ Set ' + _cfEsc(String(label).toLowerCase()) + '</span>')
+         + ' <span style="color:var(--sub);font-size:10px">\u25BE</span></span>';
+  } else {
+    body = has ? _cfEsc(shown) : '<span style="color:var(--sub)">—</span>';
+  }
+  return ldInfoRow(icon, _cfEsc(label), body);
+}
+
+// Bottom sheet of options — tap to change. Feeds the same value the filters read.
+function openCfSheet(fid){
+  var f = (window._ldCfFields||[]).filter(function(x){ return String(x.id)===String(fid); })[0];
+  if(!f) return;
+  var opts = Array.isArray(f.options) ? f.options : [];
+  if(!opts.length){ showToast('No options set for this field yet'); return; }
+  var cur = _ldCfValue(f);
+  var old = document.getElementById('cfSheetOv'); if(old) old.remove();
+  var h = '<div class="sheet" onclick="event.stopPropagation()">'
+    + '<div class="sh-head"><div class="sh-title">' + _cfEsc(f.label) + '</div>'
+    +   '<button class="sheet-x" onclick="closeCfSheet()">&times;</button></div>'
+    + '<div class="sh-body"><div style="display:flex;flex-direction:column;gap:8px">';
+  opts.forEach(function(o){
+    var sel = _cfNorm(o) === _cfNorm(cur);
+    h += '<button type="button" onclick="pickCfOption(\'' + _cfEsc(String(f.id)) + '\',this.dataset.v)" data-v="' + _cfEsc(o) + '"'
+       + ' style="width:100%;text-align:left;padding:13px 14px;border-radius:12px;cursor:pointer;font-family:var(--f);font-size:14px;'
+       + 'border:1.5px solid ' + (sel?'var(--green)':'var(--border)') + ';background:' + (sel?'#f0fdf9':'var(--white)') + ';'
+       + 'color:var(--text);font-weight:' + (sel?'700':'500') + '">' + _cfEsc(o) + (sel?' <span style="color:var(--green)">\u2713</span>':'') + '</button>';
+  });
+  if (cur) h += '<button type="button" onclick="pickCfOption(\'' + _cfEsc(String(f.id)) + '\',\'\')" style="width:100%;text-align:left;padding:13px 14px;border-radius:12px;cursor:pointer;font-family:var(--f);font-size:14px;border:1.5px solid var(--border);background:var(--white);color:var(--sub)">Clear</button>';
+  h += '</div></div></div>';
+  var ov = document.createElement('div');
+  ov.className = 'sheet-ov open'; ov.id = 'cfSheetOv';
+  ov.onclick = function(e){ if(e.target===ov) closeCfSheet(); };
+  ov.innerHTML = h;
+  document.body.appendChild(ov);
+}
+function closeCfSheet(){ var el=document.getElementById('cfSheetOv'); if(el) el.remove(); }
+
+async function pickCfOption(fid, val){
+  closeCfSheet();
+  var f = (window._ldCfFields||[]).filter(function(x){ return String(x.id)===String(fid); })[0];
+  if(f){
+    // Repaint immediately from the local cache; saveLeadCustomField reconciles.
+    if(f.maps_to==='service')       window._ldCfService = val;
+    else if(f.maps_to==='location') window._ldCfLocation = val;
+    else { window._ldCfFormFields = window._ldCfFormFields||{}; window._ldCfFormFields[f.field_key] = val; }
+    var _l = leads.find(function(x){ return x.id===curLid; });
+    if(_l && f.maps_to==='service') _l.svc = val;
+    renderLeadCustomFields(_l, window._ldCfFields||[]);
+  }
+  await saveLeadCustomField(fid, val);
+}
+
 async function saveLeadCustomField(fid, value){
   var l = leads.find(function(x){ return x.id === curLid; });
   if(!l) return;
@@ -9443,8 +9498,11 @@ function renderLeadScreen(id) {
   h += ldInfoRow('📍','Location', l.location
     ? l.location
     : '<span style="color:var(--green);cursor:pointer;font-weight:600" onclick="openEditLead('+l.id+')">+ Add location</span>');
-  // Product / Service
-  if(l.svc) h += ldInfoRow('🛠','Product',l.svc);
+  // Mapped + custom fields render HERE, inline, filled by renderLeadCustomFields().
+  // The old separate "Details" card duplicated this: a field with maps_to='service'
+  // is a RENAME of the core Service field, not an extra field — so Moritint showed
+  // "Product: crown" and "Area of concern: crown", the same value twice.
+  h += '<div id="ld-cf-rows" style="display:flex;flex-direction:column;gap:8px"></div>';
   // Date of Inquiry — original first-inquiry date & time, in the lead's local tz
   var _inqTz = l.timezone || (typeof tzFromPhone==='function'?tzFromPhone(l.ph):'') || 'America/Toronto';
   var _inqIso = l.first_inquiry_at || l.created_at;
@@ -9456,11 +9514,13 @@ function renderLeadScreen(id) {
   h += ldInfoRow('📅','Inquiry Date',_inqAbs);
   // Appointment (future) — shown in the LEAD's local time
   var _leadTz = l.timezone || tzFromPhone(l.ph) || 'America/Toronto';
-  var _apptHtml = l.appointment_at
-    ? '<span style="font-weight:600;color:var(--text)">'+fmtApptLocal(l.appointment_at,_leadTz)+'</span>'
-      + ' <span onclick="openApptSheet('+l.id+')" style="color:var(--blue);font-size:12px;cursor:pointer;font-weight:600;margin-left:6px">Change</span>'
-    : '<span onclick="openApptSheet('+l.id+')" style="color:var(--green);font-weight:600;cursor:pointer">+ Set appointment</span>';
-  h += ldInfoRow('🗓','Appointment', _apptHtml);
+  // Only when a date exists. "+ Set appointment" was an action, and the Appointment
+  // button below already does it — the row is for information, not a second entry point.
+  if (l.appointment_at) {
+    h += ldInfoRow('🗓','Appointment',
+      '<span style="font-weight:600;color:var(--text)">'+fmtApptLocal(l.appointment_at,_leadTz)+'</span>'
+      + ' <span onclick="openApptSheet('+l.id+')" style="color:var(--blue);font-size:12px;cursor:pointer;font-weight:600;margin-left:6px">Change</span>');
+  }
   // Last Event
   h += ldInfoRow('⚡','Last Event', lastAct ? lastAct.label+' · '+lastAct.time : 'No activity yet');
 
@@ -9494,7 +9554,7 @@ function renderLeadScreen(id) {
 
   h += '</div>'; // end info card
   h += '<div style="height:4px;background:var(--bg)"></div>';
-  h += '<div id="ld-custom-fields"></div>';
+
 
   // ══ SECTION 2 — COMMUNICATION & CALL (moved up to just under the lead info) ══
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
