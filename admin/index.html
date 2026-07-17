@@ -674,7 +674,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-17 fields-3</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-17 fields-4</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -4980,8 +4980,7 @@ async function pullFieldOptionsFromAd(){
   var st = document.getElementById('ecam-pullopts-status');
   function setSt(m,c){ if(st){ st.textContent=m; st.style.color=c||'var(--muted)'; } }
   if(!campId){ setSt('No campaign selected.','var(--danger)'); return; }
-  var fields = window._ecamFields || [];
-  if(!fields.length){ setSt('No fields to fill yet.','var(--muted)'); return; }
+  var fields = (window._ecamFields || []).slice();
   setSt('Reading the ad page\u2026');
   var html = '';
   try{
@@ -4995,6 +4994,28 @@ async function pullFieldOptionsFromAd(){
   var doc;
   try{ doc = new DOMParser().parseFromString(html, 'text/html'); }
   catch(e){ setSt('Could not read the ad page.','var(--danger)'); return; }
+
+  // A campaign on pure auto-detect has NO custom_fields rows at all — Skin Pigmentation
+  // has a <select id="location"> on its page and zero rows, so there was nothing to
+  // attach the options to and the button just said "No fields to fill yet".
+  // If the page has a dropdown for a core field that has no row, create the row.
+  var clientId = window._editCamClientId;
+  var haveCore = {};
+  fields.forEach(function(f){ if(f.maps_to) haveCore[f.maps_to] = 1; });
+  var created = [];
+  _AV_CORE.forEach(function(c){
+    if(haveCore[c.k]) return;
+    var tries = [c.k, 'f-'+c.k, 'f_'+c.k, 'f'+c.k];
+    var el = null;
+    for(var i=0;i<tries.length && !el;i++){
+      el = doc.querySelector('select[id="'+tries[i]+'"]') || doc.querySelector('select[name="'+tries[i]+'"]');
+    }
+    if(!el) return;
+    // field_key must be the page's real field name, or the intake won't find it.
+    var key = el.getAttribute('id') || el.getAttribute('name') || c.k;
+    fields.push({ id:null, field_key:key, label:c.l, maps_to:c.k, _isNew:true });
+    created.push(c.l);
+  });
 
   var ops = [], done = [], missed = [];
   fields.forEach(function(f){
@@ -5015,27 +5036,46 @@ async function pullFieldOptionsFromAd(){
     var opts = [];
     Array.prototype.forEach.call(sel.options, function(o){
       // value="" is the "Select an area…" placeholder, not a real answer
-      if(o.value === '' ) return;
-      var t = (o.textContent||'').trim();
+      if(o.value === '') return;
+      // Use .value, NOT the visible text. When a page writes
+      //   <option value="Mississauga">Mississauga — 3050 Artesian Dr #4</option>
+      // the lead's record stores "Mississauga" — the value is what the form submits.
+      // Storing the pretty text would leave the lead matching nothing.
+      // With no value attribute the DOM returns the text anyway, so this is right
+      // for both styles of page.
+      var t = (o.value||'').trim();
       if(t && opts.indexOf(t)===-1) opts.push(t);
     });
     if(!opts.length){ missed.push(f.label||key); return; }
-    // options + editable only — never send field_type or maps_to, so a core
-    // mapping keeps working exactly as it does now.
-    ops.push(sbAdmin('/rest/v1/custom_fields?id=eq.'+f.id,{
-      method:'PATCH', headers:{ Prefer:'return=minimal' },
-      body: JSON.stringify({ options: opts, editable: true })
-    }));
+    if(f._isNew){
+      // New row for a core field that was on pure auto-detect. field_type:'core' and
+      // on_form:true match exactly what "Save mapping" would have written.
+      ops.push(sbAdmin('/rest/v1/custom_fields',{
+        method:'POST', headers:{ Prefer:'return=minimal' },
+        body: JSON.stringify({ client_id:clientId, campaign_id:campId, field_key:f.field_key,
+                               label:f.label, field_type:'core', maps_to:f.maps_to,
+                               on_form:true, options:opts, editable:true })
+      }));
+    } else {
+      // options + editable only — never send field_type or maps_to, so an existing
+      // core mapping keeps working exactly as it does now.
+      ops.push(sbAdmin('/rest/v1/custom_fields?id=eq.'+f.id,{
+        method:'PATCH', headers:{ Prefer:'return=minimal' },
+        body: JSON.stringify({ options: opts, editable: true })
+      }));
+    }
     done.push((f.label||key)+' ('+opts.length+')');
   });
 
-  if(!ops.length){ setSt('No matching dropdowns found on the ad page.','var(--danger)'); return; }
+  if(!ops.length){ setSt('No dropdowns on this ad page match any CRM field.','var(--danger)'); return; }
   try{
     var res = await Promise.all(ops);
     var bad = res.filter(function(x){ return !(x.ok || x.status===204); }).length;
     if(bad){ setSt(bad+' of '+ops.length+' failed to save.','var(--danger)'); }
     else {
-      setSt('Filled: '+done.join(', ') + (missed.length ? ' \u00b7 no dropdown on the page for: '+missed.join(', ') : ''),'var(--green,#16a34a)');
+      setSt('Filled: '+done.join(', ')
+        + (created.length ? ' \u00b7 created: '+created.join(', ') : '')
+        + (missed.length ? ' \u00b7 no dropdown on the page for: '+missed.join(', ') : ''),'var(--green,#16a34a)');
       toast('Options pulled from the ad page');
     }
     await loadCustomFields(campId);
