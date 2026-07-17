@@ -3468,7 +3468,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-16 fields-1';
+var APP_VERSION = 'v2026-07-17 fields-3';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -9321,7 +9321,23 @@ function renderLeadCustomFields(l, fields){
   // Name / phone / email / location already have their own header rows — a maps_to
   // for those is only a relabel of something shown above, so skip them here.
   var svcField = fields.filter(function(f){ return f.maps_to==='service'; })[0] || null;
+  var locField = fields.filter(function(f){ return f.maps_to==='location'; })[0] || null;
   var extras   = fields.filter(function(f){ return !f.maps_to; });
+
+  // Location keeps its place above Inquiry Date, in its own slot.
+  var locBox = document.getElementById('ld-loc-row');
+  if (locBox) {
+    var locVal = (window._ldCfLocation != null && window._ldCfLocation !== '') ? window._ldCfLocation : (l && l.location) || '';
+    var locLbl = locField ? locField.label : 'Location';
+    if (locField && (locField.options||[]).length) {
+      locBox.innerHTML = _cfRow(locLbl, '📍', locVal, locField);
+    } else {
+      // No option list for this campaign — keep the free-text edit it has always had.
+      locBox.innerHTML = ldInfoRow('📍', _cfEsc(locLbl), locVal
+        ? _cfEsc(locVal)
+        : '<span style="color:var(--green);cursor:pointer;font-weight:600" onclick="openEditLead('+(l?l.id:0)+')">+ Add ' + _cfEsc(String(locLbl).toLowerCase()) + '</span>');
+    }
+  }
 
   var h = '';
   var svcVal = (window._ldCfService != null && window._ldCfService !== '') ? window._ldCfService : (l && l.svc) || '';
@@ -9391,7 +9407,8 @@ async function pickCfOption(fid, val){
     else if(f.maps_to==='location') window._ldCfLocation = val;
     else { window._ldCfFormFields = window._ldCfFormFields||{}; window._ldCfFormFields[f.field_key] = val; }
     var _l = leads.find(function(x){ return x.id===curLid; });
-    if(_l && f.maps_to==='service') _l.svc = val;
+    if(_l && f.maps_to==='service')  _l.svc = val;
+    if(_l && f.maps_to==='location') _l.location = val;
     renderLeadCustomFields(_l, window._ldCfFields||[]);
   }
   await saveLeadCustomField(fid, val);
@@ -9453,7 +9470,13 @@ function renderLeadScreen(id) {
 
   // Update topbar — show company if available
   document.getElementById('lsName').textContent = l.company || l.name;
-  document.getElementById('lsSub').textContent  = l.company ? l.name + ' · ' + (l.svc||'Lead') + (l.src?' · '+srcLabel(l.src):'') : (l.svc||'Lead') + (l.src?' · '+srcLabel(l.src):'');
+  // Campaign, not service: the service is already a row below, and "full_head · Adviuz"
+  // told you nothing about which campaign the lead came from. ibCampaignFor() already
+  // resolves the campaign across the client/admin lists, so reuse it.
+  var _camp   = (typeof ibCampaignFor==='function') ? ibCampaignFor(l) : null;
+  var _campNm = _camp ? (_camp.name || _camp.campaign_name || '') : (l.campaign_name || '');
+  var _subTail = (_campNm || l.svc || 'Lead') + (l.src ? ' · ' + srcLabel(l.src) : '');
+  document.getElementById('lsSub').textContent = l.company ? l.name + ' · ' + _subTail : _subTail;
 
   // ── tomorrow default for date picker ──
   var tmrw   = new Date(Date.now()+86400000);
@@ -9494,10 +9517,10 @@ function renderLeadScreen(id) {
   if(sanitize(sanitize(l.em))) h += ldInfoRow('✉️','Email','<a href="mailto:'+sanitize(sanitize(l.em))+'" style="color:var(--blue);text-decoration:none">'+sanitize(sanitize(l.em))+'</a>');
   // Phone
   if(l.ph) h += ldInfoRow('📞','Phone','<a href="tel:'+sanitize(l.ph)+'" style="color:var(--blue);text-decoration:none">'+sanitize(l.ph)+'</a>'+(l.ph2?' · '+sanitize(l.ph2):''));
-  // Location — always shown
-  h += ldInfoRow('📍','Location', l.location
-    ? l.location
-    : '<span style="color:var(--green);cursor:pointer;font-weight:600" onclick="openEditLead('+l.id+')">+ Add location</span>');
+  // Location renders inside its own slot below, via the mapped-field renderer — so a
+  // campaign whose ad page offers a location dropdown (Hair Tattoo: Toronto, North
+  // York, …) gets the same tap-to-pick sheet instead of a free-text edit.
+  h += '<div id="ld-loc-row"></div>';
   // Mapped + custom fields render HERE, inline, filled by renderLeadCustomFields().
   // The old separate "Details" card duplicated this: a field with maps_to='service'
   // is a RENAME of the core Service field, not an extra field — so Moritint showed
