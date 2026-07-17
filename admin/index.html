@@ -674,7 +674,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-16 fbforms-4</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-16 fields-1</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -4963,6 +4963,77 @@ function _ecfResetForm(){
   var ab=document.getElementById('ecf-add-btn'); if(ab) ab.textContent='Add field';
   var cb=document.getElementById('ecf-cancel-btn'); if(cb) cb.style.display='none';
 }
+/**
+ * Copy each <select>'s choices from the campaign's landing page onto the matching
+ * CRM field, so the hub can offer them as a tap-to-change list.
+ *
+ * The link already exists in the data: the ad page's select id IS the field_key
+ * (Moritint's <select id="f-area"> ↔ the "Area of concern" field). Nothing is
+ * matched up by hand.
+ *
+ * Note the vocabularies differ — the page says "Front Hairline", Facebook sends
+ * "front_hairline". We store the page's clean label; the hub compares with the same
+ * lowercase/strip-punctuation rule the intake uses, so they resolve to one answer.
+ */
+async function pullFieldOptionsFromAd(){
+  var campId = window._editCampaignId;
+  var st = document.getElementById('ecam-pullopts-status');
+  function setSt(m,c){ if(st){ st.textContent=m; st.style.color=c||'var(--muted)'; } }
+  if(!campId){ setSt('No campaign selected.','var(--danger)'); return; }
+  var fields = window._ecamFields || [];
+  if(!fields.length){ setSt('No fields to fill yet.','var(--muted)'); return; }
+  setSt('Reading the ad page\u2026');
+  var html = '';
+  try{
+    // Landing pages run to ~2MB, so this takes a moment — it's a one-off click.
+    var r = await sbAdmin('/rest/v1/ads?campaign_id=eq.'+encodeURIComponent(campId)+'&select=custom_html&limit=1');
+    var rows = r.ok ? (await r.json()||[]) : [];
+    html = (rows[0] && rows[0].custom_html) || '';
+  }catch(e){ setSt('Could not read the ad page.','var(--danger)'); return; }
+  if(!html){ setSt('This campaign has no ad page with a form on it.','var(--danger)'); return; }
+
+  var doc;
+  try{ doc = new DOMParser().parseFromString(html, 'text/html'); }
+  catch(e){ setSt('Could not read the ad page.','var(--danger)'); return; }
+
+  var ops = [], done = [], missed = [];
+  fields.forEach(function(f){
+    var key = f.field_key || '';
+    if(!key) return;
+    // id first, then data-av (the page writes f-area as data-av="f_area")
+    var sel = doc.querySelector('select[id="'+key.replace(/"/g,'')+'"]')
+           || doc.querySelector('select[data-av="'+key.replace(/-/g,'_').replace(/"/g,'')+'"]');
+    if(!sel){ missed.push(f.label||key); return; }
+    var opts = [];
+    Array.prototype.forEach.call(sel.options, function(o){
+      // value="" is the "Select an area…" placeholder, not a real answer
+      if(o.value === '' ) return;
+      var t = (o.textContent||'').trim();
+      if(t && opts.indexOf(t)===-1) opts.push(t);
+    });
+    if(!opts.length){ missed.push(f.label||key); return; }
+    // options + editable only — never send field_type or maps_to, so a core
+    // mapping keeps working exactly as it does now.
+    ops.push(sbAdmin('/rest/v1/custom_fields?id=eq.'+f.id,{
+      method:'PATCH', headers:{ Prefer:'return=minimal' },
+      body: JSON.stringify({ options: opts, editable: true })
+    }));
+    done.push((f.label||key)+' ('+opts.length+')');
+  });
+
+  if(!ops.length){ setSt('No matching dropdowns found on the ad page.','var(--danger)'); return; }
+  try{
+    var res = await Promise.all(ops);
+    var bad = res.filter(function(x){ return !(x.ok || x.status===204); }).length;
+    if(bad){ setSt(bad+' of '+ops.length+' failed to save.','var(--danger)'); }
+    else {
+      setSt('Filled: '+done.join(', ') + (missed.length ? ' \u00b7 no dropdown on the page for: '+missed.join(', ') : ''),'var(--green,#16a34a)');
+      toast('Options pulled from the ad page');
+    }
+    await loadCustomFields(campId);
+  }catch(e){ setSt('Could not save the options.','var(--danger)'); }
+}
+
 async function loadCustomFields(campaignId){
   var list = document.getElementById('ecam-fields-list');
   if(!list) return;
@@ -5369,6 +5440,11 @@ function openEditCampaign(btn) {
     + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">&#128203; Lead Field Mapping <span style="font-weight:400;color:var(--muted)">(form &#8594; CRM fields)</span></div>'
     + '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Pick which form field feeds each CRM field &mdash; dropdowns are read from this campaign\'s landing page. Name, Phone &amp; Email auto-detect; change a dropdown only to override. You can rename <b>Location</b> &amp; <b>Service</b> for this client (e.g. Service &#8594; &ldquo;Treatment&rdquo;). Custom fields can map to a form field <b>or</b> be &ldquo;Hub filter only&rdquo;. Then hit Save mapping.</div>'
     + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><button type="button" onclick="_ecamPullFormFields(false)" style="white-space:nowrap;padding:6px 10px;border:1px solid var(--brand);border-radius:8px;background:var(--brand-light,#f5f3ff);color:var(--brand);font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font)">&#11015; Pull fields from landing page</button><span id="ecam-formfields-status" style="font-size:10px;color:var(--muted)"></span></div>'
+    + '<div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap">'
+    +   '<button type="button" onclick="pullFieldOptionsFromAd()" style="flex:1;min-width:180px;padding:8px;border:1px solid var(--brand);border-radius:8px;background:var(--surface,#fff);color:var(--brand);font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font)">&#11015; Pull options from ad page</button>'
+    +   '<span id="ecam-pullopts-status" style="font-size:11px;color:var(--muted)"></span>'
+    + '</div>'
+    + '<div style="font-size:10px;color:var(--muted);margin:-4px 0 10px">Reads this campaign&rsquo;s landing page and copies each dropdown&rsquo;s choices onto the matching field, so the client can tap to change a lead&rsquo;s answer in the hub.</div>'
     + '<div id="ecam-fields-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px"><div style="font-size:12px;color:var(--muted)">Loading&hellip;</div></div>'
     + '<div style="border:1px dashed var(--border);border-radius:10px;padding:12px;background:var(--surface)">'
     +   '<div style="font-size:11px;font-weight:800;color:var(--text);margin-bottom:8px" id="ecf-form-title">+ Add custom field</div>'
