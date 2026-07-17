@@ -3468,7 +3468,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-17 fields-6';
+var APP_VERSION = 'v2026-07-17 fields-7';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -6997,9 +6997,10 @@ function rptDateTo() {
   if(rptPeriod==='custom' && rptCustomTo) return rptCustomTo;
   return TOD;
 }
-// ── Global client scope (set via the Filter screen → "Client (closed deals)") ──
-// When one or more clients are selected, EVERY tab is scoped to those clients'
-// leads. A lead belongs to a client when its company name matches.
+// ── Global scope (everything picked on the Filter screen) ──
+// One lead-level gate shared by the Follow-ups tab, the Calls tab and the KPI
+// strip. It used to check only Client and Partner, which is why every other
+// filter looked dead outside the Leads tab. It now applies the whole selection.
 function gfLeadInScope(lead){
   var af = window._advFilters || {};
   if(!lead) return false;
@@ -7014,6 +7015,27 @@ function gfLeadInScope(lead){
     if(af.partners.indexOf(pid) === -1) return false;
   } else if(typeof schPartners!=='undefined' && schPartners && schPartners.size>0){
     if(!schPartners.has(pid)) return false;
+  }
+  if(af.stages      && af.stages.length      && af.stages.indexOf(lead.stage||'')===-1) return false;
+  if(af.telecallers && af.telecallers.length && af.telecallers.indexOf(gfTelecallerId(lead))===-1) return false;
+  if(af.managers    && af.managers.length    && af.managers.indexOf(gfManagerId(lead))===-1) return false;
+  if(af.campaigns   && af.campaigns.length   && af.campaigns.indexOf(gfCampaignId(lead))===-1) return false;
+  if(af.execs       && af.execs.length       && af.execs.indexOf(lead.assignedName||'')===-1) return false;
+  if(!advMatch(af.locations, lead.location||'')) return false;
+  if(af.sources && af.sources.length){
+    var _s = (typeof srcLabel==='function') ? srcLabel(lead.src||lead.source||'') : (lead.src||lead.source||'');
+    if(af.sources.indexOf(_s)===-1) return false;
+  }
+  if(!advMatch(af.services, lead.svc||lead.service||'')) return false;
+  // Custom-field filters (keys shaped "cf:<field_key>")
+  var _k2 = Object.keys(af);
+  for(var _j=0; _j<_k2.length; _j++){
+    var _kk=_k2[_j];
+    if(_kk.indexOf('cf:')!==0) continue;
+    var _ss=af[_kk]; if(!_ss || !_ss.length) continue;
+    var _ff=_kk.slice(3);
+    var _vv=(lead.form_fields && lead.form_fields[_ff]!=null) ? String(lead.form_fields[_ff]) : '';
+    if(!advMatch(_ss, _vv)) return false;
   }
   return true;
 }
@@ -24829,7 +24851,7 @@ document.addEventListener('click', function(ev){
     ov.addEventListener('click',function(e){ if(e.target===ov) close(); });
     ov.querySelector('#gfsClose').addEventListener('click',close);
     ov.querySelector('#gfsClear').addEventListener('click',clearAll);
-    ov.querySelector('#gfsApply').addEventListener('click',apply);
+    ov.querySelector('#gfsApply').addEventListener('click',function(){ apply(false); });
   }
 
   function render(){
@@ -24938,13 +24960,14 @@ document.addEventListener('click', function(ev){
     var ov=document.getElementById('gfsOverlay');
     if(ov) ov.style.display='none';
   }
-  function apply(){
+  function apply(fromClear){
     ensureState();
     FKEYS.forEach(function(k){ window._advFilters[k]=(SEL[k]||[]).slice(); });
     Object.keys(SEL).forEach(function(k){ if(k.indexOf('cf:')===0) window._advFilters[k]=(SEL[k]||[]).slice(); });
     close();
-    // If filtering from the admin Dashboard, jump to the "All Leads" list so results are visible
-    if(window.curTab==='dashboard'){
+    // If filtering from the admin Dashboard, jump to the "All Leads" list so results are visible.
+    // Clearing isn't filtering, so it must not move the user anywhere.
+    if(window.curTab==='dashboard' && !fromClear){
       window._adminDashTab='allleads';
     }
     if(typeof window.updateFilterDot==='function') window.updateFilterDot();
@@ -24952,10 +24975,15 @@ document.addEventListener('click', function(ev){
     if(typeof window.render==='function') window.render();
   }
   function clearAll(){
+    ensureState();
     SEL={}; FKEYS.forEach(function(k){ SEL[k]=[]; });
+    // Zero every custom-field key too — both the ones we know about and any
+    // already sitting on the live filter, or a stale one would survive the clear.
+    Object.keys(window._advFilters||{}).forEach(function(k){ if(k.indexOf('cf:')===0) SEL[k]=[]; });
     (window._gfCustomDefs||[]).forEach(function(d){ SEL['cf:'+d.field_key]=[]; });
     var b=document.getElementById('gfsBody'); if(b) b.__openSet=null;
     render();
+    apply(true);   // "Clear all" now means cleared AND back to the full list.
   }
 
   // Expose + bind. Override any earlier definition so the header button uses THIS.
