@@ -3476,7 +3476,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-18 team-5';
+var APP_VERSION = 'v2026-07-18 email-lock-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -9671,9 +9671,11 @@ function renderLeadScreen(id) {
   h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Communication</div>';
   h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">';
   if (isPartnerMode()) {
-    h += ldCallBtn('📄','Proposal','#dbeafe','#2563eb','lsDoEmail()');
+    if(!(isClientMode() || window._isTelecaller))
+      h += ldCallBtn('📄','Proposal','#dbeafe','#2563eb','lsDoEmail()');
   } else {
-    h += ldCallBtn('📧','Email','#dbeafe','#2563eb', 'lsDoEmail()','email');
+    if(!(isClientMode() || window._isTelecaller))
+      h += ldCallBtn('📧','Email','#dbeafe','#2563eb', 'lsDoEmail()','email');
   }
   h += ldCallBtn('💬','SMS','#d1fae5','var(--green)','openSmsSheet()');
   h += ldCallBtn('🟢','WhatsApp','#dcfce7','#25d366','lsDoWa()');
@@ -10664,7 +10666,14 @@ function lsDoAiCall(){
 function lsDoEmail(){
   var l=lsGetLead();if(!l)return;
   if(isPartnerMode()){openPartnerProposal(l.id);return;}
-  if(isClientMode() && !clientCan('email')){showToast('📧 Email is available on the AI Sales Engine plan — contact us to upgrade');return;}
+  // The Send Email sheet is the Adviuz operator tool — internal sender
+  // addresses and the Adviuz sales templates. No client-side user (client
+  // owner OR their team members) may ever open it. Their own patient-email
+  // tool is a separate build. Until then, email stays operator-only.
+  if(isClientMode() || window._isTelecaller){
+    showToast('Email sending is being set up for your account — coming soon.');
+    return;
+  }
   requireLeadInfo(l,[
     {field:'name', label:'Contact Name', placeholder:'e.g. John Smith'},
     {field:'em',   label:'Email Address', type:'email', placeholder:'client@email.com'}
@@ -12420,6 +12429,12 @@ function toggleCc(btn,email){
 function openEmail(id){
   var l=leads.find(function(x){return x.id===id});
   if(!l) return;
+  // Hard stop: the Adviuz email tool never opens for a client or team member,
+  // whatever route called this.
+  if(isClientMode() || window._isTelecaller){
+    if(typeof showToast==='function') showToast('Email sending is being set up for your account — coming soon.');
+    return;
+  }
   _emailLeadId = id;
   // Defensive first-name extract — l.name can be null, empty, or just whitespace.
   var nm = String(l.name || '').trim();
@@ -13508,6 +13523,7 @@ function openBulkSheet(type){
     document.getElementById('smsCntNum').textContent=consent;
     openSheet('bulkSmsSh');
   } else if(type==='email'){
+    if(isClientMode() || window._isTelecaller){ showToast('Email sending is being set up for your account — coming soon.'); return; }
     document.getElementById('emailTgt').textContent=n+' selected ('+withEmail+' have email)';
     document.getElementById('emailCntNum').textContent=withEmail;
     openSheet('bulkEmailSh');
@@ -13537,7 +13553,7 @@ function setBulkSmsT(k){if(!k)return;var b=document.getElementById('bulkSmsMsg')
 function sendBulkSms(){var consent=Array.from(selIds).filter(function(id){var l=leads.find(function(x){return x.id===id});return l&&l.ok}).length;closeSheet('bulkSmsSh');deselectAll();setTimeout(function(){showToast('SMS sent to '+consent+' leads')},300)}
 var BULK_EMAIL={fu:'Hi {name},\n\nThank you for your interest in nail fungus laser treatment at Laser Cosmetics Clinic Ontario.\n\nOur treatment is painless, drug-free, and results are visible in one session.\n\nBook your FREE consultation this week.\n\nDr. Sarah\nLaser Cosmetics Clinic',offer:'Hi {name},\n\nFor a limited time, 20% off nail fungus laser treatment this month.\n\nBook now to secure your spot.\n\nDr. Sarah',info:'Hi {name},\n\nHere is information about our nail fungus treatment:\n- Painless and drug-free\n- 30-45 minute session\n- Results in one session\n- No downtime\n\nDr. Sarah',cold:'Hi {name},\n\nWe noticed we lost touch. We would love to reconnect and help with your nail fungus concern.\n\nDr. Sarah'};
 function setBulkEmailT(k){if(!k)return;var b=document.getElementById('bEmailBody');if(b)b.value=BULK_EMAIL[k]||''}
-function sendBulkEmail(){var withEmail=Array.from(selIds).filter(function(id){var l=leads.find(function(x){return x.id===id});return l&&l.em}).length;closeSheet('bulkEmailSh');deselectAll();setTimeout(function(){showToast('Email sent to '+withEmail+' leads')},300)}
+function sendBulkEmail(){ if(isClientMode() || window._isTelecaller){ showToast('Email sending is being set up for your account — coming soon.'); return; } var withEmail=Array.from(selIds).filter(function(id){var l=leads.find(function(x){return x.id===id});return l&&l.em}).length;closeSheet('bulkEmailSh');deselectAll();setTimeout(function(){showToast('Email sent to '+withEmail+' leads')},300)}
 
 // ═══════════════════════════════════════
 // MENU
