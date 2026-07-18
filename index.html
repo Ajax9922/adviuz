@@ -2997,6 +2997,42 @@ body.impersonating .ls-topbar{padding-top:8px}
     </div>
   </div>
 </div>
+<!-- Client Email (client-side users only) -->
+<div class="sheet-ov" id="clientEmailSh" onclick="if(event.target===this)closeSheet('clientEmailSh')">
+  <div class="sheet" style="max-height:calc(92dvh - var(--kb,0px))">
+    <div class="sheet-head"><div class="sheet-title">Send Email</div><button class="sheet-x" onclick="closeSheet('clientEmailSh')">&#x2715;</button></div>
+    <div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom,16px))">
+      <div class="fg"><label class="flbl">From</label>
+        <div id="ceFrom" style="padding:11px 13px;border:1.5px solid var(--border);border-radius:10px;background:var(--bg);font-size:14px;color:var(--sub)">Loading…</div>
+      </div>
+      <div class="fg"><label class="flbl">To</label>
+        <input class="finp" id="ceTo" type="email" placeholder="patient@email.com">
+      </div>
+      <div class="fg"><label class="flbl">Subject <span style="color:var(--red);font-weight:400;font-size:10px">* required</span></label>
+        <input class="finp" id="ceSubj" placeholder="Type subject here...">
+      </div>
+      <div class="fg"><label class="flbl">Template <span style="font-weight:400;color:var(--sub);font-size:10px">(optional — tap to fill)</span></label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <div class="note-tpl" onclick="ceTemplate('welcome')">Welcome</div>
+          <div class="note-tpl" onclick="ceTemplate('reminder')">Appointment reminder</div>
+          <div class="note-tpl" onclick="ceTemplate('followup')">Follow-up</div>
+          <div class="note-tpl" onclick="ceTemplate('thanks')">Thank you</div>
+        </div>
+      </div>
+      <div class="fg"><label class="flbl">Message</label>
+        <textarea class="fta" id="ceBody" style="min-height:180px;resize:vertical" placeholder="Type your message here..."></textarea>
+      </div>
+      <div style="background:var(--bluel);border-radius:9px;padding:10px 13px;font-size:11px;color:var(--blue);line-height:1.6">
+        Replies come back into this lead's timeline, and a copy is sent to your inbox.
+      </div>
+    </div>
+    <div class="sh-foot">
+      <button class="btn btn-ghost" onclick="closeSheet('clientEmailSh')" style="flex:1">Cancel</button>
+      <button class="btn btn-blue" id="ceSendBtn" onclick="sendClientEmail()" style="flex:2;justify-content:center">Send Email</button>
+    </div>
+  </div>
+</div>
+
 <!-- Bulk Email -->
 <div class="sheet-ov" id="bulkEmailSh" onclick="if(event.target===this)closeSheet('bulkEmailSh')">
   <div class="sheet"><div class="sheet-handle"></div>
@@ -3476,7 +3512,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-18 email-lock-1';
+var APP_VERSION = 'v2026-07-18 client-email-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -8578,10 +8614,18 @@ async function loadLeadActivity(localId, dbId) {
       }
       var label = type === 'sms_received' ? 'SMS Received'
                 : type === 'sms_sent'     ? 'SMS Sent'
+                : type === 'email_sent'     ? 'Email Sent'
+                : type === 'email_received' ? 'Email Received'
                 : type === 'call'         ? 'Call'
                 : type === 'assignment'   ? 'Assigned'
                 : type === 'note'         ? 'Note'
                 : rawBody.slice(0, 50);
+      // Email body + subject live in metadata (written by the client-email fns).
+      var emailBody='', emailSubj='';
+      if(type==='email_sent' || type==='email_received'){
+        emailSubj = rawBody;   // description holds the subject
+        emailBody = (row.metadata && row.metadata.body) ? String(row.metadata.body) : '';
+      }
       // Duration string
       var durSec = row.duration_seconds || 0;
       var durStr = durSec > 0 ? Math.floor(durSec/60)+'m '+(durSec%60)+'s' : '—';
@@ -8609,6 +8653,8 @@ async function loadLeadActivity(localId, dbId) {
         call_note:    row.call_note || null,
         is_ai:        !!(row.metadata && (row.metadata.handler === 'ai' || row.metadata.ai === true)),
         transcript:   (row.metadata && row.metadata.transcript) || '',
+        email_subject: emailSubj,
+        email_body:    emailBody,
         // Anything logged here as sms_sent was typed by a person in the hub.
         sender_tag:   (type === 'sms_sent') ? 'Human' : ''
       };
@@ -9674,8 +9720,14 @@ function renderLeadScreen(id) {
     if(!(isClientMode() || window._isTelecaller))
       h += ldCallBtn('📄','Proposal','#dbeafe','#2563eb','lsDoEmail()');
   } else {
-    if(!(isClientMode() || window._isTelecaller))
+    if(isClientMode() || window._isTelecaller){
+      // Client-side users get THEIR OWN email tool (their address, no Adviuz
+      // sender list, no Adviuz sales templates). Only appears if the account
+      // has email switched on.
+      h += ldCallBtn('📧','Email','#dbeafe','#2563eb', 'openClientEmail('+l.id+')');
+    } else {
       h += ldCallBtn('📧','Email','#dbeafe','#2563eb', 'lsDoEmail()','email');
+    }
   }
   h += ldCallBtn('💬','SMS','#d1fae5','var(--green)','openSmsSheet()');
   h += ldCallBtn('🟢','WhatsApp','#dcfce7','#25d366','lsDoWa()');
@@ -9925,7 +9977,7 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
     var isCall = item.type === 'call';
     var isInboundSms = item.type === 'sms_received';
     var isOutboundSms = item.type === 'sms_sent' || item.type === 'sms';
-    var clickable = item.type==='quote_sent'||item.type==='quote_viewed'||item.type==='quote_accepted'||item.type==='quote_paid'||item.type==='email_sent'||item.type==='email';
+    var clickable = item.type==='quote_sent'||item.type==='quote_viewed'||item.type==='quote_accepted'||item.type==='quote_paid'||item.type==='email';
     var quoteId = (item.meta && item.meta.quote_id) ? item.meta.quote_id : '';
     var onClick = (item.type.indexOf('quote')>-1 && quoteId) ? 'onclick="viewQuoteFromActivity(\''+quoteId+'\')"' : '';
 
@@ -9999,6 +10051,29 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
       }
 
       h += '</div>'; // end card
+
+    } else if (item.type === 'email_sent' || item.type === 'email_received') {
+      // ── EMAIL ACTIVITY — mirrors the SMS block, blue in / indigo out ──
+      var isEmailIn = item.type === 'email_received';
+      var emBg  = isEmailIn ? '#f0f9ff' : '#eef2ff';
+      var emBdr = isEmailIn ? '#0284c7' : '#4f46e5';
+      h += '<div class="ld-act-dot">'+(isEmailIn?'📥':'📧')+'</div>';
+      h += '<div class="ld-act-body" style="width:100%">';
+      h += '<span class="ld-act-label">'+item.label+'</span><span class="ld-act-time">'+item.time+'</span>';
+      var _emTag = isEmailIn ? '' : '👤 '+((_clientNm())||'You');
+      if(_emTag){
+        h += '<div style="margin-top:5px"><span style="font-size:10px;font-weight:800;padding:3px 8px;border-radius:20px;background:#eef2ff;color:#4f46e5;white-space:nowrap">'+_emTag+'</span></div>';
+      }
+      if(item.email_subject){
+        h += '<div style="margin-top:6px;font-size:12px;font-weight:700;color:var(--text)">'+sanitize(item.email_subject)+'</div>';
+      }
+      var _emShown = (item.email_body||'').trim();
+      if(_emShown){
+        h += '<div style="margin-top:6px;padding:9px 12px;background:'+emBg+';border-left:3px solid '+emBdr+';border-radius:0 8px 8px 0;font-size:13px;color:var(--text);line-height:1.5;white-space:pre-wrap;max-height:220px;overflow:auto">'+sanitize(_emShown)+'</div>';
+      }
+      if(isEmailIn){
+        h += '<button onclick="openClientEmail('+l.id+')" style="margin-top:6px;padding:5px 12px;border-radius:20px;border:1.5px solid #4f46e5;background:#fff;color:#4f46e5;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">↩ Reply</button>';
+      }
 
     } else if (isInboundSms || isOutboundSms) {
       // ── SMS ACTIVITY ──
@@ -10679,6 +10754,81 @@ function lsDoEmail(){
     {field:'em',   label:'Email Address', type:'email', placeholder:'client@email.com'}
   ], 'Email', function(){ openEmail(l.id); });
 }
+function _clientNm(){ try{ return (window._clientData&&window._clientData.business_name)||''; }catch(e){ return ''; } }
+// ── Client email tool (their own address; talks to the isolated client-email fn) ──
+window._ceLead = null;
+window._ceFrom = null;   // cached { from_email, from_name, enabled }
+
+function openClientEmail(id){
+  var l = leads.find(function(x){return x.id===id;});
+  if(!l){ if(typeof showToast==='function') showToast('Lead not found'); return; }
+  window._ceLead = l;
+  // Prefill
+  var toEl=document.getElementById('ceTo'); if(toEl) toEl.value = l.em || '';
+  var subEl=document.getElementById('ceSubj'); if(subEl) subEl.value='';
+  var nm=String(l.name||'').trim(); var first = nm ? nm.split(' ')[0] : 'there';
+  var bodyEl=document.getElementById('ceBody'); if(bodyEl) bodyEl.value='Hi '+first+',\n\n';
+  var fromEl=document.getElementById('ceFrom'); if(fromEl) fromEl.textContent='Loading\u2026';
+  openSheet('clientEmailSh');
+  // Load the client's sender (cached after first time)
+  if(window._ceFrom){ paintCeFrom(); return; }
+  sbFetch('/rest/v1/client_integrations?client_id=eq.'+encodeURIComponent(window._clientId||'')+'&select=from_email,from_name,email_enabled&limit=1')
+    .then(function(r){ return r&&r.ok?r.json():[]; })
+    .then(function(rows){
+      var c=(rows&&rows[0])||{};
+      window._ceFrom={ from_email:c.from_email||'', from_name:c.from_name||'', enabled:!!c.email_enabled };
+      paintCeFrom();
+    })
+    .catch(function(){ window._ceFrom={from_email:'',from_name:'',enabled:false}; paintCeFrom(); });
+}
+function paintCeFrom(){
+  var fromEl=document.getElementById('ceFrom'); if(!fromEl) return;
+  var f=window._ceFrom||{};
+  if(!f.enabled || !f.from_email){
+    fromEl.innerHTML='<span style="color:#b45309">Email isn\'t set up for your account yet.</span>';
+    var b=document.getElementById('ceSendBtn'); if(b){ b.disabled=true; b.style.opacity='.5'; }
+    return;
+  }
+  fromEl.textContent = (f.from_name?f.from_name+' ':'') + '<'+f.from_email+'>';
+  var b2=document.getElementById('ceSendBtn'); if(b2){ b2.disabled=false; b2.style.opacity=''; }
+}
+function ceTemplate(kind){
+  var l=window._ceLead||{}; var nm=String(l.name||'').trim(); var first=nm?nm.split(' ')[0]:'there';
+  var biz=(window._ceFrom&&window._ceFrom.from_name)||(window._clientData&&window._clientData.business_name)||'our clinic';
+  var subEl=document.getElementById('ceSubj'), bodyEl=document.getElementById('ceBody');
+  var T={
+    welcome:{s:'Welcome to '+biz, b:'Hi '+first+',\n\nThank you for reaching out to '+biz+'. We\'re glad to hear from you and will be in touch shortly to help with your enquiry.\n\nIf you have any questions in the meantime, just reply to this email.\n\nWarm regards,\n'+biz},
+    reminder:{s:'Appointment reminder \u2014 '+biz, b:'Hi '+first+',\n\nThis is a friendly reminder about your upcoming appointment with '+biz+'.\n\nIf you need to reschedule, simply reply to this email and we\'ll be happy to help.\n\nWarm regards,\n'+biz},
+    followup:{s:'Following up \u2014 '+biz, b:'Hi '+first+',\n\nWe wanted to follow up on your recent enquiry with '+biz+'. We\'d love to help you take the next step.\n\nJust reply to this email and we\'ll get you sorted.\n\nWarm regards,\n'+biz},
+    thanks:{s:'Thank you from '+biz, b:'Hi '+first+',\n\nThank you for choosing '+biz+'. It was a pleasure to help you.\n\nIf there\'s anything else we can do, just reply to this email.\n\nWarm regards,\n'+biz}
+  };
+  var t=T[kind]; if(!t) return;
+  if(subEl) subEl.value=t.s; if(bodyEl) bodyEl.value=t.b;
+}
+function sendClientEmail(){
+  var l=window._ceLead||{};
+  var to=(document.getElementById('ceTo')||{}).value||''; to=to.trim();
+  var subject=(document.getElementById('ceSubj')||{}).value||''; subject=subject.trim();
+  var message=(document.getElementById('ceBody')||{}).value||'';
+  if(!to){ showToast('Add an email address'); return; }
+  if(!subject){ showToast('Add a subject'); return; }
+  var btn=document.getElementById('ceSendBtn'); if(btn){ btn.textContent='Sending\u2026'; btn.disabled=true; }
+  sbFetch('/functions/v1/client-email',{ method:'POST', body: JSON.stringify({
+    client_id: window._clientId||null, lead_id: (l&&l.dbId)||l.id||null,
+    to: to, subject: subject, message: message }) })
+    .then(function(res){ return res.json().then(function(d){ return {ok:res.ok,d:d}; }); })
+    .then(function(r){
+      if(!r.ok || !r.d || r.d.ok===false) throw new Error((r.d&&r.d.error)||'Could not send');
+      showToast('Email sent');
+      closeSheet('clientEmailSh');
+      if(typeof loadActivity==='function' && l && (l.dbId||l.id)) loadActivity(l.dbId||l.id);
+    })
+    .catch(function(e){
+      if(btn){ btn.textContent='Send Email'; btn.disabled=false; }
+      showToast('Could not send: '+((e&&e.message)||'error'));
+    });
+}
+
 function lsDoSms(){ var l=lsGetLead();if(l)openSms(l.id); }
 
 
