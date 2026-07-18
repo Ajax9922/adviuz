@@ -674,7 +674,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-17 fields-4</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-18 email-setup-1</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -5355,7 +5355,7 @@ function openEditCampaign(btn) {
     +   '<button class="modal-close" onclick="closeCampaignEditor()" title="Close">\u00d7</button>'
     + '</div>'
     + '<div class="ecam-tabs" id="ecam-tabs">'
-    +   ['basics|Basic','preview|Client Preview','comms|Calls &amp; SMS','fields|Fields','tracking|Tracking &amp; Pixels','fbleads|Facebook Lead Ads','ai|AI Profile'].map(function(t,i){
+    +   ['basics|Basic','preview|Client Preview','comms|Calls &amp; SMS','fields|Fields','tracking|Tracking &amp; Pixels','fbleads|Facebook Lead Ads','ai|AI Profile','email|Email'].map(function(t,i){
           var q=t.split('|');
           return '<button type="button" class="ecam-tab'+(i===0?' active':'')+'" data-tab="'+q[0]+'" onclick="showCamTab(\'' + q[0] + '\')">'+q[1]+'</button>';
         }).join('')
@@ -5630,6 +5630,13 @@ function openEditCampaign(btn) {
     + '</div>'
     + '<div class="ecam-panesave"><button type="button" class="btn-save" onclick="saveCamAi()">\uD83D\uDCBE Save AI profile</button></div>'
     + '</div>'
+    + '<div class="ecam-pane" data-pane="email" style="display:none">'
+    +   '<div style="margin-top:6px;padding-top:14px;border-top:1px solid var(--border)">'
+    +   '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">\uD83D\uDCE7 Client Email (send &amp; receive as the client)</div>'
+    +   '<div style="font-size:11px;color:var(--muted);margin-bottom:14px;line-height:1.6">Sets up this client to email their leads from their own address, with replies coming back into their hub. One-time setup: create the sender, add the shown records to the domain\u2019s DNS, then verify.</div>'
+    +   '<div id="ecEmailWrap"><div style="font-size:12px;color:var(--muted);padding:10px 0">Loading\u2026</div></div>'
+    +   '</div>'
+    + '</div>'
     + '</div>'
     + '</div>';
   document.body.insertAdjacentHTML('beforeend', modal);
@@ -5895,6 +5902,149 @@ async function doAddBalance(){
 // "optimise" this into lazy rendering — the saves below read their fields by
 // getElementById, and a pane that has not been built yet returns nothing, which
 // would write blanks over live Twilio / AI / pixel settings.
+// ═══════════════════════════════════════════════════════════════════
+// CLIENT EMAIL SETUP (Email tab) — talks to the admin-email-setup engine.
+// Stage 1: create the Resend domain, show DNS records to paste, then verify.
+// ═══════════════════════════════════════════════════════════════════
+function _ecClient(){
+  var cid = window._editCamClientId;
+  var c = (window._allClients||[]).find(function(x){ return String(x.id)===String(cid); });
+  return c || null;
+}
+function _ecClientDomain(c){
+  // Best-guess a domain from the client's website/email, for the default subdomain.
+  var d='';
+  try{
+    if(c){
+      if(c.website){ d = String(c.website).replace(/^https?:\/\//,'').replace(/\/.*$/,'').replace(/^www\./,''); }
+      if(!d && c.email && c.email.indexOf('@')>-1){ var dom=c.email.split('@')[1]||''; if(!/gmail|yahoo|outlook|hotmail|icloud/i.test(dom)) d=dom; }
+    }
+  }catch(e){}
+  return d;
+}
+function ecCall(action, extra){
+  var payload = Object.assign({ action:action, client_id: window._editCamClientId||'' }, extra||{});
+  return sbAdmin('/functions/v1/admin-email-setup', { method:'POST', body: JSON.stringify(payload) })
+    .then(function(r){ return r.json().then(function(d){ return { ok:r.ok, d:d }; }); });
+}
+function ecLoadEmail(){
+  var wrap=document.getElementById('ecEmailWrap'); if(!wrap) return;
+  if(!window._editCamClientId){ wrap.innerHTML='<div style="font-size:12px;color:var(--muted)">This campaign has no client attached, so email can\'t be set up here.</div>'; return; }
+  wrap.innerHTML='<div style="font-size:12px;color:var(--muted);padding:10px 0">Loading\u2026</div>';
+  ecCall('status').then(function(r){
+    var st=(r.d&&r.d.state)||{};
+    ecRender(st);
+  }).catch(function(){ wrap.innerHTML='<div style="font-size:12px;color:#dc2626">Couldn\'t load email status. Try again.</div>'; });
+}
+function ecRender(st){
+  var wrap=document.getElementById('ecEmailWrap'); if(!wrap) return;
+  var c=_ecClient();
+  // Already verified & on → show active state.
+  if(st && st.email_enabled && (st.email_status==='verified' || st.from_email)){
+    wrap.innerHTML =
+      '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:14px 16px">'
+      + '<div style="font-size:13px;font-weight:800;color:#15803d;margin-bottom:6px">\u2705 Email is active for this client</div>'
+      + '<div style="font-size:12px;color:var(--text);line-height:1.7">'
+      +   'Sends as <b>'+_ecEsc(st.from_name||'')+' &lt;'+_ecEsc(st.from_email||'')+'&gt;</b><br>'
+      +   'Replies come into the client\u2019s hub'+(st.reply_forward_to?(' and copy to <b>'+_ecEsc(st.reply_forward_to)+'</b>'):'')
+      + '</div>'
+      + '<button type="button" onclick="ecShowForm()" style="margin-top:12px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--text);font-size:11px;font-weight:700;cursor:pointer;font-family:var(--font)">Change sender / re-setup</button>'
+      + '</div>';
+    return;
+  }
+  // Pending (records added, awaiting verify) → show records + verify.
+  if(st && st.email_status==='pending' && st.resend_domain_id){
+    ecCall('verify').then(function(r){
+      if(r.d && r.d.verified){ ecLoadEmail(); return; }
+      ecRenderPending(st, (r.d&&r.d.records)||[]);
+    }).catch(function(){ ecRenderPending(st, []); });
+    return;
+  }
+  // Fresh → show the setup form.
+  ecShowForm(st);
+}
+function ecShowForm(st){
+  st=st||{};
+  var wrap=document.getElementById('ecEmailWrap'); if(!wrap) return;
+  var c=_ecClient();
+  var guess=_ecClientDomain(c);
+  var defSub = st.email_domain || (guess?('mail.'+guess):'');
+  var defLocal='hello', defEmail=st.from_email||'';
+  if(defEmail && defEmail.indexOf('@')>-1) defLocal=defEmail.split('@')[0];
+  var defName = st.from_name || (c?c.business_name:'') || '';
+  var defFwd  = st.reply_forward_to || (c?c.email:'') || '';
+  wrap.innerHTML =
+    '<div class="form-group"><label class="fld">Sending domain <span style="color:var(--muted);font-weight:400">(a subdomain \u2014 keeps the client\u2019s main domain safe)</span></label>'
+    + '<input class="fld" id="ec-sub" placeholder="mail.theirclinic.com" value="'+_ecEsc(defSub)+'"></div>'
+    + '<div class="form-group"><label class="fld">From address</label>'
+    + '<div style="display:flex;align-items:center;gap:6px"><input class="fld" id="ec-local" placeholder="hello" value="'+_ecEsc(defLocal)+'" style="max-width:160px">'
+    + '<span style="font-size:13px;color:var(--muted)">@</span><span id="ec-domshow" style="font-size:13px;color:var(--text);font-weight:600">'+_ecEsc(defSub||'\u2026')+'</span></div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-top:4px">Any label you like \u2014 hello, info, reception, appointments. It\u2019s free; no mailbox needed.</div></div>'
+    + '<div class="form-group"><label class="fld">From name <span style="color:var(--muted);font-weight:400">(what patients see)</span></label>'
+    + '<input class="fld" id="ec-name" placeholder="Gul Orthodontics" value="'+_ecEsc(defName)+'"></div>'
+    + '<div class="form-group"><label class="fld">Copy replies to <span style="color:var(--muted);font-weight:400">(a human inbox, so nothing is missed)</span></label>'
+    + '<input class="fld" id="ec-fwd" placeholder="clinic@gmail.com" value="'+_ecEsc(defFwd)+'"></div>'
+    + '<div id="ec-msg" style="display:none;font-size:12px;font-weight:600;padding:9px 12px;border-radius:8px;margin:4px 0"></div>'
+    + '<div class="ecam-panesave"><button type="button" class="btn-save" id="ec-create-btn" onclick="ecCreate()">\uD83D\uDE80 Create sender \u2192</button></div>';
+  var sub=document.getElementById('ec-sub');
+  if(sub) sub.addEventListener('input',function(){ var d=document.getElementById('ec-domshow'); if(d) d.textContent=this.value||'\u2026'; });
+}
+function ecMsg(text, kind){
+  var m=document.getElementById('ec-msg'); if(!m) return;
+  m.style.display='block'; m.textContent=text;
+  var col = kind==='err' ? ['#fef2f2','#b91c1c'] : kind==='ok' ? ['#f0fdf4','#15803d'] : ['#eff6ff','#1d4ed8'];
+  m.style.background=col[0]; m.style.color=col[1];
+}
+function ecCreate(){
+  var sub=_ecVal('ec-sub').toLowerCase(), local=_ecVal('ec-local').toLowerCase(), name=_ecVal('ec-name'), fwd=_ecVal('ec-fwd');
+  if(!sub){ ecMsg('Enter a sending domain like mail.theirclinic.com','err'); return; }
+  if(!local){ ecMsg('Enter the part before the @ (e.g. hello)','err'); return; }
+  var btn=document.getElementById('ec-create-btn'); if(btn){ btn.textContent='Creating\u2026'; btn.disabled=true; }
+  ecCall('create',{ subdomain:sub, from_local:local, from_name:name, reply_forward_to:fwd }).then(function(r){
+    if(!r.ok || !r.d || r.d.ok===false) throw new Error((r.d&&r.d.error)||'Could not create');
+    ecRenderPending({ email_domain:sub, from_email:(local+'@'+sub), resend_domain_id:r.d.domain_id }, r.d.records||[]);
+  }).catch(function(e){
+    if(btn){ btn.textContent='\uD83D\uDE80 Create sender \u2192'; btn.disabled=false; }
+    ecMsg((e&&e.message)||'Could not create','err');
+  });
+}
+function ecRenderPending(st, records){
+  var wrap=document.getElementById('ecEmailWrap'); if(!wrap) return;
+  var rowsHtml = (records||[]).map(function(r){
+    return '<tr>'
+      + '<td style="padding:7px 8px;border-bottom:1px solid var(--border);font-weight:700">'+_ecEsc(r.type)+'</td>'
+      + '<td style="padding:7px 8px;border-bottom:1px solid var(--border);word-break:break-all">'+_ecEsc(r.name)+'</td>'
+      + '<td style="padding:7px 8px;border-bottom:1px solid var(--border);word-break:break-all;font-family:monospace;font-size:11px">'+_ecEsc(r.value)+'</td>'
+      + '<td style="padding:7px 8px;border-bottom:1px solid var(--border);text-align:center">'+_ecEsc(r.priority||'\u2014')+'</td>'
+      + '</tr>';
+  }).join('');
+  wrap.innerHTML =
+    '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:14px 16px;margin-bottom:14px">'
+    + '<div style="font-size:13px;font-weight:800;color:#b45309;margin-bottom:6px">\u23F3 Almost there \u2014 add these records to the domain\u2019s DNS</div>'
+    + '<div style="font-size:12px;color:var(--text);line-height:1.6">Sender: <b>'+_ecEsc(st.from_email||'')+'</b><br>Add every row below to the DNS for <b>'+_ecEsc(st.email_domain||'')+'</b> (in Cloudflare, add just the record name shown \u2014 not the full domain), then tap Verify.</div>'
+    + '</div>'
+    + '<div style="overflow:auto;border:1px solid var(--border);border-radius:10px;margin-bottom:12px"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+    + '<thead><tr style="background:var(--surface2)"><th style="padding:8px;text-align:left">Type</th><th style="padding:8px;text-align:left">Name</th><th style="padding:8px;text-align:left">Value</th><th style="padding:8px;text-align:center">Priority</th></tr></thead>'
+    + '<tbody>'+(rowsHtml||'<tr><td colspan="4" style="padding:12px;color:var(--muted)">Records will appear here. If this stays empty, tap Verify to refresh.</td></tr>')+'</tbody>'
+    + '</table></div>'
+    + '<div id="ec-msg" style="display:none;font-size:12px;font-weight:600;padding:9px 12px;border-radius:8px;margin:4px 0"></div>'
+    + '<div style="display:flex;gap:8px">'
+    +   '<button type="button" class="btn-save" id="ec-verify-btn" onclick="ecVerify()">\u2713 Verify now</button>'
+    +   '<button type="button" onclick="ecShowForm()" style="padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--text);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">Edit details</button>'
+    + '</div>';
+}
+function ecVerify(){
+  var btn=document.getElementById('ec-verify-btn'); if(btn){ btn.textContent='Checking\u2026'; btn.disabled=true; }
+  ecCall('verify').then(function(r){
+    if(r.d && r.d.verified){ ecMsg('Verified! Email is now active for this client.','ok'); setTimeout(ecLoadEmail,900); return; }
+    if(btn){ btn.textContent='\u2713 Verify now'; btn.disabled=false; }
+    ecMsg('Not verified yet \u2014 DNS can take a few minutes. Add the records, wait, then try again.','info');
+    if(r.d && r.d.records && r.d.records.length){ ecRenderPending({ email_domain:(_ecClient()&&_ecClientDomain(_ecClient()))?('mail.'+_ecClientDomain(_ecClient())):'', from_email:'' }, r.d.records); }
+  }).catch(function(){ if(btn){ btn.textContent='\u2713 Verify now'; btn.disabled=false; } ecMsg('Could not check right now. Try again.','err'); });
+}
+function _ecVal(id){ var el=document.getElementById(id); return el?String(el.value||'').trim():''; }
+function _ecEsc(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
 function showCamTab(key){
   var panel=document.getElementById('editCampaignModal'); if(!panel) return;
   panel.querySelectorAll('.ecam-pane').forEach(function(el){
@@ -5904,6 +6054,7 @@ function showCamTab(key){
     if(b.getAttribute('data-tab')===key) b.classList.add('active'); else b.classList.remove('active');
   });
   var body=panel.querySelector('.ecam-body'); if(body) body.scrollTop=0;
+  if(key==='email') ecLoadEmail();
 }
 
 function closeCampaignEditor(){
