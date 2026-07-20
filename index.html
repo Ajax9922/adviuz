@@ -3558,7 +3558,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-19 team-7';
+var APP_VERSION = 'v2026-07-19 team-8';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -26329,18 +26329,22 @@ document.addEventListener('click', function(ev){
     var j = sub.toJSON();
     if (!j || !j.keys) { console.warn('[push] no keys in subscription'); if (window.showToast) showToast('\u26A0\uFE0F Push: browser returned no key'); return false; }
     if (!currentUser)  { console.warn('[push] no currentUser');          if (window.showToast) showToast('\u26A0\uFE0F Push: not signed in yet');       return false; }
+    // Use a rebind RPC (never a raw UPSERT): the same physical device may have
+    // been registered under a DIFFERENT account before (e.g. owner tested on a
+    // team member's phone). A plain merge-duplicates UPSERT would then try to
+    // UPDATE that foreign row and RLS rejects it with 42501. The RPC deletes any
+    // prior row for this endpoint and re-inserts it owned by the current user.
     var res;
     try {
-      res = await sbFetch('/rest/v1/push_subscriptions?on_conflict=endpoint', {
+      res = await sbFetch('/rest/v1/rpc/push_rebind_endpoint', {
         method: 'POST',
-        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+        headers: { Prefer: 'return=minimal' },
         body: JSON.stringify({
-          user_id:    currentUser.id,
-          client_id:  window._clientId || null,
-          endpoint:   sub.endpoint,
-          p256dh:     j.keys.p256dh,
-          auth:       j.keys.auth,
-          user_agent: (navigator.userAgent || '').slice(0, 200)
+          p_endpoint:   sub.endpoint,
+          p_p256dh:     j.keys.p256dh,
+          p_auth:       j.keys.auth,
+          p_client_id:  window._clientId || null,
+          p_user_agent: (navigator.userAgent || '').slice(0, 200)
         })
       });
     } catch (e) {
