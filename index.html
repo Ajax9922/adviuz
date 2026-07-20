@@ -3558,7 +3558,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-19 team-6';
+var APP_VERSION = 'v2026-07-19 team-7';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -6313,6 +6313,7 @@ function skipDealValueAndClose(){
 function render(){
   var pages={leads:leadsHTML,followups:followupsHTML,reports:reportsHTML,calls:callsHTML,me:meHTML,dashboard:window._isPartnerMode?partnerDashHTML:(window._isClientMode?clientDashHTML:adminDashHTML)};
   document.getElementById('content').innerHTML=(pages[curTab]||leadsHTML)();
+  if(curTab==='me' && typeof _fillMeCampaignNames==='function') _fillMeCampaignNames();
   if(typeof initListPullToRefresh==='function') initListPullToRefresh();
   if(typeof updateActiveFilterBar==='function') updateActiveFilterBar();
   if(typeof updateNotifBadge==='function') updateNotifBadge();
@@ -14243,6 +14244,23 @@ function openClientSettingsSheet(){
 }
 window.openClientSettingsSheet = openClientSettingsSheet;
 
+async function _fillMeCampaignNames(){
+  var spans = Array.prototype.slice.call(document.querySelectorAll('.meCampName'));
+  if(!spans.length) return;
+  var ids = spans.map(function(s){ return s.getAttribute('data-cid'); })
+                 .filter(function(v,i,a){ return v && a.indexOf(v)===i; });
+  if(!ids.length) return;
+  try{
+    var res = await sbFetch('/rest/v1/campaigns?select=id,name&id=in.('+ids.join(',')+')');
+    var rows = res.ok ? await res.json() : [];
+    var byId = {}; (rows||[]).forEach(function(r){ byId[String(r.id)] = r.name || ''; });
+    spans.forEach(function(s){
+      var nm = byId[s.getAttribute('data-cid')];
+      if(nm){ s.textContent = nm; }
+    });
+  }catch(e){}
+}
+
 function _prettyRole(r){
   if(!r) return 'Team Member';
   var map = { sales_rep:'Sales Rep', telecaller:'Telecaller', manager:'Manager',
@@ -14267,16 +14285,29 @@ function meHTML(){
     arr = arr.filter(function(x){ return x!==null && x!==undefined && String(x).trim()!==''; });
     if(arr.length) chips.push({k:label, v:arr.join(', ')});
   }
-  pushList('Campaign', sc.campaign_id || sc.campaign || sc.campaigns);
+  var _campVal = sc.campaign_id || sc.campaign || sc.campaigns;
+  pushList('Campaign', _campVal);
   pushList('Location', sc.location || sc.locations);
   pushList('Service',  sc.service  || sc.services);
   pushList('Stage',    sc.stage    || sc.stages);
+  var uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   var scopeHtml;
   if(chips.length){
     scopeHtml = chips.map(function(c){
+      var valHtml;
+      if(c.k==='Campaign'){
+        // Render each campaign as a name-resolvable pill (id now, name after fetch).
+        valHtml = String(c.v).split(',').map(function(part){
+          var id = part.trim();
+          if(uuidRe.test(id)) return '<span class="meCampName" data-cid="'+id+'">'+_smsEsc(id.slice(0,8))+'\u2026</span>';
+          return _smsEsc(id);
+        }).join(', ');
+      } else {
+        valHtml = _smsEsc(c.v);
+      }
       return '<div style="display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--border)">'
         + '<span style="font-size:12px;color:var(--sub);font-weight:700;text-transform:uppercase;letter-spacing:.04em">'+_smsEsc(c.k)+'</span>'
-        + '<span style="font-size:14px;color:var(--text);font-weight:700;text-align:right">'+_smsEsc(c.v)+'</span>'
+        + '<span style="font-size:14px;color:var(--text);font-weight:700;text-align:right">'+valHtml+'</span>'
         + '</div>';
     }).join('');
   } else {
