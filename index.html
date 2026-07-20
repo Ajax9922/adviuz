@@ -1287,6 +1287,10 @@ body.impersonating .ls-topbar{padding-top:8px}
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
       <span class="tab-lbl">Dashboard</span>
     </button>
+    <button class="tab" onclick="goTab('me',this)" id="tab-me" style="display:none">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 016-6h4a6 6 0 016 6v1"/></svg>
+      <span class="tab-lbl">Me</span>
+    </button>
   </div>
 </div>
 
@@ -3554,7 +3558,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-19 pay-7';
+var APP_VERSION = 'v2026-07-19 team-6';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -3904,6 +3908,15 @@ async function applyRoleGate(user){
     // screen can never show something the database would refuse, or hide
     // something it would allow.
     window._telecallerScope = (m.lead_scope && typeof m.lead_scope==='object') ? m.lead_scope : {};
+    // Name for the "Me" screen comes from user_profiles.display_name; the
+    // job title is the role the owner gave them on the roster (client_members).
+    window._teamMemberTitle = _prettyRole(m.role);
+    window._teamMemberName  = '';
+    try {
+      var upRes = await sbFetch('/rest/v1/user_profiles?select=display_name&user_id=eq.'+user.id+'&limit=1');
+      var upArr = upRes.ok ? await upRes.json() : [];
+      if(upArr.length && upArr[0].display_name) window._teamMemberName = upArr[0].display_name;
+    } catch(e){}
   }
   if(!isStaff && !isPartner && !isClient && !isTeamMember){
     authToken=null; currentUser=null;
@@ -4602,6 +4615,9 @@ function doLogout() {
   window._clientData    = null;
   window._clientId      = null;
   window._isTelecaller  = false;
+  window._teamMemberName = '';
+  window._teamMemberTitle = '';
+  var _meTab = document.getElementById('tab-me'); if(_meTab) _meTab.style.display='none';
   window._isAdviuzStaff = false;
   window._isAccountOwner = false;
   window._staffRole     = null;
@@ -5653,6 +5669,7 @@ var TAB_CFG={
   reports:  {t:'Reports',   s:'Analytics & insights',search:false,plus:false},
   calls:    {t:'Inbox',     s:'Calls & messages',    search:true,plus:false},
   dashboard:{t:'Dashboard', s:'Adviuz Admin',        search:false,plus:false},
+  me:       {t:'My Profile', s:'',                    search:false,plus:false},
 };
 
 function goTab(tab,btn){
@@ -6294,7 +6311,7 @@ function skipDealValueAndClose(){
 // RENDER DISPATCH
 // ═══════════════════════════════════════
 function render(){
-  var pages={leads:leadsHTML,followups:followupsHTML,reports:reportsHTML,calls:callsHTML,dashboard:window._isPartnerMode?partnerDashHTML:(window._isClientMode?clientDashHTML:adminDashHTML)};
+  var pages={leads:leadsHTML,followups:followupsHTML,reports:reportsHTML,calls:callsHTML,me:meHTML,dashboard:window._isPartnerMode?partnerDashHTML:(window._isClientMode?clientDashHTML:adminDashHTML)};
   document.getElementById('content').innerHTML=(pages[curTab]||leadsHTML)();
   if(typeof initListPullToRefresh==='function') initListPullToRefresh();
   if(typeof updateActiveFilterBar==='function') updateActiveFilterBar();
@@ -14226,6 +14243,64 @@ function openClientSettingsSheet(){
 }
 window.openClientSettingsSheet = openClientSettingsSheet;
 
+function _prettyRole(r){
+  if(!r) return 'Team Member';
+  var map = { sales_rep:'Sales Rep', telecaller:'Telecaller', manager:'Manager',
+              agent:'Agent', assistant:'Assistant', front_desk:'Front Desk',
+              admin:'Manager', super_admin:'Manager' };
+  if(map[r]) return map[r];
+  return String(r).replace(/_/g,' ').replace(/\b\w/g, function(ch){ return ch.toUpperCase(); });
+}
+
+function meHTML(){
+  if(!window._isTelecaller){ return '<div style="padding:40px 16px;text-align:center;color:var(--sub)">Not available.</div>'; }
+  var nm = (window._teamMemberName || (currentUser && currentUser.email) || 'Team Member');
+  var email = (currentUser && currentUser.email) || '';
+  var title = window._teamMemberTitle || 'Team Member';
+  var initial = (nm||'?').trim().charAt(0).toUpperCase();
+  // Build the assigned-scope summary from the telecaller scope ticks.
+  var sc = window._telecallerScope || {};
+  var chips = [];
+  function pushList(label, val){
+    if(!val) return;
+    var arr = Array.isArray(val) ? val : [val];
+    arr = arr.filter(function(x){ return x!==null && x!==undefined && String(x).trim()!==''; });
+    if(arr.length) chips.push({k:label, v:arr.join(', ')});
+  }
+  pushList('Campaign', sc.campaign_id || sc.campaign || sc.campaigns);
+  pushList('Location', sc.location || sc.locations);
+  pushList('Service',  sc.service  || sc.services);
+  pushList('Stage',    sc.stage    || sc.stages);
+  var scopeHtml;
+  if(chips.length){
+    scopeHtml = chips.map(function(c){
+      return '<div style="display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--border)">'
+        + '<span style="font-size:12px;color:var(--sub);font-weight:700;text-transform:uppercase;letter-spacing:.04em">'+_smsEsc(c.k)+'</span>'
+        + '<span style="font-size:14px;color:var(--text);font-weight:700;text-align:right">'+_smsEsc(c.v)+'</span>'
+        + '</div>';
+    }).join('');
+  } else {
+    scopeHtml = '<div style="font-size:13px;color:var(--sub);line-height:1.6;padding:6px 0">You can see all leads for this business \u2014 no filters applied to your access.</div>';
+  }
+  return ''
+    + '<div style="padding:20px 16px calc(28px + env(safe-area-inset-bottom))">'
+    +   '<div style="display:flex;flex-direction:column;align-items:center;text-align:center;padding:8px 0 22px">'
+    +     '<div style="width:76px;height:76px;border-radius:50%;background:var(--text);color:#fff;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:800;margin-bottom:12px">'+_smsEsc(initial)+'</div>'
+    +     '<div style="font-size:19px;font-weight:800;color:var(--text)">'+_smsEsc(nm)+'</div>'
+    +     '<div style="font-size:13px;color:var(--sub);margin-top:3px">'+_smsEsc(title)+'</div>'
+    +     (email ? '<div style="font-size:12px;color:var(--sub);margin-top:2px">'+_smsEsc(email)+'</div>' : '')
+    +   '</div>'
+    +   '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:4px 16px;margin-bottom:16px">'
+    +     '<div style="font-size:11px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;padding:14px 0 4px">Your lead access</div>'
+    +     scopeHtml
+    +   '</div>'
+    +   '<button onclick="doLogout()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;background:#fef2f2;border:1px solid #fecaca;border-radius:14px;padding:15px 16px;cursor:pointer;font-family:var(--f);font-size:15px;font-weight:800;color:#dc2626">'
+    +     '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>'
+    +     'Sign Out'
+    +   '</button>'
+    + '</div>';
+}
+
 function applyTelecallerRestrictions(){
   // No team management for telecallers — hide the menu entry point.
   var menuBtn = document.querySelector('.tb-menu');
@@ -14238,6 +14313,9 @@ function applyTelecallerRestrictions(){
   });
   var leadsLbl = document.querySelector('#tab-leads .tab-lbl');
   if (leadsLbl) leadsLbl.textContent = 'My Leads';
+  // Team members have no menu/dashboard, so their Sign Out lives on a "Me" tab.
+  var meTab = document.getElementById('tab-me');
+  if (meTab) meTab.style.display = 'flex';
   var leadsBtn = document.getElementById('tab-leads');
   if (leadsBtn) goTab('leads', leadsBtn);
 }
