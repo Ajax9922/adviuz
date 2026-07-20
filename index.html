@@ -3554,7 +3554,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-19 pay-5';
+var APP_VERSION = 'v2026-07-19 pay-7';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -18539,8 +18539,8 @@ window._accountantDefaults = {
   review_delay_hours: 48
 };
 
-// Invoice tab: date-range filter. Default = last_quarter (the period you file at CRA/SK PST time).
-window._invPeriodFilter = window._invPeriodFilter || 'last_quarter';
+// Invoice tab: date-range filter. Default = all (show all invoices on open).
+window._invPeriodFilter = window._invPeriodFilter || 'all';
 window._invCustomFrom   = window._invCustomFrom   || '';
 window._invCustomTo     = window._invCustomTo     || '';
 var _adminLoaded = false;
@@ -23277,6 +23277,10 @@ function _invRange(key) {
       start = new Date(y, m, 1);
       end   = new Date(y, m + 1, 1);
       label = 'This month'; break;
+    case 'last_month':
+      start = new Date(y, m - 1, 1);
+      end   = new Date(y, m, 1);
+      label = 'Last month'; break;
     case 'this_quarter':
       start = new Date(y, q * 3, 1);
       end   = new Date(y, q * 3 + 3, 1);
@@ -23288,10 +23292,21 @@ function _invRange(key) {
       end   = new Date(ly, lq * 3 + 3, 1);
       label = 'Last quarter (Q' + (lq + 1) + ' ' + ly + ')'; break;
     }
-    case 'last_year':
-      start = new Date(y - 1, 0, 1);
-      end   = new Date(y, 0, 1);
-      label = 'Last year (' + (y - 1) + ')'; break;
+    // Fiscal year runs Jul 17 → Jul 16. FY start year = this year if we're
+    // on/after Jul 17, else last year.
+    case 'this_year': {
+      var fy = (m > 6 || (m === 6 && d >= 17)) ? y : y - 1;
+      start = new Date(fy, 6, 17);
+      end   = new Date(fy + 1, 6, 17);
+      label = 'This year (Jul 17 ' + fy + ' → Jul 16 ' + (fy + 1) + ')'; break;
+    }
+    case 'last_year': {
+      var fyc = (m > 6 || (m === 6 && d >= 17)) ? y : y - 1;
+      var fyl = fyc - 1;
+      start = new Date(fyl, 6, 17);
+      end   = new Date(fyl + 1, 6, 17);
+      label = 'Last year (Jul 17 ' + fyl + ' → Jul 16 ' + (fyl + 1) + ')'; break;
+    }
     case 'custom': {
       var f = window._invCustomFrom, t = window._invCustomTo;
       if (!f || !t) return null;
@@ -23307,16 +23322,17 @@ function _invRange(key) {
 }
 
 function _invPeriodPills() {
-  var f = window._invPeriodFilter || 'last_quarter';
+  var f = window._invPeriodFilter || 'all';
   var customLbl = (window._invCustomFrom && window._invCustomTo)
     ? (window._invCustomFrom + ' \u2192 ' + window._invCustomTo)
     : 'Custom\u2026';
   var opts = [
-    ['today',        'Today'],
-    ['this_week',    'This week'],
+    ['all',          'All time'],
     ['this_month',   'This month'],
+    ['last_month',   'Last month'],
     ['this_quarter', 'This qtr'],
     ['last_quarter', 'Last qtr'],
+    ['this_year',    'This year'],
     ['last_year',    'Last year'],
     ['custom',       customLbl]
   ];
@@ -23362,7 +23378,7 @@ function applyInvCustomRange() {
 function clearInvCustomRange() {
   window._invCustomFrom   = '';
   window._invCustomTo     = '';
-  window._invPeriodFilter = 'last_quarter';
+  window._invPeriodFilter = 'all';
   closeSheet('invCustomSh');
   var box = document.getElementById('content');
   if (box) box.innerHTML = adminDashHTML();
@@ -23379,7 +23395,7 @@ function openExportForCASheet() {
 }
 
 function _caFilterInvsForPeriod() {
-  var _r = _invRange(window._invPeriodFilter || 'last_quarter');
+  var _r = _invRange(window._invPeriodFilter || 'all');
   var all = (_adminData.invoices || []).slice();
   var invs = (_r && _r.start)
     ? all.filter(function(i){
@@ -23715,7 +23731,7 @@ async function generateCAExport() {
 // \u2500\u2500 Invoices Dashboard Tab (Sales vs Tax + monthly list) \u2500\u2500
 function adInvoicesHTML() {
   // Apply date filter (defaults to last quarter — the period you file at CRA)
-  var _r  = _invRange(window._invPeriodFilter || 'last_quarter');
+  var _r  = _invRange(window._invPeriodFilter || 'all');
   var _all = (_adminData.invoices || []).slice();
   var invs = (_r && _r.start)
     ? _all.filter(function(i){
