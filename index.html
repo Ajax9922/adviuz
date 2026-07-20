@@ -1625,6 +1625,12 @@ body.impersonating .ls-topbar{padding-top:8px}
       <div class="fg"><label class="flbl">Notes</label>
         <input class="finp" id="mp-note" placeholder="Any notes about this payment">
       </div>
+      <div class="fg" id="mpViewsWrap" style="display:none">
+        <label class="flbl">Credit Flyer Views (optional)</label>
+        <input class="finp" id="mp-views" type="number" min="0" placeholder="0 = no views credited">
+        <select class="fsel" id="mp-camp" style="margin-top:8px"><option value="">Wallet only &mdash; no campaign</option></select>
+        <div style="font-size:11px;color:var(--sub);margin-top:6px;line-height:1.5">If this payment bought flyer views, enter how many and pick the campaign. Balance, ledger and partner commission are handled automatically.</div>
+      </div>
       <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--bg);border-radius:10px">
         <input type="checkbox" id="mp-sendemail" checked style="width:18px;height:18px;accent-color:var(--green)">
         <div>
@@ -2850,6 +2856,42 @@ body.impersonating .ls-topbar{padding-top:8px}
     <div class="sh-body">
       <div id="topupWaInfo" style="font-size:13px;color:var(--sub);margin-bottom:14px;line-height:1.6">Loading&hellip;</div>
       <div id="topupWaList"></div>
+      <button class="btn" id="topupWaManualBtn" onclick="openManualTopup()" style="display:none;width:100%;justify-content:center;margin-top:6px;background:var(--bg);color:var(--text);border:1.5px dashed var(--border);font-weight:700">&#x1F4B5; Record received e-transfer instead</button>
+    </div>
+  </div>
+</div>
+<!-- ═══ PICK CAMPAIGN FOR TOP-UP LINK (pay-2) ═══ -->
+<div class="sheet-ov" id="topupCampSh" onclick="if(event.target===this)closeSheet('topupCampSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title">Which campaign?</div><button class="sheet-x" onclick="closeSheet('topupCampSh')">&#x2715;</button></div>
+    <div class="sh-body" style="padding-bottom:calc(28px + env(safe-area-inset-bottom))">
+      <div style="font-size:13px;color:var(--sub);margin-bottom:14px;line-height:1.6">This client has more than one campaign. Pick the one these top-up views should be credited to.</div>
+      <div id="topupCampList"></div>
+    </div>
+  </div>
+</div>
+<!-- ═══ RECORD MANUAL E-TRANSFER TOP-UP (pay-3) ═══ -->
+<div class="sheet-ov" id="manualTopupSh" onclick="if(event.target===this)closeSheet('manualTopupSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title">Record e-transfer top-up</div><button class="sheet-x" onclick="closeSheet('manualTopupSh')">&#x2715;</button></div>
+    <div class="sh-body" style="padding-bottom:calc(28px + env(safe-area-inset-bottom))">
+      <div id="mtClientLine" style="font-size:13px;color:var(--sub);margin-bottom:14px;line-height:1.6"></div>
+      <div class="fg"><label class="flbl">Views to credit</label>
+        <input class="finp" id="mt-views" type="number" min="1" placeholder="e.g. 5000"></div>
+      <div class="fg"><label class="flbl">Amount received (CAD, tax included)</label>
+        <input class="finp" id="mt-amount" type="number" min="0" step="0.01" placeholder="e.g. 1130.00"></div>
+      <div class="fg"><label class="flbl">Campaign</label>
+        <select class="fsel" id="mt-camp"><option value="">Wallet only &mdash; no campaign</option></select></div>
+      <div class="fg"><label class="flbl">E-transfer reference (optional)</label>
+        <input class="finp" id="mt-ref" placeholder="Confirmation number"></div>
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--bg);border-radius:10px">
+        <input type="checkbox" id="mt-sendemail" checked style="width:18px;height:18px;accent-color:var(--green)">
+        <div>
+          <div style="font-size:13px;font-weight:700;color:var(--text)">Email invoice to client</div>
+          <div style="font-size:11px;color:var(--sub)">Untick to record silently (invoice is still created)</div>
+        </div>
+      </div>
+      <button class="btn" id="mtConfirmBtn" onclick="confirmManualTopup()" style="width:100%;justify-content:center;margin-top:14px;background:var(--green);color:#fff;font-weight:800;padding:14px">Record payment</button>
     </div>
   </div>
 </div>
@@ -3512,7 +3554,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-18 client-email-2';
+var APP_VERSION = 'v2026-07-19 pay-5';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -10415,6 +10457,11 @@ function applyTopupEmailTemplate(firstName) {
   if(bodyEl) bodyEl.value = '[Top-Up Views Email - Beautiful HTML will be sent]\n\nHi ' + firstName + ',\n\nYour campaign is running but your view balance is low.\n\nPackages available: 200 / 500 / 1,000 / 2,500 / 5,000 / 10,000 views\n\n— Adviuz Team';
   window._useTopupTemplate = true;
   window._topupFirstName   = firstName;
+  // pay-2: pre-resolve which campaign the payment should credit
+  var _tpl2 = (typeof _emailLeadId !== 'undefined' && _emailLeadId) ? (leads||[]).find(function(x){return x.id===_emailLeadId;}) : null;
+  _resolveTopupCampaign((_tpl2 && _tpl2.client_id) || '', function(sel){
+    if(sel && sel.name) showToast('Views will credit: ' + sel.name);
+  });
   var _waRow = document.getElementById('emailWaRow'); if(_waRow) _waRow.style.display='block';
   showToast('\u26a1 Top-Up template ready — click Send Email');
 }
@@ -10554,7 +10601,10 @@ function buildTopupHtml(firstName, email) {
     var ps = [];
     if (email) ps.push('prefilled_email=' + encodeURIComponent(email));
     var v = _topViews[code];
-    if (_topCid && v) ps.push('client_reference_id=' + encodeURIComponent(_topCid + ':' + v));
+    if (_topCid && v) {
+      var _tCamp = (window._topupCampSel && window._topupCampSel.id) ? (':' + window._topupCampSel.id) : '';
+      ps.push('client_reference_id=' + encodeURIComponent(_topCid + ':' + v + _tCamp));
+    }
     return ps.length ? (full + '?' + ps.join('&')) : full;
   });
   return _topupOut;
@@ -13809,6 +13859,16 @@ function closeSheet(id){document.getElementById(id).classList.remove('open')}
 // ═══════════════════════════════════════
 // UTILS
 // ═══════════════════════════════════════
+// pay-5: plain 'YYYY-MM-DD' parsed with new Date() lands on UTC midnight,
+// which displays as the PREVIOUS day in Saskatchewan. Anchor date-only
+// strings to midday so the calendar date never shifts.
+function _invDateFmt(d, monthStyle){
+  if(!d) return '';
+  var dt = (typeof d==='string' && d.length<=10) ? new Date(d+'T12:00:00') : new Date(d);
+  return isNaN(dt.getTime()) ? '' : dt.toLocaleDateString('en-CA',{month:(monthStyle||'short'),day:'numeric',year:'numeric'});
+}
+// pay-5: today's date in the DEVICE's timezone (not UTC) for new invoices.
+function _todayLocalDate(){ return new Date().toLocaleDateString('en-CA'); }
 function fmtDate(d){
   if(!d) return '';
   // Accept both date-only ('YYYY-MM-DD') and full ISO timestamps.
@@ -14781,7 +14841,7 @@ function _cBillTile(label, amt, color) {
 
 function _cInvCard(inv) {
   var meta   = _cInvStatus(inv);
-  var dt     = inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : '';
+  var dt     = _invDateFmt(inv.invoice_date,'short');
   var num    = inv.invoice_number || '—';
   var tot    = '$' + fmtCAD(parseFloat(inv.total) || 0);
   var hasPdf = !!inv.pdf_url;
@@ -15906,6 +15966,130 @@ var FOLLOWUP_DEFAULTS = {
   }
 };
 
+// ── pay-2: campaign auto-detect for top-up links ─────────────────────────
+// 1 campaign → use silently; 2+ → picker sheet; 0 → untagged (the webhook
+// safety net emails Ajax). Result lands in window._topupCampSel = {id,name}.
+function _resolveTopupCampaign(clientId, cb){
+  window._topupCampSel = null;
+  if(!clientId){ cb(null); return; }
+  sbFetch('/rest/v1/campaigns?client_id=eq.'+clientId+'&select=id,name,status&order=status.asc,name.asc')
+    .then(function(r){ return r.ok ? r.json() : []; })
+    .then(function(rows){
+      rows = Array.isArray(rows) ? rows : [];
+      if(rows.length === 0){ cb(null); return; }
+      if(rows.length === 1){
+        window._topupCampSel = { id: String(rows[0].id), name: rows[0].name || '' };
+        cb(window._topupCampSel); return;
+      }
+      _openTopupCampPicker(rows, cb);
+    })
+    .catch(function(){ cb(null); });
+}
+
+function _openTopupCampPicker(camps, cb){
+  window._topupCampChoices = camps;
+  window._topupCampCb = cb;
+  var el = document.getElementById('topupCampList');
+  if(el){
+    var h = '';
+    camps.forEach(function(c, i){
+      var stat = c.status === 'active'
+        ? '<span style="color:var(--green);font-weight:700">Active</span>'
+        : '<span style="color:var(--sub)">' + _smsEsc(String(c.status||'')) + '</span>';
+      h += '<button class="btn" onclick="_pickTopupCamp('+i+')" '
+        +  'style="width:100%;justify-content:space-between;margin-bottom:8px;background:var(--white);border:1px solid var(--border);padding:13px 14px">'
+        +  '<span style="font-size:14px;font-weight:800;color:var(--text);text-align:left">'+_smsEsc(c.name||'(unnamed)')+'</span>'
+        +  '<span style="font-size:11px">'+stat+'</span>'
+        +  '</button>';
+    });
+    el.innerHTML = h;
+  }
+  openSheet('topupCampSh');
+}
+
+function _pickTopupCamp(i){
+  var c = (window._topupCampChoices||[])[i]; if(!c) return;
+  window._topupCampSel = { id: String(c.id), name: c.name || '' };
+  closeSheet('topupCampSh');
+  var cb = window._topupCampCb; window._topupCampCb = null;
+  if(cb) cb(window._topupCampSel);
+}
+
+// ── pay-3: record a received e-transfer as a full top-up ─────────────
+function openManualTopup(){
+  var t = window._topupWa || {};
+  if(!t.clientId){ showToast('No client on file for this lead yet'); return; }
+  closeSheet('topupWaSh');
+  window._mtArmed = false;
+  var line=document.getElementById('mtClientLine');
+  if(line) line.innerHTML='Recording a payment already received (e-transfer, cash or cheque) from <b>'+_smsEsc(t.biz||'this client')+'</b>. Views, invoice, ledger and partner commission are all handled automatically.';
+  var vi=document.getElementById('mt-views'); if(vi) vi.value='';
+  var am=document.getElementById('mt-amount'); if(am) am.value='';
+  var rf=document.getElementById('mt-ref'); if(rf) rf.value='';
+  var se=document.getElementById('mt-sendemail'); if(se) se.checked=true;
+  var btn=document.getElementById('mtConfirmBtn');
+  if(btn){ btn.disabled=false; btn.textContent='Record payment'; btn.style.background='var(--green)'; }
+  var sel=document.getElementById('mt-camp');
+  if(sel){
+    sel.innerHTML='<option value="">Wallet only \u2014 no campaign</option>';
+    sbFetch('/rest/v1/campaigns?client_id=eq.'+t.clientId+'&select=id,name,status&order=status.asc,name.asc')
+      .then(function(r){ return r.ok ? r.json() : []; })
+      .then(function(camps){
+        (camps||[]).forEach(function(c){
+          var o=document.createElement('option'); o.value=c.id;
+          o.textContent=(c.name||'(unnamed)')+(c.status==='active'?' \u2014 Active':'');
+          sel.appendChild(o);
+        });
+        if(t.campId) sel.value=t.campId;
+        else if((camps||[]).length===1) sel.value=camps[0].id;
+      }).catch(function(){});
+  }
+  openSheet('manualTopupSh');
+}
+
+async function confirmManualTopup(){
+  var t = window._topupWa || {};
+  var views = parseInt((document.getElementById('mt-views')||{}).value,10)||0;
+  var amount= parseFloat((document.getElementById('mt-amount')||{}).value)||0;
+  var camp  = (document.getElementById('mt-camp')||{}).value||'';
+  var ref   = ((document.getElementById('mt-ref')||{}).value||'').trim();
+  var se    = document.getElementById('mt-sendemail');
+  var doEmail = se ? se.checked : true;
+  if(views<=0){ showToast('Enter how many views to credit'); return; }
+  if(amount<=0){ showToast('Enter the amount received'); return; }
+  var btn=document.getElementById('mtConfirmBtn');
+  // Two-tap confirm (no native alert): first tap arms, second tap fires.
+  if(!window._mtArmed){
+    window._mtArmed = true;
+    if(btn){ btn.textContent='Tap again to confirm '+views.toLocaleString()+' views \u00B7 $'+amount.toFixed(2); btn.style.background='#b45309'; }
+    setTimeout(function(){
+      window._mtArmed=false;
+      var b=document.getElementById('mtConfirmBtn');
+      if(b && !b.disabled){ b.textContent='Record payment'; b.style.background='var(--green)'; }
+    }, 6000);
+    return;
+  }
+  window._mtArmed=false;
+  if(btn){ btn.disabled=true; btn.textContent='Recording\u2026'; btn.style.background='var(--green)'; }
+  try{
+    var res = await fetch(SB_URL+'/functions/v1/record-manual-payment', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken,'apikey':SB_ANON},
+      body: JSON.stringify({
+        mode:'topup', client_id:t.clientId, campaign_id:camp||'',
+        views:views, amount_cad:amount, method:'etransfer',
+        reference:ref, send_email:doEmail
+      })
+    });
+    var data = null;
+    try { data = await res.json(); } catch(_je){ data = {}; }
+    if(!res.ok || (data && data.error)) throw new Error((data && data.error)||'Could not record the payment');
+    closeSheet('manualTopupSh');
+    showToast('\u2705 Recorded \u2014 invoice '+((data&&data.invoice_number)||'created')+((data&&data.commission_cad)?(' \u00B7 $'+data.commission_cad+' commission to '+(data.partner_name||'partner')):''));
+  }catch(e){ showToast('Error: '+e.message); }
+  if(btn){ btn.disabled=false; btn.textContent='Record payment'; btn.style.background='var(--green)'; }
+}
+
 // ── Send top-up payment link on WhatsApp (manual, operator) ──────────────
 var TOPUP_PACKAGES = [
   {views:200,   url:'https://buy.stripe.com/4gM6oAbKJ8kmgjB9579EI03', tag:''},
@@ -15938,6 +16122,7 @@ async function openTopupWa(campId){
     biz:     (client && client.business_name) || '',
     email:   (client && client.email) || '',
     clientId: camp.client_id || '',
+    campId:   String(campId || ''),
     campName: camp.name || 'your campaign'
   };
   var digits = String(window._topupWa.phone).replace(/[^0-9]/g,'');
@@ -15950,6 +16135,9 @@ async function openTopupWa(campId){
 }
 
 function renderTopupWaList(hasPhone){
+  // pay-3: manual e-transfer recording is staff-only
+  var _mb = document.getElementById('topupWaManualBtn');
+  if(_mb) _mb.style.display = window._isAdviuzStaff ? 'flex' : 'none';
   var el = document.getElementById('topupWaList'); if(!el) return;
   var h='';
   TOPUP_PACKAGES.forEach(function(p,i){
@@ -15972,7 +16160,7 @@ function waSendTopup(i){
   // Tag the link so payment credits this client's views + auto-creates their invoice.
   var params = [];
   if(t.email){ params.push('prefilled_email='+encodeURIComponent(t.email)); }
-  if(t.clientId){ params.push('client_reference_id='+encodeURIComponent(t.clientId+':'+p.views)); }
+  if(t.clientId){ params.push('client_reference_id='+encodeURIComponent(t.clientId+':'+p.views+(t.campId?(':'+t.campId):''))); }
   var link = p.url + (params.length ? ('?'+params.join('&')) : '');
   var msg = 'Hi '+first+', your Adviuz campaign "'+t.campName+'" is running low on flyer views. '
           + 'Top up '+p.views.toLocaleString()+' views here to keep your ads live:\n'+link;
@@ -15990,8 +16178,13 @@ function openTopupWaFromEmail(){
     biz:      (l && (l.company || l.name)) || '',
     email:    to || (l && l.em) || '',
     clientId: (l && l.client_id) || '',
+    campId:   '',
     campName: (l && (l.company || l.name)) || 'your campaign'
   };
+  // pay-2: auto-detect the campaign for the tagged link
+  _resolveTopupCampaign(window._topupWa.clientId, function(sel){
+    if(sel){ window._topupWa.campId = sel.id; if(sel.name) window._topupWa.campName = sel.name; }
+  });
   openSheet('topupWaSh');
   var info = document.getElementById('topupWaInfo');
   var digits = String(window._topupWa.phone).replace(/[^0-9]/g,'');
@@ -22321,7 +22514,7 @@ function openLeadInvoices(lid) {
           var isPaid = inv.payment_status === 'paid';
           var stC    = isPaid ? '#059669' : '#d97706';
           var stBg   = isPaid ? '#f0fdf4' : '#fef9c3';
-          var dt     = inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : '';
+          var dt     = _invDateFmt(inv.invoice_date,'short');
           var total  = 'CAD $'+parseFloat(inv.total||0).toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2});
           var client = inv.client_business || inv.client_name || '';
           html += '<div onclick="invShowDetail(\''+inv.id+'\')" style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;cursor:pointer;background:var(--white)" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'var(--white)\'">'
@@ -22358,7 +22551,7 @@ function invShowDetail(invId) {
   var isPaid = inv.payment_status === 'paid';
   var total  = 'CAD $'+parseFloat(inv.total||0).toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2});
   var pmL    = {stripe:'💳 Stripe',etransfer:'🏦 E-Transfer',cash:'💵 Cash',cheque:'📝 Cheque'};
-  var dt     = inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString('en-CA',{month:'long',day:'numeric',year:'numeric'}) : '';
+  var dt     = _invDateFmt(inv.invoice_date,'long');
 
   invSetHeader(
     '<button onclick="openLeadInvoices(_invMgrLeadId)" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--sub);padding:0 4px 0 0">‹</button>',
@@ -22705,7 +22898,7 @@ async function submitCInvoice() {
           client_email:email||null, client_address:l?(l.location||''):'',
           client_province:prov, items:items, total:total,
           discount_amount:disc, payment_status:'paid', payment_method:method,
-          notes:ref, invoice_date:new Date().toISOString().split('T')[0],
+          notes:ref, invoice_date:_todayLocalDate(),
           paid_at:new Date().toISOString(),
           client_id:window._clientId||null,
           lead_id:l?(l.dbId||null):null
@@ -22728,7 +22921,7 @@ async function submitCInvoice() {
       client_email: email, total: total,
       payment_method: method, payment_status: 'paid',
       client_province: prov,
-      invoice_date: new Date().toISOString().split('T')[0],
+      invoice_date: _todayLocalDate(),
       items: items
     };
     _invMap[newInv.id] = newInv;
@@ -23725,6 +23918,7 @@ function openMarkPaid(quoteId, invId) {
   var pm = document.getElementById('mp-method'); if(pm) pm.value='etransfer';
   var ref= document.getElementById('mp-ref'); if(ref) ref.value='';
   var note=document.getElementById('mp-note'); if(note) note.value='';
+  _mpPrepViews(quoteId);
   openSheet('markPaidSh');
 }
 
@@ -23766,8 +23960,23 @@ async function confirmMarkPaid() {
         }
       }
     } else if (_markPaidQuoteId) {
-      // Generate invoice from quote
-      await generateAndEmailInvoice(_markPaidQuoteId, {payment_method:method, etransfer_ref:ref, notes:note}, doEmail);
+      // pay-3: one server call fires the full chain \u2014 invoice+PDF, optional
+      // views credit, ledger row and partner commission.
+      var _mpViews = parseInt((document.getElementById('mp-views')||{}).value,10)||0;
+      var _mpCamp  = (document.getElementById('mp-camp')||{}).value||'';
+      var _mpRes = await fetch(SB_URL+'/functions/v1/record-manual-payment', {
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken,'apikey':SB_ANON},
+        body: JSON.stringify({
+          mode:'quote', quote_id:_markPaidQuoteId, method:method,
+          reference:ref||'', notes:note||'', send_email:doEmail,
+          credit_views:_mpViews, campaign_id:_mpCamp
+        })
+      });
+      var _mpData = null;
+      try { _mpData = await _mpRes.json(); } catch(_je) { _mpData = {}; }
+      if(!_mpRes.ok || (_mpData && _mpData.error)) throw new Error((_mpData && _mpData.error)||'Payment recording failed');
+      if(_mpData && _mpData.views_credited) showToast('+'+Number(_mpData.views_credited).toLocaleString()+' views credited'+(_mpData.campaign_name?(' to '+_mpData.campaign_name):''));
     }
 
     closeSheet('markPaidSh');
@@ -23831,7 +24040,41 @@ async function markQuotePaid(quoteId) {
   var pm = document.getElementById('mp-method'); if(pm) pm.value='etransfer';
   var ref= document.getElementById('mp-ref'); if(ref) ref.value='';
   var note=document.getElementById('mp-note'); if(note) note.value='';
+  _mpPrepViews(quoteId);
   openSheet('markPaidSh');
+}
+
+// ── pay-3: prep the optional views-credit block in Mark as Paid ──────
+async function _mpPrepViews(quoteId){
+  var wrap = document.getElementById('mpViewsWrap');
+  var vIn  = document.getElementById('mp-views');
+  var sel  = document.getElementById('mp-camp');
+  if(!wrap||!vIn||!sel) return;
+  wrap.style.display='none'; vIn.value='';
+  sel.innerHTML='<option value="">Wallet only \u2014 no campaign</option>';
+  if(!quoteId) return;
+  try{
+    var r = await sbFetch('/rest/v1/quotes?id=eq.'+quoteId+'&select=client_id,items&limit=1');
+    var rows = r.ok ? await r.json() : [];
+    var q = rows && rows[0];
+    if(!q || !q.client_id) return;
+    // Guess views from the quote line items ("5,000 Flyer Views" etc.)
+    var guess = 0;
+    (q.items||[]).forEach(function(it){
+      var m = String(it.name||it.description||'').replace(/,/g,'').match(/(\d{2,9})\s*(?:flyer\s*)?views?/i);
+      if(m) guess += parseInt(m[1],10) * (Number(it.qty)||1);
+    });
+    if(guess>0) vIn.value = guess;
+    var cr = await sbFetch('/rest/v1/campaigns?client_id=eq.'+q.client_id+'&select=id,name,status&order=status.asc,name.asc');
+    var camps = cr.ok ? await cr.json() : [];
+    (camps||[]).forEach(function(c){
+      var o=document.createElement('option'); o.value=c.id;
+      o.textContent=(c.name||'(unnamed)')+(c.status==='active'?' \u2014 Active':'');
+      sel.appendChild(o);
+    });
+    if((camps||[]).length===1) sel.value = camps[0].id;
+    wrap.style.display='block';
+  }catch(e){}
 }
 
 // ════════════════════════════════════════════════════════════════════
