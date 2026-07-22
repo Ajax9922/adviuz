@@ -2902,7 +2902,7 @@ body.impersonating .ls-topbar{padding-top:8px}
 <!-- ═══ ADD LEAD PAYMENT (rpt-1) ═══ -->
 <div class="sheet-ov" id="addPaymentSh" onclick="if(event.target===this)closeSheet('addPaymentSh')">
   <div class="sheet"><div class="sheet-handle"></div>
-    <div class="sheet-head"><div class="sheet-title">Add payment</div><button class="sheet-x" onclick="closeSheet('addPaymentSh')">&#x2715;</button></div>
+    <div class="sheet-head"><div class="sheet-title" id="apSheetTitle">Add payment</div><button class="sheet-x" onclick="closeSheet('addPaymentSh')">&#x2715;</button></div>
     <div class="sh-body" style="padding-bottom:calc(28px + env(safe-area-inset-bottom))">
       <div class="fg"><label class="flbl">Amount (CAD)</label>
         <input class="finp" id="apAmount" type="number" min="0" step="0.01" placeholder="e.g. 450.00"></div>
@@ -2910,7 +2910,7 @@ body.impersonating .ls-topbar{padding-top:8px}
         <input class="finp" id="apDate" type="date"></div>
       <div class="fg"><label class="flbl">Note (optional)</label>
         <input class="finp" id="apNote" placeholder="e.g. Deposit, 2nd session"></div>
-      <button class="btn" onclick="saveAddPayment()" style="width:100%;justify-content:center;margin-top:6px;background:var(--green);color:#fff;font-weight:800;padding:14px">Save payment</button>
+      <button class="btn" id="apSaveBtn" onclick="saveAddPayment()" style="width:100%;justify-content:center;margin-top:6px;background:var(--green);color:#fff;font-weight:800;padding:14px">Save payment</button>
     </div>
   </div>
 </div>
@@ -3573,7 +3573,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-21 rpt-2';
+var APP_VERSION = 'v2026-07-22 pay-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -6256,38 +6256,80 @@ function setQuickStage(stage){
 
 // ── rpt-1: multiple payments per lead ────────────────────────────────
 async function loadLeadPayments(dbId){
-  var box = document.getElementById('lpList'); if(!box) return;
-  if(!dbId){ box.innerHTML='<div style="font-size:12px;color:var(--sub)">Payments can be added once this lead is saved.</div>'; return; }
+  var box = document.getElementById('lpList');
+  window._lpRowsByLead = window._lpRowsByLead || {};
+  window._lpById = window._lpById || {};
+  if(!dbId){ if(box) box.innerHTML='<div style="font-size:12px;color:var(--sub)">Payments can be added once this lead is saved.</div>'; return; }
   try{
     var r = await sbFetch('/rest/v1/lead_payments?lead_id=eq.'+dbId+'&select=id,amount_cad,paid_on,note&order=paid_on.desc,created_at.desc');
     var rows = r.ok ? await r.json() : [];
-    if(!rows.length){ box.innerHTML='<div style="font-size:12px;color:var(--sub)">No payments recorded yet.</div>'; return; }
-    var tot=0; var hh='';
-    rows.forEach(function(p){
-      tot += Number(p.amount_cad)||0;
-      hh += '<div style="display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)">'
-        + '<div><div style="font-size:13px;color:var(--text);font-weight:600">'+_invDateFmt(p.paid_on,'short')+'</div>'
-        + (p.note?('<div style="font-size:11px;color:var(--sub);margin-top:1px">'+_smsEsc(p.note)+'</div>'):'')
-        + '</div>'
-        + '<div style="font-size:14px;font-weight:800;color:var(--text);white-space:nowrap">CAD $'+Number(p.amount_cad).toLocaleString('en-CA',{minimumFractionDigits:2})+'</div>'
-        + '</div>';
-    });
-    box.innerHTML = hh;
-    var t=document.getElementById('lpTotal');
-    if(t) t.textContent = 'CAD $'+tot.toLocaleString('en-CA',{minimumFractionDigits:2});
-  }catch(e){ box.innerHTML='<div style="font-size:12px;color:var(--sub)">Could not load payments.</div>'; }
+    window._lpRowsByLead[dbId] = rows;
+    rows.forEach(function(p){ window._lpById[p.id]=p; });
+    var tot=0; rows.forEach(function(p){ tot += Number(p.amount_cad)||0; });
+    var _cl=(leads||[]).find(function(x){return String(x.dbId)===String(dbId);});
+    if(_cl) _cl.deal_value = tot;
+    if(box){
+      if(!rows.length){ box.innerHTML='<div style="font-size:12px;color:var(--sub)">No payments recorded yet.</div>'; }
+      else {
+        var hh='';
+        rows.forEach(function(p){
+          hh += '<div style="display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)">'
+            + '<div><div style="font-size:13px;color:var(--text);font-weight:600">'+_invDateFmt(p.paid_on,'short')+'</div>'
+            + (p.note?('<div style="font-size:11px;color:var(--sub);margin-top:1px">'+_smsEsc(p.note)+'</div>'):'')
+            + '<div style="display:flex;gap:14px;margin-top:5px">'
+            +   '<button onclick="editLeadPayment(\''+p.id+'\')" style="background:none;border:none;color:var(--blue);font-size:12px;font-weight:700;cursor:pointer;padding:0;font-family:var(--f)">Edit</button>'
+            +   '<button onclick="deleteLeadPayment(\''+p.id+'\')" style="background:none;border:none;color:var(--red);font-size:12px;font-weight:700;cursor:pointer;padding:0;font-family:var(--f)">Delete</button>'
+            + '</div>'
+            + '</div>'
+            + '<div style="font-size:14px;font-weight:800;color:var(--text);white-space:nowrap">CAD $'+Number(p.amount_cad).toLocaleString('en-CA',{minimumFractionDigits:2})+'</div>'
+            + '</div>';
+        });
+        box.innerHTML = hh;
+        var t=document.getElementById('lpTotal'); if(t) t.textContent='CAD $'+tot.toLocaleString('en-CA',{minimumFractionDigits:2});
+      }
+    }
+    if (rows.length && typeof curLid!=='undefined' && curLid && !document.querySelector('[data-filter="payment"]')){
+      if(_cl && _cl.id===curLid) renderLeadScreen(curLid);
+    }
+  }catch(e){ if(box) box.innerHTML='<div style="font-size:12px;color:var(--sub)">Could not load payments.</div>'; }
 }
 
-var _apLeadId=null;
+var _apLeadId=null, _apEditId=null;
 function openAddPayment(){
   var l=(leads||[]).find(function(x){return x.id===curLid;});
   if(!l||!l.dbId){ showToast('Save the lead first'); return; }
-  _apLeadId=l.id;
+  _apLeadId=l.id; _apEditId=null;
+  var ti=document.getElementById('apSheetTitle'); if(ti) ti.textContent='Add payment';
+  var sb=document.getElementById('apSaveBtn'); if(sb) sb.textContent='Save payment';
   var a=document.getElementById('apAmount'); if(a) a.value='';
   var d=document.getElementById('apDate'); if(d) d.value=_todayLocalDate();
   var n2=document.getElementById('apNote'); if(n2) n2.value='';
   openSheet('addPaymentSh');
   if(a) setTimeout(function(){a.focus();},250);
+}
+function editLeadPayment(id){
+  var p=(window._lpById||{})[id]; if(!p){ showToast('Payment not found'); return; }
+  var l=(leads||[]).find(function(x){return x.id===curLid;});
+  if(!l||!l.dbId){ showToast('Save the lead first'); return; }
+  _apLeadId=l.id; _apEditId=id;
+  var ti=document.getElementById('apSheetTitle'); if(ti) ti.textContent='Edit payment';
+  var sb=document.getElementById('apSaveBtn'); if(sb) sb.textContent='Save changes';
+  var a=document.getElementById('apAmount'); if(a) a.value=(p.amount_cad!=null?Number(p.amount_cad):'');
+  var d=document.getElementById('apDate'); if(d) d.value=(p.paid_on?String(p.paid_on).slice(0,10):_todayLocalDate());
+  var n2=document.getElementById('apNote'); if(n2) n2.value=p.note||'';
+  openSheet('addPaymentSh');
+  if(a) setTimeout(function(){a.focus();},250);
+}
+async function deleteLeadPayment(id){
+  var p=(window._lpById||{})[id];
+  var amt=p?(Number(p.amount_cad)||0):0;
+  if(!confirm('Delete this payment of CAD $'+amt.toLocaleString('en-CA',{minimumFractionDigits:2})+'?\n\nThis lowers the deal total and cannot be undone.')) return;
+  try{
+    var r=await sbFetch('/rest/v1/lead_payments?id=eq.'+id,{method:'DELETE',headers:{'Prefer':'return=minimal'}});
+    if(!r.ok) throw new Error('delete failed ('+r.status+')');
+    showToast('Payment deleted');
+    if(typeof curLid!=='undefined' && curLid) renderLeadScreen(curLid);
+  }catch(e){ showToast('Error: '+e.message); }
 }
 async function saveAddPayment(){
   var l=(leads||[]).find(function(x){return x.id===_apLeadId;});
@@ -6296,22 +6338,23 @@ async function saveAddPayment(){
   if(isNaN(amt)||amt<=0){ showToast('Enter a valid amount'); return; }
   var pd=(document.getElementById('apDate')||{}).value||_todayLocalDate();
   var note=((document.getElementById('apNote')||{}).value||'').trim();
+  var editing=_apEditId;
   try{
-    var r=await sbFetch('/rest/v1/lead_payments',{method:'POST',headers:{'Prefer':'return=minimal'},body:JSON.stringify({
-      lead_id:l.dbId, client_id:(l.client_id||window._clientId||null), amount_cad:amt, paid_on:pd, note:note||null
-    })});
-    if(!r.ok) throw new Error('save failed ('+r.status+')');
-    l.deal_value=(Number(l.deal_value)||0)+amt;
-    if(typeof logActivity==='function'){
-      logActivity({lead_id:l.id, db_lead_id:l.dbId, client_id:window._clientId||null, type:'note', label:'Payment recorded', body:'Payment received: CAD $'+amt.toFixed(2)+(note?(' \u2014 '+note):'')});
+    var r;
+    if(editing){
+      r=await sbFetch('/rest/v1/lead_payments?id=eq.'+editing,{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({amount_cad:amt, paid_on:pd, note:note||null})});
+    } else {
+      r=await sbFetch('/rest/v1/lead_payments',{method:'POST',headers:{'Prefer':'return=minimal'},body:JSON.stringify({lead_id:l.dbId, client_id:(l.client_id||window._clientId||null), amount_cad:amt, paid_on:pd, note:note||null})});
     }
+    if(!r.ok) throw new Error('save failed ('+r.status+')');
+    _apEditId=null;
     closeSheet('addPaymentSh');
-    showToast('\uD83D\uDCB0 Payment added \u00B7 CAD $'+amt.toFixed(2));
-    loadLeadPayments(l.dbId);
+    showToast(editing ? 'Payment updated' : ('Payment added \u00B7 CAD $'+amt.toFixed(2)));
+    if(typeof curLid!=='undefined' && curLid) renderLeadScreen(curLid); else if(l.dbId) loadLeadPayments(l.dbId);
   }catch(e){ showToast('Error: '+e.message); }
 }
 
-// ── Deal value capture (when stage flips to "Deal Closed") ──
+// Deal value capture (when stage flips to "Deal Closed")
 var _dvLeadId = null, _dvOldStage = null, _dvNewStage = null;
 function openDealValueSheet(leadId, oldStage, newStage){
   _dvLeadId = leadId; _dvOldStage = oldStage; _dvNewStage = newStage;
@@ -10044,8 +10087,11 @@ function renderLeadScreen(id) {
     quote:   function(a){ return a.type&&a.type.indexOf('quote')>-1; },
     invoice: function(a){ return a.type&&a.type.indexOf('invoice')>-1; },
     email:   function(a){ return a.type==='email'||a.type==='email_sent'||a.type==='email_opened'; },
+    payment: function(a){ return a.type==='payment'; },
   };
-  var filteredActs = acts.filter(filterGroups[actFilter]||filterGroups.all);
+  var _pmtRows = (window._lpRowsByLead && window._lpRowsByLead[l.dbId]) || [];
+  var _pmtItems = _pmtRows.map(function(p){ return { type:'payment', _isPayment:true, pay_id:p.id, amount_cad:p.amount_cad, paid_on:p.paid_on, note:p.note }; });
+  var filteredActs = (actFilter==='payment') ? _pmtItems : acts.filter(filterGroups[actFilter]||filterGroups.all);
   var filterTabs = [
     {k:'all',    icon:'🕐', label:'All'},
     {k:'call',   icon:'📞', label:'Calls'},
@@ -10055,18 +10101,22 @@ function renderLeadScreen(id) {
     {k:'email',  icon:'📧', label:'Email'},
     {k:'quote',  icon:'📄', label:'Quotes'},
     {k:'invoice',icon:'🧾', label:'Invoices'},
+    {k:'payment',icon:'💰', label:'Payments'},
   ];
 
   // ── rpt-1: Deal payments — the client's own revenue from this lead.
   // Multiple entries per lead; the total is kept in sync by the database.
+  var _pmIsClosed = /deal closed/i.test(String(l.stage||''));
+  if (_pmIsClosed || (Number(l.deal_value)||0) > 0) {
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:8px">';
   h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
   h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase">Deal Payments</div>';
   h += '<div style="font-size:13px;font-weight:800;color:var(--green)" id="lpTotal">'+(l.deal_value?('CAD $'+Number(l.deal_value).toLocaleString('en-CA',{minimumFractionDigits:2})):'')+'</div>';
   h += '</div>';
   h += '<div id="lpList" style="margin-bottom:10px"><div style="font-size:12px;color:var(--sub)">Loading\u2026</div></div>';
-  h += '<button class="btn" onclick="openAddPayment()" style="width:100%;justify-content:center;background:var(--bg);border:1.5px dashed var(--border);color:var(--text);font-weight:700;padding:11px">\uFF0B Add payment</button>';
+  if (_pmIsClosed) h += '<button class="btn" onclick="openAddPayment()" style="width:100%;justify-content:center;background:var(--bg);border:1.5px dashed var(--border);color:var(--text);font-weight:700;padding:11px">\uFF0B Add payment</button>';
   h += '</div>';
+  }
 
   h += '<div style="background:var(--white);padding:14px 16px">';
   // Header row
@@ -10079,7 +10129,7 @@ function renderLeadScreen(id) {
   h += '<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:10px;scrollbar-width:none;-ms-overflow-style:none;margin:0 -16px;padding:0 16px 10px">';
   filterTabs.forEach(function(tab){
     var isActive = actFilter === tab.k;
-    var count = acts.filter(filterGroups[tab.k]).length;
+    var count = (tab.k==='payment') ? _pmtItems.length : acts.filter(filterGroups[tab.k]).length;
     if(tab.k !== 'all' && count === 0) return; // hide empty filters
     h += '<button onclick="setActFilter(this)" data-filter="'+tab.k+'" data-lid="'+l.id+'" style="'
        + 'flex-shrink:0;display:flex;align-items:center;gap:4px;padding:5px 12px;border-radius:20px;'
@@ -10114,7 +10164,18 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
     h += '<div class="ld-act-item" '+onClick+' style="'+(clickable?'cursor:pointer;':'')+'">';
     if(i<showCount-1) h += '<div class="ld-act-line"></div>';
 
-    if (isCall) {
+    if (item._isPayment) {
+      var _pAmt = Number(item.amount_cad)||0;
+      h += '<div class="ld-act-dot">💰</div>';
+      h += '<div class="ld-act-body" style="width:100%">';
+      h += '<span class="ld-act-label">Payment received</span><span class="ld-act-time">'+_invDateFmt(item.paid_on,'short')+'</span>';
+      h += '<div style="margin-top:4px;font-size:15px;font-weight:800;color:var(--green)">CAD $'+_pAmt.toLocaleString('en-CA',{minimumFractionDigits:2})+'</div>';
+      if(item.note) h += '<div style="font-size:12px;color:var(--sub);margin-top:2px">'+_smsEsc(item.note)+'</div>';
+      h += '<div style="display:flex;gap:14px;margin-top:8px">'
+         + '<button onclick="editLeadPayment(\''+item.pay_id+'\')" style="background:none;border:none;color:var(--blue);font-size:12px;font-weight:700;cursor:pointer;padding:0;font-family:var(--f)">Edit</button>'
+         + '<button onclick="deleteLeadPayment(\''+item.pay_id+'\')" style="background:none;border:none;color:var(--red);font-size:12px;font-weight:700;cursor:pointer;padding:0;font-family:var(--f)">Delete</button>'
+         + '</div>';
+    } else if (isCall) {
       // ── CALL ACTIVITY — answered/missed, directional, recording → note → AI summary ──
       var ct   = item.callType || (item.label||'').toLowerCase();
       var isAI  = (typeof item.is_ai!=='undefined' && item.is_ai) || ct.indexOf('ai')>-1;
