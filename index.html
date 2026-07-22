@@ -2899,6 +2899,21 @@ body.impersonating .ls-topbar{padding-top:8px}
     </div>
   </div>
 </div>
+<!-- ═══ ADD LEAD PAYMENT (rpt-1) ═══ -->
+<div class="sheet-ov" id="addPaymentSh" onclick="if(event.target===this)closeSheet('addPaymentSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title">Add payment</div><button class="sheet-x" onclick="closeSheet('addPaymentSh')">&#x2715;</button></div>
+    <div class="sh-body" style="padding-bottom:calc(28px + env(safe-area-inset-bottom))">
+      <div class="fg"><label class="flbl">Amount (CAD)</label>
+        <input class="finp" id="apAmount" type="number" min="0" step="0.01" placeholder="e.g. 450.00"></div>
+      <div class="fg"><label class="flbl">Date received</label>
+        <input class="finp" id="apDate" type="date"></div>
+      <div class="fg"><label class="flbl">Note (optional)</label>
+        <input class="finp" id="apNote" placeholder="e.g. Deposit, 2nd session"></div>
+      <button class="btn" onclick="saveAddPayment()" style="width:100%;justify-content:center;margin-top:6px;background:var(--green);color:#fff;font-weight:800;padding:14px">Save payment</button>
+    </div>
+  </div>
+</div>
 <!-- ═══ FOLLOW-UP REVIEW QUEUE (5C) ═══ -->
 <div class="sheet-ov" id="fqSh" onclick="if(event.target===this)closeSheet('fqSh')">
   <div class="sheet"><div class="sheet-handle"></div>
@@ -3558,7 +3573,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-19 team-8';
+var APP_VERSION = 'v2026-07-21 rpt-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -5437,8 +5452,9 @@ async function saveDealAmount(){
   if(!v){ showToast('Enter an amount'); return; }
   var dbId=window._dealLead;
   try{
-    await sbFetch('/rest/v1/leads?id=eq.'+dbId,{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({deal_value:v,updated_at:new Date().toISOString()})});
-    var l=(leads||[]).find(function(x){return String(x.dbId)===String(dbId);}); if(l)l.deal_value=v;
+    // rpt-1: record as a payment; the database keeps the lead total in sync.
+    await sbFetch('/rest/v1/lead_payments',{method:'POST',headers:{'Prefer':'return=minimal'},body:JSON.stringify({lead_id:dbId, client_id:(window._clientId||null), amount_cad:v, note:'Deal closed'})});
+    var l=(leads||[]).find(function(x){return String(x.dbId)===String(dbId);}); if(l)l.deal_value=(Number(l.deal_value)||0)+v;
     closeSheet('dealSh'); showToast('Deal amount saved \uD83C\uDF89'); if(typeof render==='function')render(); updateNotifBadge();
   }catch(e){ showToast('Could not save'); }
 }
@@ -6238,6 +6254,63 @@ function setQuickStage(stage){
   }
 }
 
+// ── rpt-1: multiple payments per lead ────────────────────────────────
+async function loadLeadPayments(dbId){
+  var box = document.getElementById('lpList'); if(!box) return;
+  if(!dbId){ box.innerHTML='<div style="font-size:12px;color:var(--sub)">Payments can be added once this lead is saved.</div>'; return; }
+  try{
+    var r = await sbFetch('/rest/v1/lead_payments?lead_id=eq.'+dbId+'&select=id,amount_cad,paid_on,note&order=paid_on.desc,created_at.desc');
+    var rows = r.ok ? await r.json() : [];
+    if(!rows.length){ box.innerHTML='<div style="font-size:12px;color:var(--sub)">No payments recorded yet.</div>'; return; }
+    var tot=0; var hh='';
+    rows.forEach(function(p){
+      tot += Number(p.amount_cad)||0;
+      hh += '<div style="display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)">'
+        + '<div><div style="font-size:13px;color:var(--text);font-weight:600">'+_invDateFmt(p.paid_on,'short')+'</div>'
+        + (p.note?('<div style="font-size:11px;color:var(--sub);margin-top:1px">'+_smsEsc(p.note)+'</div>'):'')
+        + '</div>'
+        + '<div style="font-size:14px;font-weight:800;color:var(--text);white-space:nowrap">CAD $'+Number(p.amount_cad).toLocaleString('en-CA',{minimumFractionDigits:2})+'</div>'
+        + '</div>';
+    });
+    box.innerHTML = hh;
+    var t=document.getElementById('lpTotal');
+    if(t) t.textContent = 'CAD $'+tot.toLocaleString('en-CA',{minimumFractionDigits:2});
+  }catch(e){ box.innerHTML='<div style="font-size:12px;color:var(--sub)">Could not load payments.</div>'; }
+}
+
+var _apLeadId=null;
+function openAddPayment(){
+  var l=(leads||[]).find(function(x){return x.id===curLid;});
+  if(!l||!l.dbId){ showToast('Save the lead first'); return; }
+  _apLeadId=l.id;
+  var a=document.getElementById('apAmount'); if(a) a.value='';
+  var d=document.getElementById('apDate'); if(d) d.value=_todayLocalDate();
+  var n2=document.getElementById('apNote'); if(n2) n2.value='';
+  openSheet('addPaymentSh');
+  if(a) setTimeout(function(){a.focus();},250);
+}
+async function saveAddPayment(){
+  var l=(leads||[]).find(function(x){return x.id===_apLeadId;});
+  if(!l||!l.dbId){ closeSheet('addPaymentSh'); return; }
+  var amt=parseFloat(String((document.getElementById('apAmount')||{}).value||'').replace(/[^0-9.\-]/g,''));
+  if(isNaN(amt)||amt<=0){ showToast('Enter a valid amount'); return; }
+  var pd=(document.getElementById('apDate')||{}).value||_todayLocalDate();
+  var note=((document.getElementById('apNote')||{}).value||'').trim();
+  try{
+    var r=await sbFetch('/rest/v1/lead_payments',{method:'POST',headers:{'Prefer':'return=minimal'},body:JSON.stringify({
+      lead_id:l.dbId, client_id:(l.client_id||window._clientId||null), amount_cad:amt, paid_on:pd, note:note||null
+    })});
+    if(!r.ok) throw new Error('save failed ('+r.status+')');
+    l.deal_value=(Number(l.deal_value)||0)+amt;
+    if(typeof logActivity==='function'){
+      logActivity({lead_id:l.id, db_lead_id:l.dbId, client_id:window._clientId||null, type:'note', label:'Payment recorded', body:'Payment received: CAD $'+amt.toFixed(2)+(note?(' \u2014 '+note):'')});
+    }
+    closeSheet('addPaymentSh');
+    showToast('\uD83D\uDCB0 Payment added \u00B7 CAD $'+amt.toFixed(2));
+    loadLeadPayments(l.dbId);
+  }catch(e){ showToast('Error: '+e.message); }
+}
+
 // ── Deal value capture (when stage flips to "Deal Closed") ──
 var _dvLeadId = null, _dvOldStage = null, _dvNewStage = null;
 function openDealValueSheet(leadId, oldStage, newStage){
@@ -6258,18 +6331,21 @@ async function saveDealValueAndClose(){
   if (isNaN(amt) || amt < 0) { showToast('Enter a valid amount'); return; }
 
   var nowIso = new Date().toISOString();
-  l.deal_value = amt;
+  l.deal_value = (Number(l.deal_value)||0) + amt;
 
   if (l.dbId) {
     try {
+      // rpt-1: the amount goes into the payment history; the database keeps
+      // leads.deal_value equal to the sum of all payments automatically.
       await sbFetch('/rest/v1/leads?id=eq.'+l.dbId, {
         method:'PATCH',
         body: JSON.stringify({
           stage: _dvNewStage,
-          deal_value: amt,
           updated_at: nowIso
         })
       });
+      await sbFetch('/rest/v1/lead_payments', { method:'POST', headers:{'Prefer':'return=minimal'},
+        body: JSON.stringify({ lead_id:l.dbId, client_id:(l.client_id||window._clientId||null), amount_cad:amt, note:'Deal closed' }) });
       if (typeof logActivity === 'function') {
         logActivity({ lead_id:l.id, db_lead_id:l.dbId, client_id:window._clientId||null, type:'stage_change',
                       label:'Deal Closed', body:'Deal closed for CAD $'+amt.toFixed(2) });
@@ -7977,8 +8053,10 @@ function clientReportsHTML(){
   var inProcessStages = STAGES.map(function(s){return s.name;}).filter(function(n){return _exclProc.indexOf(n)===-1;}).join('|');
   var pipelineRows = [
     {label:'Total Leads',       n:tot,           pct:'100.00%', col:'var(--text)', drill:''},
-    {label:'Deal in Process',   n:inProcess,     pct:pct(inProcess),    col:'#2563eb', drill:inProcessStages},
-    {label:'Deal Disqualified', n:disqualified,  pct:pct(disqualified), col:'#cc0000', drill:'10. Not Interested|12. Lost|15. Looking for Job'}
+    {label:'Deals in Process',  n:inProcess,     pct:pct(inProcess),    col:'#2563eb', drill:inProcessStages},
+    {label:'Deal Disqualified', n:disqualified,  pct:pct(disqualified), col:'#cc0000', drill:'10. Not Interested|12. Lost|15. Looking for Job'},
+    {label:'Meeting Done',      n:meetingDone,   pct:pct(meetingDone),  col:'#16a34a', drill:'6. Meeting Done'},
+    {label:'Deals Closed',      n:dealsClosed,   pct:pct(dealsClosed),  col:'#15803d', drill:'9. Deal Closed'}
   ];
   h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:18px">';
   h += '<div style="display:grid;grid-template-columns:1fr 80px 90px;padding:12px 14px;background:var(--bg);font-size:10px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.07em">'
@@ -7988,26 +8066,6 @@ function clientReportsHTML(){
     h += '<div onclick="rptDrill(\''+r.drill+'\')" style="display:grid;grid-template-columns:1fr 80px 90px;padding:14px;align-items:center;cursor:pointer;'+(i?'border-top:1px solid var(--border)':'')+'">'
       +    '<div style="font-size:14px;color:'+r.col+';font-weight:'+(i===0?'700':'500')+';display:flex;align-items:center">'+r.label+'<span style="margin-left:auto;color:var(--sub);opacity:.45;font-size:15px">&rsaquo;</span></div>'
       +    '<div style="font-size:15px;color:var(--text);font-weight:700;text-align:right">'+r.n+'</div>'
-      +    '<div style="font-size:13px;color:var(--sub);text-align:right">'+r.pct+'</div>'
-      +  '</div>';
-  });
-  h += '</div>';
-
-  // ── MILESTONES (key progress moments) ──
-  h += '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:6px 2px 8px">Milestones</div>';
-  var milestoneRows = [
-    {label:'Meeting Done',    n:meetingDone,    pct:pct(meetingDone),    col:'#16a34a', icon:'🤝', drill:'6. Meeting Done'},
-    {label:'Deals Closed',    n:dealsClosed,    pct:pct(dealsClosed),    col:'#15803d', icon:'🎉', drill:'9. Deal Closed'},
-    {label:'Future Prospect', n:futureProspect, pct:pct(futureProspect), col:'#6366f1', icon:'🔮', drill:'11. Future Prospect'}
-  ];
-  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:24px">';
-  h += '<div style="display:grid;grid-template-columns:1fr 80px 90px;padding:12px 14px;background:var(--bg);font-size:10px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.07em">'
-    +  '<div>Description</div><div style="text-align:right">Total</div><div style="text-align:right">Ratio</div>'
-    +  '</div>';
-  milestoneRows.forEach(function(r, i){
-    h += '<div onclick="rptDrill(\''+r.drill+'\')" style="display:grid;grid-template-columns:1fr 80px 90px;padding:14px;align-items:center;cursor:pointer;'+(i?'border-top:1px solid var(--border)':'')+'">'
-      +    '<div style="font-size:14px;color:var(--text);font-weight:500;display:flex;align-items:center;gap:8px"><span style="font-size:15px">'+r.icon+'</span>'+r.label+'<span style="margin-left:auto;color:var(--sub);opacity:.45;font-size:15px">&rsaquo;</span></div>'
-      +    '<div style="font-size:15px;color:'+r.col+';font-weight:800;text-align:right">'+r.n+'</div>'
       +    '<div style="font-size:13px;color:var(--sub);text-align:right">'+r.pct+'</div>'
       +  '</div>';
   });
@@ -9998,6 +10056,17 @@ function renderLeadScreen(id) {
     {k:'invoice',icon:'🧾', label:'Invoices'},
   ];
 
+  // ── rpt-1: Deal payments — the client's own revenue from this lead.
+  // Multiple entries per lead; the total is kept in sync by the database.
+  h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:8px">';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
+  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.07em;text-transform:uppercase">Deal Payments</div>';
+  h += '<div style="font-size:13px;font-weight:800;color:var(--green)" id="lpTotal">'+(l.deal_value?('CAD $'+Number(l.deal_value).toLocaleString('en-CA',{minimumFractionDigits:2})):'')+'</div>';
+  h += '</div>';
+  h += '<div id="lpList" style="margin-bottom:10px"><div style="font-size:12px;color:var(--sub)">Loading\u2026</div></div>';
+  h += '<button class="btn" onclick="openAddPayment()" style="width:100%;justify-content:center;background:var(--bg);border:1.5px dashed var(--border);color:var(--text);font-weight:700;padding:11px">\uFF0B Add payment</button>';
+  h += '</div>';
+
   h += '<div style="background:var(--white);padding:14px 16px">';
   // Header row
   h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
@@ -10175,6 +10244,7 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
   h += '</div>'; // end activity section
 
   document.getElementById('lsBody').innerHTML = h;
+  if (typeof loadLeadPayments === 'function') loadLeadPayments(l.dbId);
   loadLeadCustomFields(l);
 }
 
