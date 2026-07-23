@@ -674,7 +674,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-18 email-setup-1</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-22 email-setup-2</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -5929,6 +5929,8 @@ function ecCall(action, extra){
 }
 function ecLoadEmail(){
   var wrap=document.getElementById('ecEmailWrap'); if(!wrap) return;
+  // Fresh client, fresh memory — never carry one client's records into another's screen.
+  window._ecState=null; window._ecRecords=null;
   if(!window._editCamClientId){ wrap.innerHTML='<div style="font-size:12px;color:var(--muted)">This campaign has no client attached, so email can\'t be set up here.</div>'; return; }
   wrap.innerHTML='<div style="font-size:12px;color:var(--muted);padding:10px 0">Loading\u2026</div>';
   ecCall('status').then(function(r){
@@ -6010,6 +6012,10 @@ function ecCreate(){
 }
 function ecRenderPending(st, records){
   var wrap=document.getElementById('ecEmailWrap'); if(!wrap) return;
+  // Remember state + records so later re-renders (verify retries) don't lose them.
+  window._ecState = st || window._ecState || {};
+  if(records && records.length) window._ecRecords = records;
+  st = window._ecState; records = window._ecRecords || records || [];
   var rowsHtml = (records||[]).map(function(r){
     return '<tr>'
       + '<td style="padding:7px 8px;border-bottom:1px solid var(--border);font-weight:700">'+_ecEsc(r.type)+'</td>'
@@ -6020,27 +6026,78 @@ function ecRenderPending(st, records){
   }).join('');
   wrap.innerHTML =
     '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:14px 16px;margin-bottom:14px">'
-    + '<div style="font-size:13px;font-weight:800;color:#b45309;margin-bottom:6px">\u23F3 Almost there \u2014 add these records to the domain\u2019s DNS</div>'
-    + '<div style="font-size:12px;color:var(--text);line-height:1.6">Sender: <b>'+_ecEsc(st.from_email||'')+'</b><br>Add every row below to the DNS for <b>'+_ecEsc(st.email_domain||'')+'</b> (in Cloudflare, add just the record name shown \u2014 not the full domain), then tap Verify.</div>'
+    + '<div style="font-size:13px;font-weight:800;color:#b45309;margin-bottom:6px">\u23F3 Almost there \u2014 the domain\u2019s DNS needs these records</div>'
+    + '<div style="font-size:12px;color:var(--text);line-height:1.6">Sender: <b>'+_ecEsc(st.from_email||'')+'</b> on <b>'+_ecEsc(st.email_domain||'')+'</b></div>'
     + '</div>'
-    + '<div style="overflow:auto;border:1px solid var(--border);border-radius:10px;margin-bottom:12px"><table style="width:100%;border-collapse:collapse;font-size:12px">'
-    + '<thead><tr style="background:var(--surface2)"><th style="padding:8px;text-align:left">Type</th><th style="padding:8px;text-align:left">Name</th><th style="padding:8px;text-align:left">Value</th><th style="padding:8px;text-align:center">Priority</th></tr></thead>'
+    // ── Path 1: domain is on Adviuz Cloudflare → one-tap automatic setup ──
+    + '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px">'
+    + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">Option 1 \u00b7 Domain is on Adviuz Cloudflare</div>'
+    + '<div style="font-size:11.5px;color:var(--muted);line-height:1.5;margin-bottom:10px">Marketing domains and any domain we manage. Every record is added in the right place automatically \u2014 no copy-paste.</div>'
+    + '<button type="button" class="btn-save" id="ec-auto-btn" onclick="ecAutoDns()">\u26A1 Add records automatically</button>'
+    + '</div>'
+    // ── Path 2: domain lives at another provider → manual records + verify ──
+    + '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px">'
+    + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">Option 2 \u00b7 Domain is at another provider</div>'
+    + '<div style="font-size:11.5px;color:var(--muted);line-height:1.5;margin-bottom:10px">GoDaddy, Namecheap, WordPress, the client\u2019s IT \u2014 add every row below to that provider\u2019s DNS, then tap Verify. Use just the Name shown, not the full domain, if the provider fills the domain in for you.</div>'
+    + '<div style="overflow:auto;border:1px solid var(--border);border-radius:10px;margin-bottom:10px"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+    + '<thead><tr style="background:var(--surface)"><th style="padding:8px;text-align:left">Type</th><th style="padding:8px;text-align:left">Name</th><th style="padding:8px;text-align:left">Value</th><th style="padding:8px;text-align:center">Priority</th></tr></thead>'
     + '<tbody>'+(rowsHtml||'<tr><td colspan="4" style="padding:12px;color:var(--muted)">Records will appear here. If this stays empty, tap Verify to refresh.</td></tr>')+'</tbody>'
     + '</table></div>'
+    + '</div>'
     + '<div id="ec-msg" style="display:none;font-size:12px;font-weight:600;padding:9px 12px;border-radius:8px;margin:4px 0"></div>'
     + '<div style="display:flex;gap:8px">'
     +   '<button type="button" class="btn-save" id="ec-verify-btn" onclick="ecVerify()">\u2713 Verify now</button>'
-    +   '<button type="button" onclick="ecShowForm()" style="padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--text);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">Edit details</button>'
+    +   '<button type="button" onclick="ecShowForm(window._ecState)" style="padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--text);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">Edit details</button>'
     + '</div>';
+}
+// ── Automatic path: server creates every record in the Adviuz Cloudflare zone,
+//    cleans up misplaced ones, then we verify on its heels. ──
+function ecAutoDns(){
+  var btn=document.getElementById('ec-auto-btn'); if(btn){ btn.textContent='Adding records\u2026'; btn.disabled=true; }
+  ecCall('autodns').then(function(r){
+    if(r.d && r.d.ok){
+      var skipped=(r.d.results||[]).filter(function(x){return x.status==='skipped';});
+      var failed =(r.d.results||[]).filter(function(x){return x.status==='failed';});
+      var bits=[];
+      if(r.d.created) bits.push(r.d.created+' added');
+      var already=(r.d.results||[]).filter(function(x){return x.status==='exists';}).length;
+      if(already) bits.push(already+' already there');
+      if(r.d.cleaned) bits.push(r.d.cleaned+' misplaced record cleaned up');
+      ecMsg('Done on '+(r.d.zone||'Cloudflare')+' \u2014 '+(bits.join(', ')||'no changes needed')+'. Checking verification\u2026','ok');
+      if(skipped.length){ ecMsg('\u26A0\uFE0F '+skipped[0].note+' Everything else was added. Checking verification\u2026','info'); }
+      if(failed.length){ ecMsg('Some records could not be added: '+failed.map(function(x){return x.record+' ('+(x.note||'error')+')';}).join(', '),'err'); if(btn){ btn.textContent='\u26A1 Add records automatically'; btn.disabled=false; } return; }
+      setTimeout(ecVerify, 2500);
+    } else if(r.d && r.d.no_zone){
+      if(btn){ btn.textContent='\u26A1 Add records automatically'; btn.disabled=false; }
+      ecMsg('This domain\u2019s DNS is not on the Adviuz Cloudflare account \u2014 use Option 2: add the records at the provider that hosts it, then tap Verify.','info');
+    } else {
+      if(btn){ btn.textContent='\u26A1 Add records automatically'; btn.disabled=false; }
+      ecMsg((r.d&&r.d.error)||'Could not add the records \u2014 try again.','err');
+    }
+  }).catch(function(){
+    if(btn){ btn.textContent='\u26A1 Add records automatically'; btn.disabled=false; }
+    ecMsg('Network problem \u2014 try again.','err');
+  });
 }
 function ecVerify(){
   var btn=document.getElementById('ec-verify-btn'); if(btn){ btn.textContent='Checking\u2026'; btn.disabled=true; }
   ecCall('verify').then(function(r){
-    if(r.d && r.d.verified){ ecMsg('Verified! Email is now active for this client.','ok'); setTimeout(ecLoadEmail,900); return; }
+    if(r.d && r.d.verified){
+      ecRenderPending(window._ecState||{}, window._ecRecords||[]);
+      ecMsg('\u2705 Verified! Email is now active for this client.','ok');
+      setTimeout(ecLoadEmail,1200);
+      return;
+    }
+    // Not verified yet: re-render FIRST (fresh records), THEN show the message,
+    // so the feedback is never wiped by the redraw. This was the "nothing
+    // happens when I press Verify" bug.
+    if(r.d && r.d.records && r.d.records.length){ window._ecRecords = r.d.records; }
+    ecRenderPending(window._ecState||{}, window._ecRecords||[]);
+    ecMsg('Not verified yet \u2014 the records aren\u2019t visible to Resend. If you just added them, DNS can take a few minutes; wait and tap Verify again. If it stays stuck, a record is missing or in the wrong place.','info');
+  }).catch(function(){
     if(btn){ btn.textContent='\u2713 Verify now'; btn.disabled=false; }
-    ecMsg('Not verified yet \u2014 DNS can take a few minutes. Add the records, wait, then try again.','info');
-    if(r.d && r.d.records && r.d.records.length){ ecRenderPending({ email_domain:(_ecClient()&&_ecClientDomain(_ecClient()))?('mail.'+_ecClientDomain(_ecClient())):'', from_email:'' }, r.d.records); }
-  }).catch(function(){ if(btn){ btn.textContent='\u2713 Verify now'; btn.disabled=false; } ecMsg('Could not check right now. Try again.','err'); });
+    ecMsg('Could not check right now. Try again.','err');
+  });
 }
 function _ecVal(id){ var el=document.getElementById(id); return el?String(el.value||'').trim():''; }
 function _ecEsc(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
