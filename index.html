@@ -3265,6 +3265,17 @@ body.impersonating .ls-topbar{padding-top:8px}
       </div>
       <button onclick="ceTogglePreview()" id="cePvBtn" style="width:100%;padding:11px;border-radius:12px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-size:13px;font-weight:800;cursor:pointer;font-family:var(--f);margin-bottom:12px">👁 Preview this email</button>
       <div id="cePvBox" style="display:none;background:#f4f5f7;border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:12px"></div>
+      <div class="fg"><label class="flbl">When to send</label>
+        <div style="display:flex;gap:8px">
+          <button type="button" id="ceWhenNow" onclick="ceSetWhen('now')" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid var(--green);background:var(--greenl,#e7f8f3);color:var(--green);font-size:12.5px;font-weight:800;cursor:pointer;font-family:var(--f)">Send now</button>
+          <button type="button" id="ceWhenLater" onclick="ceSetWhen('later')" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-size:12.5px;font-weight:800;cursor:pointer;font-family:var(--f)">🕐 Schedule</button>
+        </div>
+        <div id="ceSchedBox" style="display:none;margin-top:10px">
+          <input class="finp" type="datetime-local" id="ceSchedAt">
+          <div id="ceSchedHint" style="display:none;font-size:12px;color:var(--text);background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;padding:9px 12px;margin-top:8px;line-height:1.5"></div>
+        </div>
+        <div id="ceSchedPending" style="margin-top:8px"></div>
+      </div>
       <div style="background:var(--bluel);border-radius:9px;padding:10px 13px;font-size:11px;color:var(--blue);line-height:1.6">
         Replies come back into this lead's timeline, and a copy is sent to your inbox.
       </div>
@@ -3755,7 +3766,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-23 email-ui-5';
+var APP_VERSION = 'v2026-07-23 email-ui-6';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -11274,6 +11285,8 @@ function openClientEmail(id, replySubj){
   var pvBtn=document.getElementById('cePvBtn'); if(pvBtn) pvBtn.textContent='👁 Preview this email';
   window._ceAtt=[]; cePaintAtts();
   var attIn=document.getElementById('ceAttInput'); if(attIn) attIn.value='';
+  var schIn=document.getElementById('ceSchedAt'); if(schIn) schIn.value='';
+  ceSetWhen('now'); ceLoadSchedPending();
   var fromEl=document.getElementById('ceFrom'); if(fromEl) fromEl.textContent='Loading\u2026';
   openSheet('clientEmailSh');
   // Load this client's custom templates for the chips row (cached after first load).
@@ -11322,6 +11335,26 @@ function sendClientEmail(){
   var message=(document.getElementById('ceBody')||{}).value||'';
   if(!to){ showToast('Add an email address'); return; }
   if(!subject){ showToast('Add a subject'); return; }
+  // Scheduled path: save for later instead of sending now.
+  if(window._ceWhen==='later'){
+    var whenVal=((document.getElementById('ceSchedAt')||{}).value||'');
+    var whenD=whenVal?new Date(whenVal):null;
+    if(!whenD||isNaN(whenD)){ showToast('Pick a date and time first'); return; }
+    if(whenD.getTime()<Date.now()+60000){ showToast('Pick a time in the future'); return; }
+    if((window._ceAtt||[]).length){ showToast('Attachments only work with Send now for the moment \u2014 remove them or send now'); return; }
+    if(!window._clientId || !(l&&l.dbId)){ showToast('Scheduling needs a saved lead'); return; }
+    var btnS=document.getElementById('ceSendBtn'); if(btnS){ btnS.textContent='Scheduling\u2026'; btnS.disabled=true; }
+    sbFetch('/rest/v1/scheduled_emails',{ method:'POST', body: JSON.stringify({
+      client_id: window._clientId, lead_id: l.dbId, to_email: to, subject: subject,
+      message: message, send_at: whenD.toISOString() }) })
+      .then(function(r){ if(!r.ok) throw 0; return r.json(); })
+      .then(function(){
+        showToast('\uD83D\uDD52 Scheduled for '+whenD.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+whenD.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}));
+        closeSheet('clientEmailSh');
+      })
+      .catch(function(){ showToast('Could not schedule \u2014 try again'); if(btnS){ btnS.textContent='Schedule Email'; btnS.disabled=false; } });
+    return;
+  }
   var btn=document.getElementById('ceSendBtn'); if(btn){ btn.textContent='Sending\u2026'; btn.disabled=true; }
   var _atts=(window._ceAtt||[]).map(function(a){ return {filename:a.filename, content:a.content}; });
   sbFetch('/functions/v1/client-email',{ method:'POST', body: JSON.stringify({
@@ -11339,6 +11372,79 @@ function sendClientEmail(){
       if(btn){ btn.textContent='Send Email'; btn.disabled=false; }
       showToast('Could not send: '+((e&&e.message)||'error'));
     });
+}
+
+// ═══ EMAIL SCHEDULING — send later, with a nudge based on the lead's opens ═══
+function ceBestOpenHour(localId){
+  var acts=(leadAct&&leadAct[localId])||[];
+  var hours=[];
+  acts.forEach(function(a){
+    if(a.type!=='email_opened') return;
+    var d=new Date(a._rawTime||a.time);
+    if(!isNaN(d)) hours.push(d.getHours());
+  });
+  if(!hours.length) return null;
+  var counts={}; hours.forEach(function(h){ counts[h]=(counts[h]||0)+1; });
+  var best=hours[0], bestN=0;
+  Object.keys(counts).forEach(function(h){ if(counts[h]>bestN){ bestN=counts[h]; best=parseInt(h,10); } });
+  return { hour:best, opens:hours.length };
+}
+function _hourLabel(h){ var ampm=h>=12?'PM':'AM'; var hh=h%12; if(hh===0)hh=12; return hh+' '+ampm; }
+function ceSetWhen(mode){
+  window._ceWhen=mode;
+  var nowB=document.getElementById('ceWhenNow'), latB=document.getElementById('ceWhenLater'), box=document.getElementById('ceSchedBox');
+  var on='1.5px solid var(--green)', off='1.5px solid var(--border)';
+  if(nowB){ nowB.style.border=(mode==='now')?on:off; nowB.style.background=(mode==='now')?'var(--greenl,#e7f8f3)':'var(--white)'; nowB.style.color=(mode==='now')?'var(--green)':'var(--text)'; }
+  if(latB){ latB.style.border=(mode==='later')?on:off; latB.style.background=(mode==='later')?'var(--greenl,#e7f8f3)':'var(--white)'; latB.style.color=(mode==='later')?'var(--green)':'var(--text)'; }
+  if(box) box.style.display=(mode==='later')?'block':'none';
+  var sendBtn=document.getElementById('ceSendBtn');
+  if(sendBtn && !sendBtn.disabled) sendBtn.textContent=(mode==='later')?'Schedule Email':'Send Email';
+  if(mode==='later') ceFillSchedSuggestion();
+}
+// Suggest a time from when this lead has opened emails before, and pre-fill it.
+function ceFillSchedSuggestion(){
+  var l=window._ceLead||{};
+  var hint=document.getElementById('ceSchedHint'); var input=document.getElementById('ceSchedAt');
+  var best=l.id!=null?ceBestOpenHour(l.id):null;
+  var target=new Date();
+  if(best){
+    target.setHours(best.hour,0,0,0);
+    if(target.getTime()<=Date.now()) target.setDate(target.getDate()+1);
+    if(hint){ hint.style.display='block'; hint.innerHTML='✨ This lead has opened emails around <b>'+_hourLabel(best.hour)+'</b> ('+best.opens+' open'+(best.opens===1?'':'s')+' so far) — sending near then makes it more likely to be seen.'; }
+  } else {
+    // No history yet: suggest tomorrow 10 AM, a generally strong time.
+    target.setDate(target.getDate()+1); target.setHours(10,0,0,0);
+    if(hint){ hint.style.display='block'; hint.textContent='No open history for this lead yet — mornings around 10 AM are a safe bet. The suggestion gets personal once they start opening emails.'; }
+  }
+  if(input && !input.value){
+    var p=function(n){ return (n<10?'0':'')+n; };
+    input.value=target.getFullYear()+'-'+p(target.getMonth()+1)+'-'+p(target.getDate())+'T'+p(target.getHours())+':'+p(target.getMinutes());
+  }
+}
+function ceLoadSchedPending(){
+  var box=document.getElementById('ceSchedPending'); if(box) box.innerHTML='';
+  var l=window._ceLead||{}; var dbId=l.dbId||null;
+  if(!dbId || !window._clientId) return;
+  sbFetch('/rest/v1/scheduled_emails?lead_id=eq.'+encodeURIComponent(dbId)+'&status=eq.scheduled&order=send_at.asc&limit=5')
+    .then(function(r){ return r&&r.ok?r.json():[]; })
+    .then(function(rows){
+      if(!rows||!rows.length||!box) return;
+      box.innerHTML=rows.map(function(s){
+        var d=new Date(s.send_at);
+        var when=isNaN(d)?'':d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'});
+        return '<div style="display:flex;align-items:center;gap:8px;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:8px 11px;margin-top:6px">'
+          +'<span style="font-size:13px">🕐</span>'
+          +'<span style="flex:1;min-width:0;font-size:12px;color:var(--text)"><b>Scheduled '+when+'</b> — '+String(s.subject||'').replace(/</g,'&lt;').slice(0,50)+'</span>'
+          +'<span onclick="ceCancelSched(\''+s.id+'\')" style="flex-shrink:0;font-size:11.5px;font-weight:800;color:var(--red);cursor:pointer">Cancel</span>'
+          +'</div>';
+      }).join('');
+    }).catch(function(){});
+}
+function ceCancelSched(id){
+  sbFetch('/rest/v1/scheduled_emails?id=eq.'+encodeURIComponent(id)+'&status=eq.scheduled',{
+    method:'PATCH', body: JSON.stringify({ status:'cancelled' })})
+    .then(function(r){ if(!(r.ok||r.status===204)) throw 0; showToast('Scheduled email cancelled'); ceLoadSchedPending(); })
+    .catch(function(){ showToast('Could not cancel — try again'); });
 }
 
 // ═══ EMAIL ATTACHMENTS — read files in the browser, send with the email ═══
