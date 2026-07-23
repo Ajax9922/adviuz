@@ -3256,6 +3256,13 @@ body.impersonating .ls-topbar{padding-top:8px}
       <div class="fg"><label class="flbl">Message</label>
         <textarea class="fta" id="ceBody" style="min-height:180px;resize:vertical" placeholder="Type your message here..."></textarea>
       </div>
+      <div class="fg"><label class="flbl">Attachments <span style="font-weight:400;color:var(--sub);font-size:10px">(optional — up to 5 files, 7 MB total)</span></label>
+        <label style="display:block;padding:10px;border:1.5px dashed var(--border);border-radius:10px;background:var(--bg);font-size:12.5px;font-weight:700;color:var(--sub);text-align:center;cursor:pointer">
+          📎 Attach files
+          <input type="file" id="ceAttInput" multiple onchange="ceAttPicked(this)" style="display:none">
+        </label>
+        <div id="ceAttList" style="display:flex;flex-direction:column;gap:6px;margin-top:8px"></div>
+      </div>
       <button onclick="ceTogglePreview()" id="cePvBtn" style="width:100%;padding:11px;border-radius:12px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-size:13px;font-weight:800;cursor:pointer;font-family:var(--f);margin-bottom:12px">👁 Preview this email</button>
       <div id="cePvBox" style="display:none;background:#f4f5f7;border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:12px"></div>
       <div style="background:var(--bluel);border-radius:9px;padding:10px 13px;font-size:11px;color:var(--blue);line-height:1.6">
@@ -3748,7 +3755,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-23 email-ui-4';
+var APP_VERSION = 'v2026-07-23 email-ui-5';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7003,6 +7010,7 @@ function fmtNum(n) {
 function cleanActLabel(a){
   var t=(a.type||'').toLowerCase(), lbl=(a.label||'');
   if(t==='email_received') return 'Email received';
+  if(t==='email_opened') return 'Email opened';
   if(t==='sms_received') return 'SMS received';
   if(t==='email'||t==='email_sent'||/email/i.test(lbl)) return /receiv|inbound|open/i.test(lbl)?'Email received':'Email sent';
   if(t==='sms'||/sms|text/i.test(lbl))                   return /receiv|inbound|reply/i.test(lbl)?'SMS received':'SMS sent';
@@ -8602,7 +8610,7 @@ function callsHTML(){
 
     var h='<div style="border-bottom:1px solid var(--border);background:var(--white)">'
       +'<div style="display:flex;align-items:center;gap:11px;padding:12px 14px">'
-      +  '<div class="call-av" style="background:'+(isSms?'#e7f8f3':lead.col+'18')+';color:'+(isSms?'var(--green)':lead.col)+'">'+(isSms?iChat:init)+'</div>'
+      +  '<div class="call-av" style="background:'+(isSms?'#e7f8f3':lead.col+'18')+';color:'+(isSms?'var(--green)':lead.col)+'">'+(isSms?iChat:iPhone)+'</div>'
       +  '<div style="flex:1;min-width:0">'
       +    '<div onclick="openLead('+c.lid+')" style="cursor:pointer;display:flex;align-items:center;gap:6px;font-size:15px;font-weight:700;color:var(--text)">'
       +      '<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+lead.name+'</span>'
@@ -9045,6 +9053,7 @@ async function loadLeadActivity(localId, dbId) {
                 : type === 'sms_sent'     ? 'SMS Sent'
                 : type === 'email_sent'     ? 'Email Sent'
                 : type === 'email_received' ? 'Email Received'
+                : type === 'email_opened'   ? 'Email Opened'
                 : type === 'call'         ? 'Call'
                 : type === 'assignment'   ? 'Assigned'
                 : type === 'note'         ? 'Note'
@@ -10415,7 +10424,7 @@ function renderLeadScreen(id) {
     h += '<div style="text-align:center;color:var(--sub);font-size:13px;padding:20px 0">No '+actFilter+' activity yet</div>';
   } else {
 
-  var icons={call:'📞',sms:'💬',sms_sent:'💬',sms_received:'📩',email_sent:'📧',email:'📧',note:'📝',fu:'🗓️',stage_change:'⚡',
+  var icons={call:'📞',sms:'💬',sms_sent:'💬',sms_received:'📩',email_sent:'📧',email:'📧',email_opened:'👁',note:'📝',fu:'🗓️',stage_change:'⚡',
              quote_sent:'📄',quote_viewed:'👁',quote_accepted:'✅',quote_paid:'💳',
              invoice_created:'🧾',invoice_emailed:'📧',payment_received:'💳',reminder_sent:'⏰',meeting:'📅',assignment:'👤'};
   var actExpand = window._actExpand || false;
@@ -11263,6 +11272,8 @@ function openClientEmail(id, replySubj){
   var bodyEl=document.getElementById('ceBody'); if(bodyEl) bodyEl.value='Hi '+first+',\n\n';
   var pvB=document.getElementById('cePvBox'); if(pvB) pvB.style.display='none';
   var pvBtn=document.getElementById('cePvBtn'); if(pvBtn) pvBtn.textContent='👁 Preview this email';
+  window._ceAtt=[]; cePaintAtts();
+  var attIn=document.getElementById('ceAttInput'); if(attIn) attIn.value='';
   var fromEl=document.getElementById('ceFrom'); if(fromEl) fromEl.textContent='Loading\u2026';
   openSheet('clientEmailSh');
   // Load this client's custom templates for the chips row (cached after first load).
@@ -11312,9 +11323,11 @@ function sendClientEmail(){
   if(!to){ showToast('Add an email address'); return; }
   if(!subject){ showToast('Add a subject'); return; }
   var btn=document.getElementById('ceSendBtn'); if(btn){ btn.textContent='Sending\u2026'; btn.disabled=true; }
+  var _atts=(window._ceAtt||[]).map(function(a){ return {filename:a.filename, content:a.content}; });
   sbFetch('/functions/v1/client-email',{ method:'POST', body: JSON.stringify({
     client_id: window._clientId||null, lead_id: (l&&l.dbId)||l.id||null,
-    to: to, subject: subject, message: message }) })
+    to: to, subject: subject, message: message,
+    attachments: _atts.length?_atts:undefined }) })
     .then(function(res){ return res.json().then(function(d){ return {ok:res.ok,d:d}; }); })
     .then(function(r){
       if(!r.ok || !r.d || r.d.ok===false) throw new Error((r.d&&r.d.error)||'Could not send');
@@ -11326,6 +11339,48 @@ function sendClientEmail(){
       if(btn){ btn.textContent='Send Email'; btn.disabled=false; }
       showToast('Could not send: '+((e&&e.message)||'error'));
     });
+}
+
+// ═══ EMAIL ATTACHMENTS — read files in the browser, send with the email ═══
+function ceAttPicked(input){
+  var files=Array.from((input&&input.files)||[]);
+  if(!files.length) return;
+  window._ceAtt=window._ceAtt||[];
+  var cur=window._ceAtt;
+  var totalBytes=cur.reduce(function(s,a){return s+(a.size||0);},0);
+  var queue=files.slice(0, Math.max(0, 5-cur.length));
+  if(files.length>queue.length) showToast('Maximum 5 files per email');
+  var next=function(){
+    var f=queue.shift();
+    if(!f){ input.value=''; cePaintAtts(); return; }
+    if(totalBytes + f.size > 7*1024*1024){ showToast('"'+f.name+'" would push the total over 7 MB — not added'); next(); return; }
+    var rd=new FileReader();
+    rd.onload=function(){
+      var b64=String(rd.result||'').split(',')[1]||'';
+      if(b64){ cur.push({filename:f.name, content:b64, size:f.size}); totalBytes+=f.size; }
+      next();
+    };
+    rd.onerror=function(){ showToast('Could not read "'+f.name+'"'); next(); };
+    rd.readAsDataURL(f);
+  };
+  next();
+}
+function cePaintAtts(){
+  var box=document.getElementById('ceAttList'); if(!box) return;
+  var atts=window._ceAtt||[];
+  box.innerHTML=atts.map(function(a,i){
+    var kb=a.size>1048576?( (a.size/1048576).toFixed(1)+' MB'):(Math.max(1,Math.round(a.size/1024))+' KB');
+    return '<div style="display:flex;align-items:center;gap:8px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:8px 11px">'
+      +'<span style="font-size:14px">📎</span>'
+      +'<span style="flex:1;min-width:0;font-size:12.5px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+String(a.filename).replace(/</g,'&lt;')+'</span>'
+      +'<span style="font-size:11px;color:var(--sub);flex-shrink:0">'+kb+'</span>'
+      +'<span onclick="ceAttRemove('+i+')" style="flex-shrink:0;font-size:14px;color:var(--red);cursor:pointer;padding:0 2px">✕</span>'
+      +'</div>';
+  }).join('');
+}
+function ceAttRemove(i){
+  window._ceAtt=(window._ceAtt||[]).filter(function(_a,idx){return idx!==i;});
+  cePaintAtts();
 }
 
 function lsDoSms(){ var l=lsGetLead();if(l)openSms(l.id); }
@@ -15315,7 +15370,7 @@ async function preloadActivity() {
         var rawBody=(row.description||'').replace(/\s*\(SID:[^)]+\)/g,'').trim();
         var body=rawBody;
         if(type==='sms_received'){ var m=rawBody.match(/:\s*"?(.+?)"?\s*$/); if(m) body=m[1]; }
-        var label=type==='sms_received'?'📩 SMS Reply':type==='sms_sent'?'💬 SMS Sent':type==='email_sent'?'Email Sent':type==='email_received'?'Email Received':type==='call'?'📞 Call':type==='assignment'?'👤 Assigned':rawBody.slice(0,50);
+        var label=type==='sms_received'?'📩 SMS Reply':type==='sms_sent'?'💬 SMS Sent':type==='email_sent'?'Email Sent':type==='email_received'?'Email Received':type==='email_opened'?'Email Opened':type==='call'?'📞 Call':type==='assignment'?'👤 Assigned':rawBody.slice(0,50);
         // Emails: description holds the subject; full body lives in metadata.
         var emailSubj='', emailBody='';
         if(type==='email_sent'||type==='email_received'){
