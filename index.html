@@ -1606,6 +1606,45 @@ body.impersonating .ls-topbar{padding-top:8px}
   </div>
 </div>
 
+<!-- ═══ CASHOUT PAID SHEET — confirm a partner payout was e-Transferred ═══ -->
+<div class="sheet-ov" id="payoutPaidSh" onclick="if(event.target===this)closeSheet('payoutPaidSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sh-head">
+      <div class="sh-title">Confirm payout sent</div>
+      <button class="sh-x" onclick="closeSheet('payoutPaidSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" style="padding:16px 16px calc(28px + env(safe-area-inset-bottom))">
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div id="ppdPartner" style="font-size:15px;font-weight:800;color:var(--text)">—</div>
+            <div style="font-size:12px;color:var(--sub);margin-top:2px">e-Transfer to <span id="ppdEmail">—</span></div>
+          </div>
+          <div id="ppdAmount" style="font-size:18px;font-weight:900;color:var(--text)">—</div>
+        </div>
+      </div>
+
+      <div class="fg">
+        <label class="flbl">Bank screenshot (optional — AI fills the number for you)</label>
+        <input type="file" id="ppdShotInput" accept="image/*" onchange="payoutShotPicked(this)"
+          style="width:100%;padding:10px;border:1.5px dashed var(--border);border-radius:12px;background:var(--bg);font-family:var(--f);font-size:13px;color:var(--sub)">
+        <div id="ppdShotStatus" style="display:none;font-size:12px;margin-top:8px;line-height:1.5"></div>
+        <div style="font-size:11px;color:var(--sub);margin-top:6px;line-height:1.5">The screenshot is read once to pull the confirmation number, then discarded — it is never stored.</div>
+      </div>
+
+      <div class="fg" style="margin-top:12px">
+        <label class="flbl">Confirmation number</label>
+        <input class="finp" id="ppdConfirm" type="text" placeholder="e.g. C1AUTz***pHC" autocomplete="off">
+      </div>
+
+      <div id="ppdWarn" style="display:none;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:10px 12px;font-size:12px;color:#c2410c;margin-top:10px;line-height:1.5"></div>
+
+      <button id="ppdConfirmBtn" onclick="confirmPayoutPaid()" style="width:100%;margin-top:16px;padding:14px;border-radius:12px;background:var(--green);border:none;color:#fff;font-family:var(--f);font-size:15px;font-weight:800;cursor:pointer">Mark paid &amp; email partner</button>
+      <div style="font-size:11px;color:var(--sub);margin-top:10px;text-align:center;line-height:1.5">This marks the request paid, emails the partner a receipt, and updates their dashboard from &#8987; processing to paid.</div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ MARK AS PAID SHEET ═══ -->
 <div class="sheet-ov" id="markPaidSh" onclick="if(event.target===this)closeSheet('markPaidSh')">
   <div class="sheet"><div class="sheet-handle"></div>
@@ -3573,7 +3612,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-22 pay-1';
+var APP_VERSION = 'v2026-07-22 payout-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -18766,7 +18805,7 @@ function openPartnersManager() {
   if (btn) goTab('dashboard', btn);
 }
 
-var _adminData = { clients:[], campaigns:[], allLeads:[], affiliates:[], commissions:[], quotes:[], invoices:[], caReports:[] };
+var _adminData = { clients:[], campaigns:[], allLeads:[], affiliates:[], commissions:[], payouts:[], quotes:[], invoices:[], caReports:[] };
 
 // Task 2: Accountant settings row loaded from app_settings.key='accountant'.
 // Structure: { ca_name, ca_firm, ca_email, cc_emails:[...], auto_approve:bool, review_delay_hours:int }
@@ -18809,12 +18848,15 @@ async function loadAdminData() {
       sbFetch('/rest/v1/sales_partners?select=*&order=created_at.desc&limit=100'),
       sbFetch('/rest/v1/partner_applications?select=*&status=eq.pending&order=created_at.desc&limit=100'),
       sbFetch('/rest/v1/partner_commissions?select=*,leads(name)&status=eq.earned&order=earned_at.desc&limit=100'),
-      sbFetch('/rest/v1/lead_registrations?select=*,sales_partners(full_name,ref_code)&status=eq.active&order=created_at.desc&limit=50')
+      sbFetch('/rest/v1/lead_registrations?select=*,sales_partners(full_name,ref_code)&status=eq.active&order=created_at.desc&limit=50'),
+      // Pending partner cashout requests — shown at the top of the Commissions tab
+      sbFetch('/rest/v1/payout_requests?select=*&status=eq.requested&order=requested_at.asc&limit=50')
     ]);
     _adminData.partners      = _pResponses[0].status==='fulfilled' && _pResponses[0].value.ok ? await _pResponses[0].value.json() : [];
     _adminData.applications  = _pResponses[1].status==='fulfilled' && _pResponses[1].value.ok ? await _pResponses[1].value.json() : [];
     _adminData.commissions   = _pResponses[2].status==='fulfilled' && _pResponses[2].value.ok ? await _pResponses[2].value.json() : [];
     _adminData.registrations = _pResponses[3].status==='fulfilled' && _pResponses[3].value.ok ? await _pResponses[3].value.json() : [];
+    _adminData.payouts       = _pResponses[4].status==='fulfilled' && _pResponses[4].value.ok ? await _pResponses[4].value.json() : [];
     if (qRes.ok)    _adminData.quotes      = await qRes.json();
     if (invRes.ok)  _adminData.invoices    = await invRes.json();
     // Per-campaign lifetime P&L (revenue, ad spend, expenses, profit) for founder cards
@@ -19585,7 +19627,7 @@ function adAffiliatesHTML() {
   var subtabs = [
     {k:'applications', label:'Applications', count:(_adminData.applications||[]).length},
     {k:'partners',     label:'Partners',     count:(_adminData.partners||[]).length},
-    {k:'commissions',  label:'Commissions',  count:(_adminData.commissions||[]).length},
+    {k:'commissions',  label:'Commissions',  count:(_adminData.commissions||[]).length + (_adminData.payouts||[]).length},
     {k:'registrations',label:'Lead Claims',  count:(_adminData.registrations||[]).length}
   ];
   if (!_partnerSubTab) _partnerSubTab = 'applications';
@@ -19954,33 +19996,217 @@ function adPartnersListRows(partners) {
   return h + '</div>';
 }
 
-function adCommissionsHTML() {
-  var comms = _adminData.commissions || [];
-  if (!comms.length) return '<div style="text-align:center;padding:40px;color:var(--sub);font-size:13px">No commissions to pay out</div>';
-  var total = comms.reduce(function(s,c){return s+(c.commission_cad||0);},0);
-  var h = '<div style="padding:10px 14px;background:var(--greenl);border-radius:10px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">';
-  h += '<div style="font-size:12px;font-weight:700;color:var(--green)">'+comms.length+' commissions to pay</div>';
-  h += '<div style="font-size:16px;font-weight:800;color:var(--green)">CAD $'+total.toFixed(2)+'</div></div>';
-  h += '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
-  comms.forEach(function(c, i) {
-    var lead = (c.leads&&c.leads.name)||'Unknown';
-    var amt  = 'CAD $'+(c.commission_cad||0).toFixed(2);
-    var type = c.commission_type==='first_order'?'💼 First Order':c.commission_type==='recurring'?'♻️ Recurring':'🏆 Bonus';
-    var dt   = c.earned_at ? new Date(c.earned_at).toLocaleDateString('en-CA',{month:'short',day:'numeric'}) : '';
-    h += '<div style="padding:12px 14px;'+(i?'border-top:1px solid var(--border)':'')+'">'      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'      +'<div><div style="font-size:13px;font-weight:700;color:var(--text)">'+lead+'</div>'      +'<div style="font-size:11px;color:var(--sub)">'+type+' · '+dt+'</div></div>'      +'<div style="font-size:16px;font-weight:800;color:var(--green)">'+amt+'</div></div>'      +'<button onclick="adMarkPaid(\'' + c.id + '\')" style="width:100%;padding:8px;border-radius:8px;background:var(--green);border:none;font-family:var(--f);font-size:12px;font-weight:700;color:#fff;cursor:pointer">Mark as Paid</button>'    +'</div>';
-  });
-  return h + '</div>';
+// Look up a partner's display name from the already-loaded partners list
+function adPartnerName(pid) {
+  var p = (_adminData.partners||[]).find(function(x){ return String(x.id)===String(pid); });
+  return p ? (p.full_name || p.name || p.email || 'Partner') : '';
+}
+function adPartnerEmail(pid) {
+  var p = (_adminData.partners||[]).find(function(x){ return String(x.id)===String(pid); });
+  return p ? (p.email || '') : '';
 }
 
-async function adMarkPaid(id) {
-  var res = await sbFetch('/rest/v1/partner_commissions?id=eq.'+id, {
-    method: 'PATCH', body: JSON.stringify({ status: 'paid', paid_at: new Date().toISOString() })
-  });
-  if (res.ok || res.status === 204) {
-    _adminData.commissions = (_adminData.commissions||[]).filter(function(c){return c.id!==id;});
-    showToast('✅ Marked as paid');
+function adCommissionsHTML() {
+  var comms = _adminData.commissions || [];
+  var pays  = (_adminData.payouts || []).filter(function(p){ return p.status==='requested'; });
+  var h = '';
+
+  // ── CASHOUTS TO PAY — partner withdrawal requests awaiting your e-Transfer ──
+  if (pays.length) {
+    var pTotal = pays.reduce(function(s,p){ return s+(+p.amount_cad||0); },0);
+    h += '<div style="padding:10px 14px;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">';
+    h += '<div style="font-size:12px;font-weight:700;color:#c2410c">💸 '+pays.length+' cashout'+(pays.length===1?'':'s')+' to pay</div>';
+    h += '<div style="font-size:16px;font-weight:800;color:#c2410c">CAD $'+pTotal.toFixed(2)+'</div></div>';
+    h += '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border);margin-bottom:14px">';
+    pays.forEach(function(p, i) {
+      var pname = adPartnerName(p.partner_id) || 'Partner';
+      var amt   = 'CAD $'+(+p.amount_cad||0).toFixed(2);
+      var days  = p.requested_at ? Math.floor((Date.now()-new Date(p.requested_at).getTime())/86400000) : 0;
+      var wait  = days<=0 ? 'today' : days===1 ? '1 day ago' : days+' days ago';
+      var waitCol = days>=7 ? 'var(--red)' : days>=3 ? '#d97706' : 'var(--sub)';
+      h += '<div style="padding:12px 14px;'+(i?'border-top:1px solid var(--border)':'')+'">'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">'
+        +'<div><div style="font-size:13.5px;font-weight:700;color:var(--text)">'+pname+'</div>'
+        +'<div style="font-size:11px;color:var(--sub)">🏦 e-Transfer to '+(p.etransfer_email||'—')+'</div>'
+        +'<div style="font-size:11px;color:'+waitCol+'">Requested '+wait+'</div></div>'
+        +'<div style="font-size:17px;font-weight:800;color:#c2410c">'+amt+'</div></div>'
+        +'<button onclick="openPayoutPaid(\''+p.id+'\')" style="width:100%;padding:9px;margin-top:6px;border-radius:8px;background:var(--text);border:none;font-family:var(--f);font-size:12.5px;font-weight:700;color:#fff;cursor:pointer">✓ I\u2019ve paid this — confirm &amp; notify</button>'
+        +'</div>';
+    });
+    h += '</div>';
+  }
+
+  if (!comms.length && !pays.length) return '<div style="text-align:center;padding:40px;color:var(--sub);font-size:13px">No commissions or cashouts to pay out</div>';
+
+  // ── EARNED COMMISSIONS (record-keeping list) ──
+  if (comms.length) {
+    var total = comms.reduce(function(s,c){return s+(c.commission_cad||0);},0);
+    h += '<div style="padding:10px 14px;background:var(--greenl);border-radius:10px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">';
+    h += '<div style="font-size:12px;font-weight:700;color:var(--green)">'+comms.length+' commissions earned</div>';
+    h += '<div style="font-size:16px;font-weight:800;color:var(--green)">CAD $'+total.toFixed(2)+'</div></div>';
+    h += '<div style="font-size:11px;color:var(--sub);margin:-4px 2px 8px;line-height:1.5">These are earnings on the partners\u2019 balances. You don\u2019t pay these directly \u2014 partners cash out from their dashboard, and the request appears above.</div>';
+    h += '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
+    comms.forEach(function(c, i) {
+      var who  = (c.leads&&c.leads.name) || c.client_name || 'Client';
+      var pn   = adPartnerName(c.partner_id);
+      var amt  = 'CAD $'+(c.commission_cad||0).toFixed(2);
+      var type = c.commission_type==='first_order'?'💼 First Order':c.commission_type==='recurring'?'♻️ Recurring':'🏆 Bonus';
+      var dt   = c.earned_at ? new Date(c.earned_at).toLocaleDateString('en-CA',{month:'short',day:'numeric'}) : '';
+      h += '<div style="padding:12px 14px;'+(i?'border-top:1px solid var(--border)':'')+'">'
+        +'<div style="display:flex;align-items:center;justify-content:space-between">'
+        +'<div><div style="font-size:13px;font-weight:700;color:var(--text)">'+who+'</div>'
+        +'<div style="font-size:11px;color:var(--sub)">'+(pn?'→ '+pn+' · ':'')+type+' · '+dt+'</div></div>'
+        +'<div style="font-size:16px;font-weight:800;color:var(--green)">'+amt+'</div></div>'
+        +'</div>';
+    });
+    h += '</div>';
+  }
+  return h;
+}
+
+// ═══ CASHOUT "I'VE PAID THIS" FLOW ═══
+// Opens the confirm sheet for one payout request. Ajax pays in the banking
+// app himself; here he uploads the bank screenshot (read once by AI to pull
+// the confirmation number — the image is never stored) or types the number,
+// then one tap marks it paid, emails the partner a receipt, and the partner's
+// dashboard flips from "processing" to paid automatically.
+var _payoutPaidRow = null;
+
+function openPayoutPaid(id) {
+  var p = (_adminData.payouts||[]).find(function(x){ return String(x.id)===String(id); });
+  if (!p) { showToast('Request not found — refresh and try again'); return; }
+  _payoutPaidRow = p;
+  var pname = adPartnerName(p.partner_id) || 'Partner';
+  var el;
+  el = document.getElementById('ppdPartner'); if (el) el.textContent = pname;
+  el = document.getElementById('ppdAmount');  if (el) el.textContent = 'CAD $'+(+p.amount_cad||0).toFixed(2);
+  el = document.getElementById('ppdEmail');   if (el) el.textContent = p.etransfer_email || '—';
+  el = document.getElementById('ppdConfirm'); if (el) el.value = '';
+  el = document.getElementById('ppdShotStatus'); if (el) { el.style.display='none'; el.textContent=''; }
+  el = document.getElementById('ppdWarn');    if (el) { el.style.display='none'; el.textContent=''; }
+  el = document.getElementById('ppdShotInput'); if (el) el.value = '';
+  var btn = document.getElementById('ppdConfirmBtn');
+  if (btn) { btn.disabled=false; btn.textContent='Mark paid & email '+pname.split(' ')[0]; }
+  openSheet('payoutPaidSh');
+}
+
+// Screenshot picked → shrink it in the browser (bank shots are big), send to
+// the AI reader, and pre-fill the confirmation number. Read-and-discard.
+function payoutShotPicked(input) {
+  var file = input && input.files && input.files[0];
+  if (!file) return;
+  var st = document.getElementById('ppdShotStatus');
+  if (st) { st.style.display='block'; st.style.color='var(--sub)'; st.textContent='⏳ Reading screenshot…'; }
+  var img = new Image();
+  var url = URL.createObjectURL(file);
+  img.onload = function() {
+    try {
+      var MAX = 1400;
+      var scale = Math.min(1, MAX / Math.max(img.width, img.height));
+      var cv = document.createElement('canvas');
+      cv.width  = Math.round(img.width  * scale);
+      cv.height = Math.round(img.height * scale);
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      URL.revokeObjectURL(url);
+      var dataUrl = cv.toDataURL('image/jpeg', 0.85);
+      var b64 = dataUrl.split(',')[1] || '';
+      _payoutReadShot(b64);
+    } catch(e) {
+      URL.revokeObjectURL(url);
+      if (st) { st.style.color='var(--red)'; st.textContent='Could not read the image — type the confirmation number below.'; }
+    }
+  };
+  img.onerror = function() {
+    URL.revokeObjectURL(url);
+    if (st) { st.style.display='block'; st.style.color='var(--red)'; st.textContent='Could not open that file — type the confirmation number below.'; }
+  };
+  img.src = url;
+}
+
+async function _payoutReadShot(b64) {
+  var st = document.getElementById('ppdShotStatus');
+  try {
+    var res = await sbFetch('/functions/v1/payout-receipt-reader', {
+      method:'POST', body: JSON.stringify({ image_b64: b64, media_type: 'image/jpeg' })
+    });
+    var data = res.ok ? await res.json() : null;
+    if (!data || data.error) throw new Error((data&&data.error)||'reader failed');
+    var conf = (data.confirmation||'').trim();
+    var el = document.getElementById('ppdConfirm');
+    if (conf && el) el.value = conf;
+    // Amount cross-check: warn (don't block) if screenshot ≠ request
+    var warn = document.getElementById('ppdWarn');
+    var want = +((_payoutPaidRow||{}).amount_cad)||0;
+    var got  = +data.amount||0;
+    if (warn) {
+      if (got > 0 && Math.abs(got - want) > 0.005) {
+        warn.style.display='block';
+        warn.textContent='⚠️ The screenshot shows $'+got.toFixed(2)+' but this request is for $'+want.toFixed(2)+'. Double-check before confirming.';
+      } else { warn.style.display='none'; }
+    }
+    if (st) {
+      st.style.color = conf ? 'var(--green)' : 'var(--red)';
+      st.textContent = conf
+        ? '✓ Read from screenshot — confirmation #'+conf+(got?' · $'+got.toFixed(2):'')+(data.recipient?' · to '+data.recipient:'')
+        : 'Couldn\u2019t find a confirmation number in that image — type it below.';
+    }
+  } catch(e) {
+    if (st) { st.style.color='var(--red)'; st.textContent='Reader unavailable — type the confirmation number below.'; }
+  }
+}
+
+async function confirmPayoutPaid() {
+  var p = _payoutPaidRow;
+  if (!p) { showToast('Nothing selected'); return; }
+  var conf = ((document.getElementById('ppdConfirm')||{}).value||'').trim();
+  if (!conf) { showToast('Enter the confirmation number first'); return; }
+  var btn = document.getElementById('ppdConfirmBtn');
+  if (btn) { btn.disabled=true; btn.textContent='Saving…'; }
+  try {
+    var res = await sbFetch('/rest/v1/payout_requests?id=eq.'+encodeURIComponent(p.id), {
+      method:'PATCH',
+      body: JSON.stringify({ status:'paid', processed_at:new Date().toISOString(), confirmation_ref:conf })
+    });
+    if (!(res.ok || res.status===204)) throw new Error('Could not update the request');
+
+    // Receipt email to the partner (plain, no emoji per email design rules)
+    var pname  = adPartnerName(p.partner_id) || 'Partner';
+    var first  = pname.split(' ')[0];
+    var pEmail = adPartnerEmail(p.partner_id) || p.etransfer_email;
+    var amtStr = '$'+(+p.amount_cad||0).toFixed(2)+' CAD';
+    if (pEmail) {
+      try {
+        await sbFetch('/functions/v1/send-email', { method:'POST', body: JSON.stringify({
+          to: pEmail,
+          subject: 'Your payout of '+amtStr+' has been sent',
+          html: '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111827;line-height:1.7;max-width:560px">'
+            +'<p style="margin:0 0 14px">Hi '+first+',</p>'
+            +'<p style="margin:0 0 14px">Your commission payout has been sent by Interac e-Transfer.</p>'
+            +'<table style="border-collapse:collapse;font-size:14px;margin:0 0 14px">'
+            +'<tr><td style="padding:4px 14px 4px 0;color:#6b7280">Amount</td><td style="padding:4px 0;font-weight:700">'+amtStr+'</td></tr>'
+            +'<tr><td style="padding:4px 14px 4px 0;color:#6b7280">Sent to</td><td style="padding:4px 0">'+(p.etransfer_email||'')+'</td></tr>'
+            +'<tr><td style="padding:4px 14px 4px 0;color:#6b7280">Confirmation #</td><td style="padding:4px 0;font-weight:700">'+conf.replace(/</g,'&lt;')+'</td></tr>'
+            +'</table>'
+            +'<p style="margin:0 0 14px">If Autodeposit is on, the money lands automatically. Otherwise, accept the transfer from your bank\u2019s email. Your dashboard statement has been updated.</p>'
+            +'<p style="margin:0">Thank you for partnering with Adviuz.</p>'
+            +'</div>'
+            +'<div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#9ca3af;text-align:center;margin-top:24px">Adviuz &middot; Instad Web Services Ltd &middot; sales@adviuz.ca</div>',
+          text: 'Hi '+first+', your payout of '+amtStr+' was sent by Interac e-Transfer to '+(p.etransfer_email||'')+'. Confirmation #: '+conf,
+          type: 'transactional',
+          from_email: 'sales@adviuz.com', from_name: 'Adviuz', reply_to: 'sales@adviuz.ca'
+        })});
+      } catch(e) { console.warn('[payout email]', e.message); }
+    }
+
+    _adminData.payouts = (_adminData.payouts||[]).filter(function(x){ return String(x.id)!==String(p.id); });
+    _payoutPaidRow = null;
+    closeSheet('payoutPaidSh');
+    showToast('✅ Paid — '+first+' has been emailed');
     document.getElementById('content').innerHTML = adminDashHTML();
-  } else { showToast('Failed'); }
+  } catch(e) {
+    showToast('Failed: '+(e.message||'try again'));
+    if (btn) { btn.disabled=false; btn.textContent='Mark paid & email partner'; }
+  }
 }
 
 function adRegistrationsHTML() {
