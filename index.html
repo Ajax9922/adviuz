@@ -3039,6 +3039,14 @@ body.impersonating .ls-topbar{padding-top:8px}
     </div>
   </div>
 </div>
+<!-- ═══ UPCOMING DAY PICKER (days / range / presets) ═══ -->
+<div class="sheet-ov" id="fuRangeSh" onclick="if(event.target===this)closeSheet('fuRangeSh')">
+  <div class="sheet" style="max-height:calc(90dvh - var(--kb,0px))"><div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title">Which upcoming days?</div><button class="sheet-x" onclick="closeSheet('fuRangeSh')">&#x2715;</button></div>
+    <div class="sh-body" id="fuRangeBody" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom,16px))"></div>
+  </div>
+</div>
+
 <!-- ═══ FOLLOW-UPS CALENDAR (month view of tasks + appointments) ═══ -->
 <div class="sheet-ov" id="fuCalSh" onclick="if(event.target===this)closeSheet('fuCalSh')">
   <div class="sheet" style="max-height:calc(90dvh - var(--kb,0px))"><div class="sheet-handle"></div>
@@ -3795,7 +3803,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-24 appt-ui-2';
+var APP_VERSION = 'v2026-07-24 fu-view-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -6011,7 +6019,9 @@ function renderCtrlBar(){
     // Calendar button reserved for the future list/calendar switch.
     var calSvg='<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
     var calBtn='<button class="cb-btn" onclick="openFuCalendar()" title="Calendar view">'+calSvg+'</button>';
-    actions=fuSort+filterBtn+calBtn;
+    if(!window._fuView) window._fuView='compact';
+    var fuViewBtn='<button class="cb-btn'+(window._fuView==='detailed'?' on':'')+'" onclick="window._fuView=(window._fuView===\'compact\'?\'detailed\':\'compact\');renderCtrlBar();var c=document.getElementById(\'content\');if(c)c.innerHTML=followupsHTML()" title="'+(window._fuView==='compact'?'Expanded view':'Compact view')+'">'+(window._fuView==='compact'?expandSvg:collapseSvg)+'</button>';
+    actions=fuSort+filterBtn+fuViewBtn+calBtn;
   } else if(curTab==='calls'){
     if(!window._callSort) window._callSort='newest';
     if(!window._callView) window._callView='compact';
@@ -7300,14 +7310,130 @@ function followupsHTML(){
   return '<div class="segment">'
     +'<button class="seg-btn '+(fuSeg==='past'?'on':'')+'" onclick="fuSeg=\'past\';document.getElementById(\'content\').innerHTML=followupsHTML()">Past</button>'
     +'<button class="seg-btn '+(fuSeg==='today'?'on':'')+'" onclick="fuSeg=\'today\';document.getElementById(\'content\').innerHTML=followupsHTML()">Today</button>'
-    +'<button class="seg-btn '+(fuSeg==='future'?'on':'')+'" onclick="fuSeg=\'future\';document.getElementById(\'content\').innerHTML=followupsHTML()">Upcoming</button>'
+    +'<button class="seg-btn '+(fuSeg==='future'?'on':'')+'" onclick="if(fuSeg===\'future\'){openFuRange();}else{fuSeg=\'future\';document.getElementById(\'content\').innerHTML=followupsHTML();}">Upcoming'+(fuSeg==='future'?' \u25BE':'')+'</button>'
     +'</div>'
+    +((fuSeg==='future' && window._fuRange)
+      ? '<div style="padding:0 16px 6px;display:flex"><span style="display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--green);background:var(--greenl,#e7f8f3);border:1.5px solid var(--green);border-radius:20px;padding:5px 12px">\uD83D\uDCC5 '+window._fuRange.label+'<span onclick="fuRangeClear()" style="cursor:pointer;font-weight:800;padding:0 2px">\u2715</span></span></div>'
+      : '')
     +'<div class="filter-bar">'
     +'<div class="fchip '+(fuTypeFilter===''?'on':'')+'" onclick="fuTypeFilter=\'\';document.getElementById(\'content\').innerHTML=followupsHTML()">All</div>'
     +'<div class="fchip '+(fuTypeFilter==='fu'?'on':'')+'" onclick="fuTypeFilter=\'fu\';document.getElementById(\'content\').innerHTML=followupsHTML()">🗓 Follow-ups</div>'
     +'<div class="fchip '+(fuTypeFilter==='appt'?'on':'')+'" onclick="fuTypeFilter=\'appt\';document.getElementById(\'content\').innerHTML=followupsHTML()">📅 Appointments</div>'
     +'</div>'
     +taskListHTML();
+}
+
+// ═══ UPCOMING DAY PICKER — pick days, a range, or a quick preset ═══
+function _fuInRange(ds){
+  var r=window._fuRange; if(!r) return true;
+  if(r.days && r.days.length) return r.days.indexOf(ds)!==-1;
+  if(r.from && r.to) return ds>=r.from && ds<=r.to;
+  return true;
+}
+function _fuDayStr(y,m,d){ return y+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0'); }
+function _fuPlusDays(n){ var d=new Date(); d.setDate(d.getDate()+n); return _fuDayStr(d.getFullYear(),d.getMonth(),d.getDate()); }
+function _fuNiceDay(ds){
+  var MOS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var pp=String(ds||'').split('-');
+  return pp.length===3 ? (parseInt(pp[2],10)+' '+(MOS[(parseInt(pp[1],10)||1)-1]||'')) : String(ds||'');
+}
+function openFuRange(){
+  var d=new Date();
+  var st=window._fuRR = { y:d.getFullYear(), m:d.getMonth(), mode:'days', days:{}, from:null, to:null };
+  var cur=window._fuRange;
+  if(cur){
+    if(cur.days && cur.days.length){ cur.days.forEach(function(x){ st.days[x]=1; }); }
+    else if(cur.from){ st.mode='range'; st.from=cur.from; st.to=cur.to; }
+  }
+  fuRangeRender();
+  openSheet('fuRangeSh');
+}
+function fuRangeShift(d){ var st=window._fuRR; st.m+=d; if(st.m<0){st.m=11;st.y--;} if(st.m>11){st.m=0;st.y++;} fuRangeRender(); }
+function fuRangeMode(m){ var st=window._fuRR; st.mode=m; st.days={}; st.from=null; st.to=null; fuRangeRender(); }
+function fuRangeTap(ds){
+  var st=window._fuRR;
+  if(st.mode==='days'){ if(st.days[ds]) delete st.days[ds]; else st.days[ds]=1; }
+  else {
+    if(!st.from || (st.from && st.to)){ st.from=ds; st.to=null; }
+    else if(ds<st.from){ st.to=st.from; st.from=ds; }
+    else st.to=ds;
+  }
+  fuRangeRender();
+}
+function fuRangePreset(kind){
+  var from=_fuPlusDays(1), to, label;
+  if(kind==='7'){ to=_fuPlusDays(7); label='Next 7 days'; }
+  else if(kind==='15'){ to=_fuPlusDays(15); label='Next 15 days'; }
+  else { var d=new Date(); to=_fuDayStr(d.getFullYear(), d.getMonth(), new Date(d.getFullYear(), d.getMonth()+1, 0).getDate()); label='This month'; }
+  window._fuRange={ label:label, days:null, from:from, to:to };
+  closeSheet('fuRangeSh');
+  fuSeg='future';
+  var c=document.getElementById('content'); if(c) c.innerHTML=followupsHTML();
+}
+function fuRangeApply(){
+  var st=window._fuRR;
+  if(st.mode==='days'){
+    var ds=Object.keys(st.days).sort();
+    if(!ds.length){ fuRangeClear(); return; }
+    window._fuRange={ label:(ds.length===1?_fuNiceDay(ds[0]):ds.length+' days selected'), days:ds, from:null, to:null };
+  } else {
+    if(!st.from){ fuRangeClear(); return; }
+    var to=st.to||st.from;
+    window._fuRange={ label:_fuNiceDay(st.from)+' \u2013 '+_fuNiceDay(to), days:null, from:st.from, to:to };
+  }
+  closeSheet('fuRangeSh');
+  fuSeg='future';
+  var c=document.getElementById('content'); if(c) c.innerHTML=followupsHTML();
+}
+function fuRangeClear(){
+  window._fuRange=null;
+  closeSheet('fuRangeSh');
+  var c=document.getElementById('content'); if(c) c.innerHTML=followupsHTML();
+}
+function fuRangeRender(){
+  var box=document.getElementById('fuRangeBody'); if(!box) return;
+  var st=window._fuRR, y=st.y, m=st.m;
+  var items=tasks.concat(apptTaskItems()).filter(function(t){ return !t.done && t.date>TOD; });
+  var byDay={}; items.forEach(function(t){ (byDay[t.date]=byDay[t.date]||[]).push(t); });
+  var MO=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var firstDow=new Date(y,m,1).getDay();
+  var days=new Date(y,m+1,0).getDate();
+  var pill=function(lbl,fn){ return '<button onclick="'+fn+'" style="padding:7px 12px;border-radius:20px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f);white-space:nowrap">'+lbl+'</button>'; };
+  var h='<div style="font-size:12.5px;color:var(--sub);line-height:1.55;margin-bottom:10px">See only the upcoming days you care about \u2014 tap days, pick a range, or use a shortcut.</div>';
+  h+='<div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px">'
+    + pill('Next 7 days',"fuRangePreset('7')")
+    + pill('Next 15 days',"fuRangePreset('15')")
+    + pill('This month',"fuRangePreset('month')")
+    + '</div>';
+  var mb=function(v,lbl){ var on=st.mode===v; return '<button onclick="fuRangeMode(\''+v+'\')" style="flex:1;padding:8px;border-radius:10px;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'var(--greenl,#e7f8f3)':'var(--white)')+';color:'+(on?'var(--green)':'var(--text)')+';font-size:12.5px;font-weight:700;cursor:pointer;font-family:var(--f)">'+lbl+'</button>'; };
+  h+='<div style="display:flex;gap:8px;margin-bottom:12px">'+mb('days','Pick days')+mb('range','Pick a range')+'</div>';
+  var nav=function(d,ch){ return '<button onclick="fuRangeShift('+d+')" style="width:36px;height:36px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-size:16px;font-weight:800;cursor:pointer;font-family:var(--f)">'+ch+'</button>'; };
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
+    + nav(-1,'\u2039')+'<div style="font-size:15px;font-weight:800;color:var(--text)">'+MO[m]+' '+y+'</div>'+nav(1,'\u203A')+'</div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center;font-size:10.5px;color:var(--sub);font-weight:800;margin-bottom:5px">'
+    + ['Su','Mo','Tu','We','Th','Fr','Sa'].map(function(d){ return '<div>'+d+'</div>'; }).join('') + '</div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">';
+  for(var b=0;b<firstDow;b++) h+='<div></div>';
+  for(var d2=1;d2<=days;d2++){
+    var ds=_fuDayStr(y,m,d2);
+    var isPastDay = ds<=TOD;
+    var on = st.mode==='days' ? !!st.days[ds]
+           : (st.from && ((st.to && ds>=st.from && ds<=st.to) || (!st.to && ds===st.from)));
+    var n=(byDay[ds]||[]).length;
+    h+='<button '+(isPastDay?'disabled':'onclick="fuRangeTap(\''+ds+'\')"')+' style="position:relative;aspect-ratio:1;border-radius:10px;font-family:var(--f);font-size:13px;font-weight:'+(ds===TOD?'800':'600')+';'
+      + 'cursor:'+(isPastDay?'default':'pointer')+';opacity:'+(isPastDay?'.35':'1')+';'
+      + 'border:1.5px solid '+(on?'var(--green)':'var(--border)')+';'
+      + 'background:'+(on?'var(--greenl,#e7f8f3)':'var(--white)')+';color:var(--text)">'
+      + d2
+      + (n?'<span style="position:absolute;bottom:4px;left:50%;transform:translateX(-50%);width:5px;height:5px;border-radius:50%;background:var(--green)"></span>':'')
+      + '</button>';
+  }
+  h+='</div>';
+  h+='<div style="display:flex;gap:8px;margin-top:16px">'
+    + '<button onclick="fuRangeClear()" class="btn btn-ghost" style="flex:1;justify-content:center">Show all</button>'
+    + '<button onclick="fuRangeApply()" class="btn btn-primary" style="flex:2;justify-content:center">Apply</button>'
+    + '</div>';
+  box.innerHTML=h;
 }
 
 // ═══ FOLLOW-UPS CALENDAR — dots per day, tap a day to list its items ═══
@@ -7395,7 +7521,7 @@ function taskListHTML(){
     if(fuSeg==='today')return t.date===TOD;
     if(fuSeg==='past')return t.date<TOD;
     if(t.date<=TOD)return false;
-    return true;
+    return _fuInRange(t.date);
   }).filter(function(t){
     if(fuTypeFilter==='appt') return !!t._appt;
     if(fuTypeFilter==='fu')   return !t._appt;
@@ -7448,7 +7574,7 @@ function taskListHTML(){
         +     inlineActs
         +   '</span>'
         + '</div>'
-        + lRow(lead,false,true)
+        + lRow(lead,false,window._fuView==='detailed')
         + '</div>';
     }).join('')
     +'</div><div style="height:8px"></div>';
