@@ -3050,7 +3050,17 @@ body.impersonating .ls-topbar{padding-top:8px}
       <div class="flbl" style="margin-bottom:6px">Time</div>
       <input class="finp" type="time" id="apptTime" style="margin-bottom:18px">
       <button id="apptSaveBtn" class="btn btn-primary" onclick="saveAppt()" style="width:100%;justify-content:center;margin-bottom:8px">Save appointment</button>
-      <button onclick="clearAppt()" class="btn btn-ghost" style="width:100%;justify-content:center;margin-bottom:10px">Clear appointment</button>
+      <button id="apptCancelBtn" onclick="apptCancelStart()" style="display:none;width:100%;padding:12px;border-radius:12px;border:1.5px solid #fecaca;background:var(--white);color:var(--red);font-size:14px;font-weight:700;cursor:pointer;font-family:var(--f);margin-bottom:10px">Cancel appointment…</button>
+      <div id="apptCancelBox" style="display:none;background:#fef2f2;border:1.5px solid #fecaca;border-radius:14px;padding:14px 15px;margin-bottom:10px">
+        <div id="apptCancelTxt" style="font-size:13px;color:var(--text);line-height:1.6;margin-bottom:10px"></div>
+        <label style="display:flex;align-items:center;gap:9px;font-size:13px;color:var(--text);font-weight:600;margin-bottom:12px;cursor:pointer">
+          <input type="checkbox" id="apptCancelSms" style="width:17px;height:17px;accent-color:var(--red)"> Also text the lead that it&#39;s cancelled
+        </label>
+        <div style="display:flex;gap:8px">
+          <button onclick="apptCancelBack()" class="btn btn-ghost" style="flex:1;justify-content:center">Keep it</button>
+          <button id="apptCancelGo" onclick="apptCancelConfirm()" style="flex:2;padding:12px;border-radius:12px;border:none;background:var(--red,#dc2626);color:#fff;font-size:14px;font-weight:800;cursor:pointer;font-family:var(--f)">Yes, cancel it</button>
+        </div>
+      </div>
       <div onclick="openClientReminders()" style="text-align:center;font-size:13px;color:var(--blue);font-weight:600;cursor:pointer">&#9881; Customize reminder timing</div>
     </div>
   </div>
@@ -3777,7 +3787,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-24 open-track-4';
+var APP_VERSION = 'v2026-07-24 appt-cancel-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7110,14 +7120,7 @@ function lRow(l,anySel,forceDetailed){
   var timeHTML = _isReturning
     ? '<span class="sl-back" title="Returning lead">\u21A9 '+esc(l.t||'')+'</span>'
     : '<span>'+esc(l.t||'')+'</span>';
-  // In the Opened-email sort, lead with the chip: when this lead last opened
-  // (or clicked inside) an email. Hidden in every other sort.
-  if(window._leadSort==='opened'){
-    var _lastEng=(window._openByDb||{})[l.dbId];
-    if(_lastEng){
-      timeHTML='<span title="Last opened an email" style="color:var(--green);font-weight:800;white-space:nowrap">\uD83D\uDC41 '+timeAgo(_lastEng)+'</span><span style="color:var(--border);margin:0 5px">\u00b7</span>'+timeHTML;
-    }
-  }
+
   var topRow='<div class="sl-top-row">'
     +'<div class="sl-top-left">'+cb+stgBadge(l.stage)+'</div>'
     +'<span class="sl-time">'+timeHTML+'</span>'
@@ -7135,10 +7138,20 @@ function lRow(l,anySel,forceDetailed){
   var _inqDC = _inqIsoC ? new Date(_inqIsoC) : null;
   var _inqLblC = (_inqDC && !isNaN(_inqDC)) ? _inqDC.toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : '';
   var _chipCss = 'display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--sub);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:2px 9px';
+  // In the Opened-email sort: a green chip with when this lead last opened
+  // (or clicked inside) an email. Hidden in every other sort.
+  var _openChip='';
+  if(window._leadSort==='opened'){
+    var _lastEng=(window._openByDb||{})[l.dbId];
+    if(_lastEng){
+      _openChip='<span title="Last opened an email" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:var(--green);background:var(--greenl,#e7f8f3);border:1px solid var(--green);border-radius:20px;padding:2px 9px;white-space:nowrap">\uD83D\uDC41 '+timeAgo(_lastEng)+'</span>';
+    }
+  }
   var campRow = (campLbl || _inqLblC)
     ? '<div style="padding:2px 15px 0;display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
       + (campLbl ? '<span style="'+_chipCss+'">\uD83D\uDCE3 '+esc(campLbl)+'</span>' : '')
       + (_inqLblC ? '<span style="'+_chipCss+'">\uD83D\uDCC5 '+esc(_inqLblC)+'</span>' : '')
+      + _openChip
       + '</div>'
     : '';
 
@@ -17860,13 +17873,76 @@ function openApptSheet(leadId){
     dEl.value=_n.getFullYear()+'-'+String(_n.getMonth()+1).padStart(2,'0')+'-'+String(_n.getDate()).padStart(2,'0');
   }
   if(tEl && !tEl.value){ tEl.value='10:00'; }
+  // Contextual buttons: an existing appointment can be rescheduled or cancelled.
+  var sb=document.getElementById('apptSaveBtn');
+  if(sb) sb.textContent = l.appointment_at ? 'Reschedule appointment' : 'Save appointment';
+  var cb2=document.getElementById('apptCancelBtn');
+  if(cb2) cb2.style.display = l.appointment_at ? 'block' : 'none';
+  var box=document.getElementById('apptCancelBox'); if(box) box.style.display='none';
+  var chk=document.getElementById('apptCancelSms'); if(chk) chk.checked=false;
   openSheet('apptSh');
+}
+
+function apptCancelStart(){
+  var l = leads.find(function(x){ return x.id===window._apptLeadId; });
+  if(!l || !l.appointment_at) return;
+  var tz = window._apptTz || l.timezone || 'America/Toronto';
+  var t=document.getElementById('apptCancelTxt');
+  if(t) t.innerHTML='Cancel the appointment set for <b>'+fmtApptLocal(l.appointment_at, tz)+'</b>?<br>All its upcoming reminders stop immediately.';
+  var box=document.getElementById('apptCancelBox'); if(box) box.style.display='block';
+  var b=document.getElementById('apptCancelBtn'); if(b) b.style.display='none';
+}
+function apptCancelBack(){
+  var box=document.getElementById('apptCancelBox'); if(box) box.style.display='none';
+  var b=document.getElementById('apptCancelBtn'); if(b) b.style.display='block';
+}
+async function apptCancelConfirm(){
+  var l = leads.find(function(x){ return x.id===window._apptLeadId; });
+  if(!l || !l.appointment_at){ closeSheet('apptSh'); return; }
+  var old = l.appointment_at;
+  var tz = window._apptTz || l.timezone || 'America/Toronto';
+  var whenTxt = fmtApptLocal(old, tz);
+  var notify = !!(document.getElementById('apptCancelSms')||{}).checked;
+  var go=document.getElementById('apptCancelGo'); if(go){ go.textContent='Cancelling…'; go.disabled=true; }
+  try{
+    // 1. Remove the appointment — the reminder engine only looks at this
+    //    field, so every future SMS reminder for it goes silent right here.
+    var res = await sbFetch('/rest/v1/leads?id=eq.'+l.dbId, { method:'PATCH',
+      body: JSON.stringify({ appointment_at:null, appt_reminders_sent:null, updated_at:new Date().toISOString() }) });
+    if(!res.ok) throw new Error('save failed');
+    l.appointment_at = null;
+    // 2. Honest note on the timeline.
+    try{
+      await sbFetch('/rest/v1/activity_log',{ method:'POST', body: JSON.stringify({
+        lead_id: l.dbId||null, client_id: window._clientId||null,
+        type:'note', label:'Appointment cancelled',
+        body:'Was set for '+whenTxt+'. All upcoming reminders for it are stopped.',
+        meta:{ cancelled_appt: old }, created_at:new Date().toISOString() }) });
+    }catch(_e){}
+    // 3. Optional courtesy text to the lead.
+    if(notify && l.ph){
+      try{
+        var ph=String(l.ph||''), dg=ph.replace(/\D/g,'');
+        if(dg.length===10) ph='+1'+dg; else if(dg.length===11) ph='+'+dg; else if(ph.charAt(0)!=='+') ph='+'+dg;
+        var first=(String(l.name||'').trim().split(' ')[0])||'there';
+        await sbFetch('/functions/v1/twilio-sms',{ method:'POST', body: JSON.stringify({
+          to: ph, message:'Hi '+first+', your appointment on '+whenTxt+' has been cancelled. Reply here any time if you\u2019d like to rebook.',
+          lead_id:l.dbId||'', client_id:window._clientId||'' }) });
+      }catch(_e){}
+    }
+    showToast('Appointment cancelled'+(notify?' \u2014 lead notified':''));
+    closeSheet('apptSh');
+    if(curLid===l.id){ if(l.dbId) loadLeadActivity(l.id, l.dbId); renderLeadScreen(l.id); }
+    render();
+  }catch(e){ showToast('Could not cancel \u2014 try again'); }
+  if(go){ go.textContent='Yes, cancel it'; go.disabled=false; }
 }
 
 async function saveAppt(){
   var leadId = window._apptLeadId;
   var l = leads.find(function(x){ return x.id===leadId; });
   if(!l){ closeSheet('apptSh'); return; }
+  var _prevAppt = l.appointment_at || null;
   var d=(document.getElementById('apptDate')||{}).value, t=(document.getElementById('apptTime')||{}).value;
   if(!d || !t){ showToast('Please pick a date and time'); return; }
   var tz = window._apptTz || l.timezone || tzFromPhone(l.ph) || 'America/Toronto';
@@ -17884,6 +17960,19 @@ async function saveAppt(){
     l.meeting_outcome = null; l.visit_locked_at = null;
     if(_bump){ l.stage='5. Meeting Booked'; l.stage_code='meeting_booked'; }
     try{ sbFetch('/functions/v1/appt-confirm', { method:'POST', body: JSON.stringify({ lead_id: l.dbId }) }); }catch(_e){}
+    // Timeline note — booked vs rescheduled, with the honest before/after.
+    try{
+      var _isResched = _prevAppt && _prevAppt !== iso;
+      sbFetch('/rest/v1/activity_log',{ method:'POST', body: JSON.stringify({
+        lead_id: l.dbId||null, client_id: window._clientId||null,
+        type:'note',
+        label: _isResched ? 'Appointment rescheduled' : 'Appointment booked',
+        body: _isResched
+          ? ('Moved from '+fmtApptLocal(_prevAppt, tz)+' to '+fmtApptLocal(iso, tz)+'. Reminders reset for the new time.')
+          : ('Booked for '+fmtApptLocal(iso, tz)+'.'),
+        meta: _isResched ? { from: _prevAppt, to: iso } : { to: iso },
+        created_at:new Date().toISOString() }) });
+    }catch(_e){}
     showToast('&#x2705; Appointment set'+(_bump?' &middot; stage \u2192 Meeting Booked':'')+' for '+fmtApptLocal(iso,tz));
     closeSheet('apptSh');
     if(curLid===l.id) renderLeadScreen(l.id);
