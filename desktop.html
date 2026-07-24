@@ -57,6 +57,8 @@ body.call-mini-open .topbar{padding-top:calc(env(safe-area-inset-top,0px) + 68px
 .tb-btn{width:34px;height:34px;border-radius:50%;border:none;background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.75)}
 .tb-btn svg{width:20px;height:20px}
 
+.dsk-only{display:none}
+
 /* Bulk select topbar */
 .sel-topbar{background:var(--top2);padding:calc(8px + var(--st)) 14px 10px;display:none;align-items:center;gap:12px;flex-shrink:0}
 .sel-topbar.show{display:flex}
@@ -1213,6 +1215,35 @@ body.impersonating .ls-topbar{padding-top:8px}
   .sl-fld{ font-size:12.5px; }
   .sl-fld svg{ opacity:.55; }
   .sl-fld-empty{ display:none; }
+
+  /* ── Retell-style sidebar pieces (injected at runtime) ── */
+  .dsk-only{ display:block; }
+  .tabbar::before{ display:none; }             /* workspace card replaces the wordmark */
+  .dsk-ws{
+    display:flex; align-items:center; gap:10px; margin:2px 12px 12px;
+    padding:10px 12px; border:1px solid var(--border); border-radius:12px;
+    background:var(--white); box-shadow:var(--dsk-shadow);
+  }
+  .dsk-ws-av{
+    width:34px; height:34px; border-radius:9px; flex-shrink:0;
+    background:linear-gradient(135deg,var(--green),#2bb886); color:#fff;
+    display:flex; align-items:center; justify-content:center;
+    font-size:15px; font-weight:800;
+  }
+  .dsk-ws-t{ min-width:0; }
+  .dsk-ws-l{ font-size:10px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); }
+  .dsk-ws-n{ font-size:13px; font-weight:700; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dsk-sec{ margin-top:auto; padding-top:8px; border-top:1px solid var(--border); }
+  .dsk-sec-l{ font-size:10px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:#b7bfca; padding:6px 24px 6px; }
+  .dsk-x{ width:calc(100% - 24px); }
+  .dsk-x-danger{ color:#dc2626; }
+  .dsk-x-danger:hover{ background:#fef2f2; color:#dc2626; }
+  .dsk-x-danger svg{ stroke:#dc2626; }
+  .tabbar::after{ content:''; margin-top:0; padding:4px; }
+
+  /* Dashboard tab reads "Campaigns" on desktop (same page, clearer name) */
+  #tab-dashboard .tab-lbl{ font-size:0; }
+  #tab-dashboard .tab-lbl::after{ content:'Campaigns'; font-size:13px; font-weight:inherit; }
 }
 
 /* ═══ THREE-PANE LEADS WORKSPACE (≥1360px, Leads tab only) ═══
@@ -1221,19 +1252,28 @@ body.impersonating .ls-topbar{padding-top:8px}
 @media (min-width:1360px){
   :root{ --dsk-list:465px; }
 
+  body[data-tab="followups"] .app,
   body[data-tab="leads"] .app{
     width:var(--dsk-list); min-width:var(--dsk-list); max-width:var(--dsk-list);
     margin-left:var(--dsk-side); border-right:1px solid var(--border); background:var(--white);
   }
+  body[data-tab="followups"] .topbar,
   body[data-tab="leads"] .topbar,
+  body[data-tab="followups"] .sel-topbar,
   body[data-tab="leads"] .sel-topbar,
+  body[data-tab="followups"] .active-filter-bar,
   body[data-tab="leads"] .active-filter-bar,
+  body[data-tab="followups"] .ctrlbar,
   body[data-tab="leads"] .ctrlbar,
+  body[data-tab="followups"] .statsstrip,
   body[data-tab="leads"] .statsstrip,
+  body[data-tab="followups"] .scroll,
   body[data-tab="leads"] .scroll{ max-width:none; }
+  body[data-tab="followups"] .scroll,
   body[data-tab="leads"] .scroll{ background:var(--white); }
 
   /* Right pane empty state */
+  body[data-tab="followups"]::after,
   body[data-tab="leads"]::after{
     content:'Select a lead — its full profile opens here';
     position:fixed; top:0; bottom:0; right:0;
@@ -1245,13 +1285,16 @@ body.impersonating .ls-topbar{padding-top:8px}
   }
 
   /* The lead page is the permanent right pane */
+  body[data-tab="followups"] .lead-screen,
   body[data-tab="leads"] .lead-screen{
     left:calc(var(--dsk-side) + var(--dsk-list)); right:0;
     max-width:none; margin:0;
   }
+  body[data-tab="followups"] .lead-screen > *,
   body[data-tab="leads"] .lead-screen > *{ max-width:880px; padding-left:10px; padding-right:10px; }
 
   /* Dense list rows */
+  body[data-tab="followups"] .lead-row,
   body[data-tab="leads"] .lead-row{ padding-left:14px; padding-right:14px; border-radius:10px; }
 }
 </style>
@@ -3962,7 +4005,44 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-23 desktop-preview-7';
+var APP_VERSION = 'v2026-07-24 desktop-preview-8';
+
+// ═══ DESKTOP SIDEBAR (Retell-style) — injected extras, invisible on mobile ═══
+function buildDesktopSidebar(){
+  try{
+    var bar=document.querySelector('.tabbar');
+    if(!bar || document.getElementById('dskWs')) return;
+    var biz=(typeof _clientNm==='function' && _clientNm()) || (window._isAdviuzStaff?'Adviuz':'') || '';
+    var init=(biz||'A').trim().charAt(0).toUpperCase();
+    // Workspace card (top)
+    var ws=document.createElement('div');
+    ws.id='dskWs'; ws.className='dsk-only dsk-ws';
+    ws.innerHTML='<div class="dsk-ws-av">'+init+'</div>'
+      +'<div class="dsk-ws-t"><div class="dsk-ws-l">Workspace</div>'
+      +'<div class="dsk-ws-n">'+String(biz||'Adviuz Hub').replace(/</g,'&lt;')+'</div></div>';
+    bar.insertBefore(ws, bar.firstChild);
+    // Workspace section (above the account footer)
+    var sec=document.createElement('div');
+    sec.className='dsk-only dsk-sec';
+    var mk=function(svg,label,fn,cls){ return '<button class="tab dsk-x '+(cls||'')+'" onclick="'+fn+'">'+svg+'<span class="tab-lbl">'+label+'</span></button>'; };
+    var I={
+      gear:'<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33h0a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51h0a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v0a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>',
+      card:'<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>',
+      bolt:'<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+      user:'<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+      out:'<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>'
+    };
+    sec.innerHTML='<div class="dsk-sec-l">Workspace</div>'
+      + mk(I.gear,'Settings',"if(typeof openSheet==='function')openSheet('clientSettingsSh')")
+      + mk(I.card,'Top-up views',"if(typeof openAddBalanceSheet==='function')openAddBalanceSheet();else if(typeof goTab==='function')goTab('dashboard',document.getElementById('tab-dashboard'))")
+      + mk(I.bolt,'Upgrade AI Engine',"if(typeof openClientBilling==='function')openClientBilling();else if(typeof openSheet==='function')openSheet('clientSettingsSh')")
+      + mk(I.user,'Profile',"if(typeof openSheet==='function')openSheet('clientSettingsSh')")
+      + mk(I.out,'Log out','doLogout()','dsk-x-danger');
+    bar.appendChild(sec);
+  }catch(e){}
+}
+// Business name arrives after login — try until it's there (or give up quietly)
+(function(){ var n=0; var t=setInterval(function(){ n++; buildDesktopSidebar(); if(document.getElementById('dskWs')||n>20) clearInterval(t); }, 800); })();
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -6080,6 +6160,13 @@ var TAB_CFG={
 function goTab(tab,btn){
   curTab=tab;
   try{ document.body.setAttribute('data-tab', tab); }catch(e){}
+  // Changing section closes any open lead/campaign page so panes never overlap
+  try{
+    var _ls=document.getElementById('leadScreen');
+    if(_ls&&_ls.classList.contains('open')&&typeof closeLead==='function') closeLead();
+    var _cs=document.getElementById('campScreen');
+    if(_cs&&_cs.style.display&&_cs.style.display!=='none'&&typeof closeCampScreen==='function') closeCampScreen();
+  }catch(e){}
   // When the Follow-ups tab opens, refresh from the database so saved
   // follow-ups (incl. ones made on other devices) show, then re-render.
   if(tab==='followups' && typeof loadFollowups==='function'){
