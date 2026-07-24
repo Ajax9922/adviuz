@@ -3234,6 +3234,13 @@ body.impersonating .ls-topbar{padding-top:8px}
   </div>
 </div>
 
+<div class="sheet-ov" id="emOpensSh" onclick="if(event.target===this)closeSheet('emOpensSh')">
+  <div class="sheet">
+    <div class="sheet-head"><div class="sheet-title">Email activity</div><button class="sheet-x" onclick="closeSheet('emOpensSh')">&#x2715;</button></div>
+    <div class="sh-body" id="emOpensBody" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom,16px))"></div>
+  </div>
+</div>
+
 <div class="sheet-ov" id="clientEmailSh" onclick="if(event.target===this)closeSheet('clientEmailSh')">
   <div class="sheet" style="max-height:calc(92dvh - var(--kb,0px))">
     <div class="sheet-head"><div class="sheet-title">Send Email</div><button class="sheet-x" onclick="closeSheet('clientEmailSh')">&#x2715;</button></div>
@@ -3770,7 +3777,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-23 email-ui-7';
+var APP_VERSION = 'v2026-07-24 open-track-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -9057,7 +9064,7 @@ async function loadLeadActivity(localId, dbId) {
     // showed replies with nothing to reply to.
     var _lLead  = (typeof leads!=='undefined' ? leads : []).find(function(x){ return x.id === localId; });
     var _last10 = String((_lLead && _lLead.ph) || '').replace(/\D/g,'').slice(-10);
-    var [r1, r2, r3] = await Promise.all([
+    var [r1, r2, r3, r4] = await Promise.all([
       sbFetch('/rest/v1/lead_activity?lead_id=eq.'+dbId+'&select=*&order=created_at.desc&limit=50'),
       sbFetch('/rest/v1/activity_log?lead_id=eq.'+dbId+'&select=*&order=created_at.desc&limit=50'),
       // to_number holds the last 10 digits, so matching the LEAD's number means a
@@ -9066,12 +9073,16 @@ async function loadLeadActivity(localId, dbId) {
       _last10
         ? sbFetch('/rest/v1/sms_guard_log?lead_id=eq.'+dbId+'&to_number=eq.'+encodeURIComponent(_last10)
             +'&status=eq.sent&select=body_preview,purpose,created_at&order=created_at.desc&limit=50')
-        : Promise.resolve(null)
+        : Promise.resolve(null),
+      // Every open / click Resend has reported for this lead's emails.
+      sbFetch('/rest/v1/email_opens?lead_id=eq.'+dbId+'&select=resend_id,kind,link,occurred_at&order=occurred_at.desc&limit=300')
     ]);
 
     var rows1 = (r1.ok ? await r1.json().catch(function(){return[];}) : []) || [];
     var rows2 = (r2.ok ? await r2.json().catch(function(){return[];}) : []) || [];
     var rows3 = (r3 && r3.ok ? await r3.json().catch(function(){return[];}) : []) || [];
+    var rows4 = (r4 && r4.ok ? await r4.json().catch(function(){return[];}) : []) || [];
+    emStoreOpens(localId, rows4);
 
     console.log('[Adviuz] Activity: lead_activity='+rows1.length+' activity_log='+rows2.length+' sms_guard_log='+rows3.length);
 
@@ -9129,6 +9140,7 @@ async function loadLeadActivity(localId, dbId) {
         transcript:   (row.metadata && row.metadata.transcript) || '',
         email_subject: emailSubj,
         email_body:    emailBody,
+        email_id:      (row.metadata && row.metadata.email_id) ? String(row.metadata.email_id) : '',
         // Anything logged here as sms_sent was typed by a person in the hub.
         sender_tag:   (type === 'sms_sent') ? 'Human' : ''
       };
@@ -9161,7 +9173,9 @@ async function loadLeadActivity(localId, dbId) {
     });
 
     // Normalize activity_log (panel writes: type, label, body)
-    var norm2 = rows2.map(function(row) {
+    // Opens/clicks show as a badge on the sent email, so the activity_log copy
+    // must not also appear as its own timeline row.
+    var norm2 = rows2.filter(function(row){ return (row.type||'') !== 'email_event'; }).map(function(row) {
       var body = (row.body||'').replace(/\s*\(SID:[^)]+\)/g,'').trim();
       return { type:row.type||'note', label:row.label||row.type, time:row.created_at, body:body, rec:false };
     });
@@ -10603,8 +10617,19 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
       h += '<div class="ld-act-body" style="width:100%">';
       h += '<span class="ld-act-label">'+item.label+'</span><span class="ld-act-time">'+item.time+'</span>';
       var _emTag = isEmailIn ? '' : '👤 '+((_clientNm())||'You');
-      if(_emTag){
-        h += '<div style="margin-top:5px"><span style="font-size:10px;font-weight:800;padding:3px 8px;border-radius:20px;background:#eef2ff;color:#4f46e5;white-space:nowrap">'+_emTag+'</span></div>';
+      var _emStat = (item.type === 'email_sent') ? emOpensFor(l.id, item.email_id) : null;
+      var _emHasStat = !!(_emStat && (_emStat.opens.length || _emStat.clicks.length));
+      if(_emTag || _emHasStat){
+        h += '<div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">';
+        if(_emTag){
+          h += '<span style="font-size:10px;font-weight:800;padding:3px 8px;border-radius:20px;background:#eef2ff;color:#4f46e5;white-space:nowrap">'+_emTag+'</span>';
+        }
+        if(_emHasStat){
+          var _oN = _emStat.opens.length, _cN = _emStat.clicks.length;
+          var _emLat = _oN ? _emStat.opens[0].at : _emStat.clicks[0].at;
+          h += '<button onclick="event.stopPropagation();showEmailOpens('+l.id+',\''+_jsq(item.email_id||'')+'\',\''+_jsq(item.email_subject||'')+'\')" style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:800;padding:3px 9px;border-radius:20px;border:1.5px solid var(--green);background:var(--greenl,#e7f8f3);color:var(--green);white-space:nowrap;cursor:pointer;font-family:var(--f)">\uD83D\uDC41 '+_oN+(_cN?(' \u00b7 \uD83D\uDD17 '+_cN):'')+' \u00b7 '+_emWhen(_emLat)+'</button>';
+        }
+        h += '</div>';
       }
       h += '<div onclick="emTgl(\''+_emKey+'\','+l.id+')" style="cursor:pointer;margin-top:6px;padding:9px 12px;background:'+emBg+';border-left:3px solid '+emBdr+';border-radius:0 8px 8px 0">';
       h += '<div style="display:flex;align-items:flex-start;gap:8px">';
@@ -11491,12 +11516,13 @@ function ceCancelSchedAnywhere(id, kind){
 
 // ═══ EMAIL SCHEDULING — send later, with a nudge based on the lead's opens ═══
 function ceBestOpenHour(localId){
-  var acts=(leadAct&&leadAct[localId])||[];
+  var map=(window._leadOpens||{})[localId]||{};
   var hours=[];
-  acts.forEach(function(a){
-    if(a.type!=='email_opened') return;
-    var d=new Date(a._rawTime||a.time);
-    if(!isNaN(d)) hours.push(d.getHours());
+  Object.keys(map).forEach(function(k){
+    ((map[k]&&map[k].opens)||[]).forEach(function(o){
+      var d=new Date(o.at);
+      if(!isNaN(d)) hours.push(d.getHours());
+    });
   });
   if(!hours.length) return null;
   var counts={}; hours.forEach(function(h){ counts[h]=(counts[h]||0)+1; });
@@ -11607,6 +11633,64 @@ function ceAttRemove(i){
 function lsDoSms(){ var l=lsGetLead();if(l)openSms(l.id); }
 
 // ═══ IN-PLACE EXPAND for email/SMS cards in the lead timeline ═══
+// ═══ EMAIL OPENS & CLICKS — every open time sits behind the eye badge ═══
+window._leadOpens = window._leadOpens || {};
+function emStoreOpens(localId, rows){
+  var map = {};
+  (rows||[]).forEach(function(r){
+    var k = r.resend_id; if(!k) return;
+    var m = map[k] || (map[k] = { opens:[], clicks:[] });
+    (r.kind === 'clicked' ? m.clicks : m.opens).push({ at: r.occurred_at, link: r.link || '' });
+  });
+  Object.keys(map).forEach(function(k){
+    map[k].opens.sort(function(a,b){ return new Date(b.at) - new Date(a.at); });
+    map[k].clicks.sort(function(a,b){ return new Date(b.at) - new Date(a.at); });
+  });
+  window._leadOpens[localId] = map;
+}
+function emOpensFor(localId, emailId){
+  if(!emailId) return null;
+  var m = (window._leadOpens||{})[localId];
+  return (m && m[emailId]) || null;
+}
+function _emWhen(t){
+  var d = new Date(t);
+  if(isNaN(d)) return String(t||'');
+  return d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit',hour12:true});
+}
+function showEmailOpens(localId, emailId, subject){
+  var body = document.getElementById('emOpensBody'); if(!body) return;
+  var st = emOpensFor(localId, emailId);
+  var opens = (st && st.opens) || [], clicks = (st && st.clicks) || [];
+  var h = '';
+  if(subject) h += '<div style="font-size:13px;font-weight:800;color:var(--text);line-height:1.45;margin-bottom:12px">'+sanitize(subject)+'</div>';
+  if(!opens.length && !clicks.length){
+    h += '<div style="font-size:13px;color:var(--sub);line-height:1.6">Not opened yet.</div>';
+  }
+  if(opens.length){
+    h += '<div style="font-size:11px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin:2px 0 8px">\uD83D\uDC41 Opened '+opens.length+' time'+(opens.length===1?'':'s')+'</div>';
+    opens.forEach(function(o,i){
+      h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 13px;margin-bottom:7px;border:1.5px solid '+(i===0?'var(--green)':'var(--border)')+';border-radius:11px;background:'+(i===0?'var(--greenl,#e7f8f3)':'var(--white)')+'">'
+         + '<span style="font-size:13.5px;font-weight:700;color:var(--text)">'+_emWhen(o.at)+'</span>'
+         + (i===0 ? '<span style="font-size:10px;font-weight:800;color:var(--green);letter-spacing:.05em">LATEST</span>'
+                  : '<span style="font-size:11px;color:var(--sub)">open '+(opens.length-i)+'</span>')
+         + '</div>';
+    });
+  }
+  if(clicks.length){
+    h += '<div style="font-size:11px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin:16px 0 8px">\uD83D\uDD17 Clicked '+clicks.length+' time'+(clicks.length===1?'':'s')+'</div>';
+    clicks.forEach(function(c,i){
+      h += '<div style="padding:11px 13px;margin-bottom:7px;border:1.5px solid '+(i===0?'var(--blue,#2563eb)':'var(--border)')+';border-radius:11px;background:var(--white)">'
+         + '<div style="font-size:13.5px;font-weight:700;color:var(--text)">'+_emWhen(c.at)+'</div>'
+         + (c.link ? '<div style="font-size:11.5px;color:var(--sub);margin-top:4px;word-break:break-all">'+sanitize(c.link)+'</div>' : '')
+         + '</div>';
+    });
+  }
+  h += '<div style="font-size:11.5px;color:var(--sub);line-height:1.55;margin-top:14px">An open is counted when the images in the email load. Some mail apps block images, so a lead can read an email without it showing here.</div>';
+  body.innerHTML = h;
+  openSheet('emOpensSh');
+}
+
 function emTgl(key, lid){
   window._emOpen = window._emOpen || {};
   window._emOpen[key] = !window._emOpen[key];
@@ -15603,9 +15687,9 @@ async function preloadActivity() {
         var dir=(row.direction||'').toLowerCase();
         var isInbound=dir==='inbound'||type==='sms_received'||type==='email_received';
         if(type==='call') label=isInbound?'📞 Inbound Call':'📞 Outbound Call';
-        return {sender_tag:(type==='sms_sent')?'Human':'', type:type,label:label,time:row.created_at,body:body,rec:!!row.recording_url,recording_url:row.recording_url||null,dur:durStr,duration_seconds:durSec,call_sid:row.call_sid||null,direction:dir,callType:isInbound?'inbound':'outbound',isInbound:isInbound,summary:row.ai_summary||row.summary||null,id:row.id,call_note:row.call_note||null,email_subject:emailSubj,email_body:emailBody};
+        return {sender_tag:(type==='sms_sent')?'Human':'', type:type,label:label,time:row.created_at,body:body,rec:!!row.recording_url,recording_url:row.recording_url||null,dur:durStr,duration_seconds:durSec,call_sid:row.call_sid||null,direction:dir,callType:isInbound?'inbound':'outbound',isInbound:isInbound,summary:row.ai_summary||row.summary||null,id:row.id,call_note:row.call_note||null,email_subject:emailSubj,email_body:emailBody,email_id:(row.metadata&&row.metadata.email_id)?String(row.metadata.email_id):''};
       });
-      var norm2 = lr2.map(function(row){ var body=(row.body||'').replace(/\s*\(SID:[^)]+\)/g,'').trim(); return {type:row.type||'note',label:row.label||row.type,time:row.created_at,body:body,rec:false}; });
+      var norm2 = lr2.filter(function(row){ return (row.type||'') !== 'email_event'; }).map(function(row){ var body=(row.body||'').replace(/\s*\(SID:[^)]+\)/g,'').trim(); return {type:row.type||'note',label:row.label||row.type,time:row.created_at,body:body,rec:false}; });
       var norm3 = lr3.map(function(row){
         var p=(row.purpose||'').toLowerCase();
         return {type:'sms_sent',label:'\uD83D\uDCAC SMS Sent',time:row.created_at,body:(row.body_preview||'').trim(),
