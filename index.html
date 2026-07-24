@@ -3039,6 +3039,14 @@ body.impersonating .ls-topbar{padding-top:8px}
     </div>
   </div>
 </div>
+<!-- ═══ FOLLOW-UPS CALENDAR (month view of tasks + appointments) ═══ -->
+<div class="sheet-ov" id="fuCalSh" onclick="if(event.target===this)closeSheet('fuCalSh')">
+  <div class="sheet" style="max-height:calc(90dvh - var(--kb,0px))"><div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title">Calendar</div><button class="sheet-x" onclick="closeSheet('fuCalSh')">&#x2715;</button></div>
+    <div class="sh-body" id="fuCalBody" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom,16px))"></div>
+  </div>
+</div>
+
 <!-- ═══ SET APPOINTMENT (date + time, in the lead's timezone) ═══ -->
 <div class="sheet-ov" id="apptSh" onclick="if(event.target===this)closeSheet('apptSh')">
   <div class="sheet"><div class="sheet-handle"></div>
@@ -3787,7 +3795,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-24 appt-ui-1';
+var APP_VERSION = 'v2026-07-24 appt-ui-2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -6002,7 +6010,7 @@ function renderCtrlBar(){
       +'<option value="latest"'+fsel('latest')+'>Latest</option></select>';
     // Calendar button reserved for the future list/calendar switch.
     var calSvg='<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
-    var calBtn='<button class="cb-btn" onclick="showToast(\'Calendar view — coming soon\')" title="Calendar view (coming soon)">'+calSvg+'</button>';
+    var calBtn='<button class="cb-btn" onclick="openFuCalendar()" title="Calendar view">'+calSvg+'</button>';
     actions=fuSort+filterBtn+calBtn;
   } else if(curTab==='calls'){
     if(!window._callSort) window._callSort='newest';
@@ -7302,6 +7310,78 @@ function followupsHTML(){
     +taskListHTML();
 }
 
+// ═══ FOLLOW-UPS CALENDAR — dots per day, tap a day to list its items ═══
+function openFuCalendar(){
+  if(!window._fuCalM){ var _d=new Date(); window._fuCalM={ y:_d.getFullYear(), m:_d.getMonth() }; }
+  window._fuCalSel = TOD;
+  fuCalRender();
+  openSheet('fuCalSh');
+}
+function fuCalShift(d){
+  var st=window._fuCalM; st.m+=d;
+  if(st.m<0){ st.m=11; st.y--; } if(st.m>11){ st.m=0; st.y++; }
+  window._fuCalSel=null; fuCalRender();
+}
+function fuCalPick(ds){ window._fuCalSel=ds; fuCalRender(); }
+function fuCalOpenLead(id){ closeSheet('fuCalSh'); openLead(id); }
+function fuCalRender(){
+  var box=document.getElementById('fuCalBody'); if(!box) return;
+  var st=window._fuCalM, y=st.y, m=st.m;
+  var items=tasks.concat(apptTaskItems()).filter(function(t){ return !t.done; });
+  var byDay={}; items.forEach(function(t){ if(t.date) (byDay[t.date]=byDay[t.date]||[]).push(t); });
+  var MO=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var firstDow=new Date(y,m,1).getDay();
+  var days=new Date(y,m+1,0).getDate();
+  var nav=function(d,ch){ return '<button onclick="fuCalShift('+d+')" style="width:36px;height:36px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-size:16px;font-weight:800;cursor:pointer;font-family:var(--f)">'+ch+'</button>'; };
+  var h='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">'
+    + nav(-1,'\u2039')
+    + '<div style="font-size:15px;font-weight:800;color:var(--text)">'+MO[m]+' '+y+'</div>'
+    + nav(1,'\u203A')
+    + '</div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center;font-size:10.5px;color:var(--sub);font-weight:800;margin-bottom:5px">'
+    + ['Su','Mo','Tu','We','Th','Fr','Sa'].map(function(d){ return '<div>'+d+'</div>'; }).join('') + '</div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">';
+  for(var b=0;b<firstDow;b++) h+='<div></div>';
+  for(var d=1;d<=days;d++){
+    var ds=y+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    var dayItems=byDay[ds]||[];
+    var hasAppt=dayItems.some(function(t){ return t._appt; });
+    var isSel=(window._fuCalSel===ds), isToday=(ds===TOD);
+    h+='<button onclick="fuCalPick(\''+ds+'\')" style="position:relative;aspect-ratio:1;border-radius:10px;cursor:pointer;font-family:var(--f);font-size:13px;font-weight:'+(isToday?'800':'600')+';'
+      + 'border:1.5px solid '+(isSel?'var(--green)':(isToday?'var(--blue,#2563eb)':'var(--border)'))+';'
+      + 'background:'+(isSel?'var(--greenl,#e7f8f3)':'var(--white)')+';color:var(--text)">'
+      + d
+      + (dayItems.length?'<span style="position:absolute;bottom:4px;left:50%;transform:translateX(-50%);display:flex;gap:2px">'
+          + '<span style="width:5px;height:5px;border-radius:50%;background:'+(hasAppt?'var(--green)':'var(--blue,#2563eb)')+'"></span>'
+          + (dayItems.length>1?'<span style="width:5px;height:5px;border-radius:50%;background:var(--border)"></span>':'')
+          + '</span>':'')
+      + '</button>';
+  }
+  h+='</div>';
+  var sel=window._fuCalSel;
+  if(sel){
+    var list=(byDay[sel]||[]).slice().sort(function(a,b){ return String(a.time||'').localeCompare(String(b.time||'')); });
+    var _dp=sel.split('-'); var MOS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var dayLbl=parseInt(_dp[2],10)+' '+(MOS[(parseInt(_dp[1],10)||1)-1]||'');
+    h+='<div style="font-size:11px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin:16px 0 8px">'+dayLbl+' \u00b7 '+list.length+' item'+(list.length===1?'':'s')+'</div>';
+    if(!list.length){
+      h+='<div style="font-size:13px;color:var(--sub);padding:6px 0 2px">Nothing scheduled this day.</div>';
+    }
+    list.forEach(function(t){
+      var ld=leads.find(function(x){ return x.id===t.lid; })||{};
+      var tp=String(t.time||'').split(':'); var th=parseInt(tp[0],10)||0; var tmm=tp[1]||'00';
+      var tl=(th%12||12)+':'+tmm+' '+(th>=12?'PM':'AM');
+      h+='<div onclick="fuCalOpenLead('+t.lid+')" style="display:flex;align-items:center;gap:10px;padding:11px 13px;margin-bottom:7px;border:1.5px solid var(--border);border-radius:12px;background:var(--white);cursor:pointer">'
+        + '<span style="font-size:16px">'+(t._appt?'\uD83D\uDCC5':'\uD83D\uDDD3')+'</span>'
+        + '<span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(ld.name||ld.company||'Lead')+'</span>'
+        + '<span style="display:block;font-size:11.5px;color:var(--sub)">'+(t._appt?'Appointment':'Follow-up')+'</span></span>'
+        + '<span style="font-size:12.5px;font-weight:700;color:var(--green);white-space:nowrap">'+tl+'</span>'
+        + '</div>';
+    });
+  }
+  box.innerHTML=h;
+}
+
 function apptTaskItems(){
   return leads.filter(function(l){ return l.appointment_at && !l.meeting_outcome; }).map(function(l){
     var tz = l.timezone || (typeof tzFromPhone==='function' ? tzFromPhone(l.ph) : '') || 'America/Toronto';
@@ -7346,10 +7426,12 @@ function taskListHTML(){
       if(!lead) return '';
       var parts=t.time.split(':');var h=parseInt(parts[0])||0;var mm=parts[1]||'00';
       var ap=h>=12?'PM':'AM';var h12=h%12||12;
-      var typeLbl = t._appt ? '&#128197; Appointment' : (TICONS[t.type]+' '+TYPES[t.type]);
-      var whenLbl = h12+':'+mm+' '+ap
-        + (fuSeg==='future' ? ' &middot; '+fmtDate(t.date)
-          : fuSeg==='past' ? ' &middot; Overdue' : '');
+      var _MOS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      var _dpp=String(t.date||'').split('-');
+      var _dl=(_dpp.length===3)?(parseInt(_dpp[2],10)+' '+(_MOS[(parseInt(_dpp[1],10)||1)-1]||'')):String(t.date||'');
+      var typeLbl = '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:4px 10px">'
+        + (t._appt ? '\uD83D\uDCC5 Appointment' : '\uD83D\uDDD3\uFE0F Follow-up') + '</span>';
+      var whenLbl = _dl+' '+h12+':'+mm+' '+ap + (fuSeg==='past' ? ' &middot; Overdue' : '');
       var _aBtn=function(lbl,fn,color){ return '<button onclick="event.stopPropagation();'+fn+'" style="padding:4px 11px;border-radius:20px;border:1.5px solid '+color+';background:var(--white);color:'+color+';font-size:11px;font-weight:700;cursor:pointer;font-family:var(--f);white-space:nowrap">'+lbl+'</button>'; };
       var inlineActs = t._appt
         ? (fuSeg==='past'
@@ -10227,18 +10309,36 @@ function renderLeadScreen(id) {
   h += '</div>'; // end info card
   h += '<div style="height:4px;background:var(--bg)"></div>';
 
-  // ── Upcoming appointment card — only when one is booked ──
-  if (l.appointment_at) {
+  // ── Appointment card — shown until an outcome is recorded. Upcoming =
+  //    green with Reschedule/Cancel; time passed = amber with Done/No-show,
+  //    which record the outcome and then the card retires itself.
+  if (l.appointment_at && !l.meeting_outcome) {
     var _apTz = l.timezone || tzFromPhone(l.ph) || 'America/Toronto';
-    h += '<div style="background:var(--white);padding:12px 16px 2px">'
-      + '<div style="background:var(--greenl,#e7f8f3);border:1.5px solid var(--green);border-radius:14px;padding:13px 15px">'
-      +   '<div style="font-size:11px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">\uD83D\uDCC5 Upcoming appointment</div>'
-      +   '<div style="font-size:15px;font-weight:700;color:var(--text);line-height:1.4">'+fmtApptLocal(l.appointment_at,_apTz)+' <span style="font-size:12px;color:var(--sub);font-weight:600">('+tzShortLabel(_apTz)+')</span></div>'
-      +   '<div style="display:flex;gap:8px;margin-top:11px">'
-      +     '<button onclick="openApptSheet('+l.id+')" style="flex:1;padding:9px;border-radius:11px;border:1.5px solid var(--green);background:var(--white);color:var(--green);font-size:12.5px;font-weight:700;cursor:pointer;font-family:var(--f)">Reschedule</button>'
-      +     '<button onclick="apptCancelDirect('+l.id+')" style="flex:1;padding:9px;border-radius:11px;border:1.5px solid #fecaca;background:var(--white);color:var(--red,#dc2626);font-size:12.5px;font-weight:700;cursor:pointer;font-family:var(--f)">Cancel</button>'
-      +   '</div>'
-      + '</div></div>';
+    var _apPast = new Date(l.appointment_at).getTime() < Date.now();
+    var _apBtn=function(lbl,fn,color){ return '<button onclick="'+fn+'" style="flex:1;padding:9px 6px;border-radius:11px;border:1.5px solid '+color+';background:var(--white);color:'+color+';font-size:12.5px;font-weight:700;cursor:pointer;font-family:var(--f);white-space:nowrap">'+lbl+'</button>'; };
+    if(!_apPast){
+      h += '<div style="background:var(--white);padding:12px 16px 2px">'
+        + '<div style="background:var(--greenl,#e7f8f3);border:1.5px solid var(--green);border-radius:14px;padding:13px 15px">'
+        +   '<div style="font-size:11px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">\uD83D\uDCC5 Upcoming appointment</div>'
+        +   '<div style="font-size:15px;font-weight:700;color:var(--text);line-height:1.4">'+fmtApptLocal(l.appointment_at,_apTz)+' <span style="font-size:12px;color:var(--sub);font-weight:600">('+tzShortLabel(_apTz)+')</span></div>'
+        +   '<div style="display:flex;gap:8px;margin-top:11px">'
+        +     _apBtn('Reschedule','openApptSheet('+l.id+')','var(--green)')
+        +     _apBtn('Cancel','apptCancelDirect('+l.id+')','var(--red,#dc2626)')
+        +   '</div>'
+        + '</div></div>';
+    } else {
+      h += '<div style="background:var(--white);padding:12px 16px 2px">'
+        + '<div style="background:#fffbeb;border:1.5px solid #f59e0b;border-radius:14px;padding:13px 15px">'
+        +   '<div style="font-size:11px;font-weight:800;color:#b45309;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">\uD83D\uDCC5 Appointment \u00b7 time passed</div>'
+        +   '<div style="font-size:15px;font-weight:700;color:var(--text);line-height:1.4">'+fmtApptLocal(l.appointment_at,_apTz)+' <span style="font-size:12px;color:var(--sub);font-weight:600">('+tzShortLabel(_apTz)+')</span></div>'
+        +   '<div style="font-size:12px;color:#92400e;margin-top:4px">How did it go? Recording it keeps your numbers honest.</div>'
+        +   '<div style="display:flex;gap:8px;margin-top:11px">'
+        +     _apBtn('\u2713 Done','apptOutcomeDirect('+l.id+',\'done\')','var(--green)')
+        +     _apBtn('\uD83D\uDEAB No-show','apptOutcomeDirect('+l.id+',\'no_show\')','var(--red,#dc2626)')
+        +     _apBtn('Reschedule','openApptSheet('+l.id+')','var(--blue,#2563eb)')
+        +   '</div>'
+        + '</div></div>';
+    }
   }
 
   // ══ SECTION 2 — COMMUNICATION & CALL (moved up to just under the lead info) ══
@@ -17911,6 +18011,12 @@ function apptCancelDirect(id){
   openApptSheet(id);
   setTimeout(function(){ apptCancelStart(); }, 80);
 }
+// Straight into the outcome flow: 'done' shows the stage+notes form,
+// 'no_show' records immediately — both via the existing meeting review.
+function apptOutcomeDirect(id, outcome){
+  openMeetingReview(id);
+  setTimeout(function(){ mrPick(outcome); }, 60);
+}
 function apptCancelStart(){
   var l = leads.find(function(x){ return x.id===window._apptLeadId; });
   if(!l || !l.appointment_at) return;
@@ -17953,8 +18059,26 @@ async function apptCancelConfirm(){
         var ph=String(l.ph||''), dg=ph.replace(/\D/g,'');
         if(dg.length===10) ph='+1'+dg; else if(dg.length===11) ph='+'+dg; else if(ph.charAt(0)!=='+') ph='+'+dg;
         var first=(String(l.name||'').trim().split(' ')[0])||'there';
+        // Campaign's own cancellation wording wins; standard line otherwise.
+        var _cxTpl='';
+        try{
+          var _cps=[].concat(window._clientCampaigns||[], (window._adminData&&window._adminData.campaigns)||[]);
+          var _cp=_cps.find(function(c){ return String(c.id)===String(l.campaign_id||l.campaign); });
+          var _st=_cp&&_cp.settings; if(typeof _st==='string'){ try{ _st=JSON.parse(_st); }catch(_e2){ _st=null; } }
+          _cxTpl=(_st&&_st.appt&&_st.appt.cancel_msg)?String(_st.appt.cancel_msg).trim():'';
+        }catch(_e){}
+        var _biz=(window._clientData&&(window._clientData.business_name||window._clientData.name))||'us';
+        var _cxMsg=_cxTpl
+          ? _cxTpl.replace(/\{name\}/g,first).replace(/\{when\}/g,whenTxt)
+                  .replace(/\{business\}/g,_biz)
+                  .replace(/\[Customer Name\]/gi,first)
+                  .replace(/\[Appointment Date\]/gi,whenTxt)
+                  .replace(/\[Appointment Time\]/gi,whenTxt)
+                  .replace(/\[Business Name\]/gi,_biz)
+                  .replace(/\[Campaign Name\]/gi,_biz)
+          : ('Hi '+first+', your appointment on '+whenTxt+' has been cancelled. Reply here any time if you\u2019d like to rebook.');
         await sbFetch('/functions/v1/twilio-sms',{ method:'POST', body: JSON.stringify({
-          to: ph, message:'Hi '+first+', your appointment on '+whenTxt+' has been cancelled. Reply here any time if you\u2019d like to rebook.',
+          to: ph, message:_cxMsg,
           lead_id:l.dbId||'', client_id:window._clientId||'' }) });
       }catch(_e){}
     }
@@ -18641,7 +18765,7 @@ function _csNorm(s){
   return {
     welcome_sms: s.welcome_sms || '',
     welcome_on:  s.welcome_on !== false,
-    appt: { reminders: reminders, confirm_msg: String((s.appt && s.appt.confirm_msg) || '') },
+    appt: { reminders: reminders, confirm_msg: String((s.appt && s.appt.confirm_msg) || ''), cancel_msg: String((s.appt && s.appt.cancel_msg) || '') },
     alerts: { phones: phones }
   };
 }
@@ -18819,6 +18943,15 @@ function csOpenPage(page){
       +   _csChipsHTML('csConf', true)
       +   _csAiBtn('csConf','confirmation')
       + '</div>';
+    h += '<div class="cs-card">'
+      +   '<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px"><span style="flex:1;min-width:0">'
+      +     '<span style="display:block;font-size:14px;font-weight:800;color:var(--text)">Cancellation message</span>'
+      +     '<span style="display:block;font-size:11.5px;color:var(--sub);margin-top:1px">Texted when you cancel and tick \u201calso text the lead\u201d</span>'
+      +   '</span></div>'
+      +   _csEdHTML('csCancelM', 'Leave empty to use our standard cancellation text')
+      +   _csChipsHTML('csCancelM', true)
+      +   _csAiBtn('csCancelM','cancellation')
+      + '</div>';
     s.appt.reminders.forEach(function(r, i){
       h += '<div class="cs-card" id="csRem_'+i+'" data-on="'+(r.on?'1':'0')+'" data-kind="'+r.kind+'" data-amount="'+r.amount+'" data-unit="'+r.unit+'" data-time="'+_csEsc(r.time)+'">'
         +   '<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">'
@@ -18836,6 +18969,7 @@ function csOpenPage(page){
     });
     body.innerHTML = h;
     csFill('csConf', s.appt.confirm_msg || '');
+    csFill('csCancelM', s.appt.cancel_msg || '');
     s.appt.reminders.forEach(function(r, i){ csFill('csM_'+i, r.msg); });
   }
   else if (page === 'alerts'){
@@ -18890,6 +19024,7 @@ async function saveCampSettings(){
       return d;
     });
     s.appt.confirm_msg = csSerialize(document.getElementById('csConf')).trim();
+    s.appt.cancel_msg = csSerialize(document.getElementById('csCancelM')).trim();
     patchBody = { settings: s };
   } else if (page === 'alerts'){
     s.alerts = { phones: (window._csList.phones || []).slice(0,5) };
