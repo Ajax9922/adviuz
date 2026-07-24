@@ -3777,7 +3777,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-24 open-track-1';
+var APP_VERSION = 'v2026-07-24 open-track-3';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -5730,7 +5730,7 @@ var callLog=[];
 var leadAct={};
 var nxtId=leads.length+1, nxtTid=tasks.length+1;
 var leadView='detailed'; // 'compact' or 'detailed'
-window._leadSort = 'newest'; // 'newest' | 'oldest' | 'name'
+window._leadSort = 'newest'; // 'newest' | 'oldest' | 'opened' | 'name'
 window._advFilters = { stages:[], execs:[], locations:[], partners:[], sources:[], services:[], clients:[] };
 var curTab='leads', fuSeg='today', fuTypeFilter='', curLid=null, fuLid=null;
 var callIv=null, callSec=0, muted=false;
@@ -5980,6 +5980,7 @@ function renderCtrlBar(){
     var sortSel='<select class="cb-sort" onchange="window._leadSort=this.value;render()">'
       +'<option value="newest"'+sel('newest')+'>Newest</option>'
       +'<option value="oldest"'+sel('oldest')+'>Oldest</option>'
+      +'<option value="opened"'+sel('opened')+'>\uD83D\uDC41 Opened email</option>'
       +'<option value="name"'+sel('name')+'>Name A\u2013Z</option></select>';
     var viewBtn='<button class="cb-btn'+(window._leadView==='detailed'?' on':'')+'" onclick="window._leadView=(window._leadView===\'compact\'?\'detailed\':\'compact\');renderCtrlBar();render()" title="'+(window._leadView==='compact'?'Expanded view':'Compact view')+'">'+(window._leadView==='compact'?expandSvg:collapseSvg)+'</button>';
     actions=sortSel+filterBtn+viewBtn;
@@ -6783,6 +6784,13 @@ function leadsHTML(){
   // ── Task 2: Sorting ──
   vis = vis.slice().sort(function(a,b){
     if(window._leadSort==='name') return (a.company||a.name||'').toLowerCase().localeCompare((b.company||b.name||'').toLowerCase());
+    if(window._leadSort==='opened'){
+      var om=window._openByDb||{};
+      var ao=om[a.dbId]||'', bo=om[b.dbId]||'';
+      if(ao!==bo) return ao>bo?-1:1; // most recent open first; never-opened sink to the bottom
+      var ad2=a.created_at||a.rawDate||'', bd2=b.created_at||b.rawDate||'';
+      return ad2>bd2?-1:(ad2<bd2?1:0);
+    }
     // Use the full created_at timestamp (not just the day) so a fresh/repeat
     // inquiry rises to the very top within its date group.
     var ad=a.created_at||a.rawDate||'', bd=b.created_at||b.rawDate||'';
@@ -6798,7 +6806,7 @@ function leadsHTML(){
   var rowsHTML='';
   if(!vis.length){
     rowsHTML='<div class="empty"><div class="empty-icon">&#x1F50D;</div><div class="empty-t">No leads found</div><div class="empty-s">Try a different filter</div></div>';
-  } else if(window._leadSort==='name'){
+  } else if(window._leadSort==='name'||window._leadSort==='opened'){
     rowsHTML=vis.map(function(l){return lRow(l,anySel)}).join('');
   } else {
     var grpCounts={};
@@ -10627,7 +10635,7 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
         if(_emHasStat){
           var _oN = _emStat.opens.length, _cN = _emStat.clicks.length;
           var _emLat = _oN ? _emStat.opens[0].at : _emStat.clicks[0].at;
-          h += '<button onclick="event.stopPropagation();showEmailOpens('+l.id+',\''+_jsq(item.email_id||'')+'\',\''+_jsq(item.email_subject||'')+'\')" style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:800;padding:3px 9px;border-radius:20px;border:1.5px solid var(--green);background:var(--greenl,#e7f8f3);color:var(--green);white-space:nowrap;cursor:pointer;font-family:var(--f)">\uD83D\uDC41 '+_oN+(_cN?(' \u00b7 \uD83D\uDD17 '+_cN):'')+' \u00b7 '+_emWhen(_emLat)+'</button>';
+          h += '<button onclick="event.stopPropagation();showEmailOpens('+l.id+',\''+_jsq(item.email_id||'')+'\',\''+_jsq(item.email_subject||'')+'\')" style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;padding:3px 9px;border-radius:20px;border:1.5px solid var(--green);background:var(--greenl,#e7f8f3);color:var(--green);white-space:nowrap;cursor:pointer;font-family:var(--f)">\uD83D\uDC41 '+_oN+(_cN?(' \u00b7 \uD83D\uDDB1\uFE0F '+_cN):'')+' \u00b7 '+_emWhen(_emLat)+'</button>';
         }
         h += '</div>';
       }
@@ -11660,28 +11668,29 @@ function _emWhen(t){
 }
 function showEmailOpens(localId, emailId, subject){
   var body = document.getElementById('emOpensBody'); if(!body) return;
+  if(subject){ try{ subject = decodeURIComponent(subject); }catch(e){} }
   var st = emOpensFor(localId, emailId);
   var opens = (st && st.opens) || [], clicks = (st && st.clicks) || [];
   var h = '';
-  if(subject) h += '<div style="font-size:13px;font-weight:800;color:var(--text);line-height:1.45;margin-bottom:12px">'+sanitize(subject)+'</div>';
+  if(subject) h += '<div style="font-size:13px;font-weight:600;color:var(--text);line-height:1.45;margin-bottom:12px">'+sanitize(subject)+'</div>';
   if(!opens.length && !clicks.length){
     h += '<div style="font-size:13px;color:var(--sub);line-height:1.6">Not opened yet.</div>';
   }
   if(opens.length){
-    h += '<div style="font-size:11px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin:2px 0 8px">\uD83D\uDC41 Opened '+opens.length+' time'+(opens.length===1?'':'s')+'</div>';
+    h += '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin:2px 0 8px">\uD83D\uDC41 Opened '+opens.length+' time'+(opens.length===1?'':'s')+'</div>';
     opens.forEach(function(o,i){
       h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 13px;margin-bottom:7px;border:1.5px solid '+(i===0?'var(--green)':'var(--border)')+';border-radius:11px;background:'+(i===0?'var(--greenl,#e7f8f3)':'var(--white)')+'">'
-         + '<span style="font-size:13.5px;font-weight:700;color:var(--text)">'+_emWhen(o.at)+'</span>'
+         + '<span style="font-size:13px;font-weight:500;color:var(--text)">'+_emWhen(o.at)+'</span>'
          + (i===0 ? '<span style="font-size:10px;font-weight:800;color:var(--green);letter-spacing:.05em">LATEST</span>'
                   : '<span style="font-size:11px;color:var(--sub)">open '+(opens.length-i)+'</span>')
          + '</div>';
     });
   }
   if(clicks.length){
-    h += '<div style="font-size:11px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin:16px 0 8px">\uD83D\uDD17 Clicked '+clicks.length+' time'+(clicks.length===1?'':'s')+'</div>';
+    h += '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin:16px 0 8px">\uD83D\uDDB1\uFE0F Clicked '+clicks.length+' time'+(clicks.length===1?'':'s')+'</div>';
     clicks.forEach(function(c,i){
       h += '<div style="padding:11px 13px;margin-bottom:7px;border:1.5px solid '+(i===0?'var(--blue,#2563eb)':'var(--border)')+';border-radius:11px;background:var(--white)">'
-         + '<div style="font-size:13.5px;font-weight:700;color:var(--text)">'+_emWhen(c.at)+'</div>'
+         + '<div style="font-size:13px;font-weight:500;color:var(--text)">'+_emWhen(c.at)+'</div>'
          + (c.link ? '<div style="font-size:11.5px;color:var(--sub);margin-top:4px;word-break:break-all">'+sanitize(c.link)+'</div>' : '')
          + '</div>';
     });
@@ -15642,14 +15651,21 @@ async function preloadActivity() {
     // sms_guard_log, not lead_activity. Without it the list's "last event" claims
     // a reply was the last thing that happened when it was actually our reminder.
     var qsLog = qs.replace('&select=*','&select=lead_id,to_number,body_preview,purpose,created_at') + '&status=eq.sent';
+    // Latest email open per lead — feeds the "Opened email" sort on the list.
+    var qsOpen = qs.replace('&select=*','&select=lead_id,occurred_at').replace('order=created_at.desc','order=occurred_at.desc') + '&kind=eq.opened';
     var rs = await Promise.all([
       sbFetch('/rest/v1/lead_activity'+qs),
       sbFetch('/rest/v1/activity_log'+qs),
-      sbFetch('/rest/v1/sms_guard_log'+qsLog)
+      sbFetch('/rest/v1/sms_guard_log'+qsLog),
+      sbFetch('/rest/v1/email_opens'+qsOpen)
     ]);
     var rows1 = rs[0].ok ? (await rs[0].json().catch(function(){return[];})) : [];
     var rows2 = rs[1].ok ? (await rs[1].json().catch(function(){return[];})) : [];
     var rows3 = rs[2].ok ? (await rs[2].json().catch(function(){return[];})) : [];
+    var rows4 = (rs[3] && rs[3].ok) ? (await rs[3].json().catch(function(){return[];})) : [];
+    // Rows arrive newest-first, so the first one seen per lead IS its latest open.
+    var _om={}; rows4.forEach(function(r){ if(r.lead_id && !_om[r.lead_id]) _om[r.lead_id]=r.occurred_at; });
+    window._openByDb=_om;
     // Keep only messages addressed to the LEAD's own number — this is what stops a
     // client_alert (sent to the client's phone) appearing in the lead's timeline.
     var phByDbId = {}; (leads||[]).forEach(function(l){
