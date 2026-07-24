@@ -3777,7 +3777,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-24 open-track-3';
+var APP_VERSION = 'v2026-07-24 open-track-4';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7110,6 +7110,14 @@ function lRow(l,anySel,forceDetailed){
   var timeHTML = _isReturning
     ? '<span class="sl-back" title="Returning lead">\u21A9 '+esc(l.t||'')+'</span>'
     : '<span>'+esc(l.t||'')+'</span>';
+  // In the Opened-email sort, lead with the chip: when this lead last opened
+  // (or clicked inside) an email. Hidden in every other sort.
+  if(window._leadSort==='opened'){
+    var _lastEng=(window._openByDb||{})[l.dbId];
+    if(_lastEng){
+      timeHTML='<span title="Last opened an email" style="color:var(--green);font-weight:800;white-space:nowrap">\uD83D\uDC41 '+timeAgo(_lastEng)+'</span><span style="color:var(--border);margin:0 5px">\u00b7</span>'+timeHTML;
+    }
+  }
   var topRow='<div class="sl-top-row">'
     +'<div class="sl-top-left">'+cb+stgBadge(l.stage)+'</div>'
     +'<span class="sl-time">'+timeHTML+'</span>'
@@ -10635,7 +10643,7 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
         if(_emHasStat){
           var _oN = _emStat.opens.length, _cN = _emStat.clicks.length;
           var _emLat = _oN ? _emStat.opens[0].at : _emStat.clicks[0].at;
-          h += '<button onclick="event.stopPropagation();showEmailOpens('+l.id+',\''+_jsq(item.email_id||'')+'\',\''+_jsq(item.email_subject||'')+'\')" style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;padding:3px 9px;border-radius:20px;border:1.5px solid var(--green);background:var(--greenl,#e7f8f3);color:var(--green);white-space:nowrap;cursor:pointer;font-family:var(--f)">\uD83D\uDC41 '+_oN+(_cN?(' \u00b7 \uD83D\uDDB1\uFE0F '+_cN):'')+' \u00b7 '+_emWhen(_emLat)+'</button>';
+          h += '<button onclick="event.stopPropagation();showEmailOpens('+l.id+',\''+_jsq(item.email_id||'')+'\',\''+_jsq(item.email_subject||'')+'\')" style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;padding:3px 9px;border-radius:20px;border:1.5px solid var(--green);background:var(--greenl,#e7f8f3);color:var(--green);white-space:nowrap;cursor:pointer;font-family:var(--f)">\uD83D\uDC41 '+_oN+(_cN?(' \u00b7 <svg width=\"10\" height=\"10\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linejoin=\"round\" style=\"flex-shrink:0\"><path d=\"M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z\"/></svg> '+_cN):'')+' \u00b7 '+_emWhen(_emLat)+'</button>';
         }
         h += '</div>';
       }
@@ -11687,7 +11695,7 @@ function showEmailOpens(localId, emailId, subject){
     });
   }
   if(clicks.length){
-    h += '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin:16px 0 8px">\uD83D\uDDB1\uFE0F Clicked '+clicks.length+' time'+(clicks.length===1?'':'s')+'</div>';
+    h += '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin:16px 0 8px"><svg width=\"11\" height=\"11\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linejoin=\"round\" style=\"vertical-align:-1px;margin-right:2px\"><path d=\"M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z\"/></svg> Clicked '+clicks.length+' time'+(clicks.length===1?'':'s')+'</div>';
     clicks.forEach(function(c,i){
       h += '<div style="padding:11px 13px;margin-bottom:7px;border:1.5px solid '+(i===0?'var(--blue,#2563eb)':'var(--border)')+';border-radius:11px;background:var(--white)">'
          + '<div style="font-size:13px;font-weight:500;color:var(--text)">'+_emWhen(c.at)+'</div>'
@@ -15651,8 +15659,10 @@ async function preloadActivity() {
     // sms_guard_log, not lead_activity. Without it the list's "last event" claims
     // a reply was the last thing that happened when it was actually our reminder.
     var qsLog = qs.replace('&select=*','&select=lead_id,to_number,body_preview,purpose,created_at') + '&status=eq.sent';
-    // Latest email open per lead — feeds the "Opened email" sort on the list.
-    var qsOpen = qs.replace('&select=*','&select=lead_id,occurred_at').replace('order=created_at.desc','order=occurred_at.desc') + '&kind=eq.opened';
+    // Latest email engagement (open OR click) per lead — feeds the "Opened
+    // email" sort and the lead-card chip. Clicks count too: Gmail caches the
+    // tracking image, so a re-open often reports only as a click.
+    var qsOpen = qs.replace('&select=*','&select=lead_id,occurred_at').replace('order=created_at.desc','order=occurred_at.desc');
     var rs = await Promise.all([
       sbFetch('/rest/v1/lead_activity'+qs),
       sbFetch('/rest/v1/activity_log'+qs),
