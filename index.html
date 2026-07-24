@@ -3253,7 +3253,11 @@ body.impersonating .ls-topbar{padding-top:8px}
         </div>
         <div style="margin-top:8px"><span onclick="openTplMgr()" style="font-size:12px;font-weight:700;color:var(--blue);cursor:pointer">⚙ Manage templates</span></div>
       </div>
-      <div class="fg"><label class="flbl">Message</label>
+      <div class="fg">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <label class="flbl">Message</label>
+          <span id="ceAiBtn" onclick="ceAiDraft()" style="font-size:12px;font-weight:800;color:var(--blue);cursor:pointer">&#x2728; Draft with AI</span>
+        </div>
         <textarea class="fta" id="ceBody" style="min-height:180px;resize:vertical" placeholder="Type your message here..."></textarea>
       </div>
       <div class="fg"><label class="flbl">Attachments <span style="font-weight:400;color:var(--sub);font-size:10px">(optional — up to 5 files, 7 MB total)</span></label>
@@ -3766,7 +3770,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-23 email-ui-6';
+var APP_VERSION = 'v2026-07-23 email-ui-7';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -8571,7 +8575,7 @@ function callsHTML(){
     +   chChip('call','\uD83D\uDCDE Calls ('+nCall+')')
     +   chChip('sms','\uD83D\uDCAC SMS ('+nSms+')')
     +   chChip('email','\uD83D\uDCE7 Email ('+_emails.length+')')
-    +   chChip('sched','\u23F3 Scheduled ('+_sched.length+')')
+    +   chChip('sched','\u23F3 Scheduled ('+(_sched.length + ((window._ibSchedEmails&&window._ibSchedEmails.length)||0))+')')
     + '</div>'
     + ((window._ibChan==='sched'||window._ibChan==='email') ? '' :
       '<div style="padding:4px 14px 8px;display:flex;gap:7px">'
@@ -8710,6 +8714,27 @@ function callsHTML(){
 
   // ── Scheduled view: what's queued to go out, grouped by send day ──
   if (window._ibChan === 'sched'){
+    ensureSchedEmails(function(){ var c=document.getElementById('content'); if(c) c.innerHTML=callsHTML(); });
+    var _seRows=(window._ibSchedEmails||[]);
+    var _seHtml='';
+    if(_seRows.length){
+      _seHtml+='<div style="padding:12px 16px 7px;font-size:11.5px;font-weight:800;letter-spacing:.06em;color:var(--sub);text-transform:uppercase;background:var(--bg)">\uD83D\uDCE7 Scheduled emails <span style="color:var(--green)">('+_seRows.length+')</span></div><div style="background:var(--white)">';
+      _seRows.forEach(function(s){
+        var d=new Date(s.send_at);
+        var when=isNaN(d)?'':d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' \u00b7 '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'});
+        var ld=leads.find(function(x){ return x.dbId===s.lead_id; });
+        _seHtml+='<div style="border-bottom:1px solid var(--border);padding:12px 14px;display:flex;align-items:flex-start;gap:11px">'
+          +'<div class="call-av" style="background:#fffbeb;color:#b45309">\uD83D\uDD52</div>'
+          +'<div style="flex:1;min-width:0">'
+          +'<div style="font-size:14.5px;font-weight:700;color:var(--text)">'+((ld&&ld.name)||s.to_email)+'</div>'
+          +'<div style="font-size:12.5px;font-weight:700;color:var(--text);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+String(s.subject||'').replace(/</g,'&lt;')+'</div>'
+          +'<div style="font-size:11.5px;color:var(--sub);margin-top:2px">Sends '+when+'</div>'
+          +'</div>'
+          +'<button onclick="ceCancelSchedAnywhere(\''+s.id+'\',\'inbox\')" style="flex-shrink:0;padding:6px 12px;border-radius:20px;border:1.5px solid #fecaca;background:#fff;color:var(--red);font-size:11.5px;font-weight:700;cursor:pointer;font-family:var(--f)">Cancel</button>'
+          +'</div>';
+      });
+      _seHtml+='</div>';
+    }
     var sHtml='';
     if(!_sched.length){
       sHtml='<div style="text-align:center;padding:32px 16px;color:var(--sub);font-size:13px">Nothing scheduled right now.<br><span style="font-size:12px">Reminders appear here automatically when an appointment is booked for a lead.</span></div>';
@@ -8756,7 +8781,7 @@ function callsHTML(){
       });
       if(openG) sHtml+='</div>';
     }
-    return '<div id="liveCallsPanel"></div>' + chipsBar + sHtml + '<div style="height:8px"></div>';
+    return '<div id="liveCallsPanel"></div>' + chipsBar + _seHtml + sHtml + '<div style="height:8px"></div>';
   }
 
   // ── Email view: every sent/received email across leads, newest first ──
@@ -10378,7 +10403,31 @@ function renderLeadScreen(id) {
   };
   var _pmtRows = (window._lpRowsByLead && window._lpRowsByLead[l.dbId]) || [];
   var _pmtItems = _pmtRows.map(function(p){ return { type:'payment', _isPayment:true, pay_id:p.id, amount_cad:p.amount_cad, paid_on:p.paid_on, note:p.note }; });
-  var filteredActs = (actFilter==='payment') ? _pmtItems : acts.filter(filterGroups[actFilter]||filterGroups.all);
+  // Upcoming scheduled things for THIS lead: SMS reminders + scheduled emails.
+  var _schedItems=[];
+  try{
+    (typeof ibScheduledRows==='function'?ibScheduledRows():[]).forEach(function(r){
+      if(r.lid!==l.id) return;
+      var d=new Date(r.when);
+      _schedItems.push({ type:'sched_sms', _when:r.when,
+        label:'💬 Scheduled SMS · '+r.lbl,
+        time:isNaN(d)?'':d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}),
+        body:r.msg||'' });
+    });
+    if(window._ibSchedEmails===undefined && window._clientId){
+      ensureSchedEmails(function(){ if(typeof renderLeadScreen==='function') renderLeadScreen(l.id); });
+    }
+    ((window._ibSchedEmails)||[]).forEach(function(s){
+      if(s.lead_id!==l.dbId) return;
+      var d=new Date(s.send_at);
+      _schedItems.push({ type:'sched_email', _when:d.getTime()||0, _schedId:s.id,
+        label:'📧 Scheduled email',
+        time:isNaN(d)?'':d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}),
+        body:s.subject||'' });
+    });
+    _schedItems.sort(function(x,y){ return x._when-y._when; });
+  }catch(e){}
+  var filteredActs = (actFilter==='payment') ? _pmtItems : (actFilter==='sched') ? _schedItems : acts.filter(filterGroups[actFilter]||filterGroups.all);
   var filterTabs = [
     {k:'all',    icon:'🕐', label:'All'},
     {k:'call',   icon:'📞', label:'Calls'},
@@ -10389,6 +10438,7 @@ function renderLeadScreen(id) {
     {k:'quote',  icon:'📄', label:'Quotes'},
     {k:'invoice',icon:'🧾', label:'Invoices'},
     {k:'payment',icon:'💰', label:'Payments'},
+    {k:'sched',  icon:'🕐', label:'Scheduled'},
   ];
 
   // ── rpt-1: Deal payments — the client's own revenue from this lead.
@@ -10416,7 +10466,7 @@ function renderLeadScreen(id) {
   h += '<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:10px;scrollbar-width:none;-ms-overflow-style:none;margin:0 -16px;padding:0 16px 10px">';
   filterTabs.forEach(function(tab){
     var isActive = actFilter === tab.k;
-    var count = (tab.k==='payment') ? _pmtItems.length : acts.filter(filterGroups[tab.k]).length;
+    var count = (tab.k==='payment') ? _pmtItems.length : (tab.k==='sched') ? _schedItems.length : acts.filter(filterGroups[tab.k]).length;
     if(tab.k !== 'all' && count === 0) return; // hide empty filters
     h += '<button onclick="setActFilter(this)" data-filter="'+tab.k+'" data-lid="'+l.id+'" style="'
        + 'flex-shrink:0;display:flex;align-items:center;gap:4px;padding:5px 12px;border-radius:20px;'
@@ -10530,6 +10580,17 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
 
       h += '</div>'; // end card
 
+    } else if (item.type === 'sched_sms' || item.type === 'sched_email') {
+      // ── UPCOMING SCHEDULED ITEM — amber card, email ones can be cancelled ──
+      h += '<div class="ld-act-dot">🕐</div>';
+      h += '<div class="ld-act-body" style="width:100%">';
+      h += '<span class="ld-act-label">'+item.label+'</span><span class="ld-act-time">'+item.time+'</span>';
+      if(item.body){
+        h += '<div style="margin-top:6px;padding:9px 12px;background:#fffbeb;border-left:3px solid #f59e0b;border-radius:0 8px 8px 0;font-size:13px;color:var(--text);line-height:1.5;white-space:pre-wrap">'+sanitize(item.body)+'</div>';
+      }
+      if(item.type==='sched_email' && item._schedId){
+        h += '<button onclick="ceCancelSchedAnywhere(\''+item._schedId+'\','+l.id+')" style="margin-top:6px;padding:5px 12px;border-radius:20px;border:1.5px solid #fecaca;background:#fff;color:var(--red);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">Cancel</button>';
+      }
     } else if (item.type === 'email_sent' || item.type === 'email_received') {
       // ── EMAIL ACTIVITY — compact card that expands in place (chevron) ──
       var isEmailIn = item.type === 'email_received';
@@ -11350,6 +11411,7 @@ function sendClientEmail(){
       .then(function(r){ if(!r.ok) throw 0; return r.json(); })
       .then(function(){
         showToast('\uD83D\uDD52 Scheduled for '+whenD.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+whenD.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}));
+        window._ibSchedEmails=undefined;
         closeSheet('clientEmailSh');
       })
       .catch(function(){ showToast('Could not schedule \u2014 try again'); if(btnS){ btnS.textContent='Schedule Email'; btnS.disabled=false; } });
@@ -11372,6 +11434,59 @@ function sendClientEmail(){
       if(btn){ btn.textContent='Send Email'; btn.disabled=false; }
       showToast('Could not send: '+((e&&e.message)||'error'));
     });
+}
+
+// ═══ AI DRAFT — reads the whole email thread and writes the reply ═══
+function ceAiDraft(){
+  var l=window._ceLead; if(!l){ showToast('Open a lead first'); return; }
+  var btn=document.getElementById('ceAiBtn');
+  if(btn){ btn.textContent='\u2728 Drafting\u2026'; btn.style.pointerEvents='none'; }
+  var done=function(){ if(btn){ btn.textContent='\u2728 Draft with AI'; btn.style.pointerEvents='auto'; } };
+  // Whole conversation, oldest first, so the AI replies to the latest message.
+  var convo=((leadAct&&leadAct[l.id])||[])
+    .filter(function(a){ return a.type==='email_sent'||a.type==='email_received'; })
+    .map(function(a){ return { dir:(a.type==='email_received')?'received':'sent',
+      subject:a.email_subject||'', body:(a.email_body||'').slice(0,1500),
+      _t:new Date(a._rawTime||a.time).getTime()||0 }; })
+    .sort(function(x,y){ return x._t-y._t; })
+    .slice(-8)
+    .map(function(m){ return { dir:m.dir, subject:m.subject, body:m.body }; });
+  var biz=(window._clientData&&window._clientData.business_name)||(window._ceFrom&&window._ceFrom.from_name)||'the business';
+  sbFetch('/functions/v1/email-reply-ai',{ method:'POST', body: JSON.stringify({
+    business_name:biz, lead:{ name:l.name||'', service:l.svc||l.service||'' }, conversation:convo }) })
+    .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
+    .then(function(r){
+      if(!r.ok||!r.d||r.d.error) throw 0;
+      var bodyEl=document.getElementById('ceBody'); if(bodyEl) bodyEl.value=r.d.body||'';
+      var subEl=document.getElementById('ceSubj');
+      if(subEl && !subEl.value.trim() && r.d.subject) subEl.value=r.d.subject;
+      var pv=document.getElementById('cePvBox'); if(pv&&pv.style.display!=='none') cePaintPreview();
+      showToast('\u2728 Draft ready \u2014 read it over and edit anything before sending');
+      done();
+    })
+    .catch(function(){ showToast('The AI is unavailable right now \u2014 try again in a moment'); done(); });
+}
+
+// ═══ SCHEDULED-EMAIL CACHE — shared by Inbox and lead Activity ═══
+function ensureSchedEmails(rerender){
+  if(window._ibSchedEmails!==undefined) return;
+  window._ibSchedEmails=null; // loading
+  sbFetch('/rest/v1/scheduled_emails?status=eq.scheduled&order=send_at.asc&limit=100')
+    .then(function(r){ return r&&r.ok?r.json():[]; })
+    .then(function(rows){ window._ibSchedEmails=rows||[]; if(typeof rerender==='function') rerender(); })
+    .catch(function(){ window._ibSchedEmails=[]; });
+}
+function ceCancelSchedAnywhere(id, kind){
+  sbFetch('/rest/v1/scheduled_emails?id=eq.'+encodeURIComponent(id)+'&status=eq.scheduled',{
+    method:'PATCH', body: JSON.stringify({ status:'cancelled' })})
+    .then(function(r){
+      if(!(r.ok||r.status===204)) throw 0;
+      showToast('Scheduled email cancelled');
+      window._ibSchedEmails=undefined;
+      if(kind==='inbox'){ ensureSchedEmails(function(){ var c=document.getElementById('content'); if(c) c.innerHTML=callsHTML(); }); var c=document.getElementById('content'); if(c) c.innerHTML=callsHTML(); }
+      else if(kind&&typeof renderLeadScreen==='function'){ ensureSchedEmails(function(){ renderLeadScreen(kind); }); renderLeadScreen(kind); }
+    })
+    .catch(function(){ showToast('Could not cancel \u2014 try again'); });
 }
 
 // ═══ EMAIL SCHEDULING — send later, with a nudge based on the lead's opens ═══
