@@ -3061,7 +3061,7 @@ body.impersonating .ls-topbar{padding-top:8px}
           <button id="apptCancelGo" onclick="apptCancelConfirm()" style="flex:2;padding:12px;border-radius:12px;border:none;background:var(--red,#dc2626);color:#fff;font-size:14px;font-weight:800;cursor:pointer;font-family:var(--f)">Yes, cancel it</button>
         </div>
       </div>
-      <div onclick="openClientReminders()" style="text-align:center;font-size:13px;color:var(--blue);font-weight:600;cursor:pointer">&#9881; Customize reminder timing</div>
+      <div onclick="openLeadApptSettings()" style="text-align:center;font-size:13px;color:var(--blue);font-weight:600;cursor:pointer">&#9881; Customize reminder timing</div>
     </div>
   </div>
 </div>
@@ -3787,7 +3787,7 @@ Dr. Sarah
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-24 appt-cancel-1';
+var APP_VERSION = 'v2026-07-24 appt-ui-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7296,10 +7296,8 @@ function followupsHTML(){
     +'</div>'
     +'<div class="filter-bar">'
     +'<div class="fchip '+(fuTypeFilter===''?'on':'')+'" onclick="fuTypeFilter=\'\';document.getElementById(\'content\').innerHTML=followupsHTML()">All</div>'
-    +'<div class="fchip '+(fuTypeFilter==='meeting'?'on':'')+'" onclick="fuTypeFilter=\'meeting\';document.getElementById(\'content\').innerHTML=followupsHTML()">🤝 Meetings</div>'
-    +'<div class="fchip '+(fuTypeFilter==='call'?'on':'')+'" onclick="fuTypeFilter=\'call\';document.getElementById(\'content\').innerHTML=followupsHTML()">📞 Calls</div>'
-    +'<div class="fchip '+(fuTypeFilter==='sms'?'on':'')+'" onclick="fuTypeFilter=\'sms\';document.getElementById(\'content\').innerHTML=followupsHTML()">💬 SMS</div>'
-    +'<div class="fchip '+(fuTypeFilter==='email'?'on':'')+'" onclick="fuTypeFilter=\'email\';document.getElementById(\'content\').innerHTML=followupsHTML()">📧 Email</div>'
+    +'<div class="fchip '+(fuTypeFilter==='fu'?'on':'')+'" onclick="fuTypeFilter=\'fu\';document.getElementById(\'content\').innerHTML=followupsHTML()">🗓 Follow-ups</div>'
+    +'<div class="fchip '+(fuTypeFilter==='appt'?'on':'')+'" onclick="fuTypeFilter=\'appt\';document.getElementById(\'content\').innerHTML=followupsHTML()">📅 Appointments</div>'
     +'</div>'
     +taskListHTML();
 }
@@ -7319,7 +7317,9 @@ function taskListHTML(){
     if(t.date<=TOD)return false;
     return true;
   }).filter(function(t){
-    return fuTypeFilter==='' || t.type===fuTypeFilter;
+    if(fuTypeFilter==='appt') return !!t._appt;
+    if(fuTypeFilter==='fu')   return !t._appt;
+    return true;
   }).filter(function(t){
     if(!schQ) return true;
     var q=schQ.toLowerCase();
@@ -7350,20 +7350,23 @@ function taskListHTML(){
       var whenLbl = h12+':'+mm+' '+ap
         + (fuSeg==='future' ? ' &middot; '+fmtDate(t.date)
           : fuSeg==='past' ? ' &middot; Overdue' : '');
-      var actBtn = t._appt
+      var _aBtn=function(lbl,fn,color){ return '<button onclick="event.stopPropagation();'+fn+'" style="padding:4px 11px;border-radius:20px;border:1.5px solid '+color+';background:var(--white);color:'+color+';font-size:11px;font-weight:700;cursor:pointer;font-family:var(--f);white-space:nowrap">'+lbl+'</button>'; };
+      var inlineActs = t._appt
         ? (fuSeg==='past'
-            ? '<button class="done-btn" onclick="event.stopPropagation();openMeetingReview('+lead.id+')">Review</button>'
-            : '<button class="done-btn" onclick="event.stopPropagation();openApptSheet('+lead.id+')">Edit</button>')
-        : '<button class="done-btn" onclick="event.stopPropagation();markDone('+t.id+')">Done</button>';
+            ? _aBtn('Review','openMeetingReview('+lead.id+')','var(--blue,#2563eb)')
+            : _aBtn('\u2713 Done','openMeetingReview('+lead.id+')','var(--green)')
+              + _aBtn('Reschedule','openApptSheet('+lead.id+')','var(--blue,#2563eb)')
+              + _aBtn('Cancel','apptCancelDirect('+lead.id+')','var(--red,#dc2626)'))
+        : _aBtn('\u2713 Done','markDone('+t.id+')','var(--green)');
       return '<div class="fu-card">'
-        + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px">'
+        + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap">'
         +   '<span style="font-size:12px;font-weight:700;color:var(--text)">'+typeLbl+'</span>'
-        +   '<span style="font-size:12px;font-weight:700;color:'+dc+'">'+whenLbl+'</span>'
+        +   '<span style="display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end">'
+        +     '<span style="font-size:12px;font-weight:700;color:'+dc+'">'+whenLbl+'</span>'
+        +     inlineActs
+        +   '</span>'
         + '</div>'
         + lRow(lead,false,true)
-        + '<div style="display:flex;gap:8px;margin-top:8px">'
-        +   actBtn
-        + '</div>'
         + '</div>';
     }).join('')
     +'</div><div style="height:8px"></div>';
@@ -10189,11 +10192,7 @@ function renderLeadScreen(id) {
   var _leadTz = l.timezone || tzFromPhone(l.ph) || 'America/Toronto';
   // Only when a date exists. "+ Set appointment" was an action, and the Appointment
   // button below already does it — the row is for information, not a second entry point.
-  if (l.appointment_at) {
-    h += ldInfoRow('🗓','Appointment',
-      '<span style="font-weight:600;color:var(--text)">'+fmtApptLocal(l.appointment_at,_leadTz)+'</span>'
-      + ' <span onclick="openApptSheet('+l.id+')" style="color:var(--blue);font-size:12px;cursor:pointer;font-weight:600;margin-left:6px">Change</span>');
-  }
+
   // Last Event
   h += ldInfoRow('⚡','Last Event', lastAct ? lastAct.label+' · '+lastAct.time : 'No activity yet');
 
@@ -10228,6 +10227,19 @@ function renderLeadScreen(id) {
   h += '</div>'; // end info card
   h += '<div style="height:4px;background:var(--bg)"></div>';
 
+  // ── Upcoming appointment card — only when one is booked ──
+  if (l.appointment_at) {
+    var _apTz = l.timezone || tzFromPhone(l.ph) || 'America/Toronto';
+    h += '<div style="background:var(--white);padding:12px 16px 2px">'
+      + '<div style="background:var(--greenl,#e7f8f3);border:1.5px solid var(--green);border-radius:14px;padding:13px 15px">'
+      +   '<div style="font-size:11px;font-weight:800;color:var(--green);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">\uD83D\uDCC5 Upcoming appointment</div>'
+      +   '<div style="font-size:15px;font-weight:700;color:var(--text);line-height:1.4">'+fmtApptLocal(l.appointment_at,_apTz)+' <span style="font-size:12px;color:var(--sub);font-weight:600">('+tzShortLabel(_apTz)+')</span></div>'
+      +   '<div style="display:flex;gap:8px;margin-top:11px">'
+      +     '<button onclick="openApptSheet('+l.id+')" style="flex:1;padding:9px;border-radius:11px;border:1.5px solid var(--green);background:var(--white);color:var(--green);font-size:12.5px;font-weight:700;cursor:pointer;font-family:var(--f)">Reschedule</button>'
+      +     '<button onclick="apptCancelDirect('+l.id+')" style="flex:1;padding:9px;border-radius:11px;border:1.5px solid #fecaca;background:var(--white);color:var(--red,#dc2626);font-size:12.5px;font-weight:700;cursor:pointer;font-family:var(--f)">Cancel</button>'
+      +   '</div>'
+      + '</div></div>';
+  }
 
   // ══ SECTION 2 — COMMUNICATION & CALL (moved up to just under the lead info) ══
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
@@ -17883,6 +17895,22 @@ function openApptSheet(leadId){
   openSheet('apptSh');
 }
 
+// The gear link on the Set Appointment sheet goes straight to the lead's own
+// campaign Appointment Settings; account-level sheet only if there's no campaign.
+function openLeadApptSettings(){
+  var l = leads.find(function(x){ return x.id===window._apptLeadId; });
+  var campId = l && (l.campaign_id || l.campaign);
+  if(campId && typeof openCampSettings==='function' && typeof ibEditReminder==='function'){
+    closeSheet('apptSh');
+    ibEditReminder(String(campId));
+  } else {
+    openClientReminders();
+  }
+}
+function apptCancelDirect(id){
+  openApptSheet(id);
+  setTimeout(function(){ apptCancelStart(); }, 80);
+}
 function apptCancelStart(){
   var l = leads.find(function(x){ return x.id===window._apptLeadId; });
   if(!l || !l.appointment_at) return;
@@ -18613,7 +18641,7 @@ function _csNorm(s){
   return {
     welcome_sms: s.welcome_sms || '',
     welcome_on:  s.welcome_on !== false,
-    appt: { reminders: reminders },
+    appt: { reminders: reminders, confirm_msg: String((s.appt && s.appt.confirm_msg) || '') },
     alerts: { phones: phones }
   };
 }
@@ -18782,6 +18810,15 @@ function csOpenPage(page){
   else if (page === 'appt'){
     if (t) t.textContent = (window._csCpName||'Campaign') + ' \u00b7 Appointment Settings';
     var h = '<div class="cs-note">When an appointment is booked for a lead, we can text them automatic reminders so they don\u2019t forget to show up. For each reminder below: turn it on or off, choose exactly when it goes out, and write it in your own words (or leave it empty for our standard reminder).</div>';
+    h += '<div class="cs-card">'
+      +   '<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px"><span style="flex:1;min-width:0">'
+      +     '<span style="display:block;font-size:14px;font-weight:800;color:var(--text)">Booking confirmation</span>'
+      +     '<span style="display:block;font-size:11.5px;color:var(--sub);margin-top:1px">Texted the moment an appointment is booked</span>'
+      +   '</span></div>'
+      +   _csEdHTML('csConf', 'Leave empty to use our standard confirmation text')
+      +   _csChipsHTML('csConf', true)
+      +   _csAiBtn('csConf','confirmation')
+      + '</div>';
     s.appt.reminders.forEach(function(r, i){
       h += '<div class="cs-card" id="csRem_'+i+'" data-on="'+(r.on?'1':'0')+'" data-kind="'+r.kind+'" data-amount="'+r.amount+'" data-unit="'+r.unit+'" data-time="'+_csEsc(r.time)+'">'
         +   '<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">'
@@ -18798,6 +18835,7 @@ function csOpenPage(page){
         + '</div>';
     });
     body.innerHTML = h;
+    csFill('csConf', s.appt.confirm_msg || '');
     s.appt.reminders.forEach(function(r, i){ csFill('csM_'+i, r.msg); });
   }
   else if (page === 'alerts'){
@@ -18851,6 +18889,7 @@ async function saveCampSettings(){
       d.msg = csSerialize(document.getElementById('csM_'+i)).trim();
       return d;
     });
+    s.appt.confirm_msg = csSerialize(document.getElementById('csConf')).trim();
     patchBody = { settings: s };
   } else if (page === 'alerts'){
     s.alerts = { phones: (window._csList.phones || []).slice(0,5) };
