@@ -3060,15 +3060,7 @@ body.impersonating .ls-topbar{padding-top:8px}
         <span><span style="display:block;font-size:14px;font-weight:800;color:var(--text)">&#x1F4E7; Bulk Email</span><span style="display:block;font-size:12px;color:var(--sub);margin-top:1px">Allow bulk email campaigns from this account</span></span>
         <input type="checkbox" id="bsetEmail" checked style="width:20px;height:20px;accent-color:var(--green)">
       </label>
-      <div style="font-size:11px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Quiet hours for bulk texts</div>
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-        <span style="font-size:13px;color:var(--text)">From</span>
-        <input class="finp" id="bsetQS" type="number" min="0" max="23" value="8" style="width:74px;text-align:center">
-        <span style="font-size:13px;color:var(--text)">to</span>
-        <input class="finp" id="bsetQE" type="number" min="1" max="24" value="21" style="width:74px;text-align:center">
-        <span style="font-size:12px;color:var(--sub)">(24-hour, lead&#39;s own time)</span>
-      </div>
-      <div style="font-size:11.5px;color:var(--sub);line-height:1.55;margin-bottom:16px">Bulk texts only go out inside this window in each lead&#39;s own timezone. Anything due outside it waits for the morning &mdash; nothing is lost. The 200-per-day limit always applies.</div>
+      <div style="font-size:11.5px;color:var(--sub);line-height:1.55;margin-bottom:16px">&#x1F319; Bulk texts only go out between <b>8&nbsp;AM and 9&nbsp;PM</b> in each lead&#39;s own timezone &mdash; anything due outside that waits for the morning. The 200-per-day limit always applies.</div>
       <button class="btn btn-primary" onclick="saveBulkSettings()" style="width:100%;justify-content:center">Save settings</button>
     </div>
   </div>
@@ -3851,7 +3843,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-24 bulk-4';
+var APP_VERSION = 'v2026-07-24 bulk-5';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7394,19 +7386,14 @@ async function openBulkSettings(){
   var pf=await loadBulkPrefs(true)||{};
   var t=function(id,on){ var el=document.getElementById(id); if(el) el.checked=(on!==false); };
   t('bsetSms', pf.sms_enabled); t('bsetEmail', pf.email_enabled);
-  var qs=document.getElementById('bsetQS'); if(qs) qs.value=(pf.quiet_start!=null?pf.quiet_start:8);
-  var qe=document.getElementById('bsetQE'); if(qe) qe.value=(pf.quiet_end!=null?pf.quiet_end:21);
   openSheet('bulkSetSh');
 }
 async function saveBulkSettings(){
   if(!window._clientId){ showToast('Only client accounts have these settings'); return; }
   var pf={
     sms_enabled: !!(document.getElementById('bsetSms')||{}).checked,
-    email_enabled: !!(document.getElementById('bsetEmail')||{}).checked,
-    quiet_start: Math.min(23,Math.max(0,parseInt((document.getElementById('bsetQS')||{}).value,10)||8)),
-    quiet_end: Math.min(24,Math.max(1,parseInt((document.getElementById('bsetQE')||{}).value,10)||21))
+    email_enabled: !!(document.getElementById('bsetEmail')||{}).checked
   };
-  if(pf.quiet_end<=pf.quiet_start){ showToast('Quiet-hours end must be after the start'); return; }
   try{
     var r=await sbFetch('/rest/v1/client_prefs',{ method:'POST',
       headers:{ Prefer:'return=representation,resolution=merge-duplicates' },
@@ -7712,6 +7699,7 @@ async function bwLaunch(){
     try{
       var jr=await sbFetch('/rest/v1/bulk_jobs',{method:'POST',body:JSON.stringify({
         client_id:cid, channel:b.channel,
+        campaign_id:(b.camp && b.camp!=='__none')?b.camp:null,
         title:(b.channel==='sms'?'Bulk SMS':'Bulk Email')+' \u00b7 '+(campLbl?campLbl+' \u00b7 ':'')+stageNames,
         message:b.msg, subject:(b.channel==='email'?b.subj:null),
         status:'queued', total:ls.length, scheduled_at:schedIso,
@@ -7790,15 +7778,34 @@ async function loadBulkReports(){
       var d=new Date(j.created_at);
       var dl=d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit',hour12:true});
       return '<div onclick="openBulkRep(\''+j.id+'\')" style="border:1.5px solid var(--border);border-radius:13px;padding:12px 14px;margin-bottom:9px;background:var(--white);cursor:pointer">'
-        + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">'
-        +   '<span style="font-size:13.5px;font-weight:700;color:var(--text)">'+(j.channel==='sms'?'\uD83D\uDCAC':'\uD83D\uDCE7')+' '+sanitize(j.title||('Bulk '+j.channel))+'</span>'
-        +   '<span style="font-size:11px;font-weight:800;color:'+stCol+';white-space:nowrap">'+stLbl+'</span>'
+        + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
+        +   '<span style="font-size:13.5px;font-weight:800;color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(j.channel==='sms'?'\uD83D\uDCAC':'\uD83D\uDCE7')+' '+sanitize((j.title||('Bulk '+j.channel)).replace(/^Bulk (SMS|Email) \u00b7 /,''))+'</span>'
+        +   '<span style="font-size:11px;font-weight:800;color:'+stCol+';white-space:nowrap;flex-shrink:0">'+stLbl+'</span>'
         + '</div>'
-        + '<div style="font-size:12px;color:var(--sub)">'+(j.sent||0)+' sent \u00b7 '+(j.skipped||0)+' skipped \u00b7 '+(j.failed||0)+' failed'+(pend?(' \u00b7 '+pend+' waiting'):'')+' \u00b7 of '+(j.total||0)+'</div>'
-        + '<div style="font-size:11px;color:var(--muted);margin-top:3px">'+dl+'</div>'
+        + '<div style="font-size:11px;color:var(--muted);margin:3px 0 9px">'+dl+'</div>'
+        + '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">'
+        +   '<button onclick="event.stopPropagation();bulkFocusInbox(\''+j.id+'\')" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;border:1.5px solid var(--green);background:var(--greenl,#e7f8f3);color:var(--green);font-size:12px;font-weight:800;cursor:pointer;font-family:var(--f);white-space:nowrap">\uD83D\uDC65 '+(j.total||0)+' leads \u203A</button>'
+        +   '<span style="font-size:12px;color:var(--sub);white-space:nowrap">Sent <b style="color:var(--green)">'+(j.sent||0)+'</b> &nbsp;|&nbsp; Failed <b style="color:var(--red,#dc2626)">'+(j.failed||0)+'</b> &nbsp;|&nbsp; Skipped <b style="color:var(--text)">'+(j.skipped||0)+'</b>'+(pend?(' &nbsp;|&nbsp; Waiting <b style="color:var(--blue,#2563eb)">'+pend+'</b>'):'')+'</span>'
+        + '</div>'
         + '</div>';
     }).join('');
   }catch(e){ box.innerHTML='<div style="font-size:13px;color:var(--sub)">Could not load bulk reports.</div>'; }
+}
+async function bulkFocusInbox(jobId){
+  var j=(window._bulkJobs||[]).find(function(x){ return x.id===jobId; })||{};
+  try{
+    var r=await sbFetch('/rest/v1/bulk_recipients?job_id=eq.'+jobId+'&select=lead_id&limit=2000');
+    var rows=r.ok?await r.json().catch(function(){return[];}):[];
+    var ids={};
+    rows.forEach(function(x){
+      var l=(leads||[]).find(function(y){ return String(y.dbId)===String(x.lead_id); });
+      if(l) ids[l.id]=1;
+    });
+    window._bulkFocus={ ids:ids, label:(j.title||'Bulk send').replace(/^Bulk (SMS|Email) \u00b7 /,'') };
+    window._ibChan=(j.channel==='email')?'email':'sms';
+    window._ibWho='all';
+    goTab('calls', document.getElementById('tab-calls'));
+  }catch(e){ showToast('Could not open \u2014 try again'); }
 }
 async function openBulkRep(id){
   var j=(window._bulkJobs||[]).find(function(x){ return x.id===id; }); if(!j) return;
@@ -9295,6 +9302,7 @@ function callsHTML(){
         var lid=parseInt(lidStr,10);
         var ld=leads.find(function(l){return l.id===lid;});
         if(!ld) return;
+        if(window._bulkFocus && !window._bulkFocus.ids[lid]) return;
         (leadAct[lidStr]||[]).forEach(function(a,ai){
           if(a.type!=='email_sent' && a.type!=='email_received') return;
           var raw=a._rawTime||a.time;
@@ -9317,6 +9325,7 @@ function callsHTML(){
 
   var _cq=(schQ||'').toLowerCase();
   var rows=callLog.filter(gfCallInScope).filter(function(c){
+    if(window._bulkFocus && !window._bulkFocus.ids[c.lid]) return false;
     if(window._ibChan!=='all' && c.kind!==window._ibChan) return false;
     if(window._ibWho==='ai' && !c.ai) return false;
     if(window._ibWho==='human' && c.ai) return false;
@@ -9354,7 +9363,10 @@ function callsHTML(){
   var _sched = ibScheduledRows();
   var _emails = ibEmailRows();
   var chipsBar =
-      '<div style="padding:10px 14px 4px;display:flex;gap:7px;overflow-x:auto;-webkit-overflow-scrolling:touch">'
+      (window._bulkFocus
+        ? '<div style="padding:10px 14px 0"><span style="display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:var(--green);background:var(--greenl,#e7f8f3);border:1.5px solid var(--green);border-radius:20px;padding:6px 12px;max-width:100%"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">\uD83D\uDCE4 '+sanitize(window._bulkFocus.label)+'</span><span onclick="window._bulkFocus=null;var c=document.getElementById(\'content\');if(c)c.innerHTML=callsHTML()" style="cursor:pointer;font-weight:800;padding:0 2px;flex-shrink:0">\u2715</span></span></div>'
+        : '')
+    + '<div style="padding:10px 14px 4px;display:flex;gap:7px;overflow-x:auto;-webkit-overflow-scrolling:touch">'
     +   chChip('all','All')
     +   chChip('call','\uD83D\uDCDE Calls ('+nCall+')')
     +   chChip('sms','\uD83D\uDCAC SMS ('+nSms+')')
