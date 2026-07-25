@@ -3843,7 +3843,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-24 bulk-6';
+var APP_VERSION = 'v2026-07-25 bulk-7';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7418,6 +7418,12 @@ async function saveBulkSettings(){
 function openBulkWiz(channel){
   if(channel==='email' && window._isTelecaller){ showToast('Not available for telecaller accounts'); return; }
   window._bw={ channel:channel, step:1, msg:'', subj:'', camp:'', svcs:{}, locs:{}, stages:{}, excluded:{}, schedOpen:false, at:'' };
+  if(channel==='email' && isClientMode() && window._myEmailId===undefined){
+    window._myEmailId=null;
+    sbFetch('/rest/v1/rpc/my_email_settings',{method:'POST',body:'{}'}).then(function(r){ return r.ok?r.json():null; })
+      .then(function(es){ var en=Array.isArray(es)?es[0]:es; window._myEmailId=en||null; if(window._bw&&window._bw.step===2) bwRender(); })
+      .catch(function(){ window._myEmailId=null; });
+  }
   loadBulkPrefs().then(function(pf){
     if(isClientMode()){
       pf=pf||{};
@@ -7498,7 +7504,7 @@ function bwToggleSvc(v){ var b=window._bw; v=decodeURIComponent(v); if(b.svcs[v]
 function bwToggleLoc(v){ var b=window._bw; v=decodeURIComponent(v); if(b.locs[v]) delete b.locs[v]; else b.locs[v]=1; bwRender(); }
 function bwSaveDraft(){
   var b=window._bw;
-  var m=document.getElementById('bwMsg'); if(m) b.msg=m.value;
+  var m=document.getElementById('bwMsg'); if(m) b.msg=csSerialize(m);
   var sj=document.getElementById('bwSubj'); if(sj) b.subj=sj.value;
 }
 function bwStep(n){
@@ -7559,7 +7565,9 @@ async function bwAiDraft(){
     var text=(data.draft||'').trim();
     if(res.ok && text){
       b.msg=text;
-      var m=document.getElementById('bwMsg'); if(m){ m.value=text; var cc=document.getElementById('bwChr'); if(cc) cc.textContent=text.length+' chars'; }
+      csFill('bwMsg', text);
+      var cc=document.getElementById('bwChr'); var ed=document.getElementById('bwMsg');
+      if(cc&&ed) cc.textContent=csSerialize(ed).length+' chars';
       showToast('Draft ready \u2014 edit anything you like');
     } else showToast('Could not draft \u2014 please try again');
   }catch(e){ showToast('Could not draft \u2014 please try again'); }
@@ -7569,17 +7577,9 @@ function bwUseTemplate(v){
   if(v==='' || v==null) return;
   var t=(window._bwTpls||[])[parseInt(v,10)]; if(!t) return;
   var b=window._bw; b.msg=String(t.text||'');
-  var m=document.getElementById('bwMsg'); if(m){ m.value=b.msg; }
-  var cc=document.getElementById('bwChr'); if(cc) cc.textContent=b.msg.length+' chars';
-}
-function bwInsertVar(tok){
-  var m=document.getElementById('bwMsg'); if(!m) return;
-  var st=(typeof m.selectionStart==='number')?m.selectionStart:m.value.length;
-  var en=(typeof m.selectionEnd==='number')?m.selectionEnd:st;
-  m.value=m.value.slice(0,st)+tok+m.value.slice(en);
-  try{ m.focus(); m.selectionStart=m.selectionEnd=st+tok.length; }catch(_e){}
-  window._bw.msg=m.value;
-  var cc=document.getElementById('bwChr'); if(cc) cc.textContent=m.value.length+' chars';
+  csFill('bwMsg', b.msg);
+  var cc=document.getElementById('bwChr'); var ed=document.getElementById('bwMsg');
+  if(cc&&ed) cc.textContent=csSerialize(ed).length+' chars';
 }
 function bwRender(){
   var box=document.getElementById('bwBody'); if(!box) return;
@@ -7608,12 +7608,12 @@ function bwRender(){
     h+='<div class="fg"><label class="flbl">Template</label><select class="fsel" onchange="bwUseTemplate(this.value)">'+tplOpts+'</select>'
       + (isSms ? '<div style="margin-top:7px"><span onclick="openTplMgr()" style="font-size:12px;font-weight:700;color:var(--blue,#2563eb);cursor:pointer">\u2699 Manage templates</span><span style="font-size:11px;color:var(--sub)"> \u00b7 same templates as your normal SMS</span></div>' : '')
       + '</div>';
-    h+='<div class="fg"><label class="flbl">Message</label><textarea class="fta" id="bwMsg" style="height:'+(isSms?'120':'170')+'px" oninput="var c=document.getElementById(\'bwChr\');if(c)c.textContent=this.value.length+\' chars\'">'+String(b.msg|| (isSms?'Hi {name}, just following up on your enquiry with {business}. Is there a good time to chat today?':'Hi {name},\n\nThank you for your interest in {business}. We\u2019d love to help you take the next step.\n\nReply to this email or give us a call any time.\n\n{business}')).replace(/</g,'&lt;')+'</textarea></div>';
-    var _vChip=function(tok,lbl){ return '<button onclick="bwInsertVar(\''+tok+'\')" style="padding:5px 11px;border-radius:20px;border:1.5px solid var(--green);background:var(--greenl,#e7f8f3);color:var(--green);font-size:11.5px;font-weight:700;cursor:pointer;font-family:var(--f)">+ '+lbl+'</button>'; };
-    h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;flex-wrap:wrap">'
-      + '<span id="bwChr" style="font-size:12px;color:var(--muted)"></span>'
-      + '<span style="display:flex;gap:6px">'+_vChip('{name}','Customer name')+_vChip('{business}','Business name')+'</span>'
+    h+='<div class="fg"><label class="flbl">Message</label>'+_csEdHTML('bwMsg', isSms?'Write your text message\u2026':'Write your email\u2026')+'</div>';
+    var _BW_TOKS=[['[Customer Name]','Customer name'],['[Business Name]','Business name'],['[Campaign Name]','Campaign name'],['[Service]','Service'],['[Location]','Location'],['[Meeting Date]','Meeting date']];
+    h+='<div class="cs-chips" style="margin-bottom:6px">'
+      + _BW_TOKS.map(function(t){ return '<button class="cs-chip" onclick="csInsertTok(\'bwMsg\',\''+t[0]+'\')">'+t[1]+'</button>'; }).join('')
       + '</div>';
+    h+='<div id="bwChr" style="font-size:12px;color:var(--muted);margin-bottom:12px"></div>';
     h+='<button id="bwAiBtn" onclick="bwAiDraft()" style="width:100%;padding:11px;border-radius:12px;border:1.5px dashed var(--green);background:var(--white);color:var(--green);font-size:13px;font-weight:700;cursor:pointer;font-family:var(--f);margin-bottom:14px">\u2728 Draft with AI</button>';
     h+='<button class="btn btn-primary" onclick="bwStep(2)" style="width:100%;justify-content:center">Next \u2014 choose who gets it</button>';
   }
@@ -7637,6 +7637,28 @@ function bwRender(){
     if(!Object.keys(byCamp).length && !noneCnt) h+='<div style="font-size:13px;color:var(--sub);margin-bottom:10px">No eligible leads found.</div>';
 
     if(b.camp){
+      // ── Sender preview: exactly which number / address this send uses ──
+      var _sndTxt='';
+      try{
+        var _cps2=[].concat(window._clientCampaigns||[], (window._adminData&&window._adminData.campaigns)||[]);
+        var _cp2=_cps2.find(function(c){ return String(c.id)===String(b.camp); });
+        var _st2=_cp2&&_cp2.settings; if(typeof _st2==='string'){ try{ _st2=JSON.parse(_st2); }catch(_e2){ _st2=null; } }
+        if(isSms){
+          var _ph2=_cp2&&_cp2.twilio_phone;
+          _sndTxt=_ph2 ? ('Texts send from this campaign\u2019s number: <b>'+sanitize(_ph2)+'</b>')
+                       : 'Texts send from your account\u2019s main number';
+        } else {
+          var _em2=(_st2&&_st2.email)||{};
+          var _me2=window._myEmailId||{};
+          var _addr=_em2.from_email||_me2.from_email||'';
+          var _nm=_em2.from_name||_me2.from_name||'';
+          _sndTxt=_addr ? ('Emails send as <b>'+sanitize(_nm?(_nm+' \u00b7 '):'')+sanitize(_addr)+'</b>')
+                        : 'Emails send from your account\u2019s configured sender';
+        }
+      }catch(_e){}
+      if(_sndTxt){
+        h+='<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--sub);background:var(--bg);border-radius:11px;padding:9px 12px;margin:2px 0 4px;line-height:1.5">\uD83D\uDCE4 <span>'+_sndTxt+'</span></div>';
+      }
       var scoped=pool.filter(function(l){ return b.camp==='__none' ? !_bwCampOf(l) : _bwCampOf(l)===String(b.camp); });
       // ── Optional filters: service + location (multi) ──
       var chipGrp=function(title, values, sel, fn){
@@ -7737,8 +7759,17 @@ function bwRender(){
   }
 
   box.innerHTML=h;
-  var cc=document.getElementById('bwChr'); var mm=document.getElementById('bwMsg');
-  if(cc&&mm) cc.textContent=mm.value.length+' chars';
+  if(b.step===1){
+    var defMsg = b.msg || (b.channel==='sms'
+      ? 'Hi [Customer Name], just following up on your enquiry with [Business Name]. Is there a good time to chat today?'
+      : 'Hi [Customer Name],\n\nThank you for your interest in [Business Name]. We\u2019d love to help you take the next step.\n\nReply to this email or give us a call any time.\n\n[Business Name]');
+    csFill('bwMsg', defMsg);
+    b.msg = defMsg;
+    var _ed=document.getElementById('bwMsg');
+    var _cnt=function(){ var cc=document.getElementById('bwChr'); if(cc&&_ed) cc.textContent=csSerialize(_ed).length+' chars'; };
+    if(_ed){ _ed.addEventListener('input', _cnt); }
+    _cnt();
+  }
 }
 async function bwLaunch(schedIso){
   var b=window._bw; if(!b) return;
@@ -19372,7 +19403,10 @@ var CS_TOKS = [
   ['[Campaign Name]',    'Campaign name'],
   ['[Business Name]',    'Business name'],
   ['[Appointment Date]', 'Appointment date'],
-  ['[Appointment Time]', 'Appointment time']
+  ['[Appointment Time]', 'Appointment time'],
+  ['[Service]',          'Service'],
+  ['[Location]',         'Location'],
+  ['[Meeting Date]',     'Meeting date']
 ];
 function _csEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function _csTokLabel(tok){ var p=CS_TOKS.find(function(t){return t[0]===tok;}); return p?p[1]:tok; }
@@ -19428,7 +19462,7 @@ function csSerialize(ed){
 function csFill(id, text){
   var ed = document.getElementById(id); if (!ed) return;
   ed.innerHTML = '';
-  var re = /\[(Customer Name|Campaign Name|Business Name|Appointment Date|Appointment Time)\]/g;
+  var re = new RegExp('\\[(' + CS_TOKS.map(function(t){ return t[0].slice(1,-1); }).join('|') + ')\\]', 'g');
   String(text||'').split('\n').forEach(function(line, li){
     if (li > 0) ed.appendChild(document.createElement('br'));
     re.lastIndex = 0;
@@ -19457,7 +19491,10 @@ function csPreview(id){
     '[Campaign Name]':    window._csCpName || 'your campaign',
     '[Business Name]':    cd.business_name || cd.name || 'your business',
     '[Appointment Date]': 'Mon, Jul 13',
-    '[Appointment Time]': '2:30 PM'
+    '[Appointment Time]': '2:30 PM',
+    '[Service]':          'Consultation',
+    '[Location]':         'Toronto',
+    '[Meeting Date]':     'Mon, Jul 28 \u00b7 3:00 PM'
   };
   Object.keys(map).forEach(function(k){ t = t.split(k).join(map[k]); });
   pv.innerHTML = '<b>Preview</b> — what Sarah would receive:<br>' + _csEsc(t).replace(/\n/g,'<br>');
