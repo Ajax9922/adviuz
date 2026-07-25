@@ -3843,7 +3843,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-24 bulk-5';
+var APP_VERSION = 'v2026-07-24 bulk-6';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -6887,10 +6887,19 @@ function leadsHTML(){
     });
   }
 
-  var bulkTiles = (window._isPartnerMode || anySel) ? '' :
+  // Tiles appear only when the channel is switched ON in Dashboard → Settings
+  // → Bulk messaging (default OFF). Adviuz staff always see them.
+  if(window._bulkPrefs===undefined && !window._isPartnerMode && typeof loadBulkPrefs==='function'){
+    loadBulkPrefs().then(function(){ if(curTab==='leads'){ var c=document.getElementById('content'); if(c) c.innerHTML=leadsHTML(); } });
+  }
+  var _bp=window._bulkPrefs||null;
+  var _showBSms = window._isAdviuzStaff || (_bp && _bp.sms_enabled===true);
+  var _showBEm  = window._isAdviuzStaff || (_bp && _bp.email_enabled===true);
+  var _bTileCss = 'flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px;border-radius:12px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;font-family:var(--f)';
+  var bulkTiles = (window._isPartnerMode || anySel || (!_showBSms && !_showBEm)) ? '' :
     '<div style="display:flex;gap:8px;padding:10px 16px 2px">'
-    + '<button onclick="openBulkWiz(\'sms\')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px;border-radius:12px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;font-family:var(--f)">\uD83D\uDCAC Bulk SMS</button>'
-    + '<button onclick="openBulkWiz(\'email\')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px;border-radius:12px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;font-family:var(--f)">\uD83D\uDCE7 Bulk Email</button>'
+    + (_showBSms ? '<button onclick="openBulkWiz(\'sms\')" style="'+_bTileCss+'">\uD83D\uDCAC Bulk SMS</button>' : '')
+    + (_showBEm ? '<button onclick="openBulkWiz(\'email\')" style="'+_bTileCss+'">\uD83D\uDCE7 Bulk Email</button>' : '')
     + '</div>';
   return (anySel?'<div style="background:#e7f8ee;padding:8px 16px;font-size:12px;font-weight:600;color:var(--green);display:flex;align-items:center;justify-content:space-between"><span>'+selIds.size+' selected</span><span onclick="selectAllVisible()" style="cursor:pointer;text-decoration:underline">Select all '+vis.length+'</span></div>':'')
     + bulkTiles
@@ -7384,7 +7393,7 @@ async function loadBulkPrefs(force){
 }
 async function openBulkSettings(){
   var pf=await loadBulkPrefs(true)||{};
-  var t=function(id,on){ var el=document.getElementById(id); if(el) el.checked=(on!==false); };
+  var t=function(id,on){ var el=document.getElementById(id); if(el) el.checked=(on===true); };
   t('bsetSms', pf.sms_enabled); t('bsetEmail', pf.email_enabled);
   openSheet('bulkSetSh');
 }
@@ -7408,13 +7417,16 @@ async function saveBulkSettings(){
 // ═══ BULK WIZARD — Draft → Choose stages → Send now / Schedule ═══
 function openBulkWiz(channel){
   if(channel==='email' && window._isTelecaller){ showToast('Not available for telecaller accounts'); return; }
-  window._bw={ channel:channel, step:1, msg:'', subj:'', camp:'', svcs:{}, locs:{}, stages:{}, when:'now', at:'' };
+  window._bw={ channel:channel, step:1, msg:'', subj:'', camp:'', svcs:{}, locs:{}, stages:{}, excluded:{}, schedOpen:false, at:'' };
   loadBulkPrefs().then(function(pf){
-    if(isClientMode() && pf){
-      if(channel==='sms' && pf.sms_enabled===false){ closeSheet('bulkWizSh'); showToast('Bulk SMS is turned off in Settings'); }
-      if(channel==='email' && pf.email_enabled===false){ closeSheet('bulkWizSh'); showToast('Bulk Email is turned off in Settings'); }
+    if(isClientMode()){
+      pf=pf||{};
+      if(channel==='sms' && pf.sms_enabled!==true){ closeSheet('bulkWizSh'); showToast('Turn on Bulk SMS in Dashboard \u2192 Settings first'); return; }
+      if(channel==='email' && pf.email_enabled!==true){ closeSheet('bulkWizSh'); showToast('Turn on Bulk Email in Dashboard \u2192 Settings first'); return; }
     }
+    if(window._bw && window._bw.step===1) bwRender();
   });
+  try{ if(typeof loadCustomTemplates==='function') loadCustomTemplates().then(function(){ if(window._bw&&window._bw.step===1) bwRender(); }); }catch(_e){}
   var t=document.getElementById('bwTitle'); if(t) t.textContent = channel==='sms'?'Bulk SMS':'Bulk Email';
   bwRender();
   openSheet('bulkWizSh');
@@ -7508,7 +7520,30 @@ function bwToggleStage(idx){
   if(b.stages[nm]) delete b.stages[nm]; else b.stages[nm]=1;
   bwRender();
 }
-function bwSetWhen(w){ window._bw.when=w; bwRender(); }
+function bwToggleLead(dbId){
+  var b=window._bw;
+  if(b.excluded[dbId]) delete b.excluded[dbId]; else b.excluded[dbId]=1;
+  bwRender();
+}
+function _bwDefaultAt(){
+  var d=new Date(Date.now()+60*60000); d.setMinutes(0,0,0);
+  var p=function(n){ return String(n).padStart(2,'0'); };
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes());
+}
+function bwSchedOpen(){
+  var b=window._bw; b.schedOpen=true; if(!b.at) b.at=_bwDefaultAt();
+  bwRender();
+  setTimeout(function(){ var el=document.getElementById('bwAt'); if(el){ try{ el.showPicker&&el.showPicker(); }catch(_e){} } }, 120);
+}
+function bwSchedClose(){ var b=window._bw; var el=document.getElementById('bwAt'); if(el) b.at=el.value; b.schedOpen=false; bwRender(); }
+function bwLaunchSched(){
+  var el=document.getElementById('bwAt'); var v=el?el.value:'';
+  if(!v){ showToast('Pick the date and time first'); return; }
+  var d=new Date(v);
+  if(isNaN(d) || d.getTime()<Date.now()-60000){ showToast('That time is in the past'); return; }
+  window._bw.at=v;
+  bwLaunch(d.toISOString());
+}
 async function bwAiDraft(){
   var b=window._bw; bwSaveDraft();
   var btn=document.getElementById('bwAiBtn');
@@ -7531,11 +7566,20 @@ async function bwAiDraft(){
   if(btn){ btn.disabled=false; btn.textContent='\u2728 Draft with AI'; }
 }
 function bwUseTemplate(v){
-  if(!v) return;
-  var b=window._bw;
-  if(b.channel==='sms'){ if(typeof BULK!=='undefined' && BULK[v]){ b.msg=BULK[v]; } }
-  else { if(typeof BULK_EMAIL!=='undefined' && BULK_EMAIL[v]){ b.msg=BULK_EMAIL[v]; } }
-  var m=document.getElementById('bwMsg'); if(m){ m.value=b.msg; var cc=document.getElementById('bwChr'); if(cc) cc.textContent=b.msg.length+' chars'; }
+  if(v==='' || v==null) return;
+  var t=(window._bwTpls||[])[parseInt(v,10)]; if(!t) return;
+  var b=window._bw; b.msg=String(t.text||'');
+  var m=document.getElementById('bwMsg'); if(m){ m.value=b.msg; }
+  var cc=document.getElementById('bwChr'); if(cc) cc.textContent=b.msg.length+' chars';
+}
+function bwInsertVar(tok){
+  var m=document.getElementById('bwMsg'); if(!m) return;
+  var st=(typeof m.selectionStart==='number')?m.selectionStart:m.value.length;
+  var en=(typeof m.selectionEnd==='number')?m.selectionEnd:st;
+  m.value=m.value.slice(0,st)+tok+m.value.slice(en);
+  try{ m.focus(); m.selectionStart=m.selectionEnd=st+tok.length; }catch(_e){}
+  window._bw.msg=m.value;
+  var cc=document.getElementById('bwChr'); if(cc) cc.textContent=m.value.length+' chars';
 }
 function bwRender(){
   var box=document.getElementById('bwBody'); if(!box) return;
@@ -7552,12 +7596,24 @@ function bwRender(){
     if(!isSms){
       h+='<div class="fg"><label class="flbl">Subject</label><input class="finp" id="bwSubj" value="'+String(b.subj||'Following up on your enquiry').replace(/"/g,'&quot;')+'"></div>';
     }
-    var tplOpts = isSms
-      ? '<option value="">Start from a template\u2026</option><option value="fu">Follow-up</option><option value="offer">Special offer</option><option value="appt">Appointment</option><option value="cold">Re-engagement</option>'
-      : '<option value="">Start from a template\u2026</option><option value="fu">Follow-up</option><option value="offer">Special offer</option><option value="info">Info</option><option value="cold">Re-engagement</option>';
-    h+='<div class="fg"><label class="flbl">Template</label><select class="fsel" onchange="bwUseTemplate(this.value)">'+tplOpts+'</select></div>';
+    window._bwTpls=[];
+    if(isSms){
+      try{ (typeof _smsBuiltinTpls!=='undefined'?_smsBuiltinTpls:[]).forEach(function(t){ window._bwTpls.push({label:t[0], text:t[1]}); }); }catch(_e){}
+      try{ ((typeof getCustomSmsTemplates==='function' && getCustomSmsTemplates())||[]).forEach(function(t){ window._bwTpls.push({label:t.label, text:t.text}); }); }catch(_e){}
+    } else if(typeof BULK_EMAIL!=='undefined'){
+      [['Follow-up','fu'],['Special offer','offer'],['Info','info'],['Re-engagement','cold']].forEach(function(x){ if(BULK_EMAIL[x[1]]) window._bwTpls.push({label:x[0], text:BULK_EMAIL[x[1]]}); });
+    }
+    var tplOpts='<option value="">Start from a template\u2026</option>';
+    window._bwTpls.forEach(function(t,i){ tplOpts+='<option value="'+i+'">'+sanitize(t.label)+'</option>'; });
+    h+='<div class="fg"><label class="flbl">Template</label><select class="fsel" onchange="bwUseTemplate(this.value)">'+tplOpts+'</select>'
+      + (isSms ? '<div style="margin-top:7px"><span onclick="openTplMgr()" style="font-size:12px;font-weight:700;color:var(--blue,#2563eb);cursor:pointer">\u2699 Manage templates</span><span style="font-size:11px;color:var(--sub)"> \u00b7 same templates as your normal SMS</span></div>' : '')
+      + '</div>';
     h+='<div class="fg"><label class="flbl">Message</label><textarea class="fta" id="bwMsg" style="height:'+(isSms?'120':'170')+'px" oninput="var c=document.getElementById(\'bwChr\');if(c)c.textContent=this.value.length+\' chars\'">'+String(b.msg|| (isSms?'Hi {name}, just following up on your enquiry with {business}. Is there a good time to chat today?':'Hi {name},\n\nThank you for your interest in {business}. We\u2019d love to help you take the next step.\n\nReply to this email or give us a call any time.\n\n{business}')).replace(/</g,'&lt;')+'</textarea></div>';
-    h+='<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted);margin-bottom:12px"><span id="bwChr"></span><span>{name} and {business} personalize per lead</span></div>';
+    var _vChip=function(tok,lbl){ return '<button onclick="bwInsertVar(\''+tok+'\')" style="padding:5px 11px;border-radius:20px;border:1.5px solid var(--green);background:var(--greenl,#e7f8f3);color:var(--green);font-size:11.5px;font-weight:700;cursor:pointer;font-family:var(--f)">+ '+lbl+'</button>'; };
+    h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;flex-wrap:wrap">'
+      + '<span id="bwChr" style="font-size:12px;color:var(--muted)"></span>'
+      + '<span style="display:flex;gap:6px">'+_vChip('{name}','Customer name')+_vChip('{business}','Business name')+'</span>'
+      + '</div>';
     h+='<button id="bwAiBtn" onclick="bwAiDraft()" style="width:100%;padding:11px;border-radius:12px;border:1.5px dashed var(--green);background:var(--white);color:var(--green);font-size:13px;font-weight:700;cursor:pointer;font-family:var(--f);margin-bottom:14px">\u2728 Draft with AI</button>';
     h+='<button class="btn btn-primary" onclick="bwStep(2)" style="width:100%;justify-content:center">Next \u2014 choose who gets it</button>';
   }
@@ -7647,34 +7703,48 @@ function bwRender(){
 
   if(b.step===3){
     var picked=_bwPickedLeads();
-    h+='<div style="background:var(--bg);border-radius:13px;padding:13px 15px;margin-bottom:14px">'
-      + '<div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:4px">'+picked.length+' '+(isSms?'people will be texted':'people will be emailed')+'</div>'
+    var inc=picked.filter(function(l){ return !b.excluded[l.dbId]; });
+    h+='<div style="background:var(--bg);border-radius:13px;padding:13px 15px;margin-bottom:12px">'
+      + '<div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:4px">'+inc.length+' '+(isSms?'people will be texted':'people will be emailed')+'</div>'
       + '<div style="font-size:12px;color:var(--sub);line-height:1.6">Sends a few per minute. '+(isSms?'Skips anyone already texted automatically today, STOP replies, and quiet hours (held until morning). Daily limit 200.':'Skips anyone who unsubscribed or already got a bulk email today. Unsubscribe link added automatically.')+'</div>'
       + '</div>';
-    var wb=function(v,lbl){ var on=b.when===v; return '<button onclick="bwSetWhen(\''+v+'\')" style="flex:1;padding:10px;border-radius:11px;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'var(--greenl,#e7f8f3)':'var(--white)')+';color:'+(on?'var(--green)':'var(--text)')+';font-size:13px;font-weight:700;cursor:pointer;font-family:var(--f)">'+lbl+'</button>'; };
-    h+='<div style="display:flex;gap:8px;margin-bottom:12px">'+wb('now','Send now')+wb('later','Schedule')+'</div>';
-    if(b.when==='later'){
-      h+='<div class="fg"><label class="flbl">Send at</label><input class="finp" type="datetime-local" id="bwAt" value="'+(b.at||'')+'"></div>';
+    h+='<div style="font-size:11px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Recipients \u00b7 untick anyone to leave them out</div>';
+    h+='<div style="max-height:34dvh;overflow-y:auto;margin-bottom:6px">';
+    picked.forEach(function(l){
+      var on=!b.excluded[l.dbId];
+      h+='<div onclick="bwToggleLead(\''+l.dbId+'\')" style="display:flex;align-items:center;gap:11px;padding:10px 12px;margin-bottom:6px;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';border-radius:12px;background:'+(on?'var(--greenl,#e7f8f3)':'var(--white)')+';cursor:pointer;opacity:'+(on?'1':'.55')+'">'
+        + '<span style="width:19px;height:19px;border-radius:6px;border:2px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'var(--green)':'var(--white)')+';display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:900;flex-shrink:0">'+(on?'\u2713':'')+'</span>'
+        + '<span style="flex:1;min-width:0"><span style="display:block;font-size:13px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+sanitize(l.name||l.company||'Lead')+'</span>'
+        + '<span style="display:block;font-size:11px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+sanitize((l.stage||'').replace(/^\d+\.\s*/,''))+' \u00b7 '+sanitize(isSms?(l.ph||''):(l.em||''))+'</span></span>'
+        + '</div>';
+    });
+    h+='</div>';
+    if(!b.schedOpen){
+      h+='<div style="display:flex;gap:8px;margin-top:8px">'
+        + '<button class="btn btn-ghost" onclick="closeSheet(\'bulkWizSh\')" style="flex:1;justify-content:center">Cancel</button>'
+        + '<button class="btn btn-primary" onclick="bwLaunch(null)" style="flex:1.5;justify-content:center">\uD83D\uDE80 Send now</button>'
+        + '<button onclick="bwSchedOpen()" style="flex:1.3;padding:12px;border-radius:12px;border:1.5px solid var(--green);background:var(--white);color:var(--green);font-size:14px;font-weight:800;cursor:pointer;font-family:var(--f)">\uD83D\uDCC5 Schedule</button>'
+        + '</div>';
+    } else {
+      h+='<div style="border:1.5px solid var(--green);border-radius:13px;padding:13px 15px;margin-top:8px;background:var(--greenl,#e7f8f3)">'
+        + '<div class="fg" style="margin-bottom:10px"><label class="flbl">Send at</label><input class="finp" type="datetime-local" id="bwAt" value="'+(b.at||'')+'" style="background:var(--white)"></div>'
+        + '<div style="display:flex;gap:8px">'
+        +   '<button class="btn btn-ghost" onclick="bwSchedClose()" style="flex:1;justify-content:center">Cancel</button>'
+        +   '<button class="btn btn-primary" onclick="bwLaunchSched()" style="flex:2;justify-content:center">Submit</button>'
+        + '</div>'
+        + '</div>';
     }
-    h+='<div style="display:flex;gap:8px;margin-top:6px"><button class="btn btn-ghost" onclick="bwStep(2)" style="flex:1;justify-content:center">\u2039 Back</button><button class="btn btn-primary" id="bwGo" onclick="bwLaunch()" style="flex:2;justify-content:center">'+(b.when==='later'?'Schedule it':'\uD83D\uDE80 Send now')+'</button></div>';
   }
 
   box.innerHTML=h;
   var cc=document.getElementById('bwChr'); var mm=document.getElementById('bwMsg');
   if(cc&&mm) cc.textContent=mm.value.length+' chars';
 }
-async function bwLaunch(){
+async function bwLaunch(schedIso){
   var b=window._bw; if(!b) return;
-  var schedIso=null;
-  if(b.when==='later'){
-    var at=document.getElementById('bwAt'); b.at=at?at.value:'';
-    if(!b.at){ showToast('Pick the date and time first'); return; }
-    var d=new Date(b.at);
-    if(isNaN(d)||d.getTime()<Date.now()-60000){ showToast('That time is in the past'); return; }
-    schedIso=d.toISOString();
-  }
-  var picked=_bwPickedLeads();
-  if(!picked.length){ showToast('Nobody matches those stages'); return; }
+  schedIso=schedIso||null;
+  var picked=_bwPickedLeads().filter(function(l){ return !b.excluded[l.dbId]; });
+  if(!picked.length){ showToast('Everyone is unticked \u2014 nobody to send to'); return; }
   if(b.channel==='email' && isClientMode()){
     try{
       var er=await sbFetch('/rest/v1/rpc/my_email_settings',{method:'POST',body:'{}'});
@@ -7712,7 +7782,16 @@ async function bwLaunch(){
     }catch(e){}
   }
   closeSheet('bulkWizSh');
-  showToast(made ? (schedIso ? ('Scheduled for '+people+' people \u2014 see Reports') : ('Queued \u2014 reaching '+people+' people gradually. Track it in Reports.')) : 'Could not queue \u2014 try again');
+  if(made){
+    // 6. Straight to the right report so they can watch it happen.
+    window._rptTab=(b.channel==='sms')?'bsms':'bemail';
+    goTab('reports', document.getElementById('tab-reports'));
+    var _hr=new Date().getHours();
+    var _night=(_hr<8||_hr>=21);
+    showToast(schedIso ? ('Scheduled \u2014 '+people+' people')
+      : (b.channel==='sms' && _night ? ('Queued \u2014 '+people+' texts will go out after 8 AM (quiet hours)')
+      : ('Queued \u2014 reaching '+people+' people gradually')));
+  } else showToast('Could not queue \u2014 try again');
 }
 
 // ═══ BULK MESSAGING REPORTS ═══
@@ -7773,7 +7852,9 @@ async function loadBulkReports(){
       var pend=Math.max(0,(j.total||0)-(j.sent||0)-(j.failed||0)-(j.skipped||0));
       var run=(j.status==='queued'||j.status==='sending');
       var futureSched = j.scheduled_at && new Date(j.scheduled_at).getTime()>Date.now();
-      var stLbl=futureSched?('Scheduled '+new Date(j.scheduled_at).toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+new Date(j.scheduled_at).toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit',hour12:true})):(run?'Sending\u2026':(j.status==='done'?'Finished':(j.status==='cancelled'?'Stopped':j.status)));
+      var _hrNow=new Date().getHours(); var _nightNow=(_hrNow<8||_hrNow>=21);
+      var stLbl=futureSched?('Scheduled '+new Date(j.scheduled_at).toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+new Date(j.scheduled_at).toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit',hour12:true}))
+        :(run?((j.channel==='sms'&&_nightNow&&pend)?'Waiting \u00b7 quiet hours':'Sending\u2026'):(j.status==='done'?'Finished':(j.status==='cancelled'?'Stopped':j.status)));
       var stCol=run?'var(--blue,#2563eb)':(j.status==='done'?'var(--green)':'var(--sub)');
       var d=new Date(j.created_at);
       var dl=d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit',hour12:true});
