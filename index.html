@@ -3047,6 +3047,20 @@ body.impersonating .ls-topbar{padding-top:8px}
     </div>
   </div>
 </div>
+<!-- ═══ CAMPAIGN EMAIL SENDER (staff-only) ═══ -->
+<div class="sheet-ov" id="bwCampEmSh" onclick="if(event.target===this)closeSheet('bwCampEmSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title" id="bwCeTitle">Campaign email sender</div><button class="sheet-x" onclick="closeSheet('bwCampEmSh')">&#x2715;</button></div>
+    <div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom,16px))">
+      <div style="font-size:12.5px;color:var(--sub);line-height:1.55;margin-bottom:14px">This campaign&#39;s bulk emails send with this identity. Leave everything empty to fall back to the account&#39;s default sender. The address&#39;s domain must be verified in Resend first, or sends will fail.</div>
+      <div class="fg"><label class="flbl">Send name</label><input class="finp" id="bwCeName" placeholder="e.g. SMP Hair Tattoo"></div>
+      <div class="fg"><label class="flbl">Send address</label><input class="finp" id="bwCeAddr" placeholder="e.g. hello@mail.example.com"></div>
+      <div class="fg"><label class="flbl">Replies go to (optional)</label><input class="finp" id="bwCeReply" placeholder="Defaults to the send address"></div>
+      <button class="btn btn-primary" onclick="bwSaveCampEmail()" style="width:100%;justify-content:center;margin-top:6px">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ BULK MESSAGING SETTINGS ═══ -->
 <div class="sheet-ov" id="bulkSetSh" onclick="if(event.target===this)closeSheet('bulkSetSh')">
   <div class="sheet"><div class="sheet-handle"></div>
@@ -3843,7 +3857,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-25 bulk-7';
+var APP_VERSION = 'v2026-07-25 bulk-8';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7378,6 +7392,41 @@ function followupsHTML(){
     +taskListHTML();
 }
 
+// ═══ CAMPAIGN EMAIL SENDER (staff-only editor) ═══
+function bwEditCampEmail(campId){
+  window._bwCampEmId=campId;
+  var _cps=[].concat(window._clientCampaigns||[], (window._adminData&&window._adminData.campaigns)||[]);
+  var cp=_cps.find(function(c){ return String(c.id)===String(campId); })||{};
+  var st=cp.settings; if(typeof st==='string'){ try{ st=JSON.parse(st); }catch(_e){ st=null; } }
+  var em=(st&&st.email)||{};
+  var g=function(id,v){ var el=document.getElementById(id); if(el) el.value=v||''; };
+  g('bwCeName', em.from_name); g('bwCeAddr', em.from_email); g('bwCeReply', em.reply_to||em.reply_to_email);
+  var t=document.getElementById('bwCeTitle'); if(t) t.textContent=(cp.name||'Campaign')+' \u00b7 email sender';
+  openSheet('bwCampEmSh');
+}
+async function bwSaveCampEmail(){
+  var campId=window._bwCampEmId; if(!campId) return;
+  var v=function(id){ return String((document.getElementById(id)||{}).value||'').trim(); };
+  var em={ from_name:v('bwCeName'), from_email:v('bwCeAddr'), reply_to:v('bwCeReply') };
+  if(em.from_email && em.from_email.indexOf('@')===-1){ showToast('That email address doesn\u2019t look right'); return; }
+  try{
+    var r=await sbFetch('/rest/v1/campaigns?id=eq.'+campId+'&select=settings');
+    var rows=r.ok?await r.json().catch(function(){return[];}):[];
+    var st=(rows&&rows[0]&&rows[0].settings)||{};
+    if(typeof st==='string'){ try{ st=JSON.parse(st); }catch(_e){ st={}; } }
+    if(!em.from_name && !em.from_email && !em.reply_to) delete st.email; else st.email=em;
+    var pr=await sbFetch('/rest/v1/campaigns?id=eq.'+campId,{method:'PATCH',body:JSON.stringify({settings:st})});
+    if(!pr.ok) throw new Error('save failed');
+    // Refresh the local copy so the preview line updates immediately.
+    [].concat(window._clientCampaigns||[], (window._adminData&&window._adminData.campaigns)||[]).forEach(function(c){
+      if(String(c.id)===String(campId)) c.settings=st;
+    });
+    showToast('Campaign email sender saved');
+    closeSheet('bwCampEmSh');
+    if(window._bw) bwRender();
+  }catch(e){ showToast('Could not save \u2014 try again'); }
+}
+
 // ═══ BULK SETTINGS (per client) ═══
 async function loadBulkPrefs(force){
   if(window._bulkPrefs!==undefined && !force) return window._bulkPrefs;
@@ -7509,17 +7558,49 @@ function bwSaveDraft(){
 }
 function bwStep(n){
   var b=window._bw; if(!b) return;
-  if(b.step===1) bwSaveDraft();
-  if(n===2 && b.step===1){
+  if(b.step===2) bwSaveDraft();
+  if(n===2){
+    if(!b.camp){ showToast('Pick a campaign first'); return; }
+    if(!Object.keys(b.stages).length && !b.noShow){ showToast('Pick stages, no-shows, or a quick pick'); return; }
+    if(!_bwPickedLeads().length){ showToast('Nobody eligible matches that selection'); return; }
+    _bwLoadTpls();
+  }
+  if(n===3){
+    if(!String(b.msg||'').trim() && !(document.getElementById('bwMsg'))){ showToast('Write the message first'); return; }
+    bwSaveDraft();
     if(!String(b.msg||'').trim()){ showToast('Write the message first'); return; }
     if(b.channel==='email' && !String(b.subj||'').trim()){ showToast('A subject is needed'); return; }
   }
-  if(n===3){
-    if(!window._bw.camp){ showToast('Pick a campaign first'); return; }
-    if(!Object.keys(window._bw.stages).length && !window._bw.noShow){ showToast('Pick stages, no-shows, or a quick pick'); return; }
-    if(!_bwPickedLeads().length){ showToast('Nobody eligible matches that selection'); return; }
-  }
   b.step=n; bwRender();
+}
+// Load THIS campaign's client templates (SMS + email) for the compose step.
+async function _bwLoadTpls(){
+  var b=window._bw; if(!b) return;
+  var cid = isClientMode() ? window._clientId : null;
+  if(!cid && b.camp && b.camp!=='__none'){
+    try{
+      var _cps=[].concat(window._clientCampaigns||[], (window._adminData&&window._adminData.campaigns)||[]);
+      var _cp=_cps.find(function(c){ return String(c.id)===String(b.camp); });
+      cid=_cp&&_cp.client_id;
+    }catch(_e){}
+  }
+  if(!cid){ window._bwTplData={sms:[],email:[]}; return; }
+  var out={sms:[],email:[]};
+  try{
+    var r1=await sbFetch('/rest/v1/sms_templates?select=label,body&client_id=eq.'+cid+'&order=created_at.asc&limit=50');
+    var rows1=r1.ok?await r1.json().catch(function(){return[];}):[];
+    out.sms=(rows1||[]).map(function(x){ return {label:x.label, text:x.body}; });
+  }catch(_e){}
+  try{
+    var r2=await sbFetch('/rest/v1/client_email_templates?select=name,subject,body&client_id=eq.'+cid+'&order=created_at.asc&limit=50');
+    var rows2=r2.ok?await r2.json().catch(function(){return[];}):[];
+    out.email=(rows2||[]).map(function(x){
+      var bt=String(x.body||'').replace(/\{\{name\}\}/g,'[Customer Name]').replace(/\{\{business\}\}/g,'[Business Name]');
+      return {label:x.name, subject:x.subject, text:bt};
+    });
+  }catch(_e){}
+  window._bwTplData=out;
+  if(window._bw && window._bw.step===2) bwRender();
 }
 function bwToggleStage(idx){
   var b=window._bw; var nm=STAGES[idx] && STAGES[idx].name; if(!nm) return;
@@ -7556,11 +7637,19 @@ async function bwAiDraft(){
   if(btn){ btn.disabled=true; btn.textContent='\u2728 Drafting\u2026'; }
   try{
     var cd=window._clientData||{};
+    var _campNm='', _campId='';
+    try{
+      if(b.camp && b.camp!=='__none'){
+        var _cpsA=[].concat(window._clientCampaigns||[], (window._adminData&&window._adminData.campaigns)||[]);
+        var _cpA=_cpsA.find(function(c){ return String(c.id)===String(b.camp); });
+        if(_cpA){ _campNm=_cpA.name||''; _campId=String(_cpA.id); }
+      }
+    }catch(_e){}
     var res=await sbFetch('/functions/v1/ai-draft-sms',{method:'POST',body:JSON.stringify({
       mode:'campaign_msg',
       msg_type: b.channel==='sms' ? 'bulk follow-up SMS to warm leads' : 'bulk follow-up email to warm leads',
       business: cd.business_name||cd.name||'',
-      campaign:'', campaign_id:'' })});
+      campaign:_campNm, campaign_id:_campId })});
     var data=await res.json().catch(function(){return{};});
     var text=(data.draft||'').trim();
     if(res.ok && text){
@@ -7578,6 +7667,7 @@ function bwUseTemplate(v){
   var t=(window._bwTpls||[])[parseInt(v,10)]; if(!t) return;
   var b=window._bw; b.msg=String(t.text||'');
   csFill('bwMsg', b.msg);
+  if(t.subject){ b.subj=String(t.subject); var sj=document.getElementById('bwSubj'); if(sj) sj.value=b.subj; }
   var cc=document.getElementById('bwChr'); var ed=document.getElementById('bwMsg');
   if(cc&&ed) cc.textContent=csSerialize(ed).length+' chars';
 }
@@ -7590,18 +7680,28 @@ function bwRender(){
     dots+='<span style="flex:1;height:4px;border-radius:3px;background:'+(b.step>=n?'var(--green)':'var(--border)')+'"></span>';
   });
   var h='<div style="display:flex;gap:5px;margin-bottom:6px">'+dots+'</div>'
-    + '<div style="font-size:11px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Step '+b.step+' of 3 \u00b7 '+(b.step===1?'Write the message':(b.step===2?'Choose who gets it':'Send'))+'</div>';
+    + '<div style="font-size:11px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Step '+b.step+' of 3 \u00b7 '+(b.step===1?'Choose who gets it':(b.step===2?'Write the message':'Review & send'))+'</div>';
 
-  if(b.step===1){
+  if(b.step===2){
     if(!isSms){
       h+='<div class="fg"><label class="flbl">Subject</label><input class="finp" id="bwSubj" value="'+String(b.subj||'Following up on your enquiry').replace(/"/g,'&quot;')+'"></div>';
     }
+    // Templates: generic built-ins + THIS client's saved templates (loaded when
+    // you arrive on this step, so admin mode shows the chosen campaign's client).
     window._bwTpls=[];
     if(isSms){
-      try{ (typeof _smsBuiltinTpls!=='undefined'?_smsBuiltinTpls:[]).forEach(function(t){ window._bwTpls.push({label:t[0], text:t[1]}); }); }catch(_e){}
-      try{ ((typeof getCustomSmsTemplates==='function' && getCustomSmsTemplates())||[]).forEach(function(t){ window._bwTpls.push({label:t.label, text:t.text}); }); }catch(_e){}
-    } else if(typeof BULK_EMAIL!=='undefined'){
-      [['Follow-up','fu'],['Special offer','offer'],['Info','info'],['Re-engagement','cold']].forEach(function(x){ if(BULK_EMAIL[x[1]]) window._bwTpls.push({label:x[0], text:BULK_EMAIL[x[1]]}); });
+      [['\uD83D\uDD01 Follow-up','Hi [Customer Name], following up on your enquiry about [Service] with [Business Name]. Are you still interested?'],
+       ['\uD83D\uDCDE Missed call','Hi [Customer Name], we just tried calling you from [Business Name]. Please call us back at your convenience.'],
+       ['\uD83C\uDF81 Special offer','Hi [Customer Name], [Business Name] has a special offer just for you. Reply for details!'],
+       ['\uD83D\uDC4B Check-in','Hi [Customer Name], just checking in from [Business Name]. Let us know if you have any questions!']
+      ].forEach(function(t){ window._bwTpls.push({label:t[0], text:t[1]}); });
+      ((window._bwTplData&&window._bwTplData.sms)||[]).forEach(function(t){ window._bwTpls.push({label:'\u2B50 '+t.label, text:t.text}); });
+    } else {
+      [['Follow-up','Hi [Customer Name],\n\nWe wanted to follow up on your enquiry with [Business Name]. We\u2019d love to help you take the next step.\n\nJust reply to this email and we\u2019ll get you sorted.\n\n[Business Name]'],
+       ['Re-engagement','Hi [Customer Name],\n\nWe noticed we lost touch. We\u2019d love to reconnect and help with your enquiry at [Business Name].\n\nReply any time \u2014 we\u2019re here.\n\n[Business Name]'],
+       ['Special offer','Hi [Customer Name],\n\n[Business Name] has a special offer for you right now. Reply to this email to find out more.\n\n[Business Name]']
+      ].forEach(function(t){ window._bwTpls.push({label:t[0], text:t[1]}); });
+      ((window._bwTplData&&window._bwTplData.email)||[]).forEach(function(t){ window._bwTpls.push({label:'\u2B50 '+t.label, text:t.text, subject:t.subject}); });
     }
     var tplOpts='<option value="">Start from a template\u2026</option>';
     window._bwTpls.forEach(function(t,i){ tplOpts+='<option value="'+i+'">'+sanitize(t.label)+'</option>'; });
@@ -7615,10 +7715,10 @@ function bwRender(){
       + '</div>';
     h+='<div id="bwChr" style="font-size:12px;color:var(--muted);margin-bottom:12px"></div>';
     h+='<button id="bwAiBtn" onclick="bwAiDraft()" style="width:100%;padding:11px;border-radius:12px;border:1.5px dashed var(--green);background:var(--white);color:var(--green);font-size:13px;font-weight:700;cursor:pointer;font-family:var(--f);margin-bottom:14px">\u2728 Draft with AI</button>';
-    h+='<button class="btn btn-primary" onclick="bwStep(2)" style="width:100%;justify-content:center">Next \u2014 choose who gets it</button>';
+    h+='<div style="display:flex;gap:8px"><button class="btn btn-ghost" onclick="bwStep(1)" style="flex:1;justify-content:center">\u2039 Back</button><button class="btn btn-primary" onclick="bwStep(3)" style="flex:2;justify-content:center">Next \u2014 review & send</button></div>';
   }
 
-  if(b.step===2){
+  if(b.step===1){
     // ── Campaign first (single choice) ──
     var pool=(leads||[]).filter(function(l){ return l.dbId && !window._isPartnerMode && _bwEligible(l,b.channel); });
     var byCamp={}, noneCnt=0;
@@ -7654,6 +7754,9 @@ function bwRender(){
           var _nm=_em2.from_name||_me2.from_name||'';
           _sndTxt=_addr ? ('Emails send as <b>'+sanitize(_nm?(_nm+' \u00b7 '):'')+sanitize(_addr)+'</b>')
                         : 'Emails send from your account\u2019s configured sender';
+          if(window._isAdviuzStaff && b.camp!=='__none'){
+            _sndTxt+=' &nbsp;<span onclick="bwEditCampEmail(\''+b.camp+'\')" style="color:var(--blue,#2563eb);font-weight:700;cursor:pointer">\u270E Change</span>';
+          }
         }
       }catch(_e){}
       if(_sndTxt){
@@ -7720,7 +7823,7 @@ function bwRender(){
     } else {
       h+='<div style="font-size:12px;color:var(--sub);margin:6px 0 12px">Pick a campaign to see its services, locations and stages.</div>';
     }
-    h+='<div style="display:flex;gap:8px"><button class="btn btn-ghost" onclick="bwStep(1)" style="flex:1;justify-content:center">\u2039 Back</button><button class="btn btn-primary" onclick="bwStep(3)" style="flex:2;justify-content:center">Next \u2014 send</button></div>';
+    h+='<div style="display:flex;gap:8px"><button class="btn btn-ghost" onclick="closeSheet(\'bulkWizSh\')" style="flex:1;justify-content:center">Cancel</button><button class="btn btn-primary" onclick="bwStep(2)" style="flex:2;justify-content:center">Next \u2014 write the message</button></div>';
   }
 
   if(b.step===3){
@@ -7759,7 +7862,7 @@ function bwRender(){
   }
 
   box.innerHTML=h;
-  if(b.step===1){
+  if(b.step===2){
     var defMsg = b.msg || (b.channel==='sms'
       ? 'Hi [Customer Name], just following up on your enquiry with [Business Name]. Is there a good time to chat today?'
       : 'Hi [Customer Name],\n\nThank you for your interest in [Business Name]. We\u2019d love to help you take the next step.\n\nReply to this email or give us a call any time.\n\n[Business Name]');
