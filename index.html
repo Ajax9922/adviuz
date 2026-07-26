@@ -3052,7 +3052,8 @@ body.impersonating .ls-topbar{padding-top:8px}
   <div class="sheet"><div class="sheet-handle"></div>
     <div class="sheet-head"><div class="sheet-title" id="bwCeTitle">Campaign email sender</div><button class="sheet-x" onclick="closeSheet('bwCampEmSh')">&#x2715;</button></div>
     <div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom,16px))">
-      <div style="font-size:12.5px;color:var(--sub);line-height:1.55;margin-bottom:14px">This campaign&#39;s bulk emails send with this identity. Leave everything empty to fall back to the account&#39;s default sender. The address&#39;s domain must be verified in Resend first, or sends will fail.</div>
+      <div style="font-size:12.5px;color:var(--sub);line-height:1.55;margin-bottom:14px">This campaign&#39;s emails send with this identity. Leave everything empty to fall back to the account&#39;s default sender. The address&#39;s domain must be verified in Resend first, or sends will fail.</div>
+      <div id="bwCeLockNote" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 13px;font-size:12px;color:var(--sub);line-height:1.55;margin-bottom:14px">&#x1F512; The send name and address are set up by Adviuz (they need domain verification). Contact us to change them &mdash; the design fields below are yours to edit.</div>
       <div class="fg"><label class="flbl">Send name</label><input class="finp" id="bwCeName" placeholder="e.g. SMP Hair Tattoo"></div>
       <div class="fg"><label class="flbl">Send address</label><input class="finp" id="bwCeAddr" placeholder="e.g. hello@mail.example.com"></div>
       <div class="fg"><label class="flbl">Replies go to (optional)</label><input class="finp" id="bwCeReply" placeholder="Defaults to the send address"></div>
@@ -3863,7 +3864,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-26 bulk-10';
+var APP_VERSION = 'v2026-07-26 bulk-11';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7410,6 +7411,9 @@ function bwEditCampEmail(campId){
   var dz=(st&&st.email_design)||{};
   g('bwCeLogo', dz.logo_url); g('bwCeSite', dz.website_url); g('bwCeFName', dz.sender_name); g('bwCeLoc', dz.location); g('bwCeTim', dz.timings);
   var t=document.getElementById('bwCeTitle'); if(t) t.textContent=(cp.name||'Campaign')+' \u00b7 email sender';
+  var _lock=!window._isAdviuzStaff;
+  ['bwCeName','bwCeAddr','bwCeReply'].forEach(function(fid){ var el=document.getElementById(fid); if(el){ el.readOnly=_lock; el.style.opacity=_lock?'.55':''; el.style.background=_lock?'var(--bg)':''; } });
+  var ln=document.getElementById('bwCeLockNote'); if(ln) ln.style.display=_lock?'block':'none';
   openSheet('bwCampEmSh');
 }
 async function bwSaveCampEmail(){
@@ -7422,7 +7426,7 @@ async function bwSaveCampEmail(){
     var rows=r.ok?await r.json().catch(function(){return[];}):[];
     var st=(rows&&rows[0]&&rows[0].settings)||{};
     if(typeof st==='string'){ try{ st=JSON.parse(st); }catch(_e){ st={}; } }
-    if(!em.from_name && !em.from_email && !em.reply_to) delete st.email; else st.email=em;
+    if(window._isAdviuzStaff){ if(!em.from_name && !em.from_email && !em.reply_to) delete st.email; else st.email=em; }
     var dz={ logo_url:v('bwCeLogo'), website_url:v('bwCeSite'), sender_name:v('bwCeFName'), location:v('bwCeLoc'), timings:v('bwCeTim') };
     if(!dz.logo_url && !dz.website_url && !dz.sender_name && !dz.location && !dz.timings) delete st.email_design; else st.email_design=dz;
     var pr=await sbFetch('/rest/v1/campaigns?id=eq.'+campId,{method:'PATCH',body:JSON.stringify({settings:st})});
@@ -19955,7 +19959,7 @@ function csOpenMenu(){
         _csMenuRow('\uD83D\uDCAC', 'Welcome Message',      'Text sent instantly to every new lead',        "csOpenPage('welcome')")
       + _csMenuRow('\uD83D\uDCC5', 'Appointment Settings', 'Reminder timing &amp; messages',               "csOpenPage('appt')")
       + _csMenuRow('\uD83D\uDD14', 'Lead Alerts',          'Phone &amp; email for this campaign\u2019s leads', "csOpenPage('alerts')")
-      + (window._isAdviuzStaff ? _csMenuRow('\uD83D\uDCE7', 'Email Sender', 'Send address &amp; email design for this campaign', 'csOpenEmailSender()') : '');
+      + ((window._isAdviuzStaff || window._isAccountOwner) ? _csMenuRow('\uD83D\uDCE7', 'Email Sender', 'Send address &amp; email design for this campaign', 'csOpenEmailSender()') : '');
   }
   _csFooter('menu');
 }
