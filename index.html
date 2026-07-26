@@ -3056,6 +3056,12 @@ body.impersonating .ls-topbar{padding-top:8px}
       <div class="fg"><label class="flbl">Send name</label><input class="finp" id="bwCeName" placeholder="e.g. SMP Hair Tattoo"></div>
       <div class="fg"><label class="flbl">Send address</label><input class="finp" id="bwCeAddr" placeholder="e.g. hello@mail.example.com"></div>
       <div class="fg"><label class="flbl">Replies go to (optional)</label><input class="finp" id="bwCeReply" placeholder="Defaults to the send address"></div>
+      <div style="font-size:11px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin:16px 0 10px">Design · optional, overrides the account look</div>
+      <div class="fg"><label class="flbl">Logo image link</label><input class="finp" id="bwCeLogo" placeholder="https://… (shown at the top of emails)"></div>
+      <div class="fg"><label class="flbl">Website link</label><input class="finp" id="bwCeSite" placeholder="e.g. hairtattoopromotion.com"></div>
+      <div class="fg"><label class="flbl">Footer name</label><input class="finp" id="bwCeFName" placeholder="Shown in the email footer"></div>
+      <div class="fg"><label class="flbl">Footer location</label><input class="finp" id="bwCeLoc" placeholder="e.g. 123 Main St, Toronto"></div>
+      <div class="fg"><label class="flbl">Footer timings</label><input class="finp" id="bwCeTim" placeholder="e.g. Mon–Sat 10 AM – 6 PM"></div>
       <button class="btn btn-primary" onclick="bwSaveCampEmail()" style="width:100%;justify-content:center;margin-top:6px">Save</button>
     </div>
   </div>
@@ -3857,7 +3863,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-25 bulk-8';
+var APP_VERSION = 'v2026-07-25 bulk-9';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7401,6 +7407,8 @@ function bwEditCampEmail(campId){
   var em=(st&&st.email)||{};
   var g=function(id,v){ var el=document.getElementById(id); if(el) el.value=v||''; };
   g('bwCeName', em.from_name); g('bwCeAddr', em.from_email); g('bwCeReply', em.reply_to||em.reply_to_email);
+  var dz=(st&&st.email_design)||{};
+  g('bwCeLogo', dz.logo_url); g('bwCeSite', dz.website_url); g('bwCeFName', dz.sender_name); g('bwCeLoc', dz.location); g('bwCeTim', dz.timings);
   var t=document.getElementById('bwCeTitle'); if(t) t.textContent=(cp.name||'Campaign')+' \u00b7 email sender';
   openSheet('bwCampEmSh');
 }
@@ -7415,6 +7423,8 @@ async function bwSaveCampEmail(){
     var st=(rows&&rows[0]&&rows[0].settings)||{};
     if(typeof st==='string'){ try{ st=JSON.parse(st); }catch(_e){ st={}; } }
     if(!em.from_name && !em.from_email && !em.reply_to) delete st.email; else st.email=em;
+    var dz={ logo_url:v('bwCeLogo'), website_url:v('bwCeSite'), sender_name:v('bwCeFName'), location:v('bwCeLoc'), timings:v('bwCeTim') };
+    if(!dz.logo_url && !dz.website_url && !dz.sender_name && !dz.location && !dz.timings) delete st.email_design; else st.email_design=dz;
     var pr=await sbFetch('/rest/v1/campaigns?id=eq.'+campId,{method:'PATCH',body:JSON.stringify({settings:st})});
     if(!pr.ok) throw new Error('save failed');
     // Refresh the local copy so the preview line updates immediately.
@@ -7662,6 +7672,23 @@ async function bwAiDraft(){
   }catch(e){ showToast('Could not draft \u2014 please try again'); }
   if(btn){ btn.disabled=false; btn.textContent='\u2728 Draft with AI'; }
 }
+function bwInsertBtn(){
+  var lbl=String((document.getElementById('bwBtnLbl')||{}).value||'').trim();
+  var url=String((document.getElementById('bwBtnUrl')||{}).value||'').trim();
+  if(!lbl||!url){ showToast('Button text and link are both needed'); return; }
+  if(!/^(https?:\/\/|tel:)/i.test(url)) url='https://'+url;
+  var ed=document.getElementById('bwMsg'); if(!ed) return;
+  try{
+    ed.focus();
+    document.execCommand('insertText', false, '\n[Button: '+lbl+' | '+url+']\n');
+  }catch(_e){
+    ed.appendChild(document.createElement('br'));
+    ed.appendChild(document.createTextNode('[Button: '+lbl+' | '+url+']'));
+  }
+  window._bw.msg=csSerialize(ed);
+  var bb=document.getElementById('bwBtnBox'); if(bb) bb.style.display='none';
+  showToast('Button added — it becomes a real green button in the email');
+}
 function bwUseTemplate(v){
   if(v==='' || v==null) return;
   var t=(window._bwTpls||[])[parseInt(v,10)]; if(!t) return;
@@ -7714,6 +7741,16 @@ function bwRender(){
       + _BW_TOKS.map(function(t){ return '<button class="cs-chip" onclick="csInsertTok(\'bwMsg\',\''+t[0]+'\')">'+t[1]+'</button>'; }).join('')
       + '</div>';
     h+='<div id="bwChr" style="font-size:12px;color:var(--muted);margin-bottom:12px"></div>';
+    if(!isSms){
+      h+='<div style="margin:2px 0 12px">'
+        + '<span onclick="var x=document.getElementById(\'bwBtnBox\');if(x)x.style.display=(x.style.display===\'none\'?\'block\':\'none\')" style="font-size:12.5px;font-weight:700;color:var(--blue,#2563eb);cursor:pointer">\u2795 Insert a button (call to action)</span>'
+        + '<div id="bwBtnBox" style="display:none;border:1.5px solid var(--border);border-radius:12px;padding:12px;margin-top:8px;background:var(--bg)">'
+        +   '<div class="fg" style="margin-bottom:8px"><label class="flbl">Button text</label><input class="finp" id="bwBtnLbl" placeholder="e.g. Book now · Call us · Visit website" style="background:var(--white)"></div>'
+        +   '<div class="fg" style="margin-bottom:10px"><label class="flbl">Link</label><input class="finp" id="bwBtnUrl" placeholder="https://… or tel:+14165551234" style="background:var(--white)"></div>'
+        +   '<button onclick="bwInsertBtn()" class="btn btn-primary" style="width:100%;justify-content:center;padding:9px">Insert into message</button>'
+        + '</div>'
+        + '</div>';
+    }
     h+='<button id="bwAiBtn" onclick="bwAiDraft()" style="width:100%;padding:11px;border-radius:12px;border:1.5px dashed var(--green);background:var(--white);color:var(--green);font-size:13px;font-weight:700;cursor:pointer;font-family:var(--f);margin-bottom:14px">\u2728 Draft with AI</button>';
     h+='<div style="display:flex;gap:8px"><button class="btn btn-ghost" onclick="bwStep(1)" style="flex:1;justify-content:center">\u2039 Back</button><button class="btn btn-primary" onclick="bwStep(3)" style="flex:2;justify-content:center">Next \u2014 review & send</button></div>';
   }
@@ -8027,8 +8064,20 @@ async function openBulkRep(id){
   var body=document.getElementById('bulkRepBody'); if(!body) return;
   body.innerHTML='<div style="font-size:13px;color:var(--sub)">Loading\u2026</div>';
   openSheet('bulkRepSh');
-  var r=await sbFetch('/rest/v1/bulk_recipients?job_id=eq.'+id+'&select=status,skip_reason&limit=2000');
+  var r=await sbFetch('/rest/v1/bulk_recipients?job_id=eq.'+id+'&select=lead_id,status,skip_reason,resend_id&limit=2000');
   var rows=r.ok?await r.json().catch(function(){return[];}):[];
+  // Engagement per email: one lookup by provider id.
+  var engage={};
+  if(j.channel==='email'){
+    var rids=rows.map(function(x){ return x.resend_id; }).filter(Boolean).slice(0,400);
+    if(rids.length){
+      try{
+        var er=await sbFetch('/rest/v1/email_logs?resend_id=in.('+rids.map(encodeURIComponent).join(',')+')&select=resend_id,status,opened_at,clicked_at');
+        var el=er.ok?await er.json().catch(function(){return[];}):[];
+        el.forEach(function(x){ engage[x.resend_id]={ opened:!!x.opened_at||x.status==='opened'||x.status==='clicked', clicked:!!x.clicked_at||x.status==='clicked' }; });
+      }catch(_e){}
+    }
+  }
   var c=function(st){ return rows.filter(function(x){ return x.status===st; }).length; };
   var reasons={};
   rows.forEach(function(x){ if((x.status==='skipped'||x.status==='failed'||x.status==='held')&&x.skip_reason){ var k=(x.status==='failed'?'\u274C ':'')+x.skip_reason; reasons[k]=(reasons[k]||0)+1; } });
@@ -8052,7 +8101,32 @@ async function openBulkRep(id){
         + '</div>';
     });
   }
-  h+='<div style="font-size:11.5px;color:var(--sub);line-height:1.55;margin-top:10px">Every sent message also appears on that lead\u2019s own timeline. Replies land in your Inbox as usual.</div>';
+  // ── Per-person list — who got it, and (for email) who opened / clicked ──
+  var _byState={clicked:3,opened:2,sent:1};
+  var people=rows.map(function(x){
+    var ld=(leads||[]).find(function(y){ return String(y.dbId)===String(x.lead_id); })||{};
+    var eng=engage[x.resend_id]||{};
+    var state, col, lbl;
+    if(x.status==='sent' && eng.clicked){ state='clicked'; col='var(--blue,#2563eb)'; lbl='\uD83D\uDDB1\uFE0F Clicked'; }
+    else if(x.status==='sent' && eng.opened){ state='opened'; col='var(--green)'; lbl='\uD83D\uDC41 Opened'; }
+    else if(x.status==='sent'){ state='sent'; col='var(--text)'; lbl='\u2709\uFE0F Sent'; }
+    else if(x.status==='failed'){ state='failed'; col='var(--red,#dc2626)'; lbl='\u274C Failed'; }
+    else if(x.status==='skipped'){ state='skipped'; col='var(--sub)'; lbl='\u23ED\uFE0F Skipped'; }
+    else { state='waiting'; col='var(--blue,#2563eb)'; lbl='\u23F3 Waiting'; }
+    return { name:(ld.name||ld.company||'Lead'), sub:(j.channel==='email'?(ld.em||''):(ld.ph||''))||String(x.skip_reason||''), col:col, lbl:lbl, rank:(_byState[state]||0) };
+  }).sort(function(a,b){ return b.rank-a.rank; });
+  if(people.length){
+    h+='<div style="font-size:11px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin:16px 0 7px">Everyone in this send</div>';
+    people.slice(0,300).forEach(function(pn){
+      h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;margin-bottom:6px;border:1px solid var(--border);border-radius:11px;background:var(--white)">'
+        + '<span style="min-width:0;flex:1"><span style="display:block;font-size:12.5px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+sanitize(pn.name)+'</span>'
+        + '<span style="display:block;font-size:11px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+sanitize(pn.sub)+'</span></span>'
+        + '<span style="font-size:11.5px;font-weight:800;color:'+pn.col+';white-space:nowrap;flex-shrink:0">'+pn.lbl+'</span>'
+        + '</div>';
+    });
+    if(people.length>300) h+='<div style="font-size:11.5px;color:var(--sub)">Showing the first 300.</div>';
+  }
+  h+='<div style="font-size:11.5px;color:var(--sub);line-height:1.55;margin-top:10px">Every sent message also appears on that lead\u2019s own timeline. Replies land in your Inbox as usual. An open is counted when the images in the email load \u2014 some mail apps block images.</div>';
   if(run){
     h+='<button onclick="bulkStop(\''+id+'\')" style="width:100%;margin-top:14px;padding:12px;border-radius:12px;border:1.5px solid #fecaca;background:var(--white);color:var(--red,#dc2626);font-size:14px;font-weight:800;cursor:pointer;font-family:var(--f)">\u23F9 Stop this send</button>';
   }
@@ -12429,7 +12503,21 @@ function paintCeFrom(){
     var b=document.getElementById('ceSendBtn'); if(b){ b.disabled=true; b.style.opacity='.5'; }
     return;
   }
-  fromEl.textContent = (f.from_name?f.from_name+' ':'') + '<'+f.from_email+'>';
+  // The lead's campaign may carry its own sender identity — show the truth.
+  var nm=f.from_name||'', ad=f.from_email||'';
+  try{
+    var _l=leads.find(function(x){ return x.id===window._ceLeadId; });
+    var _cid=_l && (_l.campaign_id||_l.campaign);
+    if(_cid){
+      var _cps=[].concat(window._clientCampaigns||[], (window._adminData&&window._adminData.campaigns)||[]);
+      var _cp=_cps.find(function(c){ return String(c.id)===String(_cid); });
+      var _st=_cp&&_cp.settings; if(typeof _st==='string'){ try{ _st=JSON.parse(_st); }catch(_e2){ _st=null; } }
+      var _em=(_st&&_st.email)||{};
+      if(_em.from_email && String(_em.from_email).trim()) ad=String(_em.from_email).trim();
+      if(_em.from_name && String(_em.from_name).trim()) nm=String(_em.from_name).trim();
+    }
+  }catch(_e){}
+  fromEl.textContent = (nm?nm+' ':'') + '<'+ad+'>';
   var b2=document.getElementById('ceSendBtn'); if(b2){ b2.disabled=false; b2.style.opacity=''; }
 }
 function ceTemplate(kind){
