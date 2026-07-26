@@ -1837,10 +1837,12 @@ body.impersonating .ls-topbar{padding-top:8px}
 <div class="sheet-ov" id="emailDesignSh" style="z-index:880" onclick="if(event.target===this)closeSheet('emailDesignSh')">
   <div class="sheet" style="max-height:92dvh"><div class="sheet-handle"></div>
     <div class="sh-head">
-      <div class="sh-title">Email design</div>
+      <div class="sh-title" id="edShTitle">Email design</div>
       <button class="sh-x" onclick="closeSheet('emailDesignSh')">&#x2715;</button>
     </div>
     <div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom,16px))">
+
+      <div id="edCampSender" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 13px;font-size:12px;color:var(--sub);line-height:1.6;margin-bottom:14px"></div>
 
       <div style="font-size:11px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Header</div>
       <div class="fg"><label class="flbl">Logo</label>
@@ -3048,7 +3050,7 @@ body.impersonating .ls-topbar{padding-top:8px}
   </div>
 </div>
 <!-- ═══ CAMPAIGN EMAIL SENDER (staff-only) ═══ -->
-<div class="sheet-ov" id="bwCampEmSh" onclick="if(event.target===this)closeSheet('bwCampEmSh')">
+<div class="sheet-ov" id="bwCampEmSh" style="z-index:960" onclick="if(event.target===this)closeSheet('bwCampEmSh')">
   <div class="sheet"><div class="sheet-handle"></div>
     <div class="sheet-head"><div class="sheet-title" id="bwCeTitle">Campaign email sender</div><button class="sheet-x" onclick="closeSheet('bwCampEmSh')">&#x2715;</button></div>
     <div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom,16px))">
@@ -3864,7 +3866,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-26 bulk-11';
+var APP_VERSION = 'v2026-07-26 bulk-12';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -12858,6 +12860,10 @@ function edEmailShellHTML(subj, body){
     +'</div>';
 }
 function openEmailDesignSheet(){
+  window._edCampScope=null;
+  var _t=document.getElementById('edShTitle'); if(_t) _t.textContent='Email design';
+  var _ln=document.getElementById('edCampSender'); if(_ln) _ln.style.display='none';
+  var _ov=document.getElementById('emailDesignSh'); if(_ov) _ov.style.zIndex='880';
   var fill=function(){
     var f=window._ceFrom||{}; var d=_edDesign();
     var set=function(id,v){ var el=document.getElementById(id); if(el) el.value=v||''; };
@@ -12935,6 +12941,22 @@ function edPaintPreview(){
   var box=document.getElementById('edPvBox'); if(!box) return;
   // Stage the unsaved values so the preview reflects what's on screen.
   var v=edCollect();
+  if(window._edCampScope){
+    // Campaign mode: show account values with this campaign's overrides on top,
+    // without ever writing into the account's cached settings.
+    var snap=window._ceFrom; var base=snap||{}; var camp=window._edCampScope;
+    window._ceFrom={
+      from_email:(camp.from_email||base.from_email||''),
+      from_name:(camp.from_name||base.from_name||''), enabled:true,
+      email_logo_url:(v.logo||base.email_logo_url||''),
+      email_website_url:(v.website||base.email_website_url||''),
+      email_design:v.design };
+    try{
+      box.innerHTML = edEmailShellHTML('Welcome to '+(v.design.sender_name||camp.from_name||'your clinic'),
+        'Hi Sarah,\n\nThank you for reaching out. This is a sample message so you can see your header and footer.\n\nWarm regards,\n'+(v.design.sender_name||camp.from_name||'Your team'));
+    } finally { window._ceFrom=snap; }
+    return;
+  }
   window._ceFrom=window._ceFrom||{};
   window._ceFrom.email_logo_url=v.logo; window._ceFrom.email_website_url=v.website; window._ceFrom.email_design=v.design;
   box.innerHTML = edEmailShellHTML('Welcome to '+(v.design.sender_name||'your clinic'),
@@ -12944,6 +12966,26 @@ function saveEmailDesign(){
   var v=edCollect();
   if(v.logo && !/^https:\/\//i.test(v.logo)){ showToast('The logo link must start with https://'); return; }
   var btn=document.getElementById('edSaveBtn'); if(btn){ btn.textContent='Saving…'; btn.disabled=true; }
+  if(window._edCampScope){
+    var _campId=window._edCampScope.id;
+    (async function(){
+      try{
+        var r=await sbFetch('/rest/v1/campaigns?id=eq.'+_campId+'&select=settings');
+        var rows=r.ok?await r.json().catch(function(){return[];}):[];
+        var st=(rows&&rows[0]&&rows[0].settings)||{};
+        if(typeof st==='string'){ try{ st=JSON.parse(st); }catch(_e){ st={}; } }
+        var dz={ logo_url:v.logo, website_url:v.website, sender_name:v.design.sender_name, location:v.design.location, timings:v.design.timings, facebook:v.design.facebook, instagram:v.design.instagram, google:v.design.google };
+        var _any=false; Object.keys(dz).forEach(function(k){ if(dz[k]) _any=true; });
+        if(_any) st.email_design=dz; else delete st.email_design;
+        var pr=await sbFetch('/rest/v1/campaigns?id=eq.'+_campId,{method:'PATCH',body:JSON.stringify({settings:st})});
+        if(!pr.ok) throw new Error('save failed');
+        [].concat(window._clientCampaigns||[], (window._adminData&&window._adminData.campaigns)||[]).forEach(function(c){ if(String(c.id)===String(_campId)) c.settings=st; });
+        closeSheet('emailDesignSh'); showToast('Campaign email design saved');
+      }catch(e){ showToast('Could not save \u2014 try again'); }
+      if(btn){ btn.textContent='Save design'; btn.disabled=false; }
+    })();
+    return;
+  }
   sbFetch('/rest/v1/rpc/update_my_email_design2',{ method:'POST', body: JSON.stringify({ p_logo:v.logo, p_website:v.website, p_design:v.design }) })
     .then(function(r){ if(!r.ok) throw 0; return r.json(); })
     .then(function(ok){
@@ -19943,7 +19985,34 @@ function openCampSettings(campId){
 }
 function csOpenEmailSender(){
   if(!window._csCampId){ showToast('Campaign not found'); return; }
-  bwEditCampEmail(window._csCampId);
+  openCampEmailDesign(window._csCampId, window._csCpName||'Campaign');
+}
+function openCampEmailDesign(campId, campName){
+  var _cps=[].concat(window._clientCampaigns||[], (window._adminData&&window._adminData.campaigns)||[]);
+  var cp=_cps.find(function(c){ return String(c.id)===String(campId); })||{};
+  var st=cp.settings; if(typeof st==='string'){ try{ st=JSON.parse(st); }catch(_e){ st=null; } }
+  var em=(st&&st.email)||{}; var dz=(st&&st.email_design)||{};
+  window._edCampScope={ id:String(campId), name:campName||cp.name||'Campaign', from_name:em.from_name||'', from_email:em.from_email||'' };
+  var set=function(fid,v){ var el=document.getElementById(fid); if(el) el.value=v||''; };
+  set('edLogo', dz.logo_url); set('edWebsite', dz.website_url);
+  set('edSender', dz.sender_name); set('edLocation', dz.location);
+  set('edTimings', dz.timings); set('edFacebook', dz.facebook); set('edInstagram', dz.instagram); set('edGoogle', dz.google);
+  edPaintLogoThumb(dz.logo_url||'');
+  var pv=document.getElementById('edPvBox'); if(pv) pv.style.display='none';
+  var pb=document.getElementById('edPvBtn'); if(pb) pb.textContent='\uD83D\uDC41 Preview full email';
+  var t=document.getElementById('edShTitle'); if(t) t.textContent=window._edCampScope.name+' \u00b7 Email design';
+  var line=document.getElementById('edCampSender');
+  if(line){
+    var _esc=function(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+    var who = em.from_email ? ((em.from_name?em.from_name+' ':'')+'<'+em.from_email+'>') : 'your account\u2019s default sender';
+    line.innerHTML='\uD83D\uDCE4 This campaign\u2019s emails send as <b>'+_esc(who)+'</b>'
+      +(window._isAdviuzStaff
+        ?' &nbsp;<span onclick="bwEditCampEmail(\''+String(campId)+'\')" style="color:var(--blue);font-weight:800;cursor:pointer">\u270E Change</span>'
+        :'<br><span style="font-size:11px">The send address is managed by Adviuz \u2014 contact us to change it. The design below is yours.</span>');
+    line.style.display='block';
+  }
+  var ov=document.getElementById('emailDesignSh'); if(ov) ov.style.zIndex='940';
+  openSheet('emailDesignSh');
 }
 function csFooterBack(){
   if (!window._csPage || window._csPage === 'menu') closeSheet('campSettingsSh');
