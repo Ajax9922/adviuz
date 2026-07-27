@@ -3902,7 +3902,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-27 leadadd-3';
+var APP_VERSION = 'v2026-07-27 leadadd-4';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -14194,6 +14194,8 @@ async function initTwilioDevice() {
     twilioDevice.on('incoming', function(conn) {
       activeCall = conn;
       var from   = conn.parameters.From || 'Unknown';
+      var _campNm = '';
+      try{ _campNm = (conn.customParameters && conn.customParameters.get && conn.customParameters.get('campaign')) || ''; }catch(_e){}
       var phone  = from.replace(/\D/g,'').slice(-10);
       var lead   = leads.find(function(l){ return l.ph.replace(/\D/g,'').slice(-10) === phone; });
       _callLeadId = lead ? lead.id : null;
@@ -14211,7 +14213,7 @@ async function initTwilioDevice() {
       conn.on('reject',     function(){ _endInbound(); });
       conn.on('error',      function(e){ console.error('[Twilio] inbound error:', e && e.message); _endInbound(); });
 
-      showIncomingCall(lead ? (lead.company||lead.name) : from, from, lead);
+      showIncomingCall(lead ? (lead.company||lead.name) : from, from, lead, _campNm);
     });
 
     twilioDevice.on('registered',   function(){ console.log('[Twilio] Device ready ✅'); });
@@ -14228,12 +14230,13 @@ if(window._staffRole!=='sales_partner'&&window._staffRole!=='client'){twilioDevi
   }
 }
 
-function showIncomingCall(name, from, lead) {
+function showIncomingCall(name, from, lead, campName) {
   var ov = document.getElementById('incomingCallOv');
   if (!ov) return;
   document.getElementById('icName').textContent  = name;
   document.getElementById('icPhone').textContent = from;
-  document.getElementById('icStage').textContent = lead ? lead.stage : '';
+  var _stg = lead ? (lead.stage||'') : '';
+  document.getElementById('icStage').textContent = campName ? (campName + (_stg ? ' \u00b7 ' + _stg : '')) : _stg;
   ov.style.display = 'flex';
   window._icTimeout = setTimeout(rejectCall, 30000);
 }
@@ -14317,6 +14320,7 @@ function _makeCall(l) {
   var s = document.getElementById('cuStat');
   if (s) s.textContent = 'Calling...';
   // v2.x: connect() returns a Promise<Call>
+  var _inPartnerCall = (window._isPartnerMode === true) || (window._activeRole === 'partner');
   twilioDevice.connect({
     params: {
       To:       l.ph,
@@ -14324,7 +14328,10 @@ function _makeCall(l) {
       // In Partner view, don't borrow a client's number for the caller ID. Sending
       // an empty clientId makes the voice webhook fall back to the Adviuz house
       // number (TWILIO_PHONE_NUMBER). Client/operator calls keep the client number.
-      clientId: ((window._isPartnerMode === true) || (window._activeRole === 'partner')) ? '' : (_clientId || '')
+      clientId: _inPartnerCall ? '' : (_clientId || ''),
+      // Campaign-first caller ID: the lead sees THEIR campaign's number, so a
+      // callback lands on the right line (right forwarding, right dedup).
+      campaignId: _inPartnerCall ? '' : (l.campaign_id || l.campaign || '')
     }
   }).then(function(call) {
     activeCall = call;
