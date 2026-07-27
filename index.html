@@ -3902,7 +3902,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-27 leadadd-1';
+var APP_VERSION = 'v2026-07-27 leadadd-2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7546,6 +7546,8 @@ function _laFillSrcSelect(){
       var v=String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
       return '<option value="'+v+'">'+v+'</option>';
     }).join('');
+    var adv=(list||[]).find(function(s){ return String(s).trim().toLowerCase()==='adviuz'; });
+    if(adv) sel.value=String(adv);
   };
   paint((window._leadAddPrefs&&window._leadAddPrefs.sources)||LEAD_SRC_DEFAULTS);
   loadLeadAddPrefs().then(function(p){ paint(p.sources); });
@@ -7563,9 +7565,50 @@ function laPaintSrcList(){
   var box=document.getElementById('laSrcList'); if(!box) return;
   if(!window._laDraft){ box.innerHTML='<div style="padding:14px;font-size:12.5px;color:var(--sub)">Loading\u2026</div>'; return; }
   var arr=window._laDraft.sources||[];
+  var dragIdx=window._laDrag?window._laDrag.idx:-1;
   box.innerHTML = arr.length ? arr.map(function(s,i){
-    return '<div style="display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-bottom:1px solid var(--border);font-size:13.5px;color:var(--text)"><span>'+String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</span><span onclick="laRmSrc('+i+')" style="color:var(--red,#dc2626);font-weight:800;cursor:pointer;padding:2px 6px">\u2715</span></div>';
+    var on=(i===dragIdx);
+    return '<div data-larow="1" style="display:flex;align-items:center;gap:2px;padding:11px 14px;border-bottom:1px solid var(--border);font-size:13.5px;color:var(--text);background:'+(on?'var(--bg)':'transparent')+'">'
+      +'<span onpointerdown="laDragStart(event,'+i+')" style="cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;padding:4px 12px 4px 0;color:var(--sub);font-weight:800;font-size:15px">\u2261</span>'
+      +'<span style="flex:1">'+String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</span>'
+      +'<span onclick="laRmSrc('+i+')" style="color:var(--red,#dc2626);font-weight:800;cursor:pointer;padding:2px 6px">\u2715</span></div>';
   }).join('') : '<div style="padding:14px;font-size:12.5px;color:var(--sub)">No sources yet \u2014 add one below.</div>';
+}
+function laDragStart(ev,i){
+  ev.preventDefault();
+  window._laDrag={ idx:i };
+  document.addEventListener('pointermove', laDragMove, { passive:false });
+  document.addEventListener('pointerup', laDragEnd, { once:true });
+  laPaintSrcList();
+}
+function laDragMove(ev){
+  var d=window._laDrag; if(!d) return;
+  ev.preventDefault();
+  var box=document.getElementById('laSrcList'); if(!box) return;
+  var rows=Array.prototype.slice.call(box.querySelectorAll('[data-larow]'));
+  if(!rows.length) return;
+  var y=ev.clientY, target=d.idx;
+  var first=rows[0].getBoundingClientRect(), last=rows[rows.length-1].getBoundingClientRect();
+  if(y<=first.top){ target=0; }
+  else if(y>=last.bottom){ target=rows.length-1; }
+  else {
+    for(var j=0;j<rows.length;j++){
+      var r=rows[j].getBoundingClientRect();
+      if(y>r.top && y<=r.bottom){ target=j; break; }
+    }
+  }
+  if(target!==d.idx && window._laDraft && window._laDraft.sources){
+    var arr=window._laDraft.sources;
+    var it=arr.splice(d.idx,1)[0];
+    arr.splice(target,0,it);
+    d.idx=target;
+    laPaintSrcList();
+  }
+}
+function laDragEnd(){
+  document.removeEventListener('pointermove', laDragMove);
+  window._laDrag=null;
+  laPaintSrcList();
 }
 function laAddSrc(){
   var inp=document.getElementById('laSrcNew'); if(!inp) return;
