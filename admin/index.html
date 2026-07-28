@@ -674,7 +674,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-28 ai-calling-1</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-28 ai-calling-2</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -5580,6 +5580,8 @@ function openEditCampaign(btn) {
     + '<button type="button" class="btn-save" style="width:100%;margin-bottom:8px" onclick="_ecamSaveRetellMap()">\uD83D\uDCBE Save AI number setup</button>'
     + '<button type="button" id="ecam-wire-router" onclick="_ecamWireRouter()" style="width:100%;padding:10px;border:none;border-radius:8px;background:var(--brand);color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">&#128678; Turn on Smart Call Routing for this number</button>'
     + '<div style="font-size:10px;color:var(--muted);margin-top:6px">Smart Routing makes this number check the AI settings above on every single call &mdash; AI inside the schedule, humans outside it. It also protects the number: saving ads or settings can never accidentally switch the AI off again.</div>'
+    + '<button type="button" id="ecam-retell-register" onclick="_ecamRegisterRetell()" style="width:100%;margin-top:10px;padding:10px;border:none;border-radius:8px;background:var(--brand);color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">&#128222; Register this number in Retell</button>'
+    + '<div style="font-size:10px;color:var(--muted);margin-top:6px">Registration lets the AI make outbound calls FROM this exact number, so leads see the client&apos;s own caller ID. One click sets up everything in Twilio and Retell automatically. Save the agent IDs above first.</div>'
     + '</div>'
     + '</div>'
     + '<div class="ecam-pane" data-pane="fields" style="display:none">'
@@ -6496,6 +6498,7 @@ async function _ecamLoadRetellStatus(){
       var bits=[];
       bits.push(d.connected?'\u2705 Retell is connected to Adviuz.':'\u26A0\uFE0F Retell is NOT connected \u2014 paste the API key below.');
       if(phone) bits.push(d.wired?'\u2705 This number is on Smart Call Routing.':'\u26A0\uFE0F This number is not on Smart Call Routing yet \u2014 use the button below.');
+      if(phone) bits.push(d.registered?'\u2705 Registered in Retell \u2014 outbound AI calls come from this number.':'\u26A0\uFE0F Not registered in Retell \u2014 outbound AI calls borrow the shared Adviuz line for now.');
       el.innerHTML=bits.join('<br>');
     }
     var map=d.map||null;
@@ -6533,6 +6536,24 @@ async function _ecamSaveRetellMap(){
     if(d&&d.success){ toast('\u2705 AI number setup saved'); _ecamLoadRetellStatus(); }
     else toast('Could not save'+((d&&d.error)?': '+d.error:''));
   }catch(e){ toast('Could not save'); }
+}
+async function _ecamRegisterRetell(){
+  var phone=_ecamVal('ecam-tw-number')||window._editCamTwNumber||'';
+  if(!phone){ toast('Pick this campaign\u2019s Twilio number first (Calls & SMS tab)'); return; }
+  var ia=_ecamVal('ecam-retell-in-agent'), oa=_ecamVal('ecam-retell-out-agent');
+  if(!ia&&!oa){ toast('Save the AI number setup (agent IDs) above first'); return; }
+  if(!confirm('Register '+phone+' inside Retell?\n\nAfter this, outbound AI calls go out FROM this exact number \u2014 leads see the client\u2019s own caller ID. This sets up Twilio and Retell automatically and only needs to be done once per number.')) return;
+  var btn=document.getElementById('ecam-retell-register');
+  if(btn){ btn.disabled=true; btn.textContent='Registering\u2026'; }
+  try{
+    var nick='';
+    try{ var cam=(window._allCampaigns||[]).find(function(c){ return String(c.id)===String(window._editCampaignId); }); nick=(cam&&cam.name)||''; }catch(e){}
+    var r=await sbAdmin('/functions/v1/twilio-call-router?action=retell-register',{ method:'POST', body:JSON.stringify({ phone:phone, nickname:nick||('Adviuz '+phone) }) });
+    var d=r.ok?await r.json():await r.json().catch(function(){ return {}; });
+    if(d&&d.success){ toast(d.already_registered?'\u2705 Already registered \u2014 outbound now uses this number':'\u2705 '+phone+' registered in Retell'); _ecamLoadRetellStatus(); }
+    else toast('Could not register'+((d&&d.error)?': '+d.error:''));
+  }catch(e){ toast('Could not register'); }
+  if(btn){ btn.disabled=false; btn.innerHTML='\ud83d\udcde Register this number in Retell'; }
 }
 async function _ecamWireRouter(){
   var phone=_ecamVal('ecam-tw-number')||window._editCamTwNumber||'';
