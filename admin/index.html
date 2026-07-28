@@ -674,7 +674,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-22 email-setup-2</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-28 ai-calling-1</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -4461,7 +4461,10 @@ async function _ecamConnectWebhooks(){
   if(btn){ btn.disabled = true; btn.textContent = 'Connecting\u2026'; }
   var okCall = false, okSms = false;
   try {
-    var v = await sbAdmin('/functions/v1/twilio-voice?action=set-inbound-webhook', { method:'POST', body: JSON.stringify({ phone: phone }) });
+    // Voice goes to the smart router: it decides AI vs human on every call
+    // from the campaign's AI settings, so an admin save can never silently
+    // un-wire a number from AI again.
+    var v = await sbAdmin('/functions/v1/twilio-call-router?action=wire', { method:'POST', body: JSON.stringify({ phone: phone }) });
     okCall = v.ok;
   } catch(e){}
   try {
@@ -5355,7 +5358,7 @@ function openEditCampaign(btn) {
     +   '<button class="modal-close" onclick="closeCampaignEditor()" title="Close">\u00d7</button>'
     + '</div>'
     + '<div class="ecam-tabs" id="ecam-tabs">'
-    +   ['basics|Basic','preview|Client Preview','comms|Calls &amp; SMS','fields|Fields','tracking|Tracking &amp; Pixels','fbleads|Facebook Lead Ads','ai|AI Profile','email|Email'].map(function(t,i){
+    +   ['basics|Basic','preview|Client Preview','comms|Calls &amp; SMS','crm|CRM','fields|Fields','tracking|Tracking &amp; Pixels','fbleads|Facebook Lead Ads','ai|AI Profile','email|Email'].map(function(t,i){
           var q=t.split('|');
           return '<button type="button" class="ecam-tab'+(i===0?' active':'')+'" data-tab="'+q[0]+'" onclick="showCamTab(\'' + q[0] + '\')">'+q[1]+'</button>';
         }).join('')
@@ -5495,6 +5498,89 @@ function openEditCampaign(btn) {
     + '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);cursor:pointer"><input type="checkbox" id="ecam-welcome-on" checked style="width:16px;height:16px;accent-color:var(--brand)"> Send welcome text to new leads</label>'
     + '</div>'
     + '<div class="ecam-panesave"><button type="button" class="btn-save" onclick="saveCamComms()">\uD83D\uDCBE Save calls &amp; SMS</button></div>'
+    + '</div>'
+    + '<div class="ecam-pane" data-pane="crm" style="display:none">'
+    // ── Card 1: CRM product (applies to the whole client account) ──
+    + '<div style="margin-top:6px;padding-top:14px;border-top:1px solid var(--border)">'
+    + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">&#127919; CRM Product <span style="font-weight:400;color:var(--muted)">(whole client account)</span></div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Pick which product this client is on. This is a client-level setting &mdash; it applies to all of their campaigns.</div>'
+    + '<div class="form-group"><label class="fld">Product</label>'
+    + '<select class="fld" id="ecam-crm-type" onchange="_ecamCrmTypeChange()">'
+    +   '<option value="normal">Normal CRM</option>'
+    +   '<option value="ai_engine">AI Sales Engine</option>'
+    + '</select></div>'
+    + '<div id="ecam-crm-planwrap" style="display:none">'
+    + '<div class="form-group"><label class="fld">AI plan</label>'
+    + '<select class="fld" id="ecam-crm-plan">'
+    +   '<option value="starter">Starter &mdash; 500 AI minutes / month</option>'
+    +   '<option value="growth">Growth &mdash; 1,000 AI minutes / month</option>'
+    +   '<option value="scale">Scale &mdash; 2,000 AI minutes / month</option>'
+    + '</select></div>'
+    + '<div class="form-group"><label class="fld">AI minutes balance</label>'
+    +   '<div style="display:flex;gap:8px;align-items:center">'
+    +     '<div id="ecam-crm-minutes" style="flex:1;font-size:15px;font-weight:800;color:var(--brand)">&mdash;</div>'
+    +     '<button type="button" class="tbl-btn" onclick="_ecamLoadPlanMinutes()">Refill to plan</button>'
+    +   '</div>'
+    +   '<div style="font-size:10px;color:var(--muted);margin-top:4px">&ldquo;Refill to plan&rdquo; sets the balance to the plan&apos;s monthly minutes. It asks before changing anything.</div>'
+    + '</div>'
+    + '</div>'
+    + '<button type="button" class="btn-save" style="width:100%" onclick="saveCamCrmType()">\uD83D\uDCBE Save CRM product</button>'
+    + '</div>'
+    // ── Card 2: AI calling for THIS campaign ──
+    + '<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">'
+    + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">&#129302; AI Calling <span style="font-weight:400;color:var(--muted)">(this campaign only)</span></div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Controls when the AI answers this campaign&apos;s number and whether it can call leads. The client can also change these from their own dashboard.</div>'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);cursor:pointer;margin-bottom:10px"><input type="checkbox" id="ecam-ai-inbound-on" style="width:16px;height:16px;accent-color:var(--brand)"> AI answers incoming calls</label>'
+    + '<div class="form-group"><label class="fld">When does the AI answer?</label>'
+    + '<select class="fld" id="ecam-ai-sched-mode" onchange="_ecamAiSchedChange()">'
+    +   '<option value="always">Always (24/7)</option>'
+    +   '<option value="window">Only during these hours</option>'
+    + '</select></div>'
+    + '<div id="ecam-ai-windowwrap" style="display:none">'
+    + '<div class="form-grid">'
+    + '<div class="form-group"><label class="fld">AI starts answering at</label><input class="fld" type="time" id="ecam-ai-start" value="18:00"></div>'
+    + '<div class="form-group"><label class="fld">AI stops answering at</label><input class="fld" type="time" id="ecam-ai-end" value="09:00"></div>'
+    + '</div>'
+    + '<div style="font-size:10px;color:var(--muted);margin:-4px 0 10px">Overnight windows work: 6:00 PM to 9:00 AM means the AI covers evenings and nights, humans take the day. Outside the window calls forward to the client&apos;s phone as usual.</div>'
+    + '<div class="form-group"><label class="fld">Timezone for these hours</label>'
+    + '<select class="fld" id="ecam-ai-tz">'
+    +   '<option value="America/Toronto">Eastern (Toronto)</option>'
+    +   '<option value="America/Winnipeg">Central (Winnipeg)</option>'
+    +   '<option value="America/Regina">Saskatchewan (Regina)</option>'
+    +   '<option value="America/Edmonton">Mountain (Edmonton)</option>'
+    +   '<option value="America/Vancouver">Pacific (Vancouver)</option>'
+    +   '<option value="America/Halifax">Atlantic (Halifax)</option>'
+    + '</select></div>'
+    + '</div>'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);cursor:pointer;margin-bottom:10px"><input type="checkbox" id="ecam-ai-outbound-on" style="width:16px;height:16px;accent-color:var(--brand)"> AI can call leads (outbound)</label>'
+    + '<div class="form-group"><label class="fld">How outbound AI calls start</label>'
+    + '<select class="fld" id="ecam-ai-outmode">'
+    +   '<option value="manual">Only when someone presses the AI Call button</option>'
+    +   '<option value="auto">Automatically call every new lead</option>'
+    + '</select>'
+    + '<div style="font-size:10px;color:var(--muted);margin-top:4px">Automatic calls only go out between 8 AM and 9 PM, and never to leads who opted out.</div></div>'
+    + '<button type="button" class="btn-save" style="width:100%" onclick="saveCamAiCalling()">\uD83D\uDCBE Save AI calling settings</button>'
+    + '</div>'
+    // ── Card 3: Retell AI connection & this number's agents ──
+    + '<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">'
+    + '<div style="font-size:12px;font-weight:800;color:var(--text);margin-bottom:4px">&#128268; Retell AI Connection</div>'
+    + '<div id="ecam-retell-status" style="font-size:11px;color:var(--muted);margin-bottom:12px">Checking connection&hellip;</div>'
+    + '<div class="form-group"><label class="fld">Retell API key</label>'
+    +   '<div style="display:flex;gap:8px">'
+    +     '<input class="fld" type="password" id="ecam-retell-key" placeholder="Leave blank to keep the current key" style="flex:1">'
+    +     '<button type="button" class="tbl-btn" onclick="_ecamSaveRetellKey()">Save key</button>'
+    +   '</div>'
+    +   '<div style="font-size:10px;color:var(--muted);margin-top:4px">One key powers all clients. Only paste a new one if you rotated it in Retell.</div>'
+    + '</div>'
+    + '<div style="font-size:12px;font-weight:800;color:var(--text);margin:14px 0 4px">This campaign&apos;s AI agents</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Copy the agent IDs from the Retell dashboard. The inbound agent answers calls to <span id="ecam-retell-numlbl" style="font-weight:700">this campaign&apos;s number</span>; the outbound agent makes AI calls to leads.</div>'
+    + '<div class="form-group"><label class="fld">Inbound agent ID (answers calls)</label><input class="fld" id="ecam-retell-in-agent" placeholder="agent_&hellip;"></div>'
+    + '<div class="form-group"><label class="fld">Outbound agent ID (calls leads)</label><input class="fld" id="ecam-retell-out-agent" placeholder="agent_&hellip;"></div>'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);cursor:pointer;margin-bottom:12px"><input type="checkbox" id="ecam-retell-active" style="width:16px;height:16px;accent-color:var(--brand)"> This number is live on Retell</label>'
+    + '<button type="button" class="btn-save" style="width:100%;margin-bottom:8px" onclick="_ecamSaveRetellMap()">\uD83D\uDCBE Save AI number setup</button>'
+    + '<button type="button" id="ecam-wire-router" onclick="_ecamWireRouter()" style="width:100%;padding:10px;border:none;border-radius:8px;background:var(--brand);color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">&#128678; Turn on Smart Call Routing for this number</button>'
+    + '<div style="font-size:10px;color:var(--muted);margin-top:6px">Smart Routing makes this number check the AI settings above on every single call &mdash; AI inside the schedule, humans outside it. It also protects the number: saving ads or settings can never accidentally switch the AI off again.</div>'
+    + '</div>'
     + '</div>'
     + '<div class="ecam-pane" data-pane="fields" style="display:none">'
     + '<div style="margin-top:6px;padding-top:14px;border-top:1px solid var(--border)">'
@@ -5672,9 +5758,10 @@ function openEditCampaign(btn) {
   setV('ecam-tg-custom',     tg.custom_head);
   window._editCamClientId = cam ? cam.client_id : null;
   if (window._editCamClientId) {
+    _ecamLoadCrm(window._editCamClientId);
     loadTwilioNumbers();
     // Prefer THIS campaign's own number + forward; fall back to client-level / profile for anything missing.
-    sbAdmin('/rest/v1/campaigns?id=eq.' + window._editCampaignId + '&select=twilio_phone,forward_to_phone,notification_emails,welcome_sms,welcome_sms_enabled,ai_profile,meta_capi_token,meta_capi_test_code&limit=1')
+    sbAdmin('/rest/v1/campaigns?id=eq.' + window._editCampaignId + '&select=twilio_phone,forward_to_phone,notification_emails,welcome_sms,welcome_sms_enabled,ai_profile,meta_capi_token,meta_capi_test_code,settings&limit=1')
       .then(function(res){ return res.ok ? res.json() : []; })
       .then(function(rows){
         var crow = (rows && rows[0]) || {};
@@ -5689,6 +5776,8 @@ function openEditCampaign(btn) {
         try { var _em = crow.notification_emails; if (typeof _em === 'string') _em = JSON.parse(_em || '[]'); setV('ecam-emails', (Array.isArray(_em) ? _em : []).join(', ')); } catch(e){ setV('ecam-emails',''); }
         setV('ecam-welcome', crow.welcome_sms || '');
         var wOn = document.getElementById('ecam-welcome-on'); if (wOn) wOn.checked = (crow.welcome_sms_enabled !== false);
+        // CRM tab: fill the campaign's AI-calling fields from settings.ai
+        try { _ecamFillAiCalling((crow.settings && crow.settings.ai) || null); } catch(e){}
         var aip = crow.ai_profile || {};
         setV('ecam-aip-service',  aip.service);
         setV('ecam-aip-offer',    aip.offer);
@@ -6112,6 +6201,7 @@ function showCamTab(key){
   });
   var body=panel.querySelector('.ecam-body'); if(body) body.scrollTop=0;
   if(key==='email') ecLoadEmail();
+  if(key==='crm') _ecamLoadRetellStatus();
 }
 
 function closeCampaignEditor(){
@@ -6218,7 +6308,7 @@ async function saveCamComms(){
       // Auto-point this number's inbound voice + SMS webhooks at us (best-effort)
       if(twPhone){
         try{
-          var wr=await sbAdmin('/functions/v1/twilio-voice?action=set-inbound-webhook',{ method:'POST', body:JSON.stringify({ phone:twPhone }) });
+          var wr=await sbAdmin('/functions/v1/twilio-call-router?action=wire',{ method:'POST', body:JSON.stringify({ phone:twPhone }) });
           if(!wr.ok) toast('Number saved, but auto-wiring its call webhook failed — set it manually in Twilio.');
         }catch(e){ toast('Number saved, but auto-wiring its call webhook failed — set it manually in Twilio.'); }
         try{
@@ -6293,6 +6383,172 @@ async function saveCamAi(){
   if(!hasAny && !confirm('Every AI Profile field is blank.\n\nSave anyway? This clears the AI profile for this campaign.')) return;
   await _ecamPatch({ ai_profile: hasAny?aip:null }, 'AI profile saved');
 }
+
+// ═══ CRM TAB (CRM product · AI calling · Retell connection) ═══════════════
+// The CRM product + plan live on client_integrations (whole client). The AI
+// calling switches + schedule live in campaigns.settings.ai (per campaign) —
+// the same place the client's own dashboard reads and writes them.
+function _ecamCrmTypeChange(){
+  var t=document.getElementById('ecam-crm-type');
+  var w=document.getElementById('ecam-crm-planwrap');
+  if(w) w.style.display=(t && t.value==='ai_engine')?'block':'none';
+}
+function _ecamAiSchedChange(){
+  var m=document.getElementById('ecam-ai-sched-mode');
+  var w=document.getElementById('ecam-ai-windowwrap');
+  if(w) w.style.display=(m && m.value==='window')?'block':'none';
+}
+function _ecamFillAiCalling(ai){
+  ai = ai || {};
+  var sch = ai.schedule || {};
+  var inb=document.getElementById('ecam-ai-inbound-on'); if(inb) inb.checked=(ai.inbound_on===true);
+  var out=document.getElementById('ecam-ai-outbound-on'); if(out) out.checked=(ai.outbound_on===true);
+  var om=document.getElementById('ecam-ai-outmode'); if(om) om.value=(ai.outbound_mode==='auto')?'auto':'manual';
+  var sm=document.getElementById('ecam-ai-sched-mode'); if(sm) sm.value=(sch.mode==='window')?'window':'always';
+  var st=document.getElementById('ecam-ai-start'); if(st && sch.start) st.value=sch.start;
+  var en=document.getElementById('ecam-ai-end'); if(en && sch.end) en.value=sch.end;
+  var tz=document.getElementById('ecam-ai-tz'); if(tz && ai.tz) tz.value=ai.tz;
+  _ecamAiSchedChange();
+}
+var PLAN_MINUTES = { starter: 500, growth: 1000, scale: 2000 };
+async function _ecamLoadCrm(clientId){
+  try{
+    var r=await sbAdmin('/rest/v1/client_integrations?client_id=eq.'+clientId+'&select=id,crm_type,plan,ai_minutes_balance,ai_minutes_total&limit=1');
+    var rows=r.ok?await r.json():[];
+    var ci=(rows&&rows[0])||{};
+    window._ecamCiId=ci.id||null;
+    var t=document.getElementById('ecam-crm-type'); if(t) t.value=(ci.crm_type==='ai_engine')?'ai_engine':'normal';
+    var p=document.getElementById('ecam-crm-plan'); if(p && ci.plan && PLAN_MINUTES[ci.plan]!=null) p.value=ci.plan;
+    var m=document.getElementById('ecam-crm-minutes');
+    if(m) m.textContent=(ci.ai_minutes_balance!=null?Number(ci.ai_minutes_balance).toLocaleString():'0')+' min left'+(ci.ai_minutes_total?' of '+Number(ci.ai_minutes_total).toLocaleString():'');
+    _ecamCrmTypeChange();
+  }catch(e){}
+}
+async function saveCamCrmType(){
+  var clientId=window._editCamClientId;
+  if(!clientId){ toast('No client on this campaign'); return; }
+  var type=_ecamVal('ecam-crm-type')||'normal';
+  var plan=_ecamVal('ecam-crm-plan')||'starter';
+  var body={ crm_type:type, plan:plan, ai_enabled:(type==='ai_engine') };
+  try{
+    var r;
+    if(window._ecamCiId){
+      r=await sbAdmin('/rest/v1/client_integrations?id=eq.'+window._ecamCiId,{ method:'PATCH', headers:{ Prefer:'return=minimal' }, body:JSON.stringify(body) });
+    } else {
+      body.client_id=clientId;
+      r=await sbAdmin('/rest/v1/client_integrations',{ method:'POST', headers:{ Prefer:'return=minimal' }, body:JSON.stringify(body) });
+    }
+    if(r && (r.ok||r.status===204)){
+      toast(type==='ai_engine' ? '\u2705 Client is on the AI Sales Engine \u00b7 '+plan.charAt(0).toUpperCase()+plan.slice(1)+' plan' : '\u2705 Client is on the Normal CRM');
+      _ecamLoadCrm(clientId);
+    } else { toast('Could not save CRM product'); }
+  }catch(e){ toast('Could not save CRM product'); }
+}
+async function _ecamLoadPlanMinutes(){
+  var clientId=window._editCamClientId;
+  if(!clientId||!window._ecamCiId){ toast('Save the CRM product first'); return; }
+  var plan=_ecamVal('ecam-crm-plan')||'starter';
+  var mins=PLAN_MINUTES[plan]||500;
+  if(!confirm('Refill this client\u2019s AI minutes to '+mins.toLocaleString()+' (the '+plan+' plan allowance)?\n\nThis replaces the current balance.')) return;
+  try{
+    var r=await sbAdmin('/rest/v1/client_integrations?id=eq.'+window._ecamCiId,{ method:'PATCH', headers:{ Prefer:'return=minimal' }, body:JSON.stringify({ ai_minutes_balance:mins, ai_minutes_total:mins }) });
+    if(r && (r.ok||r.status===204)){ toast('\u2705 AI minutes set to '+mins.toLocaleString()); _ecamLoadCrm(clientId); }
+    else toast('Could not update minutes');
+  }catch(e){ toast('Could not update minutes'); }
+}
+async function saveCamAiCalling(){
+  var id=window._editCampaignId;
+  if(!id){ toast('No campaign selected'); return; }
+  var chk=function(x){ var el=document.getElementById(x); return !!(el&&el.checked); };
+  var ai={
+    inbound_on: chk('ecam-ai-inbound-on'),
+    schedule: {
+      mode: _ecamVal('ecam-ai-sched-mode')==='window'?'window':'always',
+      start: _ecamVal('ecam-ai-start')||'18:00',
+      end: _ecamVal('ecam-ai-end')||'09:00'
+    },
+    tz: _ecamVal('ecam-ai-tz')||'America/Toronto',
+    outbound_on: chk('ecam-ai-outbound-on'),
+    outbound_mode: _ecamVal('ecam-ai-outmode')==='auto'?'auto':'manual'
+  };
+  try{
+    // Merge into settings fresh, so we never clobber welcome/appt/email keys.
+    var gr=await sbAdmin('/rest/v1/campaigns?id=eq.'+id+'&select=settings&limit=1');
+    var grows=gr.ok?await gr.json():[];
+    var st=(grows&&grows[0]&&grows[0].settings)||{};
+    if(typeof st==='string'){ try{ st=JSON.parse(st); }catch(e){ st={}; } }
+    st.ai=ai;
+    var ok=await _ecamPatch({ settings: st }, '\u2705 AI calling settings saved');
+    if(ok){
+      var cam=(window._allCampaigns||[]).find(function(c){ return String(c.id)===String(id); });
+      if(cam) cam.settings=st;
+    }
+  }catch(e){ toast('Could not save AI calling settings'); }
+}
+async function _ecamLoadRetellStatus(){
+  var el=document.getElementById('ecam-retell-status');
+  var phone=_ecamVal('ecam-tw-number')||window._editCamTwNumber||'';
+  var lbl=document.getElementById('ecam-retell-numlbl'); if(lbl&&phone) lbl.textContent=phone;
+  try{
+    var r=await sbAdmin('/functions/v1/twilio-call-router?action=status',{ method:'POST', body:JSON.stringify({ phone:phone }) });
+    var d=r.ok?await r.json():{};
+    if(el){
+      var bits=[];
+      bits.push(d.connected?'\u2705 Retell is connected to Adviuz.':'\u26A0\uFE0F Retell is NOT connected \u2014 paste the API key below.');
+      if(phone) bits.push(d.wired?'\u2705 This number is on Smart Call Routing.':'\u26A0\uFE0F This number is not on Smart Call Routing yet \u2014 use the button below.');
+      el.innerHTML=bits.join('<br>');
+    }
+    var map=d.map||null;
+    if(map){
+      var ia=document.getElementById('ecam-retell-in-agent'); if(ia&&!ia.value) ia.value=map.inbound_agent_id||'';
+      var oa=document.getElementById('ecam-retell-out-agent'); if(oa&&!oa.value) oa.value=map.outbound_agent_id||'';
+      var ac=document.getElementById('ecam-retell-active'); if(ac) ac.checked=(map.active===true);
+    }
+  }catch(e){ if(el) el.textContent='Could not check the Retell connection.'; }
+}
+async function _ecamSaveRetellKey(){
+  var k=_ecamVal('ecam-retell-key');
+  if(!k){ toast('Paste the Retell API key first'); return; }
+  if(!confirm('Replace the platform Retell API key?\n\nEvery AI client uses this one key. A wrong key stops ALL AI calls.')) return;
+  try{
+    var r=await sbAdmin('/functions/v1/twilio-call-router?action=key-save',{ method:'POST', body:JSON.stringify({ api_key:k }) });
+    var d=r.ok?await r.json():{};
+    if(d&&d.success){ toast('\u2705 Retell key saved'); var el=document.getElementById('ecam-retell-key'); if(el) el.value=''; _ecamLoadRetellStatus(); }
+    else toast('Could not save key'+((d&&d.error)?': '+d.error:''));
+  }catch(e){ toast('Could not save key'); }
+}
+async function _ecamSaveRetellMap(){
+  var phone=_ecamVal('ecam-tw-number')||window._editCamTwNumber||'';
+  if(!phone){ toast('Pick this campaign\u2019s Twilio number first (Calls & SMS tab)'); return; }
+  try{
+    var r=await sbAdmin('/functions/v1/twilio-call-router?action=map-save',{ method:'POST', body:JSON.stringify({
+      phone: phone,
+      inbound_agent_id: _ecamVal('ecam-retell-in-agent')||null,
+      outbound_agent_id: _ecamVal('ecam-retell-out-agent')||null,
+      active: (function(){ var el=document.getElementById('ecam-retell-active'); return !!(el&&el.checked); })(),
+      client_id: window._editCamClientId||null,
+      campaign_id: window._editCampaignId||null
+    }) });
+    var d=r.ok?await r.json():{};
+    if(d&&d.success){ toast('\u2705 AI number setup saved'); _ecamLoadRetellStatus(); }
+    else toast('Could not save'+((d&&d.error)?': '+d.error:''));
+  }catch(e){ toast('Could not save'); }
+}
+async function _ecamWireRouter(){
+  var phone=_ecamVal('ecam-tw-number')||window._editCamTwNumber||'';
+  if(!phone){ toast('Pick this campaign\u2019s Twilio number first (Calls & SMS tab)'); return; }
+  if(!confirm('Turn on Smart Call Routing for '+phone+'?\n\nFrom the next call onward, this number follows the AI settings above on every call. Nothing changes for callers when AI is off \u2014 calls forward to the client\u2019s phone exactly as before.')) return;
+  var btn=document.getElementById('ecam-wire-router');
+  if(btn){ btn.disabled=true; btn.textContent='Connecting\u2026'; }
+  try{
+    var r=await sbAdmin('/functions/v1/twilio-call-router?action=wire',{ method:'POST', body:JSON.stringify({ phone:phone }) });
+    var d=r.ok?await r.json():{};
+    if(d&&d.success){ toast('\u2705 '+phone+' is now on Smart Call Routing'); _ecamLoadRetellStatus(); }
+    else toast('Could not connect'+((d&&d.error)?': '+d.error:''));
+  }catch(e){ toast('Could not connect'); }
+  if(btn){ btn.disabled=false; btn.innerHTML='\ud83d\udea6 Turn on Smart Call Routing for this number'; }
+}
+
 
 // ── VIEW CAMPAIGN LEADS ──
 function viewCampaignLeads(campaignId, campaignName) {
