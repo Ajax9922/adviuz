@@ -1900,8 +1900,14 @@ body.impersonating .ls-topbar{padding-top:8px}
       <button class="sh-x" onclick="closeSheet('rrSh')">&#x2715;</button>
     </div>
     <div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom,16px))">
-      <div id="rrMeta" style="font-size:12.5px;color:var(--sub);line-height:1.6;margin-bottom:12px"></div>
-      <iframe id="rrFrame" sandbox="" style="width:100%;height:52dvh;border:1px solid var(--border);border-radius:12px;background:#f4f6f9"></iframe>
+      <div id="rrMeta" style="font-size:12.5px;color:var(--sub);line-height:1.6;margin-bottom:10px"></div>
+      <div style="font-size:11px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">CC &mdash; also receives this report</div>
+      <div id="rrCcChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <input class="finp" id="rrCcNew" type="email" placeholder="Add another email&hellip;" style="flex:1;font-size:13px">
+        <button class="btn" onclick="rrAddCc()" style="flex-shrink:0;padding:0 16px;border-radius:10px;border:1.5px solid var(--text);background:var(--white);color:var(--text);font-weight:800;cursor:pointer;font-family:var(--f)">Add</button>
+      </div>
+      <iframe id="rrFrame" sandbox="" style="width:100%;height:46dvh;border:1px solid var(--border);border-radius:12px;background:#f4f6f9"></iframe>
       <div style="display:flex;gap:10px;margin-top:14px">
         <button onclick="dismissReportReview()" style="flex:1;padding:13px;border-radius:12px;border:1.5px solid var(--border);background:var(--white);color:var(--sub);font-size:13.5px;font-weight:700;cursor:pointer;font-family:var(--f)">Dismiss</button>
         <button id="rrSendBtn" onclick="approveReportReview()" style="flex:2;padding:13px;border-radius:12px;border:none;background:var(--green);color:#fff;font-size:13.5px;font-weight:800;cursor:pointer;font-family:var(--f)">&#x2705; Approve &amp; send</button>
@@ -3920,7 +3926,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-27 report-review-1';
+var APP_VERSION = 'v2026-07-27 report-review-2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -27469,15 +27475,42 @@ async function openReportReview(id){
   var t = document.getElementById('rrTitle'); if(t) t.textContent = (r.campaign_name||'Campaign')+' \u00b7 report review';
   var m = document.getElementById('rrMeta');
   if(m) m.innerHTML = 'To: <b>'+esc(r.client_contact||'')+' &lt;'+esc(r.to_email)+'&gt;</b><br>Subject: <b>'+esc(r.subject)+'</b>';
+  window._rrTo = String(r.to_email||'').toLowerCase();
+  window._rrCc = Array.isArray(r.cc_emails) ? r.cc_emails.slice() : [];
+  rrPaintCc();
   var f = document.getElementById('rrFrame');
   if(f) f.srcdoc = r.html || '<p style="font-family:sans-serif;padding:20px">No preview available.</p>';
   openSheet('rrSh');
 }
+function rrPaintCc(){
+  var box=document.getElementById('rrCcChips'); if(!box) return;
+  var esc=function(x){ return String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+  var arr=window._rrCc||[];
+  box.innerHTML = arr.length ? arr.map(function(e,i){
+    return '<span style="display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:6px 8px 6px 12px;font-size:12px;font-weight:700;color:var(--text)">'+esc(e)
+      +'<span onclick="rrRmCc('+i+')" style="color:var(--red,#dc2626);cursor:pointer;font-weight:800;padding:0 4px">\u2715</span></span>';
+  }).join('') : '<span style="font-size:12px;color:var(--sub)">No CC \u2014 only the main recipient gets it.</span>';
+}
+function rrAddCc(){
+  var inp=document.getElementById('rrCcNew'); if(!inp) return;
+  var v=String(inp.value||'').trim();
+  if(!v){ showToast('Type an email first'); return; }
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)){ showToast('That doesn\u2019t look like a valid email'); return; }
+  var arr=window._rrCc=window._rrCc||[];
+  if(v.toLowerCase()===window._rrTo){ showToast('That\u2019s already the main recipient'); return; }
+  if(arr.some(function(x){ return String(x).toLowerCase()===v.toLowerCase(); })){ showToast('Already in the CC list'); return; }
+  arr.push(v); inp.value=''; rrPaintCc();
+}
+function rrRmCc(i){ var arr=window._rrCc; if(!arr) return; arr.splice(i,1); rrPaintCc(); }
 async function approveReportReview(){
   var id = window._rrId; if(!id) return;
   var btn = document.getElementById('rrSendBtn');
   if(btn){ btn.textContent='Sending\u2026'; btn.disabled=true; }
   try{
+    // Save the (possibly edited) CC list first, so the send uses exactly what's on screen.
+    await sbFetch('/rest/v1/report_reviews?id=eq.'+encodeURIComponent(id), { method:'PATCH',
+      headers:{ Prefer:'return=minimal' },
+      body: JSON.stringify({ cc_emails: (window._rrCc||[]) }) });
     var res = await sbFetch('/functions/v1/report-review-send', { method:'POST', body: JSON.stringify({ review_id: id }) });
     var d = await res.json().catch(function(){ return {}; });
     if(!res.ok || !d.ok) throw new Error(d.error||'send failed');
