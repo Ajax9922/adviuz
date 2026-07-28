@@ -1892,6 +1892,24 @@ body.impersonating .ls-topbar{padding-top:8px}
   </div>
 </div>
 
+<!-- ═══ CAMPAIGN REPORT REVIEW SHEET (admin approval before client send) ═══ -->
+<div class="sheet-ov" id="rrSh" style="z-index:920" onclick="if(event.target===this)closeSheet('rrSh')">
+  <div class="sheet" style="max-height:94dvh"><div class="sheet-handle"></div>
+    <div class="sh-head">
+      <div class="sh-title" id="rrTitle">Report review</div>
+      <button class="sh-x" onclick="closeSheet('rrSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom,16px))">
+      <div id="rrMeta" style="font-size:12.5px;color:var(--sub);line-height:1.6;margin-bottom:12px"></div>
+      <iframe id="rrFrame" sandbox="" style="width:100%;height:52dvh;border:1px solid var(--border);border-radius:12px;background:#f4f6f9"></iframe>
+      <div style="display:flex;gap:10px;margin-top:14px">
+        <button onclick="dismissReportReview()" style="flex:1;padding:13px;border-radius:12px;border:1.5px solid var(--border);background:var(--white);color:var(--sub);font-size:13.5px;font-weight:700;cursor:pointer;font-family:var(--f)">Dismiss</button>
+        <button id="rrSendBtn" onclick="approveReportReview()" style="flex:2;padding:13px;border-radius:12px;border:none;background:var(--green);color:#fff;font-size:13.5px;font-weight:800;cursor:pointer;font-family:var(--f)">&#x2705; Approve &amp; send</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ LEAD ADDING SETTINGS SHEET (sources · team permission) ═══ -->
 <div class="sheet-ov" id="leadAddSh" style="z-index:900" onclick="if(event.target===this)closeSheet('leadAddSh')">
   <div class="sheet" style="max-height:92dvh"><div class="sheet-handle"></div>
@@ -3902,7 +3920,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-27 leadadd-4';
+var APP_VERSION = 'v2026-07-27 report-review-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -21460,7 +21478,7 @@ function openPartnersManager() {
   if (btn) goTab('dashboard', btn);
 }
 
-var _adminData = { clients:[], campaigns:[], allLeads:[], affiliates:[], commissions:[], payouts:[], quotes:[], invoices:[], caReports:[] };
+var _adminData = { clients:[], campaigns:[], allLeads:[], affiliates:[], commissions:[], payouts:[], quotes:[], invoices:[], caReports:[], reportReviews:[] };
 
 // Task 2: Accountant settings row loaded from app_settings.key='accountant'.
 // Structure: { ca_name, ca_firm, ca_email, cc_emails:[...], auto_approve:bool, review_delay_hours:int }
@@ -21484,6 +21502,7 @@ window._adminDashTab = 'clients';
 async function loadAdminData() {
   loadAccountantSettings(); // Task 2: fetch CA settings in parallel
   loadCaReports();          // Task 3c: fetch pending CA reports in parallel
+  loadReportReviews();      // Campaign report emails awaiting admin approval
   try {
     var [cRes, campRes, lRes, affRes, commRes, pcRes, lrRes, qRes, invRes] = await Promise.all([
       sbFetch('/rest/v1/clients?select=*&order=created_at.desc&limit=200'),
@@ -21589,6 +21608,8 @@ function adminDashHTML() {
   h += '</div>';
   // Task 3c: yellow attention card(s) for any pending CA quarterly reviews
   h += caReviewCardsHTML();
+  // Campaign report emails held for admin approval before they reach the client
+  h += reportReviewCardsHTML();
   if (!_adminLoaded) {
     return h + '<div style="text-align:center;padding:60px 20px;color:var(--sub)"><div style="font-size:32px;margin-bottom:12px">&#x231B;</div><div style="font-size:14px">Loading...</div></div>';
   }
@@ -27405,6 +27426,84 @@ async function loadAccountantSettings() {
     }
   } catch(e) { /* fall through to defaults */ }
   window._accountantSettings = Object.assign({}, window._accountantDefaults);
+}
+
+// ══════════════════════════════════════════════════════════════
+// CAMPAIGN REPORT REVIEW — emails held until admin approves
+// ══════════════════════════════════════════════════════════════
+async function loadReportReviews() {
+  try {
+    var res = await sbFetch('/rest/v1/report_reviews?status=eq.pending&select=id,campaign_name,client_contact,to_email,subject,created_at&order=created_at.desc');
+    _adminData.reportReviews = res.ok ? await res.json() : [];
+  } catch(e) { _adminData.reportReviews = []; }
+}
+function reportReviewCardsHTML() {
+  if (!window._isAdviuzStaff) return '';
+  var rows = _adminData.reportReviews || [];
+  if (!rows.length) return '';
+  var esc = function(x){ return String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+  var out = '';
+  rows.forEach(function(r){
+    var when = r.created_at ? new Date(r.created_at).toLocaleDateString('en-CA',{month:'short',day:'numeric'}) : '';
+    out += '<div style="margin:10px 12px 0;background:#fff8e6;border:1.5px solid #f0d48a;border-radius:14px;padding:14px 16px">'
+      + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:16px">\uD83D\uDCCB</span>'
+      + '<span style="font-size:13.5px;font-weight:800;color:var(--text)">Campaign report awaiting your approval</span></div>'
+      + '<div style="font-size:12.5px;color:var(--sub);line-height:1.5;margin-bottom:10px"><b>'+esc(r.campaign_name)+'</b> \u2192 '+esc(r.client_contact||'client')+' ('+esc(r.to_email)+') \u00b7 built '+esc(when)+'. Nothing is sent until you approve.</div>'
+      + '<div style="display:flex;gap:8px">'
+      + '<button onclick="openReportReview(\''+esc(r.id)+'\')" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid var(--text);background:var(--text);color:#fff;font-size:12.5px;font-weight:800;cursor:pointer;font-family:var(--f)">Review &amp; approve</button>'
+      + '<button onclick="dismissReportReview(\''+esc(r.id)+'\')" style="padding:10px 14px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);color:var(--sub);font-size:12.5px;font-weight:700;cursor:pointer;font-family:var(--f)">Dismiss</button>'
+      + '</div></div>';
+  });
+  return out;
+}
+async function openReportReview(id){
+  window._rrId = id;
+  var r;
+  try{
+    var res = await sbFetch('/rest/v1/report_reviews?id=eq.'+encodeURIComponent(id)+'&select=*&limit=1');
+    var rows = res.ok ? await res.json() : [];
+    r = rows && rows[0];
+  }catch(e){}
+  if(!r){ showToast('Could not load the report'); return; }
+  var esc = function(x){ return String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+  var t = document.getElementById('rrTitle'); if(t) t.textContent = (r.campaign_name||'Campaign')+' \u00b7 report review';
+  var m = document.getElementById('rrMeta');
+  if(m) m.innerHTML = 'To: <b>'+esc(r.client_contact||'')+' &lt;'+esc(r.to_email)+'&gt;</b><br>Subject: <b>'+esc(r.subject)+'</b>';
+  var f = document.getElementById('rrFrame');
+  if(f) f.srcdoc = r.html || '<p style="font-family:sans-serif;padding:20px">No preview available.</p>';
+  openSheet('rrSh');
+}
+async function approveReportReview(){
+  var id = window._rrId; if(!id) return;
+  var btn = document.getElementById('rrSendBtn');
+  if(btn){ btn.textContent='Sending\u2026'; btn.disabled=true; }
+  try{
+    var res = await sbFetch('/functions/v1/report-review-send', { method:'POST', body: JSON.stringify({ review_id: id }) });
+    var d = await res.json().catch(function(){ return {}; });
+    if(!res.ok || !d.ok) throw new Error(d.error||'send failed');
+    showToast('\u2705 Report sent to the client');
+    closeSheet('rrSh');
+    await loadReportReviews();
+    if(document.getElementById('content') && typeof adminDashHTML==='function' && !isClientMode()){
+      try{ document.getElementById('content').innerHTML = adminDashHTML(); }catch(_e){}
+    }
+  }catch(e){ showToast('Could not send \u2014 try again'); }
+  if(btn){ btn.textContent='\u2705 Approve &amp; send'.replace('&amp;','&'); btn.disabled=false; }
+}
+async function dismissReportReview(id){
+  id = id || window._rrId; if(!id) return;
+  if(!confirm('Dismiss this report? It will NOT be sent to the client.')) return;
+  try{
+    await sbFetch('/rest/v1/report_reviews?id=eq.'+encodeURIComponent(id), { method:'PATCH',
+      headers:{ Prefer:'return=minimal' },
+      body: JSON.stringify({ status:'dismissed', dismissed_at:new Date().toISOString() }) });
+    showToast('Report dismissed \u2014 nothing was sent');
+    closeSheet('rrSh');
+    await loadReportReviews();
+    if(document.getElementById('content') && typeof adminDashHTML==='function' && !isClientMode()){
+      try{ document.getElementById('content').innerHTML = adminDashHTML(); }catch(_e){}
+    }
+  }catch(e){ showToast('Could not dismiss \u2014 try again'); }
 }
 
 // ══════════════════════════════════════════════════════════════
