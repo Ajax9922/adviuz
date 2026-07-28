@@ -3926,7 +3926,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-27 report-review-2';
+var APP_VERSION = 'v2026-07-28 ai-calling-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -20063,12 +20063,16 @@ function _csNorm(s){
   var alRaw = s.alerts || {};
   var phones = Array.isArray(alRaw.phones) ? alRaw.phones.filter(Boolean).slice(0,5)
              : (alRaw.phone ? [alRaw.phone] : []);
-  return {
-    welcome_sms: s.welcome_sms || '',
-    welcome_on:  s.welcome_on !== false,
-    appt: { reminders: reminders, confirm_msg: String((s.appt && s.appt.confirm_msg) || ''), cancel_msg: String((s.appt && s.appt.cancel_msg) || '') },
-    alerts: { phones: phones }
-  };
+  // Carry over EVERY key that's already saved (email, email_design, ai, and
+  // anything added later), then normalize only the sections this menu owns.
+  // Without this, saving one page here wipes all the others.
+  var out = {};
+  for (var k in s){ if (Object.prototype.hasOwnProperty.call(s, k)) out[k] = s[k]; }
+  out.welcome_sms = s.welcome_sms || '';
+  out.welcome_on  = s.welcome_on !== false;
+  out.appt   = { reminders: reminders, confirm_msg: String((s.appt && s.appt.confirm_msg) || ''), cancel_msg: String((s.appt && s.appt.cancel_msg) || '') };
+  out.alerts = { phones: phones };
+  return out;
 }
 
 // ── Draft with AI: fills the editor via the existing ai-draft-sms function ──
@@ -20228,7 +20232,8 @@ function csOpenMenu(){
         _csMenuRow('\uD83D\uDCAC', 'Welcome Message',      'Text sent instantly to every new lead',        "csOpenPage('welcome')")
       + _csMenuRow('\uD83D\uDCC5', 'Appointment Settings', 'Reminder timing &amp; messages',               "csOpenPage('appt')")
       + _csMenuRow('\uD83D\uDD14', 'Lead Alerts',          'Phone &amp; email for this campaign\u2019s leads', "csOpenPage('alerts')")
-      + ((window._isAdviuzStaff || window._isAccountOwner) ? _csMenuRow('\uD83D\uDCE7', 'Email Sender', 'Send address &amp; email design for this campaign', 'csOpenEmailSender()') : '');
+      + ((window._isAdviuzStaff || window._isAccountOwner) ? _csMenuRow('\uD83D\uDCE7', 'Email Sender', 'Send address &amp; email design for this campaign', 'csOpenEmailSender()') : '')
+      + ((window._isAdviuzStaff || window._isAccountOwner) ? _csMenuRow('\uD83E\uDD16', 'AI Receptionist', 'When the AI answers &amp; calls for this campaign', "csOpenPage('ai')") : '');
   }
   _csFooter('menu');
 }
@@ -20333,8 +20338,57 @@ function csOpenPage(page){
     csListRender('phones');
     csListRender('emails');
   }
+  else if (page === 'ai'){
+    if (t) t.textContent = (window._csCpName||'Campaign') + ' \u00b7 AI Receptionist';
+    var _ai = (cp.settings && cp.settings.ai) || {};
+    var _sch = _ai.schedule || {};
+    var _hasPlan = (window._clientPlan === 'ai_sales_engine');
+    var _selRow = function(lbl, inner){
+      return '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin:14px 0 5px">'+lbl+'</div>' + inner;
+    };
+    var _tzOpts = [['America/Toronto','Eastern (Toronto)'],['America/Winnipeg','Central (Winnipeg)'],['America/Regina','Saskatchewan (Regina)'],['America/Edmonton','Mountain (Edmonton)'],['America/Vancouver','Pacific (Vancouver)'],['America/Halifax','Atlantic (Halifax)']]
+      .map(function(o){ return '<option value="'+o[0]+'"'+((_ai.tz||'America/Toronto')===o[0]?' selected':'')+'>'+o[1]+'</option>'; }).join('');
+    body.innerHTML =
+        (_hasPlan ? '' : '<div style="background:#fff7e6;border:1px solid #f2d49b;border-radius:12px;padding:12px 14px;font-size:12px;color:#8a6116;line-height:1.5;margin-bottom:12px">\u26A0\uFE0F The AI Sales Engine isn\u2019t active on your account yet. You can set everything up below \u2014 it takes effect the moment Adviuz activates it for you.</div>')
+      + '<div class="cs-h" style="margin-top:2px">\uD83D\uDCDE Incoming calls</div>'
+      + '<div class="cs-note">When this is on, your AI receptionist answers calls to this campaign\u2019s number \u2014 it takes bookings and captures the caller as a lead. When it\u2019s off (or outside the hours you pick), calls forward to your phone as usual.</div>'
+      + '<div style="display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:13px 14px">'
+      +   '<span style="flex:1;font-size:13px;font-weight:800;color:var(--text)">AI answers incoming calls</span>'
+      +   _csToggleHTML('csAiIn', _ai.inbound_on === true)
+      + '</div>'
+      + _selRow('When does the AI answer?',
+          '<select id="csAiSched" class="cs-in" onchange="csAiSchedChange()" style="margin-bottom:0">'
+        +   '<option value="always"'+((_sch.mode==='window')?'':' selected')+'>Always (24/7)</option>'
+        +   '<option value="window"'+((_sch.mode==='window')?' selected':'')+'>Only during these hours</option>'
+        + '</select>')
+      + '<div id="csAiWin" style="display:'+((_sch.mode==='window')?'block':'none')+'">'
+      +   '<div style="display:flex;gap:10px;margin-top:10px">'
+      +     '<div style="flex:1"><div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">AI starts at</div><input id="csAiStart" type="time" class="cs-in" style="margin-bottom:0" value="'+(_sch.start||'18:00')+'"></div>'
+      +     '<div style="flex:1"><div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">AI stops at</div><input id="csAiEnd" type="time" class="cs-in" style="margin-bottom:0" value="'+(_sch.end||'09:00')+'"></div>'
+      +   '</div>'
+      +   '<div class="cs-note" style="margin-top:8px">Overnight works too: 6:00 PM to 9:00 AM means the AI covers your evenings and nights, and you take calls during the day.</div>'
+      +   _selRow('Timezone for these hours', '<select id="csAiTz" class="cs-in" style="margin-bottom:0">'+_tzOpts+'</select>')
+      + '</div>'
+      + '<div class="cs-h" style="margin-top:20px">\uD83D\uDCE3 Calling your leads</div>'
+      + '<div class="cs-note">When this is on, the AI can phone this campaign\u2019s leads to qualify them and book appointments. You choose whether that happens automatically for every new lead, or only when you press the AI Call button on a lead.</div>'
+      + '<div style="display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:13px 14px">'
+      +   '<span style="flex:1;font-size:13px;font-weight:800;color:var(--text)">AI can call my leads</span>'
+      +   _csToggleHTML('csAiOut', _ai.outbound_on === true)
+      + '</div>'
+      + _selRow('How AI calls start',
+          '<select id="csAiMode" class="cs-in" style="margin-bottom:0">'
+        +   '<option value="manual"'+((_ai.outbound_mode==='auto')?'':' selected')+'>Only when I press the AI Call button</option>'
+        +   '<option value="auto"'+((_ai.outbound_mode==='auto')?' selected':'')+'>Automatically call every new lead</option>'
+        + '</select>')
+      + '<div class="cs-note" style="margin-top:8px">Automatic calls only go out between 8 AM and 9 PM, and never to anyone who has opted out.</div>';
+  }
   _csFooter(page);
   var b = document.querySelector('#campSettingsSh .sh-body'); if (b) b.scrollTop = 0;
+}
+function csAiSchedChange(){
+  var m = document.getElementById('csAiSched');
+  var w = document.getElementById('csAiWin');
+  if (w) w.style.display = (m && m.value === 'window') ? 'block' : 'none';
 }
 // Save merges ONLY the open page into the campaign's saved settings.
 async function saveCampSettings(){
@@ -20368,6 +20422,16 @@ async function saveCampSettings(){
       notification_emails: (window._csList.emails || []).slice(0,5),
       notify_enabled: nt ? (nt.dataset.on === '1') : true
     };
+  } else if (page === 'ai'){
+    var _tgOn = function(x){ var el = document.getElementById(x); return !!(el && el.dataset.on === '1'); };
+    s.ai = {
+      inbound_on: _tgOn('csAiIn'),
+      schedule: { mode: (v('csAiSched') === 'window') ? 'window' : 'always', start: v('csAiStart') || '18:00', end: v('csAiEnd') || '09:00' },
+      tz: v('csAiTz') || 'America/Toronto',
+      outbound_on: _tgOn('csAiOut'),
+      outbound_mode: (v('csAiMode') === 'auto') ? 'auto' : 'manual'
+    };
+    patchBody = { settings: s };
   } else { return; }
 
   var btn = document.getElementById('campSaveBtn');
