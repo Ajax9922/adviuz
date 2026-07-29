@@ -3928,7 +3928,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-28 ai-calling-2';
+var APP_VERSION = 'v2026-07-28 ai-calling-3';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -10169,6 +10169,7 @@ function openInRetell(){ window.open('https://dashboard.retellai.com/', '_blank'
 
 // Flip the live-call footer into the neutral "ended" state. Safe to call repeatedly.
 function _markLiveCallEnded(){
+  window._liveDetailAllow = 2;
   var hang = document.getElementById('lfHangupBtn'); if(hang) hang.style.display='none';
   var lis  = document.getElementById('lfListenBtn'); if(lis)  lis.style.display='none';
   var chip = document.getElementById('lfEndedChip'); if(chip) chip.style.display='';
@@ -10254,10 +10255,13 @@ async function loadLiveDetail(){
     var gone = !res.ok || !d || d.ok===false || d.found===false || d.call_status==='not_found';
     if(gone){
       _liveDetailMiss++;
-      if(_liveDetailMiss >= 2) _markLiveCallEnded();
+      // Freshly-dialed AI calls need patience (~36s): the live row only exists
+      // once the callee's phone rings and Retell reports the call started.
+      if(_liveDetailMiss >= (window._liveDetailAllow || 2)) _markLiveCallEnded();
       return;
     }
     _liveDetailMiss = 0;
+    window._liveDetailAllow = 2;
     var ended = d.call_status==='ended' || d.call_status==='error' || !!d.end_timestamp || (d.status && d.status!=='ongoing');
     var nm = document.getElementById('lfName'); if(nm) nm.textContent = d.lead_name || 'Caller';
     var av = document.getElementById('lfAv'); if(av) av.textContent = (d.lead_name||'?').split(' ').map(function(w){return w[0];}).join('').slice(0,2).toUpperCase();
@@ -12609,6 +12613,12 @@ async function startAiCall(leadId, phone, agent, firstName){
     var data = await res.json().catch(function(){ return {}; });
     if(res.ok && data && data.ok){
       showToast('🤖 AI is calling '+(firstName||'the lead')+' now');
+      // Open the live call screen immediately. The live row only appears once
+      // the phone actually starts ringing, so give it extra patience (below).
+      if(data.call_id && typeof openLiveCall==='function'){
+        window._liveDetailAllow = 12;
+        openLiveCall(data.call_id, firstName||'AI call');
+      }
     } else {
       var msg = (data && (data.skipped || data.error)) ? (': '+(data.skipped||data.error)) : '';
       showToast('Could not start AI call'+msg);
