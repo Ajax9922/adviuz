@@ -373,7 +373,7 @@ body.call-mini-open .topbar{padding-top:calc(env(safe-area-inset-top,0px) + 68px
 .lf-sent-item{background:rgba(255,255,255,.06);border-radius:10px;padding:12px;text-align:center}
 .lf-sent-num{font-size:20px;font-weight:800}
 .lf-sent-lbl{font-size:10px;color:rgba(255,255,255,.35);margin-top:3px;font-weight:600}
-.lf-btns{display:flex;gap:10px;padding:14px 16px;border-top:1px solid rgba(255,255,255,.08);flex-shrink:0}
+.lf-btns{display:flex;gap:10px;padding:14px 16px calc(14px + env(safe-area-inset-bottom));border-top:1px solid rgba(255,255,255,.08);flex-shrink:0}
 .lf-btn{flex:1;padding:12px;border-radius:11px;border:none;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer;text-align:center}
 .lb-listen{background:rgba(255,255,255,.1);color:rgba(255,255,255,.8)}
 .lb-barge{background:#fef3c7;color:#92400e}
@@ -1211,11 +1211,12 @@ body.impersonating .ls-topbar{padding-top:8px}
     <button class="tb-menu" onclick="openMenu()">
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
     </button>
-    <div class="tb-logo">A</div>
+    <div class="tb-logo" onclick="window.location.reload()" style="cursor:pointer" title="Tap to refresh the app">A</div>
     <div class="tb-titles">
       <div class="tb-title" id="tbTitle">Leads</div>
       <div class="tb-sub" id="tbSub">Adviuz Hub · build 2026-05-22 09:41</div>
     </div>
+    <button id="tbLivePill" onclick="goTab('calls',document.getElementById('tab-calls'))" style="display:none;align-items:center;gap:5px;background:var(--red);color:#fff;border:none;border-radius:20px;padding:5px 11px;font-size:10px;font-weight:800;font-family:var(--f);letter-spacing:.04em;cursor:pointer;flex-shrink:0"><span style="width:7px;height:7px;border-radius:50%;background:#fff;animation:pulse 1s infinite"></span>LIVE</button>
     <div class="tb-right">
       <button class="tb-btn" id="tbRefresh" style="display:flex" onclick="refreshLeads()" title="Refresh">
         <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
@@ -4023,7 +4024,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-29 playbook-1';
+var APP_VERSION = 'v2026-07-29 live-2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -10249,6 +10250,9 @@ function renderLiveCalls(calls){
 function startLivePolling(){
   stopLivePolling();
   loadLiveCalls();
+  // The tab's HTML may render a beat after this runs; load again right after
+  // so the Live section appears instantly instead of on the next 6s poll.
+  setTimeout(function(){ try{ loadLiveCalls(); }catch(e){} }, 600);
   if(typeof loadAiApprovals==='function') loadAiApprovals();
   _liveListTimer = setInterval(loadLiveCalls, 6000);
   _liveDurTimer = setInterval(function(){
@@ -10634,11 +10638,74 @@ async function pbGen(overwrite){
   loadPlaybook();
 }
 
+
+// ═══ STALE-APP GUARD ═══════════════════════════════════════════════════════
+// A PWA window can sit in the background for days; tapping a push notification
+// focuses that OLD window, so the person lands in an outdated build. Fix: every
+// time the app returns to the foreground, ask the server (cheap HEAD request)
+// whether a newer build exists, and quietly reload when it is safe to do so.
+(function(){
+  var _tag = null;          // build fingerprint (ETag) of the version we loaded
+  var _lastCheck = 0;
+  function _headTag(){
+    return fetch(window.location.pathname || '/', { method:'HEAD', cache:'no-store' })
+      .then(function(r){ return (r.headers.get('etag')||'') + '|' + (r.headers.get('last-modified')||''); })
+      .catch(function(){ return null; });
+  }
+  function _safeToReload(){
+    try{
+      if(document.querySelector('.sheet-ov.open')) return false;                 // a sheet is open
+      var lf=document.getElementById('liveFull');
+      if(lf && lf.offsetParent!==null) return false;                             // watching a live call
+      var ae=document.activeElement;
+      if(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return false;       // typing
+    }catch(e){}
+    return true;
+  }
+  function _check(){
+    var now=Date.now();
+    if(now-_lastCheck<60000) return;                                             // at most once a minute
+    _lastCheck=now;
+    _headTag().then(function(t){
+      if(!t) return;
+      if(_tag===null){ _tag=t; return; }                                         // first successful baseline
+      if(t!==_tag && _safeToReload()){
+        window.location.reload();                                                // newer build deployed
+      }
+    });
+  }
+  document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='visible') _check(); });
+  window.addEventListener('focus', _check);
+  setTimeout(function(){ _headTag().then(function(t){ if(t) _tag=t; }); }, 4000); // baseline after load
+})();
+
+
+// ═══ GLOBAL LIVE WATCHER — powers the red LIVE pill in the header ══════════
+// Checks every 20s (only while the app is visible) whether any AI call is in
+// progress, on ANY tab, so the person always knows and can jump straight in.
+(function(){
+  async function _liveGlance(){
+    if(document.hidden) return;
+    try{
+      var r = await sbFetch('/functions/v1/live-calls', { method:'POST', body:'{}' });
+      if(!r || !r.ok) return;
+      var d = await r.json().catch(function(){ return {}; });
+      var n = (d && d.calls && d.calls.length) || 0;
+      var pill = document.getElementById('tbLivePill');
+      if(pill) pill.style.display = n > 0 ? 'flex' : 'none';
+    }catch(e){ /* quiet */ }
+  }
+  setInterval(_liveGlance, 20000);
+  setTimeout(_liveGlance, 6000);
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden) setTimeout(_liveGlance, 800); });
+})();
+
 function openInRetell(){ window.open('https://dashboard.retellai.com/', '_blank'); }
 
 // Flip the live-call footer into the neutral "ended" state. Safe to call repeatedly.
 function _markLiveCallEnded(){
   window._liveDetailAllow = 2;
+  window._lfEnded = true;
   var hang = document.getElementById('lfHangupBtn'); if(hang) hang.style.display='none';
   var lis  = document.getElementById('lfListenBtn'); if(lis)  lis.style.display='none';
   var chip = document.getElementById('lfEndedChip'); if(chip) chip.style.display='';
@@ -10656,7 +10723,7 @@ function _markLiveCallEnded(){
 // Clients, sales partners, telecallers and managers must never see it.
 function _isOperatorListen(){
   try{
-    if(window._staffRole !== 'super_admin') return false;
+    if(!(window._staffRole === 'super_admin' || window._isAdviuzStaff === true)) return false;
     var em = (typeof currentUser!=='undefined' && currentUser && currentUser.email) ? currentUser.email.toLowerCase() : '';
     return (em === '' || em === 'ajaysheria90@gmail.com');
   }catch(e){ return false; }
@@ -10664,6 +10731,7 @@ function _isOperatorListen(){
 
 function openLiveFull(){ document.getElementById('liveFull').classList.add('show'); }
 function closeLiveFull(){
+  if(window._lfTick){ clearInterval(window._lfTick); window._lfTick = null; }
   var el = document.getElementById('liveFull'); if(el) el.classList.remove('show');
   window._realLiveActive = false;
   _liveDetailId = null;
@@ -10702,6 +10770,16 @@ function openLiveCall(callId, name){
   _liveDetailId = callId;
   _liveDetailMiss = 0;
   window._realLiveActive = true;
+  // Smooth per-second duration: server polls every 3s, but the timer ticks
+  // locally every 1s from the call's start moment and FREEZES once ended.
+  window._lfStartMs = 0; window._lfEnded = false;
+  if(window._lfTick){ clearInterval(window._lfTick); }
+  window._lfTick = setInterval(function(){
+    if(window._lfEnded || !window._lfStartMs) return;
+    var el = document.getElementById('lfTimer'); if(!el) return;
+    var s = Math.max(0, Math.floor((Date.now()-window._lfStartMs)/1000));
+    el.textContent = Math.floor(s/60)+':'+((s%60)<10?'0':'')+(s%60);
+  }, 1000);
   var _h = document.getElementById('lfHangupBtn'); if(_h) _h.style.display='';
   var _c = document.getElementById('lfEndedChip'); if(_c) _c.style.display='none';
   var nm = document.getElementById('lfName'); if(nm) nm.textContent = name || 'Live call';
@@ -10736,11 +10814,15 @@ async function loadLiveDetail(){
     var av = document.getElementById('lfAv'); if(av) av.textContent = (d.lead_name||'?').split(' ').map(function(w){return w[0];}).join('').slice(0,2).toUpperCase();
     var sub = document.getElementById('lfSub'); if(sub) sub.textContent = (d.direction==='outbound'?d.to_number:d.from_number)||'\u00a0';
     var dir = document.getElementById('lfDir'); if(dir) dir.textContent = d.direction==='outbound'?'Outbound':'Inbound';
-    var tEl = document.getElementById('lfTimer');
-    if(tEl && d.start_timestamp){
-      var endMs = (ended && d.end_timestamp) ? Number(d.end_timestamp) : Date.now();
-      var s = Math.max(0, Math.floor((endMs-Number(d.start_timestamp))/1000));
-      tEl.textContent = Math.floor(s/60)+':'+((s%60)<10?'0':'')+(s%60);
+    if(d.start_timestamp) window._lfStartMs = Number(d.start_timestamp);
+    if(ended && !window._lfEnded){
+      window._lfEnded = true;
+      var tEl = document.getElementById('lfTimer');
+      if(tEl && d.start_timestamp){
+        var endMs = d.end_timestamp ? Number(d.end_timestamp) : Date.now();
+        var s = Math.max(0, Math.floor((endMs-Number(d.start_timestamp))/1000));
+        tEl.textContent = Math.floor(s/60)+':'+((s%60)<10?'0':'')+(s%60);
+      }
     }
     var st = document.getElementById('lfStatus'); if(st && !ended){ st.textContent='Live'; st.style.color='#4ade80'; }
     var badge = document.getElementById('lfLiveBadge');
