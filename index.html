@@ -373,7 +373,7 @@ body.call-mini-open .topbar{padding-top:calc(env(safe-area-inset-top,0px) + 68px
 .lf-sent-item{background:rgba(255,255,255,.06);border-radius:10px;padding:12px;text-align:center}
 .lf-sent-num{font-size:20px;font-weight:800}
 .lf-sent-lbl{font-size:10px;color:rgba(255,255,255,.35);margin-top:3px;font-weight:600}
-.lf-btns{display:flex;gap:10px;padding:14px 16px calc(14px + env(safe-area-inset-bottom));border-top:1px solid rgba(255,255,255,.08);flex-shrink:0}
+.lf-btns{display:flex;gap:10px;padding:14px 16px calc(22px + env(safe-area-inset-bottom));border-top:1px solid rgba(255,255,255,.08);flex-shrink:0}
 .lf-btn{flex:1;padding:12px;border-radius:11px;border:none;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer;text-align:center}
 .lb-listen{background:rgba(255,255,255,.1);color:rgba(255,255,255,.8)}
 .lb-barge{background:#fef3c7;color:#92400e}
@@ -4025,7 +4025,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-29 listen-1';
+var APP_VERSION = 'v2026-07-30 handover-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -10766,24 +10766,54 @@ function _resetListenUi(){
 function stopLiveListen(){
   var c = _listenCall;
   _listenCall = null;
+  if(window._tookOver){
+    window._tookOver = false;
+    if(window._liveConf){
+      try{ sbFetch('/functions/v1/conf-monitor', { method:'POST', body: JSON.stringify({ action:'ai_resume', conf: window._liveConf }) }).catch(function(){}); }catch(e){}
+    }
+  }
   try{ if(c) c.disconnect(); }catch(e){}
   _resetListenUi();
 }
 async function toggleLiveListen(){
   var b = document.getElementById('lfListenBtn');
   if(_listenState==='muted'){
-    // Jump in: unmute the mic — everyone on the call can hear you now.
-    try{ if(_listenCall) _listenCall.mute(false); }catch(e){}
-    _listenState='talking';
-    if(b){ b.textContent='\uD83C\uDF99 Talking \u00b7 tap to mute'; b.style.background='var(--green)'; b.style.color='#fff'; }
-    showToast('\uD83C\uDF99 You are IN the call \u2014 they can hear you');
+    // Take over: conf-monitor mutes the AI leg and plays the handover line
+    // ("connecting you with my manager") into the room, then this mic opens.
+    if(b){ b.disabled=true; b.textContent='Taking over\u2026'; }
+    var tk = null;
+    try{
+      var tr = await sbFetch('/functions/v1/conf-monitor', { method:'POST', body: JSON.stringify({ action:'takeover', conf: window._liveConf }) });
+      tk = await tr.json().catch(function(){ return null; });
+    }catch(e){ /* */ }
+    if(!tk || !tk.ok){
+      if(b){ b.disabled=false; b.textContent='\uD83D\uDD34 Listening \u00b7 tap to talk'; }
+      showToast('Could not take over \u2014 try again');
+      return;
+    }
+    window._tookOver = true;
+    showToast('\uD83D\uDCE2 \u201CPlease hold\u201D is playing \u2014 your mic opens in a moment');
+    setTimeout(function(){
+      try{ if(_listenCall) _listenCall.mute(false); }catch(e){}
+      if(_listenState!=='muted') return;
+      _listenState='talking';
+      var bb=document.getElementById('lfListenBtn');
+      if(bb){ bb.disabled=false; bb.textContent='\uD83C\uDF99 Talking \u00b7 tap to mute'; bb.style.background='var(--green)'; bb.style.color='#fff'; }
+      showToast('\uD83C\uDF99 You are IN the call \u2014 they can hear you');
+    }, 2800);
     return;
   }
   if(_listenState==='talking'){
     try{ if(_listenCall) _listenCall.mute(true); }catch(e){}
     _listenState='muted';
     if(b){ b.textContent='\uD83D\uDD34 Listening \u00b7 tap to talk'; b.style.background=''; b.style.color=''; }
-    showToast('\uD83D\uDD07 Muted \u2014 listening only');
+    if(window._tookOver){
+      window._tookOver = false;
+      try{ sbFetch('/functions/v1/conf-monitor', { method:'POST', body: JSON.stringify({ action:'ai_resume', conf: window._liveConf }) }).catch(function(){}); }catch(e){}
+      showToast('\uD83D\uDD07 Muted \u2014 the AI is back on the call');
+    } else {
+      showToast('\uD83D\uDD07 Muted \u2014 listening only');
+    }
     return;
   }
   // Start listening (join the room silently).
@@ -21037,6 +21067,10 @@ function csOpenPage(page){
         +   '<option value="auto"'+((_ai.outbound_mode==='auto')?' selected':'')+'>Automatically call every new lead</option>'
         + '</select>')
       + '<div class="cs-note" style="margin-top:8px">Automatic calls only go out between 8 AM and 9 PM, and never to anyone who has opted out.</div>'
+      + '<div class="cs-h" style="margin-top:20px">\uD83E\uDD1D Human handoff</div>'
+      + '<div class="cs-note">When a caller asks for a real person \u2014 or you jump into a live call \u2014 the AI hands the caller to this phone number. Changing it here updates your AI instantly.</div>'
+      + '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Send callers to</div>'
+      + '<input id="csAiFwd" type="tel" class="cs-in" placeholder="+1 416 555 0100" value="'+_csEsc(cp.forward_to_phone||'')+'">'
       + '<div class="cs-h" style="margin-top:20px">\u2705 Approvals</div>'
       + '<div class="cs-note">When the AI writes a text or email for a lead, should it go out on its own, or wait for you? On \u201cReview first\u201d, drafts appear in your Inbox with Approve, Edit and Reject buttons \u2014 and anything you don\u2019t decide on expires after 24 hours without sending.</div>'
       + _selRow('AI-written texts',
@@ -21090,6 +21124,7 @@ async function saveCampSettings(){
       notification_emails: (window._csList.emails || []).slice(0,5),
       notify_enabled: nt ? (nt.dataset.on === '1') : true
     };
+    window._csFwdRefresh = (patchBody.forward_to_phone && patchBody.forward_to_phone !== String(cp.forward_to_phone || '')) ? patchBody.forward_to_phone : null;
   } else if (page === 'ai'){
     var _tgOn = function(x){ var el = document.getElementById(x); return !!(el && el.dataset.on === '1'); };
     s.ai = {
@@ -21104,6 +21139,9 @@ async function saveCampSettings(){
       }
     };
     patchBody = { settings: s };
+    var _fwdAi = v('csAiFwd');
+    if (_fwdAi) patchBody.forward_to_phone = _fwdAi;
+    window._csFwdRefresh = (_fwdAi && _fwdAi !== String(cp.forward_to_phone || '')) ? _fwdAi : null;
   } else { return; }
 
   var btn = document.getElementById('campSaveBtn');
@@ -21116,15 +21154,25 @@ async function saveCampSettings(){
     });
     if (!r.ok) throw new Error('HTTP '+r.status);
     cp.settings = s;
-    if ('forward_to_phone' in patchBody){
-      cp.forward_to_phone    = patchBody.forward_to_phone;
+    if ('forward_to_phone' in patchBody){ cp.forward_to_phone = patchBody.forward_to_phone; }
+    if ('notification_emails' in patchBody){
       cp.notification_emails = patchBody.notification_emails;
       cp.notify_enabled      = patchBody.notify_enabled;
     }
     if ('welcome_sms_enabled' in patchBody){ cp.welcome_sms_enabled = patchBody.welcome_sms_enabled; }
     showToast('Saved');
+    // Forward number changed -> silently refresh the AI's transfer tool so it
+    // can never hand callers to a stale number (retell-tools refresh-transfer).
+    if (window._csFwdRefresh){
+      var _fp = window._csFwdRefresh; window._csFwdRefresh = null;
+      sbFetch('/functions/v1/retell-tools?action=refresh-transfer', { method:'POST', body: JSON.stringify({ campaign_id: id, forward_phone: _fp }) })
+        .then(function(r){ return r.json().catch(function(){ return {}; }); })
+        .then(function(d){ if(d && d.ok && d.agents_updated > 0){ showToast('\uD83E\uDD16 AI transfer number updated'); } })
+        .catch(function(){});
+    }
     csOpenMenu();
   } catch(e){
+    window._csFwdRefresh = null;
     console.warn('[campSettings]', e.message);
     showToast('Could not save — please try again');
   }
