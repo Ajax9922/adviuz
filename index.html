@@ -4025,7 +4025,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-07-30 autocall-2';
+var APP_VERSION = 'v2026-08-01 memory-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -5405,7 +5405,12 @@ function mapLead(l, i) {
     call_recording_url:  l.call_recording_url || l.last_recording_url || '',
     call_transcript:     l.call_transcript || '',
     call_duration_sec:   (l.call_duration_sec != null ? l.call_duration_sec : (l.last_call_duration_s != null ? l.last_call_duration_s : null)),
-    retell_call_id:      l.retell_call_id || null
+    retell_call_id:      l.retell_call_id || null,
+    // AI post-call analysis (ai-call-analyze fn): hot/cold score + rolling memory
+    ai_score:        (l.ai_score != null ? Number(l.ai_score) : null),
+    ai_score_reason: l.ai_score_reason || '',
+    ai_summary:      l.ai_summary || '',
+    human_only:      l.human_only === true
   };
 }
 
@@ -6236,6 +6241,7 @@ function renderCtrlBar(){
       +'<option value="newest"'+sel('newest')+'>Newest</option>'
       +'<option value="oldest"'+sel('oldest')+'>Oldest</option>'
       +'<option value="opened"'+sel('opened')+'>\uD83D\uDC41 Opened email</option>'
+      +'<option value="hot"'+sel('hot')+'>\uD83D\uDD25 Hottest first</option>'
       +'<option value="name"'+sel('name')+'>Name A\u2013Z</option></select>';
     var viewBtn='<button class="cb-btn'+(window._leadView==='detailed'?' on':'')+'" onclick="window._leadView=(window._leadView===\'compact\'?\'detailed\':\'compact\');renderCtrlBar();render()" title="'+(window._leadView==='compact'?'Expanded view':'Compact view')+'">'+(window._leadView==='compact'?expandSvg:collapseSvg)+'</button>';
     actions=sortSel+filterBtn+viewBtn;
@@ -7040,6 +7046,12 @@ function leadsHTML(){
 
   // ── Task 2: Sorting ──
   vis = vis.slice().sort(function(a,b){
+    if(window._leadSort==='hot'){
+      var as=(a.ai_score==null?-1:a.ai_score), bs=(b.ai_score==null?-1:b.ai_score);
+      if(as!==bs) return bs-as; // hottest first; unscored leads sink to the bottom
+      var ah=a.created_at||a.rawDate||'', bh=b.created_at||b.rawDate||'';
+      return ah>bh?-1:(ah<bh?1:0);
+    }
     if(window._leadSort==='name') return (a.company||a.name||'').toLowerCase().localeCompare((b.company||b.name||'').toLowerCase());
     if(window._leadSort==='opened'){
       var om=window._openByDb||{};
@@ -7063,7 +7075,7 @@ function leadsHTML(){
   var rowsHTML='';
   if(!vis.length){
     rowsHTML='<div class="empty"><div class="empty-icon">&#x1F50D;</div><div class="empty-t">No leads found</div><div class="empty-s">Try a different filter</div></div>';
-  } else if(window._leadSort==='name'||window._leadSort==='opened'){
+  } else if(window._leadSort==='name'||window._leadSort==='opened'||window._leadSort==='hot'){
     rowsHTML=vis.map(function(l){return lRow(l,anySel)}).join('');
   } else {
     var grpCounts={};
@@ -7311,6 +7323,7 @@ function fmtNum(n) {
 // Natural, clean activity label (no verbose subjects/from-lines)
 function cleanActLabel(a){
   var t=(a.type||'').toLowerCase(), lbl=(a.label||'');
+  if(t==='ai_analysis') return '\uD83E\uDD16 AI notes';
   if(t==='email_received') return 'Email received';
   if(t==='email_opened') return 'Email opened';
   if(t==='sms_received') return 'SMS received';
@@ -7349,6 +7362,15 @@ function leadCampLabel(l){
   return String(nm);
 }
 
+// AI hot/cold score badge (0-10): red 0-3, amber 4-6, green 7-10.
+// Tap-safe: title shows the AI's one-line reason. Hidden until a lead is scored.
+function aiScoreBadge(l){
+  if(!l || l.ai_score==null || isNaN(l.ai_score)) return '';
+  var s=Number(l.ai_score);
+  var bg = s>=7 ? 'var(--green)' : (s>=4 ? '#d97706' : '#cc0000');
+  var reason=String(l.ai_score_reason||'').replace(/"/g,'&quot;');
+  return '<span title="'+reason+'" style="display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:800;color:#fff;background:'+bg+';border-radius:20px;padding:2px 8px;line-height:1.3">\uD83D\uDD25 '+s+'</span>';
+}
 function lRow(l,anySel,forceDetailed){
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
   var isSel=selIds.has(l.id);
@@ -7384,7 +7406,7 @@ function lRow(l,anySel,forceDetailed){
     : '<span>'+esc(l.t||'')+'</span>';
 
   var topRow='<div class="sl-top-row">'
-    +'<div class="sl-top-left">'+cb+stgBadge(l.stage)+'</div>'
+    +'<div class="sl-top-left">'+cb+stgBadge(l.stage)+aiScoreBadge(l)+'</div>'
     +'<span class="sl-time">'+timeHTML+'</span>'
     +'</div>';
 
@@ -11080,11 +11102,17 @@ async function loadLeadActivity(localId, dbId) {
         var m = rawBody.match(/:\s*"?(.+?)"?\s*$/);
         if(m) body = m[1];
       }
+      // AI call notes: description is just the card title; the narrative lives in
+      // summary and the score/stage/follow-up line lives in ai_summary.
+      if(type === 'ai_analysis') {
+        body = (row.summary||'') + (row.ai_summary ? ' \u00B7 ' + row.ai_summary : '');
+      }
       var label = type === 'sms_received' ? 'SMS Received'
                 : type === 'sms_sent'     ? 'SMS Sent'
                 : type === 'email_sent'     ? 'Email Sent'
                 : type === 'email_received' ? 'Email Received'
                 : type === 'email_opened'   ? 'Email Opened'
+                : type === 'ai_analysis'  ? 'AI Notes'
                 : type === 'call'         ? 'Call'
                 : type === 'assignment'   ? 'Assigned'
                 : type === 'note'         ? 'Note'
@@ -12059,6 +12087,22 @@ function lsToggleActTx(id){
   d.style.display = open ? 'none' : 'block';
   if(b) b.textContent = open ? 'View transcript ▾' : 'Hide transcript ▴';
 }
+// \ud83d\ude4b Human-only switch: while ON the AI never auto-calls or auto-texts
+// this lead (retell-outbound v10 enforces it server-side; turning it ON also
+// cancels any pending scheduled AI callback).
+async function toggleHumanOnly(localId){
+  var l=leads.find(function(x){return x.id===localId;});
+  if(!l||!l.dbId) return;
+  var nv=!l.human_only;
+  try{
+    var bodyObj=nv?{human_only:true, ai_callback_at:null}:{human_only:false};
+    var r=await sbFetch('/rest/v1/leads?id=eq.'+l.dbId,{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify(bodyObj)});
+    if(!r.ok) throw new Error('save failed');
+    l.human_only=nv;
+    showToast(nv?'\ud83d\ude4b Human-only ON \u2014 AI paused for this lead':'AI calling re-enabled for this lead');
+    renderLeadScreen(localId);
+  }catch(e){ showToast('Could not save \u2014 try again'); }
+}
 function renderLeadScreen(id) {
   var l = leads.find(function(x){ return x.id === id; });
   if(!l) return;
@@ -12210,6 +12254,14 @@ function renderLeadScreen(id) {
         + '</div></div>';
     }
   }
+
+  // ══ \ud83d\ude4b HUMAN-ONLY SWITCH — pause the AI for this one lead ══
+  h += '<div onclick="toggleHumanOnly('+l.id+')" style="background:var(--white);padding:12px 16px;margin-bottom:4px;display:flex;align-items:center;gap:10px;cursor:pointer">'
+    + '<div style="font-size:20px;flex-shrink:0">\ud83d\ude4b</div>'
+    + '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px;color:var(--text)">Human handling this lead</div>'
+    + '<div style="font-size:12px;color:var(--sub)">'+(l.human_only?'ON \u2014 the AI will not call or text this lead':'OFF \u2014 the AI may call this lead automatically')+'</div></div>'
+    + '<div style="width:44px;height:26px;border-radius:20px;background:'+(l.human_only?'var(--green)':'var(--border)')+';position:relative;flex-shrink:0;transition:background .15s"><div style="position:absolute;top:3px;'+(l.human_only?'right:3px':'left:3px')+';width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)"></div></div>'
+    + '</div>';
 
   // ══ SECTION 2 — COMMUNICATION & CALL (moved up to just under the lead info) ══
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
@@ -12418,7 +12470,7 @@ function renderLeadScreen(id) {
   var filterGroups = {
     all:     function(a){ return true; },
     call:    function(a){ return a.type==='call'; },
-    aicall:  function(a){ return a.type==='call' && a.is_ai; },
+    aicall:  function(a){ return (a.type==='call' && a.is_ai) || a.type==='ai_analysis'; },
     sms:     function(a){ return a.type==='sms'||a.type==='sms_sent'||a.type==='sms_received'; },
     note:    function(a){ return a.type==='note'; },
     quote:   function(a){ return a.type&&a.type.indexOf('quote')>-1; },
