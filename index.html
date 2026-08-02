@@ -2726,6 +2726,23 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
         <div id="aEmSug" style="display:none;flex-wrap:wrap;gap:6px;margin-top:8px"></div>
         <div id="aEmErr" style="font-size:11px;color:var(--red);margin-top:4px;display:none">Enter a valid email address</div>
       </div>
+      <div class="fg"><label class="flbl">Province <span style="font-weight:400;color:var(--sub)">(optional — sets their local time)</span></label>
+        <select class="fsel" id="aProv">
+          <option value="">— Not sure —</option>
+          <option value="AB">Alberta</option><option value="BC">British Columbia</option><option value="MB">Manitoba</option><option value="NB">New Brunswick</option><option value="NL">Newfoundland &amp; Labrador</option><option value="NS">Nova Scotia</option><option value="NT">Northwest Territories</option><option value="NU">Nunavut</option><option value="ON">Ontario</option><option value="PE">Prince Edward Island</option><option value="QC">Quebec</option><option value="SK">Saskatchewan</option><option value="YT">Yukon</option>
+        </select>
+      </div>
+      <div class="fg"><label class="flbl">Welcome email</label>
+        <select class="fsel" id="aWelcome" onchange="var w=document.getElementById('aWelcomeAtRow');if(w)w.style.display=this.value==='sched'?'block':'none'">
+          <option value="auto">Send automatically (safe hours only)</option>
+          <option value="sched">Schedule for a specific time…</option>
+          <option value="off">Don't send</option>
+        </select>
+        <div id="aWelcomeAtRow" style="display:none;margin-top:8px">
+          <input class="finp" id="aWelcomeAt" type="datetime-local">
+        </div>
+        <div style="font-size:11px;color:var(--sub);margin-top:5px">Needs an email address. Never sends at night, on weekends, or on stat holidays — it waits for the next morning in the lead's own province.</div>
+      </div>
       <div class="fg" id="aCampaignRow" style="display:none">
         <label class="flbl">Campaign</label>
         <select class="fsel" id="aCampaign"><option value="">— No campaign —</option></select>
@@ -4030,7 +4047,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-01 memory-6';
+var APP_VERSION = 'v2026-08-01 memory-7';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -14712,7 +14729,10 @@ async function saveNewLead(){
     svc: inClient ? '' : 'Digital Flyers',
     note: '', ok: true, t: 'just now', col: COLORS[nxtId%COLORS.length],
     partner_id: selectedPartnerId,
-    campaign_id: (document.getElementById('aCampaign') && document.getElementById('aCampaign').value) || null
+    campaign_id: (document.getElementById('aCampaign') && document.getElementById('aCampaign').value) || null,
+    prov: ((document.getElementById('aProv')||{}).value)||'',
+    welcome: ((document.getElementById('aWelcome')||{}).value)||'auto',
+    welcomeAt: ((document.getElementById('aWelcomeAt')||{}).value)||''
   };
 
   // Re-entrancy guard: block a second concurrent submit (fast double-tap) before
@@ -14890,7 +14910,11 @@ async function doSaveLead(lead) {
         partner_id: lead.partner_id || null,
         campaign_id: lead.campaign_id || null,
         added_by: (((window._isClientMode===true)||(window._activeRole==='client')) && window.currentUser ? window.currentUser.id : null),
-        stage_code: 'fresh_lead'
+        stage_code: 'fresh_lead',
+        province: lead.prov || null,
+        timezone: lead.prov ? ({AB:'America/Edmonton',BC:'America/Vancouver',MB:'America/Winnipeg',NB:'America/Halifax',NL:'America/St_Johns',NS:'America/Halifax',NT:'America/Yellowknife',NU:'America/Iqaluit',ON:'America/Toronto',PE:'America/Halifax',QC:'America/Toronto',SK:'America/Regina',YT:'America/Whitehorse'}[lead.prov]||null) : null,
+        welcome_email_status: (lead.em && lead.welcome!=='off') ? 'pending' : (lead.em ? 'off' : null),
+        welcome_email_at: (lead.em && lead.welcome!=='off') ? ((lead.welcome==='sched' && lead.welcomeAt) ? new Date(lead.welcomeAt).toISOString() : new Date().toISOString()) : null
       })
     });
     var data = await res.json();
@@ -22312,6 +22336,10 @@ function openAddLeadSheet() {
     var el = document.getElementById(id);
     if (el) el.value = '';
   });
+  var _wp=document.getElementById('aProv'); if(_wp) _wp.value='';
+  var _ww=document.getElementById('aWelcome'); if(_ww) _ww.value='auto';
+  var _wa=document.getElementById('aWelcomeAt'); if(_wa) _wa.value='';
+  var _wr=document.getElementById('aWelcomeAtRow'); if(_wr) _wr.style.display='none';
   // Populate partner dropdown (admin only)
   var partnerRow = document.getElementById('aPartnerRow');
   var partnerSel = document.getElementById('aPartner');
