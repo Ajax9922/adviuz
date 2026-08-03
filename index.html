@@ -1759,6 +1759,21 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
   </div>
 </div>
 
+<!-- ═══ RESCHEDULE QUOTE SEND ═══ -->
+<div class="sheet-ov" id="qReschedSh" style="z-index:930" onclick="if(event.target===this)closeSheet('qReschedSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sh-head">
+      <div class="sh-title">&#x1F552; Change send time</div>
+      <button class="sh-x" onclick="closeSheet('qReschedSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" style="padding-bottom:calc(28px + env(safe-area-inset-bottom))">
+      <div style="font-size:13px;color:var(--sub);margin-bottom:10px;line-height:1.55">Pick the new time. This is <b>your</b> local time.</div>
+      <input class="finp" id="qrAt" type="datetime-local">
+      <button id="qrSaveBtn" onclick="qrSave()" style="width:100%;margin-top:14px;padding:14px;border:none;border-radius:12px;background:var(--green);color:#fff;font-weight:800;font-size:15px;font-family:var(--f);cursor:pointer">Save new time</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ INSTANT MEETING TITLE ═══ -->
 <div class="sheet-ov" id="imTitleSh" style="z-index:920" onclick="if(event.target===this)closeSheet('imTitleSh')">
   <div class="sheet"><div class="sheet-handle"></div>
@@ -4103,7 +4118,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-02 quote-3';
+var APP_VERSION = 'v2026-08-02 quote-4';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -13188,6 +13203,74 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
 
 function viewQuoteFromActivity(quoteId) {
   openQuoteViewer('https://hub.adviuz.ca/quote/?id=' + quoteId);
+}
+
+// quote-4: a scheduled quote can be rescheduled or cancelled until the moment
+// it sends. Both actions race safely against the every-minute sender: they only
+// touch rows still in "scheduled" state, so if the email already left, the
+// person gets an honest "already sent" instead of a false success.
+function _qSchedFmt(iso){
+  var d=iso?new Date(iso):null; if(!d||isNaN(d)) return '';
+  return d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' at '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'});
+}
+function _qSchedRowHTML(q){
+  return '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 14px;background:#f5f3ff;border-bottom:1px solid var(--border)">'
+    +'<span style="font-size:12px;color:#5b21b6;font-weight:700">\uD83D\uDD52 Sends '+_qSchedFmt(q.send_at)+' <span style="font-weight:500">(your time)</span></span>'
+    +'<span style="flex:1"></span>'
+    +'<button onclick="qResched(\''+q.id+'\',\''+(q.send_at||'')+'\')" style="padding:5px 11px;border-radius:16px;border:1.5px solid #7c3aed;background:var(--white);color:#7c3aed;font-size:11.5px;font-weight:700;cursor:pointer;font-family:var(--f)">Change time</button>'
+    +'<button onclick="qCancelSend(\''+q.id+'\')" style="padding:5px 11px;border-radius:16px;border:1.5px solid var(--red,#dc2626);background:var(--white);color:var(--red,#dc2626);font-size:11.5px;font-weight:700;cursor:pointer;font-family:var(--f)">Cancel send</button>'
+    +'</div>';
+}
+function qResched(qid, curIso){
+  window._qrId = qid;
+  var i=document.getElementById('qrAt');
+  if(i){
+    var d=curIso?new Date(curIso):null;
+    if(!d||isNaN(d)) d=new Date(Date.now()+3600000);
+    var pd=function(n){return (n<10?'0':'')+n;};
+    i.value=d.getFullYear()+'-'+pd(d.getMonth()+1)+'-'+pd(d.getDate())+'T'+pd(d.getHours())+':'+pd(d.getMinutes());
+  }
+  openSheet('qReschedSh');
+}
+async function qrSave(){
+  var v=((document.getElementById('qrAt')||{}).value)||'';
+  var d=v?new Date(v):null;
+  if(!d||isNaN(d)){ showToast('Pick a date and time'); return; }
+  if(d.getTime()<Date.now()+60000){ showToast('Pick a time in the future'); return; }
+  var qid=window._qrId; if(!qid) return;
+  var iso=d.toISOString();
+  var btn=document.getElementById('qrSaveBtn'); if(btn){ btn.textContent='Saving\u2026'; btn.disabled=true; }
+  try{
+    var r1=await sbFetch('/rest/v1/scheduled_quote_emails?quote_id=eq.'+qid+'&status=eq.scheduled',{method:'PATCH',headers:{'Prefer':'return=representation'},body:JSON.stringify({send_at:iso})});
+    var rows=r1.ok?await r1.json().catch(function(){return[];}):[];
+    if(!rows.length) throw new Error('gone');
+    await sbFetch('/rest/v1/quotes?id=eq.'+qid,{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({send_at:iso})});
+    closeSheet('qReschedSh');
+    showToast('\uD83D\uDD52 Rescheduled \u2014 sends '+_qSchedFmt(iso));
+    _qRefreshQuoteLists(qid, iso, 'scheduled');
+  }catch(e){ closeSheet('qReschedSh'); showToast('Could not change it \u2014 the email may have already been sent'); }
+  if(btn){ btn.textContent='Save new time'; btn.disabled=false; }
+}
+async function qCancelSend(qid){
+  if(!confirm('Cancel this scheduled quote email?\n\nThe email will NOT go out. The quote stays saved and is marked Cancelled.')) return;
+  try{
+    var r1=await sbFetch('/rest/v1/scheduled_quote_emails?quote_id=eq.'+qid+'&status=eq.scheduled',{method:'PATCH',headers:{'Prefer':'return=representation'},body:JSON.stringify({status:'cancelled'})});
+    var rows=r1.ok?await r1.json().catch(function(){return[];}):[];
+    if(!rows.length) throw new Error('gone');
+    await sbFetch('/rest/v1/quotes?id=eq.'+qid,{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({status:'cancelled',send_at:null})});
+    showToast('Send cancelled');
+    _qRefreshQuoteLists(qid, null, 'cancelled');
+  }catch(e){ showToast('Could not cancel \u2014 the email may have already been sent'); }
+}
+function _qRefreshQuoteLists(qid, iso, st){
+  try{ (( _adminData && _adminData.quotes)||[]).forEach(function(q){ if(q.id===qid){ q.send_at=iso; q.status=st; } }); }catch(e){}
+  try{
+    var scr=document.getElementById('quotesListScreen');
+    if(scr && scr.classList.contains('open') && window._quotesListLid!=null) openLeadQuotes(window._quotesListLid);
+  }catch(e){}
+  try{
+    if(curTab==='dashboard'){ var c=document.getElementById('content'); if(c && typeof adminDashHTML==='function' && window._isAdviuzStaff) c.innerHTML=adminDashHTML(); }
+  }catch(e){}
 }
 
 // quote-2: the schedule picker runs on YOUR clock. This hint says so out loud
@@ -24909,6 +24992,7 @@ var _quoteItems = [];
 // QUOTES LIST SHEET — shows lead's quote history + New Quote
 // ═══════════════════════════════════════════════════════
 async function openLeadQuotes(lid) {
+  window._quotesListLid = lid;
   var l = leads.find(function(x){ return x.id===lid; });
   if(!l) return;
 
@@ -24936,7 +25020,7 @@ async function openLeadQuotes(lid) {
     // or it renders one day early in Canada. Matches the global fmtDate().
     var fmtDate = function(s){ if(!s) return ''; var dt = (typeof s==='string' && s.length<=10) ? new Date(s+'T12:00:00') : new Date(s); return isNaN(dt.getTime()) ? '' : dt.toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}); };
     var fmtAmt  = function(n){ return 'CAD $'+parseFloat(n||0).toLocaleString('en-CA',{minimumFractionDigits:2}); };
-    var stColors = {scheduled:'#7c3aed',sent:'#d97706',viewed:'#3b82f6',accepted:'#059669',paid:'#059669',expired:'#6b7280',draft:'#9ca3af'};
+    var stColors = {scheduled:'#7c3aed',cancelled:'#6b7280',sent:'#d97706',viewed:'#3b82f6',accepted:'#059669',paid:'#059669',expired:'#6b7280',draft:'#9ca3af'};
 
     var html = '';
     if(!quotes.length) {
@@ -24956,6 +25040,7 @@ async function openLeadQuotes(lid) {
           +'</div>'
           +'<div style="font-size:18px;color:var(--sub)">&#x276F;</div>'
           +'</div>';
+        if(q.status==='scheduled') html += _qSchedRowHTML(q);
         html += _quoteRemindersHTML(q);
       });
     }
@@ -25721,7 +25806,7 @@ function adQuotesHTML() {
   h += '<button onclick="openCreateQuoteSheet(null)" style="padding:7px 14px;border-radius:9px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">+ New Quote</button>';
   h += '</div>';
   if(!qs.length) return h+'<div style="text-align:center;padding:40px;color:var(--sub)">No quotes yet</div></div>';
-  var stColors = {draft:'var(--sub)',scheduled:'#7c3aed',sent:'var(--blue)',viewed:'var(--amber)',accepted:'var(--green)',paid:'var(--green)',rejected:'var(--red)',expired:'var(--muted)'};
+  var stColors = {draft:'var(--sub)',scheduled:'#7c3aed',cancelled:'#6b7280',sent:'var(--blue)',viewed:'var(--amber)',accepted:'var(--green)',paid:'var(--green)',rejected:'var(--red)',expired:'var(--muted)'};
   h += '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
   qs.forEach(function(q,i){
     var stCol = stColors[q.status]||'var(--sub)';
@@ -25741,6 +25826,7 @@ function adQuotesHTML() {
       +'<button onclick="openQuoteViewer(\''+qUrl+'\')" title="View quote" style="width:30px;height:30px;border-radius:8px;background:var(--bg);border:1px solid var(--border);cursor:pointer;font-size:13px;flex-shrink:0">&#x1F517;</button>'
       +(canPay?'<button data-qid="'+q.id+'" onclick="markQuotePaid(this.dataset.qid)" title="Mark as paid" style="padding:5px 9px;border-radius:8px;background:var(--green);border:none;color:#fff;font-family:var(--f);font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;white-space:nowrap">Mark Paid</button>':'')
     +'</div>';
+    if(q.status==='scheduled') h += _qSchedRowHTML(q);
   });
   return h+'</div></div>';
 }
