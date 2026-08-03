@@ -4075,7 +4075,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-02 reports-1';
+var APP_VERSION = 'v2026-08-02 reports-2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -8406,29 +8406,77 @@ function commReportHTML(ch){
   var h='<div style="padding:14px">'+commPeriodChips(ch);
   var inScope=function(c){ return (typeof gfCallInScope!=='function')||gfCallInScope(c); };
 
+  // Apples-to-apples Human vs AI comparison. Every blue number is tappable and
+  // opens the Inbox filtered to exactly those calls (same period).
+  var _cmpTable=function(kind,rows,headH,headA){
+    var out='<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;overflow:hidden;margin-bottom:8px">'
+      +'<div style="display:flex;align-items:center;background:var(--bg)">'
+      +'<div style="flex:1.6;padding:10px 0 10px 12px"></div>'
+      +'<div style="flex:1;text-align:center;font-size:11.5px;font-weight:800;color:var(--text);padding:10px 0">'+headH+'</div>'
+      +'<div style="flex:1;text-align:center;font-size:11.5px;font-weight:800;color:#7c3aed;padding:10px 0">'+headA+'</div>'
+      +'</div>';
+    rows.forEach(function(rw){
+      // rw = [label, humanVal, aiVal, dir, out2, clickable]
+      var mk=function(n,who){
+        if(!rw[5]) return '<div style="flex:1;text-align:center;font-size:15px;font-weight:900;color:var(--text);padding:10px 0">'+n+'</div>';
+        return '<button onclick="commDrill(\''+kind+'\',\''+who+'\',\''+(rw[3]||'')+'\',\''+(rw[4]||'')+'\')" style="flex:1;background:none;border:none;font-family:var(--f);font-size:15px;font-weight:900;color:var(--blue,#2563eb);cursor:pointer;padding:10px 0">'+n+'</button>';
+      };
+      out+='<div style="display:flex;align-items:center;border-top:1px solid var(--border)">'
+        +'<div style="flex:1.6;font-size:12px;font-weight:700;color:var(--sub);padding:10px 0 10px 12px">'+rw[0]+'</div>'
+        + mk(rw[1],'human') + mk(rw[2],'ai')
+        +'</div>';
+    });
+    return out+'</div>';
+  };
+
   if(ch==='calls'){
     var calls=(callLog||[]).filter(function(c){ return c.kind==='call' && inScope(c) && commInRange(c.date,R); });
+    var C=function(f){ return calls.filter(f); };
+    var hC=C(function(c){return !c.ai;}), aC=C(function(c){return !!c.ai;});
+    var N=function(arr,f){ return f?arr.filter(f).length:arr.length; };
     var tot=calls.length;
-    var ansd=calls.filter(function(c){return c.out==='answered';}).length;
+    var ansd=N(calls,function(c){return c.out==='answered';});
     var secs=0; calls.forEach(function(c){secs+=(c.durS||0);});
     var mins=Math.round(secs/60);
-    var aiN=calls.filter(function(c){return !!c.ai;}).length;
-    var inN=calls.filter(function(c){return c.dir==='in';}).length;
     var pct=tot?Math.round(ansd/tot*100):0;
+    var minsOf=function(arr){ var x=0; arr.forEach(function(c){x+=(c.durS||0);}); return Math.round(x/60); };
+
+    // Speed-to-lead: for every lead whose FIRST call landed in this period,
+    // minutes from the lead's original inquiry to that first call — split by
+    // whether a human or the AI made it.
+    var _first={};
+    (callLog||[]).forEach(function(c){
+      if(c.kind!=='call'||!inScope(c)) return;
+      var t=new Date(c.date).getTime(); if(isNaN(t)) return;
+      if(!_first[c.lid]||t<_first[c.lid].t) _first[c.lid]={t:t,ai:!!c.ai};
+    });
+    var spdH=[],spdA=[];
+    (leads||[]).forEach(function(l){
+      var f=_first[l.id]; if(!f) return;
+      if(!commInRange(new Date(f.t).toISOString(),R)) return;
+      var born=new Date(l.first_inquiry_at||l.rawDate||l.created_at||'').getTime();
+      if(isNaN(born)||f.t<born) return;
+      (f.ai?spdA:spdH).push((f.t-born)/60000);
+    });
+    var fmtSpd=function(arr){ if(!arr.length) return '\u2014'; var m=arr.reduce(function(a,b){return a+b;},0)/arr.length; if(m<1) return '<1m'; if(m<60) return Math.round(m)+'m'; if(m<2880) return (Math.round(m/60*10)/10)+'h'; return Math.round(m/1440)+'d'; };
+
     h+='<div style="display:flex;gap:7px;margin-bottom:8px">'
-      + commStat(tot,'Calls','var(--text)')
+      +'<div onclick="commDrill(\'call\',\'all\',\'\',\'\')" style="flex:1;min-width:0;text-align:center;border:1.5px solid var(--border);border-radius:13px;padding:13px 4px;background:var(--white);cursor:pointer"><div style="font-size:20px;font-weight:900;color:var(--blue,#2563eb)">'+tot+'</div><div style="font-size:10.5px;color:var(--sub);font-weight:700;white-space:nowrap">Total calls \u203a</div></div>'
       + commStat(pct+'%','Answered','var(--green)')
-      + commStat(mins,'Minutes','var(--blue,#2563eb)')
-      +'</div>'
-      +'<div style="display:flex;gap:7px;margin-bottom:8px">'
-      + commStat(aiN,'\uD83E\uDD16 AI calls','#7c3aed')
-      + commStat(tot-aiN,'\uD83D\uDC64 Human calls','var(--text)')
-      + commStat(tot-ansd,'Not answered','var(--red,#dc2626)')
-      +'</div>'
-      +'<div style="display:flex;gap:7px;margin-bottom:12px">'
-      + commStat('\u2193 '+inN,'Incoming','var(--text)')
-      + commStat('\u2191 '+(tot-inN),'Outgoing','var(--text)')
+      + commStat(mins,'Talk minutes','var(--text)')
       +'</div>';
+    h+=_cmpTable('call',[
+      ['Calls',            hC.length, aC.length, '',    '',          true],
+      ['Incoming',         N(hC,function(c){return c.dir==='in';}),  N(aC,function(c){return c.dir==='in';}),  'in','',          true],
+      ['\u2003Answered',   N(hC,function(c){return c.dir==='in'&&c.out==='answered';}), N(aC,function(c){return c.dir==='in'&&c.out==='answered';}), 'in','answered',  true],
+      ['Outgoing',         N(hC,function(c){return c.dir==='out';}), N(aC,function(c){return c.dir==='out';}), 'out','',         true],
+      ['\u2003Answered',   N(hC,function(c){return c.dir==='out'&&c.out==='answered';}),N(aC,function(c){return c.dir==='out'&&c.out==='answered';}),'out','answered', true],
+      ['Voicemail',        N(hC,function(c){return c.out==='voicemail';}), N(aC,function(c){return c.out==='voicemail';}), '','voicemail', true],
+      ['Missed / no answer', N(hC,function(c){return c.out==='missed';}), N(aC,function(c){return c.out==='missed';}), '','missed', true],
+      ['Talk time (min)',  minsOf(hC), minsOf(aC), '','', false],
+      ['Lead \u2192 1st call', fmtSpd(spdH), fmtSpd(spdA), '','', false]
+    ],'\uD83D\uDC64 Human','\uD83E\uDD16 AI');
+    h+='<div style="font-size:11px;color:var(--sub);margin-bottom:12px">Tap any blue number to see exactly those calls. Lead \u2192 1st call is the average wait between a lead arriving and their first call.</div>';
     if(window._clientAiEnabled){
       h+='<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:14px;margin-bottom:10px">'
         +   '<div style="display:flex;align-items:center;gap:10px">'
@@ -8449,20 +8497,20 @@ function commReportHTML(ch){
 
   if(ch==='sms'){
     var sms=(callLog||[]).filter(function(c){ return c.kind==='sms' && inScope(c) && commInRange(c.date,R); });
+    var hS=sms.filter(function(c){return c.dir==='out'&&!c.ai;}), aS=sms.filter(function(c){return c.dir==='out'&&!!c.ai;});
     var sent=sms.filter(function(c){return c.dir==='out'&&c.out==='sent';}).length;
     var fail=sms.filter(function(c){return c.dir==='out'&&c.out==='failed';}).length;
     var repl=sms.filter(function(c){return c.dir==='in';}).length;
-    var aiS=sms.filter(function(c){return c.dir==='out'&&!!c.ai;}).length;
     h+='<div style="display:flex;gap:7px;margin-bottom:8px">'
-      + commStat(sent,'Sent','var(--green)')
-      + commStat(repl,'Replies','var(--blue,#2563eb)')
-      + commStat(fail,'Failed','var(--red,#dc2626)')
-      +'</div>'
-      +'<div style="display:flex;gap:7px;margin-bottom:12px">'
-      + commStat(aiS,'\uD83E\uDD16 AI texts','#7c3aed')
-      + commStat(Math.max(0,sent-aiS),'\uD83D\uDC64 Manual & system','var(--text)')
-      +'</div>'
-      +'<div style="font-size:11.5px;color:var(--sub);line-height:1.55;margin-bottom:4px">Counts every text to your leads in this period \u2014 manual, welcome, reminders, AI follow-ups and bulk sends. Replies are texts your leads sent back.</div>';
+      +'<div onclick="commDrill(\'sms\',\'all\',\'out\',\'sent\')" style="flex:1;min-width:0;text-align:center;border:1.5px solid var(--border);border-radius:13px;padding:13px 4px;background:var(--white);cursor:pointer"><div style="font-size:20px;font-weight:900;color:var(--green)">'+sent+'</div><div style="font-size:10.5px;color:var(--sub);font-weight:700;white-space:nowrap">Sent \u203a</div></div>'
+      +'<div onclick="commDrill(\'sms\',\'all\',\'in\',\'\')" style="flex:1;min-width:0;text-align:center;border:1.5px solid var(--border);border-radius:13px;padding:13px 4px;background:var(--white);cursor:pointer"><div style="font-size:20px;font-weight:900;color:var(--blue,#2563eb)">'+repl+'</div><div style="font-size:10.5px;color:var(--sub);font-weight:700;white-space:nowrap">Replies \u203a</div></div>'
+      +'<div onclick="commDrill(\'sms\',\'all\',\'out\',\'failed\')" style="flex:1;min-width:0;text-align:center;border:1.5px solid var(--border);border-radius:13px;padding:13px 4px;background:var(--white);cursor:pointer"><div style="font-size:20px;font-weight:900;color:var(--red,#dc2626)">'+fail+'</div><div style="font-size:10.5px;color:var(--sub);font-weight:700;white-space:nowrap">Failed \u203a</div></div>'
+      +'</div>';
+    h+=_cmpTable('sms',[
+      ['Sent',   hS.filter(function(c){return c.out==='sent';}).length,   aS.filter(function(c){return c.out==='sent';}).length,   'out','sent',   true],
+      ['Failed', hS.filter(function(c){return c.out==='failed';}).length, aS.filter(function(c){return c.out==='failed';}).length, 'out','failed', true]
+    ],'\uD83D\uDC64 Human & system','\uD83E\uDD16 AI');
+    h+='<div style="font-size:11px;color:var(--sub);margin-bottom:8px">Tap any blue number to see those texts. Human & system covers manual sends, welcome texts, reminders and bulk; AI is the AI Employee\u2019s own follow-ups. Replies come from leads, so they aren\u2019t split by sender. WhatsApp will join this table when it launches.</div>';
   }
 
   if(ch==='email'){
@@ -8521,6 +8569,34 @@ async function loadEmailReport(){
   ]);
   var put=function(id,v){ var e=document.getElementById(id); if(e) e.textContent=v; };
   put('emSentNum',vals[0]); put('emReplNum',vals[1]); put('emOpenNum',vals[2]); put('emClickNum',vals[3]);
+}
+// ── Report → Inbox drill-down. Tapping a number in the comparison table jumps
+// to the Inbox pre-filtered to exactly those rows (channel + AI/Human via the
+// existing chips, direction/outcome/date window via _commDrill, shown as a
+// dismissible purple pill — same pattern as the bulk-job focus pill).
+function commDrill(kind, who, dir, out2){
+  var R=commPeriodRange();
+  var pl={today:'Today',yest:'Yesterday','7d':'Last 7 days','14d':'Last 14 days','30d':'Last 30 days'}[window._commPeriod||'7d']||'';
+  var bits=[];
+  if(who==='ai') bits.push('\uD83E\uDD16 AI'); else if(who==='human') bits.push('\uD83D\uDC64 Human');
+  bits.push(kind==='sms'?'texts':'calls');
+  if(dir==='in') bits.push(kind==='sms'?'replies':'incoming');
+  if(dir==='out'&&kind!=='sms') bits.push('outgoing');
+  if(out2) bits.push(out2==='answered'?'answered':out2);
+  window._commDrill={ from:R.from.getTime(), to:(R.to?R.to.getTime():null), dir:dir||'', out:out2||'', label:bits.join(' \u00b7 ')+' \u00b7 '+pl };
+  window._ibChan=kind; window._ibWho=(who==='ai'||who==='human')?who:'all';
+  window._bulkFocus=null;
+  if(typeof goTab==='function') goTab('calls', document.getElementById('tab-calls'));
+}
+function _cdOk(c){
+  var d=window._commDrill; if(!d) return true;
+  var t=new Date(c.date).getTime();
+  if(isNaN(t)) return false;
+  if(t<d.from) return false;
+  if(d.to && t>=d.to) return false;
+  if(d.dir && c.dir!==d.dir) return false;
+  if(d.out && c.out!==d.out) return false;
+  return true;
 }
 async function loadSmsConsumed(){
   var el=document.getElementById('smsUsedNum'); if(!el) return;
@@ -10174,6 +10250,7 @@ function callsHTML(){
   var _cq=(schQ||'').toLowerCase();
   var rows=callLog.filter(gfCallInScope).filter(function(c){
     if(window._bulkFocus && !window._bulkFocus.ids[c.lid]) return false;
+    if(typeof _cdOk==='function' && !_cdOk(c)) return false;   // report drill-down
     if(window._ibChan!=='all' && c.kind!==window._ibChan) return false;
     if(window._ibWho==='ai' && !c.ai) return false;
     if(window._ibWho==='human' && c.ai) return false;
@@ -10193,6 +10270,7 @@ function callsHTML(){
 
   // Counts for the chips (channel counts ignore the channel filter itself)
   var base=callLog.filter(gfCallInScope).filter(function(c){
+    if(typeof _cdOk==='function' && !_cdOk(c)) return false;   // report drill-down
     if(window._ibWho==='ai' && !c.ai) return false;
     if(window._ibWho==='human' && c.ai) return false;
     return true;
@@ -10213,6 +10291,9 @@ function callsHTML(){
   var chipsBar =
       (window._bulkFocus
         ? '<div style="padding:10px 14px 0"><span style="display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:var(--green);background:var(--greenl,#e7f8f3);border:1.5px solid var(--green);border-radius:20px;padding:6px 12px;max-width:100%"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">\uD83D\uDCE4 '+sanitize(window._bulkFocus.label)+'</span><span onclick="window._bulkFocus=null;var c=document.getElementById(\'content\');if(c)c.innerHTML=callsHTML()" style="cursor:pointer;font-weight:800;padding:0 2px;flex-shrink:0">\u2715</span></span></div>'
+        : '')
+    + (window._commDrill
+        ? '<div style="padding:10px 14px 0"><span style="display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#7c3aed;background:#ede9fe;border:1.5px solid #7c3aed;border-radius:20px;padding:6px 12px;max-width:100%"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">\uD83D\uDCCA '+sanitize(window._commDrill.label)+'</span><span onclick="window._commDrill=null;var c=document.getElementById(\'content\');if(c)c.innerHTML=callsHTML()" style="cursor:pointer;font-weight:800;padding:0 2px;flex-shrink:0">\u2715</span></span></div>'
         : '')
     + '<div style="padding:10px 14px 4px;display:flex;gap:7px;overflow-x:auto;-webkit-overflow-scrolling:touch">'
     +   chChip('all','All')
@@ -18409,7 +18490,11 @@ async function loadCallLog() {
       var dur  = r.duration_seconds || 0;
       var desc = (r.description || '');
       var dl   = desc.toLowerCase();
-      var outcome = dl.indexOf('voicemail') >= 0 ? 'voicemail' : (dur > 0 ? 'answered' : 'missed');
+      // Voicemail truth: retell-webhook v22 stamps metadata.voicemail from
+      // Retell's analyzer, so a 42-second voicemail drop no longer counts as
+      // "answered" just because the AI spoke. Description match kept as fallback.
+      var outcome = (r.metadata && r.metadata.voicemail === true) ? 'voicemail'
+                  : dl.indexOf('voicemail') >= 0 ? 'voicemail' : (dur > 0 ? 'answered' : 'missed');
       var dt = r.created_at ? new Date(r.created_at) : null;
       out.push({
         id:   r.id,
