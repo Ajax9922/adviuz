@@ -4103,7 +4103,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-02 quote-2';
+var APP_VERSION = 'v2026-08-02 quote-3';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -24876,16 +24876,17 @@ var _quoteOpenOld = [];            // old open quotes found for this customer
 
 // Show the "existing open quote" sheet; admin picks cancel-old or keep-both
 function showSupersedeSheet(oldQ){
+  var _schedMode = ((document.getElementById('qWhen')||{}).value)==='sched';
   var btn = document.getElementById('sendQuoteBtn');
-  if(btn){ btn.textContent='Send Quote'; btn.disabled=false; } // un-stick the send button
+  if(btn){ btn.innerHTML = _schedMode ? '\uD83D\uDD52\u00A0 Schedule Quote' : '\u2709\uFE0F\u00A0 Send Quote'; btn.disabled=false; } // un-stick the button, keeping the right label
   var msg = document.getElementById('supersedeMsg');
-  if(msg) msg.innerHTML = 'This client already has <b>'+oldQ.length+' open quote'+(oldQ.length>1?'s':'')+'</b> that '+(oldQ.length>1?'haven\u2019t':'hasn\u2019t')+' been paid. What should happen to '+(oldQ.length>1?'them':'it')+' when you send the new one?';
+  if(msg) msg.innerHTML = 'This client already has <b>'+oldQ.length+' open quote'+(oldQ.length>1?'s':'')+'</b> that '+(oldQ.length>1?'haven\u2019t':'hasn\u2019t')+' been paid. What should happen to '+(oldQ.length>1?'them':'it')+' when you '+(_schedMode?'schedule':'send')+' the new one? '+(_schedMode?'<b>Your new quote will still be scheduled once you choose.</b>':'');
   var list = document.getElementById('supersedeList');
   if(list){
     list.innerHTML = oldQ.map(function(o){
       var amt = 'CAD $'+(+o.total||0).toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2});
       var d = o.created_at ? new Date(o.created_at).toLocaleDateString('en-CA',{month:'short',day:'numeric'}) : '';
-      var stCol = o.status==='viewed' ? 'var(--amber)' : 'var(--blue)';
+      var stCol = o.status==='viewed' ? 'var(--amber)' : (o.status==='scheduled' ? '#7c3aed' : 'var(--blue)');
       return '<div style="display:flex;align-items:center;gap:10px;padding:11px 13px;background:var(--bg);border:1px solid var(--border);border-radius:10px">'
         +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;color:var(--text)">'+(o.quote_number||'Quote')+'</div>'
         +'<div style="font-size:11px;color:var(--sub)">'+d+'</div></div>'
@@ -25449,7 +25450,7 @@ async function saveAndSendQuote() {
       var filt = email ? ('recipient_email=eq.'+encodeURIComponent(email))
                        : (_quoteLeadId ? ('lead_id=eq.'+_quoteLeadId) : null);
       if(filt) {
-        var oldRes = await sbFetch('/rest/v1/quotes?'+filt+'&status=in.(sent,viewed)&select=id,quote_number,total,status,created_at&order=created_at.desc');
+        var oldRes = await sbFetch('/rest/v1/quotes?'+filt+'&status=in.(sent,viewed,scheduled)&select=id,quote_number,total,status,created_at&order=created_at.desc');
         var oldQ = oldRes.ok ? await oldRes.json() : [];
         if(oldQ.length) { window._quoteSending = false; _quoteOpenOld = oldQ; showSupersedeSheet(oldQ); return; }
       }
@@ -25476,12 +25477,19 @@ async function saveAndSendQuote() {
   // saves the quote + the fully-rendered email, and the every-minute sender
   // delivers it at the chosen time.
   var _qWhen = ((document.getElementById('qWhen')||{}).value)||'now';
+  var _qBtnLbl = _qWhen==='sched' ? '\uD83D\uDD52\u00A0 Schedule Quote' : '\u2709\uFE0F\u00A0 Send Quote';
+  var _qUnlock = function(msg){
+    showToast(msg);
+    window._quoteSending = false;
+    var b=document.getElementById('sendQuoteBtn');
+    if(b){ b.innerHTML=_qBtnLbl; b.disabled=false; }
+  };
   var _qWhenD = null;
   if(_qWhen==='sched'){
     var _qwv = ((document.getElementById('qWhenAt')||{}).value)||'';
     _qWhenD = _qwv ? new Date(_qwv) : null;
-    if(!_qWhenD || isNaN(_qWhenD)){ showToast('Pick a date and time first'); return; }
-    if(_qWhenD.getTime() < Date.now()+60000){ showToast('Pick a time in the future'); return; }
+    if(!_qWhenD || isNaN(_qWhenD)){ _qUnlock('Pick a date and time first'); return; }
+    if(_qWhenD.getTime() < Date.now()+60000){ _qUnlock('Pick a time in the future'); return; }
   }
 
   var btn = document.getElementById('sendQuoteBtn');
@@ -25701,7 +25709,7 @@ async function saveAndSendQuote() {
     showToast('Error: '+e.message);
   } finally {
     window._quoteSending = false;
-    if(btn){ btn.textContent='Send Quote'; btn.disabled=false; }
+    if(btn){ btn.innerHTML = (typeof _qBtnLbl!=='undefined'?_qBtnLbl:'\u2709\uFE0F\u00A0 Send Quote'); btn.disabled=false; }
   }
 }
 
