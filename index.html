@@ -2335,7 +2335,7 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
           </div>
           <div>
             <label class="flbl">Province</label>
-            <select class="fsel" id="q-province" onchange="setProvinceTax()">
+            <select class="fsel" id="q-province" onchange="setProvinceTax();if(typeof qWhenHintUpd==='function')qWhenHintUpd()">
               <option value="">Select...</option>
               <option value="AB">Alberta — 5% GST</option>
               <option value="BC">BC — 12% GST+PST</option>
@@ -2457,12 +2457,13 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
         </div>
         <div style="margin-top:10px">
           <label class="flbl">When to send</label>
-          <select class="fsel" id="qWhen" onchange="var w=document.getElementById('qWhenAtRow');if(w)w.style.display=this.value==='sched'?'block':'none';var b=document.getElementById('sendQuoteBtn');if(b)b.innerHTML=this.value==='sched'?'&#x1F552;&nbsp; Schedule Quote':'&#x2709;&nbsp; Send Quote';if(this.value==='sched'){var i=document.getElementById('qWhenAt');if(i&&!i.value){var d=new Date(Date.now()+86400000);i.value=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'T10:00';}}">
+          <select class="fsel" id="qWhen" onchange="var w=document.getElementById('qWhenAtRow');if(w)w.style.display=this.value==='sched'?'block':'none';var b=document.getElementById('sendQuoteBtn');if(b)b.innerHTML=this.value==='sched'?'&#x1F552;&nbsp; Schedule Quote':'&#x2709;&nbsp; Send Quote';if(this.value==='sched'){var i=document.getElementById('qWhenAt');if(i&&!i.value){var d=new Date(Date.now()+86400000);i.value=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'T10:00';}if(typeof qWhenHintUpd==='function')qWhenHintUpd();}">
             <option value="now">Send now</option>
             <option value="sched">Schedule for a specific time&hellip;</option>
           </select>
           <div id="qWhenAtRow" style="display:none;margin-top:8px">
-            <input class="finp" id="qWhenAt" type="datetime-local">
+            <input class="finp" id="qWhenAt" type="datetime-local" onchange="qWhenHintUpd()" oninput="qWhenHintUpd()">
+            <div id="qWhenHint" style="display:none;font-size:12px;color:var(--text);background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;padding:9px 12px;margin-top:8px;line-height:1.5"></div>
             <div style="font-size:11px;color:var(--sub);margin-top:5px">The quote is saved now and the email goes out at this time (checked every minute).</div>
           </div>
         </div>
@@ -4102,7 +4103,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-02 quote-1';
+var APP_VERSION = 'v2026-08-02 quote-2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -13187,6 +13188,35 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
 
 function viewQuoteFromActivity(quoteId) {
   openQuoteViewer('https://hub.adviuz.ca/quote/?id=' + quoteId);
+}
+
+// quote-2: the schedule picker runs on YOUR clock. This hint says so out loud
+// and, using the client's province from the quote form, shows what time the
+// email lands on THEIR clock — so "8:00 AM" is never ambiguous again.
+var _QPROV_TZ={AB:'America/Edmonton',BC:'America/Vancouver',MB:'America/Winnipeg',NB:'America/Halifax',NL:'America/St_Johns',NS:'America/Halifax',NT:'America/Yellowknife',NU:'America/Iqaluit',ON:'America/Toronto',PE:'America/Halifax',QC:'America/Toronto',SK:'America/Regina',YT:'America/Whitehorse'};
+var _QPROV_NAME={AB:'Alberta',BC:'British Columbia',MB:'Manitoba',NB:'New Brunswick',NL:'Newfoundland',NS:'Nova Scotia',NT:'NWT',NU:'Nunavut',ON:'Ontario',PE:'PEI',QC:'Quebec',SK:'Saskatchewan',YT:'Yukon'};
+function qWhenHintUpd(){
+  var hint=document.getElementById('qWhenHint'); if(!hint) return;
+  var v=((document.getElementById('qWhenAt')||{}).value)||'';
+  var d=v?new Date(v):null;
+  if(!d||isNaN(d)){ hint.style.display='none'; return; }
+  var fmt=function(tz){ try{ return new Intl.DateTimeFormat('en-CA',{timeZone:tz,hour:'numeric',minute:'2-digit',hour12:true}).format(d); }catch(e){ return ''; } };
+  var myTime=d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit',hour12:true});
+  var prov=((document.getElementById('q-province')||{}).value)||'';
+  var line='\u23F0 This is <b>your</b> local time \u2014 the email leaves at <b>'+myTime+'</b> on your clock.';
+  var tz=_QPROV_TZ[prov];
+  if(tz){
+    var theirs=fmt(tz);
+    var mine=fmt(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    if(theirs){
+      line += (theirs===mine)
+        ? ' The client in '+(_QPROV_NAME[prov]||prov)+' is on the same clock, so it lands at <b>'+theirs+'</b> for them too.'
+        : ' For the client in '+(_QPROV_NAME[prov]||prov)+' that\'s <b>'+theirs+'</b> their time.';
+    }
+  } else {
+    line += ' Pick the client\'s province above and I\'ll show their local time too.';
+  }
+  hint.innerHTML=line; hint.style.display='block';
 }
 
 // quote-1: opening a quote used to navigate the PWA away with no way back —
