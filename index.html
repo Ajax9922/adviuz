@@ -1259,7 +1259,7 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
   <div class="search-wrap" id="searchWrap" style="display:none">
     <div class="search-inner">
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-      <input type="text" placeholder="Search leads..." id="searchInp" oninput="doSearch(this.value)">
+      <input type="text" placeholder="Search anything &mdash; name, notes, transcripts, campaign&hellip;" id="searchInp" oninput="doSearch(this.value)">
     </div>
   </div>
 
@@ -4118,7 +4118,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-02 quote-8';
+var APP_VERSION = 'v2026-08-03 search-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -5513,11 +5513,51 @@ function mapLead(l, i) {
     ai_score:        (l.ai_score != null ? Number(l.ai_score) : null),
     ai_score_reason: l.ai_score_reason || '',
     ai_summary:      l.ai_summary || '',
+    ai_facts:        Array.isArray(l.ai_facts) ? l.ai_facts : [],
     human_only:      l.human_only === true
   };
 }
 
 var COLORS=['#00a884','#2563eb','#d97706','#7c3aed','#cc0000','#0891b2','#db2777','#667781'];
+
+// ═══ DEEP SEARCH (search-1) ═══
+// One search box, everything findable: name/company/phones/emails, sales
+// stage, location, service, source, campaign name, partner, assigned person,
+// lead notes, AI memory (summary + remembered facts + temperature word),
+// call summaries and full AI-call transcripts, and every custom-field value.
+// Heavy, rarely-changing text (transcripts, AI memory, custom fields,
+// campaign/partner names) is cached per lead; short live fields (name, phone,
+// stage, notes\u2026) are read fresh on every keystroke so edits show up
+// immediately. Multi-word queries: every word must match somewhere.
+function _lsHeavyBlob(l){
+  if(l.__sb != null) return l.__sb;
+  var parts=[l.ai_summary, l.ai_score_reason, l.call_summary, l.call_transcript];
+  try{ (l.ai_facts||[]).forEach(function(f){ parts.push(String(f)); }); }catch(e){}
+  try{ var ff=l.form_fields||{}; Object.keys(ff).forEach(function(k){ if(ff[k]!=null&&ff[k]!=='') parts.push(String(ff[k])); }); }catch(e){}
+  try{ var cp=(typeof ibCampaignFor==='function')?ibCampaignFor(l):null; if(cp&&cp.name) parts.push(String(cp.name)); }catch(e){}
+  try{
+    if(l.partner_id && window._allPartners){
+      var pp=window._allPartners.find(function(x){return String(x.id)===String(l.partner_id);});
+      if(pp) parts.push(pp.full_name||pp.name||pp.email||'');
+    }
+  }catch(e){}
+  l.__sb = parts.filter(Boolean).join(' \u0001 ').toLowerCase();
+  return l.__sb;
+}
+function leadMatchesQ(l, q){
+  if(!q) return true;
+  if(!l) return false;
+  var live = [l.name,l.company,l.ph,l.ph2,l.ph3,l.em,l.em2,l.em3,l.em4,l.em5,
+    l.stage,l.location,l.svc,l.note,l.src,
+    (typeof srcLabel==='function'?srcLabel(l.src||''):''),
+    l.assignedName,l.campaign_name,l.campaign,
+    (l.ai_score!=null ? (l.ai_score>=7?'hot':l.ai_score>=4?'warm':'cold') : '')
+  ].filter(Boolean).join(' \u0001 ').toLowerCase();
+  var blob = live + ' \u0001 ' + _lsHeavyBlob(l);
+  var toks = String(q).toLowerCase().split(/\s+/).filter(Boolean);
+  for(var i=0;i<toks.length;i++){ if(blob.indexOf(toks[i])===-1) return false; }
+  return true;
+}
 
 // ═══════════════════════════════════════════════════════════
 // NOTIFICATIONS — Phase 1: bell + panel (new leads), all roles
@@ -7088,8 +7128,8 @@ function leadsHTML(){
     }
     // Legacy single-stage selector (kept for back-compat)
     if(schStg && l.stage!==schStg) return false;
-    // Search
-    if(schQ){var q=schQ.toLowerCase();return l.name.toLowerCase().includes(q)||(l.company&&l.company.toLowerCase().includes(q))||l.ph.includes(q)||(l.em&&l.em.toLowerCase().includes(q));}
+    // Search — deep (name, notes, transcripts, campaign, stage, custom fields\u2026)
+    if(schQ) return leadMatchesQ(l, schQ);
     return true;
   });
 
@@ -7224,7 +7264,7 @@ function leadsHTML(){
       if(af.partners&&af.partners.length){ if(af.partners.indexOf(_cpid)===-1) return; }
       else if(schPartners.size>0){ if(!schPartners.has(_cpid)) return; }
     }
-    if(schQ){ var q=schQ.toLowerCase(); if(!(l.name.toLowerCase().includes(q)||(l.company&&l.company.toLowerCase().includes(q))||l.ph.includes(q)||(l.em&&l.em.toLowerCase().includes(q)))) return; }
+    if(schQ && !leadMatchesQ(l, schQ)) return;
     _scCnt[l.stage||'']=(_scCnt[l.stage||'']||0)+1; _scTot++;
   });
   var _scSel=(af.stages&&af.stages.length===1)?af.stages[0]:'';
@@ -9076,12 +9116,9 @@ function taskListHTML(){
   }).filter(function(t){
     if(!schQ) return true;
     var q=schQ.toLowerCase();
-    var ld=leads.find(function(l){return l.id===t.lid})||{};
-    return ((ld.name||'').toLowerCase().indexOf(q)!==-1)
-        || ((ld.company||'').toLowerCase().indexOf(q)!==-1)
-        || ((ld.ph||'').toLowerCase().indexOf(q)!==-1)
-        || ((ld.em||'').toLowerCase().indexOf(q)!==-1)
-        || ((t.note||'').toLowerCase().indexOf(q)!==-1);
+    if(((t.note||'').toLowerCase().indexOf(q)!==-1)) return true;
+    var ld=leads.find(function(l){return l.id===t.lid});
+    return leadMatchesQ(ld, schQ);
   }).filter(gfTaskInScope).sort(function(a,b){var ka=(a.date||'')+' '+(a.time||''),kb=(b.date||'')+' '+(b.time||'');return (window._fuSort==='latest')?kb.localeCompare(ka):ka.localeCompare(kb);});
 
   if(!f.length){
@@ -10375,12 +10412,11 @@ function callsHTML(){
     if(window._ibWho==='ai' && !c.ai) return false;
     if(window._ibWho==='human' && c.ai) return false;
     if(!_cq) return true;
+    if((c.note||'').toLowerCase().indexOf(_cq)!==-1) return true;
+    if((c.body||'').toLowerCase().indexOf(_cq)!==-1) return true;
+    if((c.tx||'').toLowerCase().indexOf(_cq)!==-1) return true;   // this call's transcript
     var ld=leads.find(function(l){return l.id===c.lid});
-    var nm=((ld&&ld.name)||'').toLowerCase();
-    var ph=((ld&&ld.ph)||'').toLowerCase();
-    return nm.indexOf(_cq)!==-1 || ph.indexOf(_cq)!==-1
-        || (c.note||'').toLowerCase().indexOf(_cq)!==-1
-        || (c.body||'').toLowerCase().indexOf(_cq)!==-1;
+    return leadMatchesQ(ld, schQ);
   }).sort(function(a,b){
     var s=window._callSort||'newest';
     if(s==='longest') return (b.durS||0)-(a.durS||0);
@@ -10408,6 +10444,14 @@ function callsHTML(){
   }
   var _sched = ibScheduledRows();
   var _emails = ibEmailRows();
+  if(_cq){
+    _emails = _emails.filter(function(r){
+      if((r.subject||'').toLowerCase().indexOf(_cq)!==-1) return true;
+      if((r.body||'').toLowerCase().indexOf(_cq)!==-1) return true;
+      var ld=leads.find(function(l){return l.id===r.lid});
+      return leadMatchesQ(ld, schQ);
+    });
+  }
   var chipsBar =
       (window._bulkFocus
         ? '<div style="padding:10px 14px 0"><span style="display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:var(--green);background:var(--greenl,#e7f8f3);border:1.5px solid var(--green);border-radius:20px;padding:6px 12px;max-width:100%"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">\uD83D\uDCE4 '+sanitize(window._bulkFocus.label)+'</span><span onclick="window._bulkFocus=null;var c=document.getElementById(\'content\');if(c)c.innerHTML=callsHTML()" style="cursor:pointer;font-weight:800;padding:0 2px;flex-shrink:0">\u2715</span></span></div>'
@@ -18813,6 +18857,7 @@ async function loadCallLog() {
         date: r.created_at || '',
         rec:  r.recording_url || '',
         ph:   lead.ph || '',
+        tx:   (r.metadata && r.metadata.transcript) || '',
         ai:   !!((r.metadata && (r.metadata.handler === 'ai' || r.metadata.ai === true || r.metadata.retell)) || /^ai\b/i.test(desc))
       });
     });
