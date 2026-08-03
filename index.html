@@ -4075,7 +4075,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-02 reports-2';
+var APP_VERSION = 'v2026-08-02 reports-3';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -8460,23 +8460,37 @@ function commReportHTML(ch){
     });
     var fmtSpd=function(arr){ if(!arr.length) return '\u2014'; var m=arr.reduce(function(a,b){return a+b;},0)/arr.length; if(m<1) return '<1m'; if(m<60) return Math.round(m)+'m'; if(m<2880) return (Math.round(m/60*10)/10)+'h'; return Math.round(m/1440)+'d'; };
 
-    h+='<div style="display:flex;gap:7px;margin-bottom:8px">'
+    h+='<div style="display:flex;gap:7px;margin-bottom:10px">'
       +'<div onclick="commDrill(\'call\',\'all\',\'\',\'\')" style="flex:1;min-width:0;text-align:center;border:1.5px solid var(--border);border-radius:13px;padding:13px 4px;background:var(--white);cursor:pointer"><div style="font-size:20px;font-weight:900;color:var(--blue,#2563eb)">'+tot+'</div><div style="font-size:10.5px;color:var(--sub);font-weight:700;white-space:nowrap">Total calls \u203a</div></div>'
-      + commStat(pct+'%','Answered','var(--green)')
+      +'<div onclick="commDrill(\'call\',\'all\',\'\',\'answered\')" style="flex:1;min-width:0;text-align:center;border:1.5px solid var(--border);border-radius:13px;padding:13px 4px;background:var(--white);cursor:pointer"><div style="font-size:20px;font-weight:900;color:var(--green)">'+ansd+'</div><div style="font-size:10.5px;color:var(--sub);font-weight:700;white-space:nowrap">Answered \u203a ('+pct+'%)</div></div>'
       + commStat(mins,'Talk minutes','var(--text)')
       +'</div>';
-    h+=_cmpTable('call',[
-      ['Calls',            hC.length, aC.length, '',    '',          true],
-      ['Incoming',         N(hC,function(c){return c.dir==='in';}),  N(aC,function(c){return c.dir==='in';}),  'in','',          true],
-      ['\u2003Answered',   N(hC,function(c){return c.dir==='in'&&c.out==='answered';}), N(aC,function(c){return c.dir==='in'&&c.out==='answered';}), 'in','answered',  true],
-      ['Outgoing',         N(hC,function(c){return c.dir==='out';}), N(aC,function(c){return c.dir==='out';}), 'out','',         true],
-      ['\u2003Answered',   N(hC,function(c){return c.dir==='out'&&c.out==='answered';}),N(aC,function(c){return c.dir==='out'&&c.out==='answered';}),'out','answered', true],
-      ['Voicemail',        N(hC,function(c){return c.out==='voicemail';}), N(aC,function(c){return c.out==='voicemail';}), '','voicemail', true],
-      ['Missed / no answer', N(hC,function(c){return c.out==='missed';}), N(aC,function(c){return c.out==='missed';}), '','missed', true],
-      ['Talk time (min)',  minsOf(hC), minsOf(aC), '','', false],
-      ['Lead \u2192 1st call', fmtSpd(spdH), fmtSpd(spdA), '','', false]
-    ],'\uD83D\uDC64 Human','\uD83E\uDD16 AI');
-    h+='<div style="font-size:11px;color:var(--sub);margin-bottom:12px">Tap any blue number to see exactly those calls. Lead \u2192 1st call is the average wait between a lead arriving and their first call.</div>';
+
+    // One story-style card per caller type. Every blue number is tappable and
+    // opens the Inbox showing exactly those calls for this period.
+    var whoCard=function(who,ttl,tc,arr,spd){
+      var f=function(fn){return arr.filter(fn).length;};
+      var n=arr.length;
+      var oN=f(function(c){return c.dir==='out';}), iN=n-oN;
+      var oA=f(function(c){return c.dir==='out'&&c.out==='answered';});
+      var iA=f(function(c){return c.dir==='in'&&c.out==='answered';});
+      var conn=oA+iA;
+      var vm=f(function(c){return c.out==='voicemail';}), ms=n-conn-vm;
+      var oS=0,iS=0; arr.forEach(function(c){ if(c.dir==='out') oS+=(c.durS||0); else iS+=(c.durS||0); });
+      var B=function(v,dir,out2,col){ return '<b onclick="commDrill(\'call\',\''+who+'\',\''+dir+'\',\''+out2+'\')" style="color:'+(col||'var(--blue,#2563eb)')+';cursor:pointer">'+v+'</b>'; };
+      var row=function(ico,html){ return '<div style="display:flex;align-items:flex-start;gap:9px;padding:9px 13px;border-top:1px solid var(--border)"><span style="font-size:14px;flex-shrink:0;line-height:1.55">'+ico+'</span><div style="flex:1;font-size:13px;color:var(--text);line-height:1.55">'+html+'</div></div>'; };
+      return '<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;overflow:hidden;margin-bottom:8px">'
+        +'<div style="padding:10px 13px;background:var(--bg);font-size:13px;font-weight:800;color:'+tc+'">'+ttl+'</div>'
+        + row('\uD83D\uDCDE', B(n,'','')+' calls made \u2014 '+B(oN,'out','')+' outgoing, '+B(iN,'in','')+' incoming')
+        + row('\u2705', B(conn,'','answered','var(--green)')+' connected \u2014 '+B(oA,'out','answered','var(--green)')+' outgoing, '+B(iA,'in','answered','var(--green)')+' incoming')
+        + row('\uD83D\uDCF5', B(vm+ms,'','notanswered','var(--red,#dc2626)')+' not answered \u2014 '+B(vm,'','voicemail','#b45309')+' voicemail, '+B(ms,'','missed','var(--red,#dc2626)')+' no pickup')
+        + row('\u23F1\uFE0F', '<b>'+Math.round((oS+iS)/60)+' min</b> talk time \u2014 '+Math.round(oS/60)+' outgoing, '+Math.round(iS/60)+' incoming')
+        + row('\u26A1', 'Lead \u2192 first call: <b>'+spd+'</b> average wait')
+        +'</div>';
+    };
+    h+=whoCard('human','\uD83D\uDC64 Human','var(--text)',hC,fmtSpd(spdH));
+    h+=whoCard('ai','\uD83E\uDD16 AI','#7c3aed',aC,fmtSpd(spdA));
+    h+='<div style="font-size:11px;color:var(--sub);margin-bottom:12px">Tap any blue number to open exactly those calls in the Inbox. Lead \u2192 first call is the average wait between a lead arriving and someone calling them.</div>';
     if(window._clientAiEnabled){
       h+='<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:14px;margin-bottom:10px">'
         +   '<div style="display:flex;align-items:center;gap:10px">'
@@ -8588,6 +8602,22 @@ function commDrill(kind, who, dir, out2){
   window._bulkFocus=null;
   if(typeof goTab==='function') goTab('calls', document.getElementById('tab-calls'));
 }
+// Manual outcome correction from the Inbox card. Read-merge-write on the row's
+// metadata (a straight PATCH would wipe the transcript and other keys).
+async function ibSetOutcome(actId, val){
+  try{
+    var r=await sbFetch('/rest/v1/lead_activity?id=eq.'+encodeURIComponent(actId)+'&select=metadata&limit=1');
+    var rows=r.ok?await r.json().catch(function(){return[];}):[];
+    var md=(rows[0]&&rows[0].metadata)||{};
+    md.outcome_override=val;
+    var w=await sbFetch('/rest/v1/lead_activity?id=eq.'+encodeURIComponent(actId),{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({metadata:md})});
+    if(!w.ok) throw new Error('save failed');
+    var it=(callLog||[]).find(function(x){return String(x.id)===String(actId);});
+    if(it) it.out=val;
+    showToast('\u2705 Outcome updated');
+    var c2=document.getElementById('content'); if(c2 && curTab==='calls') c2.innerHTML=callsHTML();
+  }catch(e){ showToast('Could not save \u2014 try again'); }
+}
 function _cdOk(c){
   var d=window._commDrill; if(!d) return true;
   var t=new Date(c.date).getTime();
@@ -8595,7 +8625,8 @@ function _cdOk(c){
   if(t<d.from) return false;
   if(d.to && t>=d.to) return false;
   if(d.dir && c.dir!==d.dir) return false;
-  if(d.out && c.out!==d.out) return false;
+  if(d.out==='notanswered'){ if(c.out==='answered') return false; }
+  else if(d.out && c.out!==d.out) return false;
   return true;
 }
 async function loadSmsConsumed(){
@@ -10340,7 +10371,7 @@ function callsHTML(){
     var _wa=_ph.replace(/\D/g,'');
     var key=String(c.id||c.lid+'_'+c.date);
     var isOpen=(key in window._ibOpen) ? !!window._ibOpen[key] : globalOpen;
-    var canOpen=!!(c.rec || (isSms&&c.body) || c.note || (c.summary));
+    var canOpen=!!(c.rec || (isSms&&c.body) || c.note || (c.summary) || (!isSms && c.id && String(c.id).indexOf('_')===-1));
 
     // Bottom meta line: direction · Answered · 0m 28s · 11:08 AM  (one line only)
     var meta='<span style="color:var(--sub)">'+(c.dir==='in'?aIn:aOut)+'</span>'
@@ -10373,6 +10404,17 @@ function callsHTML(){
       if(isSms && c.body) det+='<div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:11px 13px;font-size:13.5px;color:var(--text);line-height:1.55;margin-bottom:8px;white-space:pre-wrap">'+String(c.body).replace(/</g,'&lt;')+'</div>';
       if(c.rec) det+='<audio src="'+c.rec+'" preload="none" controls style="width:100%;height:36px;outline:none;margin-bottom:8px"></audio>';
       if(!isSms && c.note && !/^call completed/i.test(c.note)) det+='<div style="font-size:12.5px;color:var(--sub);line-height:1.5;margin-bottom:4px">\uD83D\uDCDD '+String(c.note).replace(/</g,'&lt;')+'</div>';
+      // Outcome fixer — for the days the machines get it wrong (a human call
+      // that hit voicemail looks "answered" to the phone network). One tap
+      // corrects the record everywhere: card, reports, comparison table.
+      if(!isSms && c.id && String(c.id).indexOf('_')===-1){
+        var _ob=function(v,lbl){ var on=(c.out===v);
+          return '<button onclick="ibSetOutcome(\''+c.id+'\',\''+v+'\')" style="padding:5px 11px;border-radius:20px;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'var(--greenl,#e7f8f3)':'var(--white)')+';color:'+(on?'var(--green)':'var(--sub)')+';font-size:11.5px;font-weight:700;cursor:pointer;font-family:var(--f)">'+lbl+'</button>'; };
+        det+='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:2px">'
+          +'<span style="font-size:11px;font-weight:700;color:var(--sub)">Outcome:</span>'
+          +_ob('answered','\u2705 Answered')+_ob('voicemail','\uD83C\uDF99 Voicemail')+_ob('missed','\uD83D\uDCF5 Missed')
+          +'</div>';
+      }
       if(det) h+='<div style="padding:0 14px 12px">'+det+'</div>';
     }
     h+='</div>';
@@ -18490,10 +18532,14 @@ async function loadCallLog() {
       var dur  = r.duration_seconds || 0;
       var desc = (r.description || '');
       var dl   = desc.toLowerCase();
-      // Voicemail truth: retell-webhook v22 stamps metadata.voicemail from
-      // Retell's analyzer, so a 42-second voicemail drop no longer counts as
-      // "answered" just because the AI spoke. Description match kept as fallback.
-      var outcome = (r.metadata && r.metadata.voicemail === true) ? 'voicemail'
+      // Outcome truth, in priority order: (1) a manual correction made on the
+      // Inbox card, (2) the voicemail flag (Retell's analyzer for AI calls,
+      // the transcript brain for human calls — the phone network itself counts
+      // a voicemail pickup as "answered", so raw duration always lies here),
+      // (3) description text, (4) duration.
+      var _ovr = (r.metadata && r.metadata.outcome_override) || '';
+      var outcome = (_ovr==='answered'||_ovr==='voicemail'||_ovr==='missed') ? _ovr
+                  : (r.metadata && r.metadata.voicemail === true) ? 'voicemail'
                   : dl.indexOf('voicemail') >= 0 ? 'voicemail' : (dur > 0 ? 'answered' : 'missed');
       var dt = r.created_at ? new Date(r.created_at) : null;
       out.push({
