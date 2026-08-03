@@ -267,7 +267,9 @@ function renderQuote(q){
   var pdfUrl = brandFileUrl(q.pdf_url || '');
   html+="<div class='share-row'>"
     +(pdfUrl
-      ? "<a href='"+pdfUrl+"' target='_blank' id='sharePdfBtn' class='share-btn pdf'>&#x1F4C4; Download PDF</a>"
+      ? (IN_APP
+          ? "<button id='sharePdfBtn' onclick='openPdfInApp(\""+pdfUrl+"\")' class='share-btn pdf'>&#x1F4C4; Download PDF</button>"
+          : "<a href='"+pdfUrl+"' target='_blank' id='sharePdfBtn' class='share-btn pdf'>&#x1F4C4; Download PDF</a>")
       : "<button id='sharePdfBtn' onclick='downloadPDF()' class='share-btn pdf'>&#x1F4C4; Download PDF</button>")
     +"<a id='waBtn' href='#' class='share-btn wa' target='_blank'>&#x1F4AC; WhatsApp</a>"
     +"<button class='share-btn copy' onclick='copyQuoteLink()'>&#x1F517; Copy Link</button>"
@@ -407,11 +409,21 @@ function showError(title,sub){
 }
 
 // ── PDF DOWNLOAD ──
+// When this page runs INSIDE the Adviuz app (an iframe with its own Close
+// header), opening the PDF directly would cover the whole app with no way
+// back. Instead we hand the URL to the app, which shows it in the same
+// overlay viewer with a Close button. In a normal browser, behavior is
+// unchanged (new tab).
+var IN_APP = (function(){ try { return window.self !== window.top; } catch(e){ return true; } })();
+function openPdfInApp(u){
+  try { parent.postMessage({ type: 'adviuz-open-file', url: u, title: 'Quote PDF' }, window.location.origin); }
+  catch(e){ window.location.href = u; }
+}
 function downloadPDF(){
   // Only called when button has no href (pdf_url not available yet)
   var pdfLink = window._currentPdfUrl;
   if(pdfLink) {
-    window.open(pdfLink, '_blank');
+    if(IN_APP) openPdfInApp(pdfLink); else window.open(pdfLink, '_blank');
   } else {
     window.print();
   }
