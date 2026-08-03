@@ -2455,6 +2455,17 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
           <label class="flbl">Notes to client</label>
           <textarea class="fta" id="q-notes" placeholder="Special notes, terms, or what's included..." style="min-height:70px"></textarea>
         </div>
+        <div style="margin-top:10px">
+          <label class="flbl">When to send</label>
+          <select class="fsel" id="qWhen" onchange="var w=document.getElementById('qWhenAtRow');if(w)w.style.display=this.value==='sched'?'block':'none';var b=document.getElementById('sendQuoteBtn');if(b)b.innerHTML=this.value==='sched'?'&#x1F552;&nbsp; Schedule Quote':'&#x2709;&nbsp; Send Quote';if(this.value==='sched'){var i=document.getElementById('qWhenAt');if(i&&!i.value){var d=new Date(Date.now()+86400000);i.value=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'T10:00';}}">
+            <option value="now">Send now</option>
+            <option value="sched">Schedule for a specific time&hellip;</option>
+          </select>
+          <div id="qWhenAtRow" style="display:none;margin-top:8px">
+            <input class="finp" id="qWhenAt" type="datetime-local">
+            <div style="font-size:11px;color:var(--sub);margin-top:5px">The quote is saved now and the email goes out at this time (checked every minute).</div>
+          </div>
+        </div>
         <div style="height:8px"></div>
       </div>
 
@@ -4091,7 +4102,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-02 ops-2';
+var APP_VERSION = 'v2026-08-02 quote-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -13175,8 +13186,29 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
 }
 
 function viewQuoteFromActivity(quoteId) {
-  var qUrl = 'https://hub.adviuz.ca/quote/?id=' + quoteId;
-  window.open(qUrl, '_blank');
+  openQuoteViewer('https://hub.adviuz.ca/quote/?id=' + quoteId);
+}
+
+// quote-1: opening a quote used to navigate the PWA away with no way back —
+// the only escape was killing the app. Quotes now open INSIDE the app in a
+// full-screen overlay with a Close button (same-origin page, so the iframe is
+// fine). "Open in browser" is there for sharing/printing.
+function openQuoteViewer(url){
+  var old=document.getElementById('quoteViewOv'); if(old) old.parentNode.removeChild(old);
+  var ov=document.createElement('div');
+  ov.id='quoteViewOv';
+  ov.style.cssText='position:fixed;inset:0;z-index:995;background:var(--bg,#f3f4f6);display:flex;flex-direction:column';
+  ov.innerHTML=
+    '<div style="display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 14px 10px;background:#001f3f">'
+    +'<button onclick="closeQuoteViewer()" style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.12);border:none;border-radius:20px;color:#fff;font-family:var(--f);font-size:13px;font-weight:700;padding:8px 14px;cursor:pointer">\u2715 Close</button>'
+    +'<span style="flex:1;font-size:13px;font-weight:700;color:#fff;text-align:center">Quote</span>'
+    +'<a href="'+url+'" target="_blank" rel="noopener" style="background:rgba(255,255,255,.12);border-radius:20px;color:#fff;font-size:13px;font-weight:700;padding:8px 14px;text-decoration:none">\u2197 Browser</a>'
+    +'</div>'
+    +'<iframe src="'+url+'" style="flex:1;width:100%;border:none;background:#fff"></iframe>';
+  document.body.appendChild(ov);
+}
+function closeQuoteViewer(){
+  var ov=document.getElementById('quoteViewOv'); if(ov) ov.parentNode.removeChild(ov);
 }
 
 // ── Helper: info row ──
@@ -24873,7 +24905,7 @@ async function openLeadQuotes(lid) {
     // or it renders one day early in Canada. Matches the global fmtDate().
     var fmtDate = function(s){ if(!s) return ''; var dt = (typeof s==='string' && s.length<=10) ? new Date(s+'T12:00:00') : new Date(s); return isNaN(dt.getTime()) ? '' : dt.toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}); };
     var fmtAmt  = function(n){ return 'CAD $'+parseFloat(n||0).toLocaleString('en-CA',{minimumFractionDigits:2}); };
-    var stColors = {sent:'#d97706',viewed:'#3b82f6',accepted:'#059669',paid:'#059669',expired:'#6b7280',draft:'#9ca3af'};
+    var stColors = {scheduled:'#7c3aed',sent:'#d97706',viewed:'#3b82f6',accepted:'#059669',paid:'#059669',expired:'#6b7280',draft:'#9ca3af'};
 
     var html = '';
     if(!quotes.length) {
@@ -24882,7 +24914,7 @@ async function openLeadQuotes(lid) {
       quotes.forEach(function(q) {
         var stColor = stColors[q.status]||'#6b7280';
         var qUrl = 'https://hub.adviuz.ca/quote/?id='+q.id;
-        html += '<div style="display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border);cursor:pointer" onclick="window.open(\''+qUrl+'\',\'_blank\')">'
+        html += '<div style="display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border);cursor:pointer" onclick="openQuoteViewer(\''+qUrl+'\')">'
           +'<div style="flex:1;min-width:0">'
             +'<div style="font-size:14px;font-weight:700;color:var(--text)">'+(q.quote_number||'Quote')+'</div>'
             +'<div style="font-size:12px;color:var(--sub);margin-top:2px">'+fmtDate(q.created_at)+(q.valid_until ? ' · Expires '+fmtDate(q.valid_until) : '')+'</div>'
@@ -25410,6 +25442,18 @@ async function saveAndSendQuote() {
     total    = subAfter + taxAmt;
   }
 
+  // Schedule choice (quote-1): "now" sends immediately as before; "sched"
+  // saves the quote + the fully-rendered email, and the every-minute sender
+  // delivers it at the chosen time.
+  var _qWhen = ((document.getElementById('qWhen')||{}).value)||'now';
+  var _qWhenD = null;
+  if(_qWhen==='sched'){
+    var _qwv = ((document.getElementById('qWhenAt')||{}).value)||'';
+    _qWhenD = _qwv ? new Date(_qwv) : null;
+    if(!_qWhenD || isNaN(_qWhenD)){ showToast('Pick a date and time first'); return; }
+    if(_qWhenD.getTime() < Date.now()+60000){ showToast('Pick a time in the future'); return; }
+  }
+
   var btn = document.getElementById('sendQuoteBtn');
   if(btn){ btn.textContent='Saving...'; btn.disabled=true; }
 
@@ -25433,8 +25477,9 @@ async function saveAndSendQuote() {
       valid_until:    valid||null,
       installments:   parseInt((document.getElementById('q-installments')||{}).value||1),
       notes:          notes||null,
-      status:         'sent',
-      sent_at:        new Date().toISOString(),
+      status:         _qWhen==='sched' ? 'scheduled' : 'sent',
+      sent_at:        _qWhen==='sched' ? null : new Date().toISOString(),
+      send_at:        _qWhen==='sched' ? _qWhenD.toISOString() : null,
       created_by:     currentUser ? currentUser.id : null
     };
 
@@ -25519,6 +25564,23 @@ async function saveAndSendQuote() {
         +'</table></td></tr></table>'
         +'</body></html>';
 
+      var _qSubject = 'Your Adviuz Quote — '+co+(q.quote_number?' ('+q.quote_number+')':'');
+      var _qText = 'Hi '+firstName+', your quote from Adviuz is ready. View and pay at: '+qUrl;
+      if(_qWhen==='sched'){
+        // Store the fully-rendered email; the every-minute sender delivers it.
+        var schRes = await sbFetch('/rest/v1/scheduled_quote_emails', {
+          method:'POST',
+          body: JSON.stringify({
+            quote_id: q.id, to_email: email, subject: _qSubject,
+            html: quoteHtml, qtext: _qText, lead_id: _quoteLeadId||null,
+            send_at: _qWhenD.toISOString()
+          })
+        });
+        if(!schRes.ok){
+          console.error('[Quote] Schedule save failed', schRes.status);
+          showToast('⚠️ Quote saved but scheduling failed — open it and send manually');
+        }
+      } else {
       var emailRes = await fetch(SB_URL+'/functions/v1/send-email', {
         method:'POST',
         headers:{
@@ -25528,9 +25590,9 @@ async function saveAndSendQuote() {
         },
         body: JSON.stringify({
           to:         email,
-          subject:    'Your Adviuz Quote — '+co+(q.quote_number?' ('+q.quote_number+')':''),
+          subject:    _qSubject,
           html:       quoteHtml,
-          text:       'Hi '+firstName+', your quote from Adviuz is ready. View and pay at: '+qUrl,
+          text:       _qText,
           type:       'transactional',
           from_email: 'sales@adviuz.com',
           from_name:  'Adviuz Sales',
@@ -25545,13 +25607,18 @@ async function saveAndSendQuote() {
       } else {
         console.log('[Quote] Email sent to', email);
       }
+      }
     } catch(emailErr) {
       console.warn('[Quote] Email send failed:', emailErr.message);
       showToast('⚠️ Quote saved but email failed: '+emailErr.message);
     }
 
     closeCreateQuote();
+    if(_qWhen==='sched'){
+      showToast('\uD83D\uDD52 Quote '+(q.quote_number||'')+' scheduled for '+_qWhenD.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+_qWhenD.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}));
+    } else {
     showToast('Quote '+(q.quote_number||'')+' created!');
+    }
 
     // Log to activity timeline
     if(_quoteLeadId) {
@@ -25591,11 +25658,13 @@ async function saveAndSendQuote() {
     }).then(function(r){return r.json();}).then(function(d){
       if(d.pdf_url) console.log('[Quote] PDF generated:', d.pdf_url);
     }).catch(function(e){ console.warn('[Quote] PDF generation failed:', e.message); });
-    setTimeout(function(){
-      if(confirm('Quote created and email sent!\n\nOpen quote link to share directly?\n\n'+qUrl)){
-        window.open(qUrl,'_blank');
-      }
-    }, 400);
+    if(_qWhen!=='sched'){
+      setTimeout(function(){
+        if(confirm('Quote created and email sent!\n\nOpen quote link to share directly?\n\n'+qUrl)){
+          openQuoteViewer(qUrl);
+        }
+      }, 400);
+    }
     loadAdminData();
   } catch(e){
     console.error('[saveAndSendQuote]', e);
@@ -25614,7 +25683,7 @@ function adQuotesHTML() {
   h += '<button onclick="openCreateQuoteSheet(null)" style="padding:7px 14px;border-radius:9px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer">+ New Quote</button>';
   h += '</div>';
   if(!qs.length) return h+'<div style="text-align:center;padding:40px;color:var(--sub)">No quotes yet</div></div>';
-  var stColors = {draft:'var(--sub)',sent:'var(--blue)',viewed:'var(--amber)',accepted:'var(--green)',paid:'var(--green)',rejected:'var(--red)',expired:'var(--muted)'};
+  var stColors = {draft:'var(--sub)',scheduled:'#7c3aed',sent:'var(--blue)',viewed:'var(--amber)',accepted:'var(--green)',paid:'var(--green)',rejected:'var(--red)',expired:'var(--muted)'};
   h += '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
   qs.forEach(function(q,i){
     var stCol = stColors[q.status]||'var(--sub)';
@@ -25631,7 +25700,7 @@ function adQuotesHTML() {
         +'<div style="font-size:14px;font-weight:800;color:var(--text)">'+total+'</div>'
         +'<div style="font-size:10px;font-weight:700;color:'+stCol+';text-transform:uppercase">'+q.status+'</div>'
       +'</div>'
-      +'<button onclick="window.open(\''+qUrl+'\',\'_blank\')" title="View quote" style="width:30px;height:30px;border-radius:8px;background:var(--bg);border:1px solid var(--border);cursor:pointer;font-size:13px;flex-shrink:0">&#x1F517;</button>'
+      +'<button onclick="openQuoteViewer(\''+qUrl+'\')" title="View quote" style="width:30px;height:30px;border-radius:8px;background:var(--bg);border:1px solid var(--border);cursor:pointer;font-size:13px;flex-shrink:0">&#x1F517;</button>'
       +(canPay?'<button data-qid="'+q.id+'" onclick="markQuotePaid(this.dataset.qid)" title="Mark as paid" style="padding:5px 9px;border-radius:8px;background:var(--green);border:none;color:#fff;font-family:var(--f);font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;white-space:nowrap">Mark Paid</button>':'')
     +'</div>';
   });
