@@ -4075,7 +4075,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-02 temp-1';
+var APP_VERSION = 'v2026-08-02 reports-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -8349,7 +8349,7 @@ async function bwLaunch(schedIso){
   closeSheet('bulkWizSh');
   if(made){
     // 6. Straight to the right report so they can watch it happen.
-    window._rptTab=(b.channel==='sms')?'bsms':'bemail';
+    window._rptTab=(b.channel==='sms')?'sms':'email';
     goTab('reports', document.getElementById('tab-reports'));
     var _hr=new Date().getHours();
     var _night=(_hr<8||_hr>=21);
@@ -8368,35 +8368,159 @@ function bulkChannelReportHTML(ch){
     + '<div id="bulkRepBox" style="font-size:13px;color:var(--sub)">Loading\u2026</div>'
     + '</div>';
 }
-function callsReportHTML(){
-  var calls=(callLog||[]).filter(function(c){ return (typeof gfCallInScope!=='function') || gfCallInScope(c); });
-  var tot=calls.length;
-  var secs=0; calls.forEach(function(c){ secs += (c.durS||0); });
-  var mins=Math.round(secs/60);
-  var stat=function(n,lbl,col){ return '<div style="flex:1;text-align:center;border:1.5px solid var(--border);border-radius:13px;padding:13px 4px;background:var(--white)"><div style="font-size:21px;font-weight:900;color:'+col+'">'+n+'</div><div style="font-size:10.5px;color:var(--sub);font-weight:700">'+lbl+'</div></div>'; };
-  setTimeout(loadSmsConsumed, 60);
-  return '<div style="padding:14px">'
-    + '<div style="display:flex;gap:7px;margin-bottom:10px">'
-    +   stat(tot,'Total calls','var(--text)')
-    +   stat(mins,'Minutes used','var(--blue,#2563eb)')
-    +   stat('<span id="smsUsedNum">\u2026</span>','SMS this month','var(--green)')
-    + '</div>'
-    + (window._clientAiEnabled ? (
-        '<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:14px;margin-bottom:10px">'
-      +   '<div style="display:flex;align-items:center;gap:10px">'
-      +     '<span style="flex:1;min-width:0">'
-      +       '<span style="display:block;font-size:13px;font-weight:800;color:var(--text)">\uD83E\uDD16 AI minutes</span>'
-      +       '<span style="display:block;font-size:12px;color:var(--sub);margin-top:2px">'
-      +         ((Number(window._clientAiTotal)||0) > 0
-                  ? (Math.max(0,(Number(window._clientAiTotal)||0)-(Number(window._clientAiMinutes)||0)).toLocaleString()+' used \u00b7 '+(Number(window._clientAiMinutes)||0).toLocaleString()+' of '+(Number(window._clientAiTotal)||0).toLocaleString()+' left')
-                  : ((Number(window._clientAiMinutes)||0).toLocaleString()+' left'))
-      +       '</span>'
-      +     '</span>'
-      +     '<button onclick="requestAiMinutes(this)" style="border:none;border-radius:10px;background:var(--green);color:#fff;font-family:var(--f);font-weight:800;font-size:13px;padding:11px 14px;cursor:pointer;flex-shrink:0">\u2795 Add minutes</button>'
-      +   '</div>'
-      + '</div>') : '')
-    + '<div style="font-size:11.5px;color:var(--sub);line-height:1.55">Minutes are talk time across all calls shown in your Calls tab. SMS counts every text sent from your account this month, including reminders and bulk sends.</div>'
+// ═══ COMMUNICATIONS REPORTS — Calls / SMS / Email behind one period picker ═══
+// Period boundaries use LOCAL midnights (locDayKey principle) so "Today" means
+// the user's today, not UTC's.
+function commPeriodRange(){
+  var p=window._commPeriod||'7d';
+  var now=new Date();
+  var d0=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  var from,to=null;
+  if(p==='today'){ from=d0; }
+  else if(p==='yest'){ from=new Date(d0.getTime()-86400000); to=d0; }
+  else if(p==='14d'){ from=new Date(d0.getTime()-13*86400000); }
+  else if(p==='30d'){ from=new Date(d0.getTime()-29*86400000); }
+  else { from=new Date(d0.getTime()-6*86400000); }
+  return {from:from,to:to};
+}
+function commPeriodChips(ch){
+  var p=window._commPeriod||'7d';
+  var chips=[['today','Today'],['yest','Yesterday'],['7d','7 days'],['14d','14 days'],['30d','30 days']];
+  return '<div style="display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:2px 0 10px">'
+    + chips.map(function(c){ var on=p===c[0];
+        return '<button onclick="window._commPeriod=\''+c[0]+'\';window._rptTab=\''+ch+'\';document.getElementById(\'content\').innerHTML=reportsHTML()" style="flex-shrink:0;padding:7px 13px;border-radius:20px;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'var(--green)':'var(--white)')+';color:'+(on?'#fff':'var(--sub)')+';font-size:12px;font-weight:800;cursor:pointer;font-family:var(--f);white-space:nowrap">'+c[1]+'</button>';
+      }).join('')
     + '</div>';
+}
+function commInRange(iso,R){
+  if(!iso) return false;
+  var t=new Date(iso).getTime();
+  if(isNaN(t)) return false;
+  if(t<R.from.getTime()) return false;
+  if(R.to && t>=R.to.getTime()) return false;
+  return true;
+}
+function commStat(n,lbl,col){ return '<div style="flex:1;min-width:0;text-align:center;border:1.5px solid var(--border);border-radius:13px;padding:13px 4px;background:var(--white)"><div style="font-size:20px;font-weight:900;color:'+col+'">'+n+'</div><div style="font-size:10.5px;color:var(--sub);font-weight:700;white-space:nowrap">'+lbl+'</div></div>'; }
+function commReportHTML(ch){
+  var R=commPeriodRange();
+  var h='<div style="padding:14px">'+commPeriodChips(ch);
+  var inScope=function(c){ return (typeof gfCallInScope!=='function')||gfCallInScope(c); };
+
+  if(ch==='calls'){
+    var calls=(callLog||[]).filter(function(c){ return c.kind==='call' && inScope(c) && commInRange(c.date,R); });
+    var tot=calls.length;
+    var ansd=calls.filter(function(c){return c.out==='answered';}).length;
+    var secs=0; calls.forEach(function(c){secs+=(c.durS||0);});
+    var mins=Math.round(secs/60);
+    var aiN=calls.filter(function(c){return !!c.ai;}).length;
+    var inN=calls.filter(function(c){return c.dir==='in';}).length;
+    var pct=tot?Math.round(ansd/tot*100):0;
+    h+='<div style="display:flex;gap:7px;margin-bottom:8px">'
+      + commStat(tot,'Calls','var(--text)')
+      + commStat(pct+'%','Answered','var(--green)')
+      + commStat(mins,'Minutes','var(--blue,#2563eb)')
+      +'</div>'
+      +'<div style="display:flex;gap:7px;margin-bottom:8px">'
+      + commStat(aiN,'\uD83E\uDD16 AI calls','#7c3aed')
+      + commStat(tot-aiN,'\uD83D\uDC64 Human calls','var(--text)')
+      + commStat(tot-ansd,'Not answered','var(--red,#dc2626)')
+      +'</div>'
+      +'<div style="display:flex;gap:7px;margin-bottom:12px">'
+      + commStat('\u2193 '+inN,'Incoming','var(--text)')
+      + commStat('\u2191 '+(tot-inN),'Outgoing','var(--text)')
+      +'</div>';
+    if(window._clientAiEnabled){
+      h+='<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:14px;margin-bottom:10px">'
+        +   '<div style="display:flex;align-items:center;gap:10px">'
+        +     '<span style="flex:1;min-width:0">'
+        +       '<span style="display:block;font-size:13px;font-weight:800;color:var(--text)">\uD83E\uDD16 AI minutes</span>'
+        +       '<span style="display:block;font-size:12px;color:var(--sub);margin-top:2px">'
+        +         ((Number(window._clientAiTotal)||0) > 0
+                    ? (Math.max(0,(Number(window._clientAiTotal)||0)-(Number(window._clientAiMinutes)||0)).toLocaleString()+' used \u00b7 '+(Number(window._clientAiMinutes)||0).toLocaleString()+' of '+(Number(window._clientAiTotal)||0).toLocaleString()+' left')
+                    : ((Number(window._clientAiMinutes)||0).toLocaleString()+' left'))
+        +       '</span>'
+        +     '</span>'
+        +     '<button onclick="requestAiMinutes(this)" style="border:none;border-radius:10px;background:var(--green);color:#fff;font-family:var(--f);font-weight:800;font-size:13px;padding:11px 14px;cursor:pointer;flex-shrink:0">\u2795 Add minutes</button>'
+        +   '</div>'
+        + '</div>';
+    }
+    h+='<div style="font-size:11.5px;color:var(--sub);line-height:1.55">Answered means someone picked up. Minutes are total talk time for the calls in this period. AI minutes above are your account balance and don\u2019t change with the period picker.</div>';
+  }
+
+  if(ch==='sms'){
+    var sms=(callLog||[]).filter(function(c){ return c.kind==='sms' && inScope(c) && commInRange(c.date,R); });
+    var sent=sms.filter(function(c){return c.dir==='out'&&c.out==='sent';}).length;
+    var fail=sms.filter(function(c){return c.dir==='out'&&c.out==='failed';}).length;
+    var repl=sms.filter(function(c){return c.dir==='in';}).length;
+    var aiS=sms.filter(function(c){return c.dir==='out'&&!!c.ai;}).length;
+    h+='<div style="display:flex;gap:7px;margin-bottom:8px">'
+      + commStat(sent,'Sent','var(--green)')
+      + commStat(repl,'Replies','var(--blue,#2563eb)')
+      + commStat(fail,'Failed','var(--red,#dc2626)')
+      +'</div>'
+      +'<div style="display:flex;gap:7px;margin-bottom:12px">'
+      + commStat(aiS,'\uD83E\uDD16 AI texts','#7c3aed')
+      + commStat(Math.max(0,sent-aiS),'\uD83D\uDC64 Manual & system','var(--text)')
+      +'</div>'
+      +'<div style="font-size:11.5px;color:var(--sub);line-height:1.55;margin-bottom:4px">Counts every text to your leads in this period \u2014 manual, welcome, reminders, AI follow-ups and bulk sends. Replies are texts your leads sent back.</div>';
+  }
+
+  if(ch==='email'){
+    setTimeout(loadEmailReport,60);
+    h+='<div style="display:flex;gap:7px;margin-bottom:8px">'
+      + commStat('<span id="emSentNum">\u2026</span>','Sent','var(--green)')
+      + commStat('<span id="emReplNum">\u2026</span>','Replies','var(--blue,#2563eb)')
+      +'</div>'
+      +'<div style="display:flex;gap:7px;margin-bottom:12px">'
+      + commStat('<span id="emOpenNum">\u2026</span>','\uD83D\uDC41 Opened','var(--text)')
+      + commStat('<span id="emClickNum">\u2026</span>','\uD83D\uDDB1 Clicked','#7c3aed')
+      +'</div>'
+      +'<div style="font-size:11.5px;color:var(--sub);line-height:1.55;margin-bottom:4px">Opens are undercounted \u2014 Gmail and some mail apps block the tracking image. A click is solid proof the email was read.</div>';
+  }
+
+  // Bulk job lists live inside SMS and Email (the old Bulk tiles are gone).
+  if(ch==='sms'||ch==='email'){
+    window._bulkRepCh=(ch==='sms')?'sms':'email';
+    setTimeout(loadBulkReports,60);
+    h+='<div style="font-size:11px;font-weight:800;color:var(--sub);letter-spacing:.06em;text-transform:uppercase;margin:16px 0 8px">Bulk sends</div>'
+      +'<div id="bulkSumBox" style="display:flex;gap:7px;margin-bottom:12px"></div>'
+      +'<div id="bulkRepBox" style="font-size:13px;color:var(--sub)">Loading\u2026</div>';
+  }
+
+  h+='</div>';
+  return h;
+}
+// Email counts come straight from the database with exact-count queries, scoped
+// the same way everything else is: client \u2192 client_id, partner \u2192 own lead ids,
+// operator \u2192 platform-wide.
+async function loadEmailReport(){
+  var R=commPeriodRange();
+  var fromIso=R.from.toISOString();
+  var toIso=R.to?R.to.toISOString():null;
+  function rng(col){ var q='&'+col+'=gte.'+encodeURIComponent(fromIso); if(toIso) q+='&'+col+'=lt.'+encodeURIComponent(toIso); return q; }
+  var scope='';
+  if(typeof isClientMode==='function' && isClientMode() && window._clientId){ scope='&client_id=eq.'+window._clientId; }
+  else if(typeof isPartnerMode==='function' && isPartnerMode()){
+    var ids=(window.leads||[]).map(function(l){return l.dbId;}).filter(Boolean);
+    if(!ids.length){ ['emSentNum','emReplNum','emOpenNum','emClickNum'].forEach(function(x){var e=document.getElementById(x); if(e) e.textContent='0';}); return; }
+    scope='&lead_id=in.('+ids.slice(0,300).join(',')+')';
+  }
+  async function cnt(path){
+    try{
+      var r=await sbFetch(path+'&limit=1',{headers:{Prefer:'count=exact'}});
+      var cr=r.headers.get('content-range')||'';
+      var n=cr.indexOf('/')>-1?cr.split('/')[1]:'';
+      return (n&&n!=='*')?n:'0';
+    }catch(e){ return '\u2014'; }
+  }
+  var vals=await Promise.all([
+    cnt('/rest/v1/lead_activity?select=id&activity_type=eq.email_sent'+scope+rng('created_at')),
+    cnt('/rest/v1/lead_activity?select=id&activity_type=eq.email_received'+scope+rng('created_at')),
+    cnt('/rest/v1/email_opens?select=id&kind=eq.opened'+scope+rng('occurred_at')),
+    cnt('/rest/v1/email_opens?select=id&kind=eq.clicked'+scope+rng('occurred_at'))
+  ]);
+  var put=function(id,v){ var e=document.getElementById(id); if(e) e.textContent=v; };
+  put('emSentNum',vals[0]); put('emReplNum',vals[1]); put('emOpenNum',vals[2]); put('emClickNum',vals[3]);
 }
 async function loadSmsConsumed(){
   var el=document.getElementById('smsUsedNum'); if(!el) return;
@@ -9004,8 +9128,13 @@ async function requestAiMinutes(btn){
 }
 
 function reportsHTML(){
-  // Four sub-reports behind tiles: Leads / Bulk SMS / Bulk Email / Calls.
+  // Four sub-reports behind tiles: Leads / Calls / SMS / Email. The old Bulk
+  // SMS / Bulk Email tiles are gone — their job lists now live INSIDE the SMS
+  // and Email reports (below the period stats), so old 'bsms'/'bemail' values
+  // (still set by the bulk wizard redirect + old links) map across.
   var t=window._rptTab||'leads';
+  if(t==='bsms')  t=window._rptTab='sms';
+  if(t==='bemail')t=window._rptTab='email';
   var tile=function(v,ico,lbl){ var on=t===v;
     return '<button onclick="window._rptTab=\''+v+'\';document.getElementById(\'content\').innerHTML=reportsHTML()" style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 4px;border-radius:12px;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'var(--greenl,#e7f8f3)':'var(--white)')+';cursor:pointer;font-family:var(--f)">'
       + '<span style="font-size:16px">'+ico+'</span>'
@@ -9013,13 +9142,13 @@ function reportsHTML(){
       + '</button>'; };
   var tiles='<div style="display:flex;gap:7px;padding:12px 14px 2px">'
     + tile('leads','\uD83D\uDC65','Leads')
-    + tile('bsms','\uD83D\uDCAC','Bulk SMS')
-    + tile('bemail','\uD83D\uDCE7','Bulk Email')
     + tile('calls','\uD83D\uDCDE','Calls')
+    + tile('sms','\uD83D\uDCAC','SMS')
+    + tile('email','\uD83D\uDCE7','Email')
     + '</div>';
-  if(t==='bsms')  return tiles + bulkChannelReportHTML('sms');
-  if(t==='bemail')return tiles + bulkChannelReportHTML('email');
-  if(t==='calls') return tiles + callsReportHTML();
+  if(t==='calls') return tiles + commReportHTML('calls');
+  if(t==='sms')   return tiles + commReportHTML('sms');
+  if(t==='email') return tiles + commReportHTML('email');
   return tiles + clientReportsHTML();
 
   var filtLeads = rptFilterLeads(leads);
