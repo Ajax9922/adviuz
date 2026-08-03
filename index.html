@@ -988,7 +988,7 @@ body.impersonating .ls-topbar{padding-top:8px}
 .ld-act-label{font-size:13px;font-weight:600;color:var(--text)}
 .ld-act-time{font-size:11px;color:var(--muted);margin-left:6px}
 .ld-act-text{background:var(--bg);border-radius:8px;padding:9px 11px;font-size:13px;
-  color:var(--sub);line-height:1.5;margin-top:4px}
+  color:var(--sub);line-height:1.5;margin-top:4px;white-space:pre-line}
 
 
 
@@ -1755,6 +1755,34 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
     <div class="sh-foot">
       <button class="btn btn-ghost" onclick="closeSheet('leadAlertSh')" style="flex:1">Cancel</button>
       <button class="btn" id="laSaveBtn" onclick="saveLeadAlerts()" style="flex:2;justify-content:center;background:var(--green);color:#fff">Save numbers</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ LEAD TEMPERATURE EXPLAINER ═══ -->
+<div class="sheet-ov" id="tempInfoSh" style="z-index:920" onclick="if(event.target===this)closeSheet('tempInfoSh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sh-head">
+      <div class="sh-title">Lead temperature</div>
+      <button class="sh-x" onclick="closeSheet('tempInfoSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" style="padding-bottom:calc(28px + env(safe-area-inset-bottom))">
+      <div id="tiLead"></div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:flex-start;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px 14px">
+          <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:800;color:#fff;background:#64748b;border-radius:20px;padding:3px 10px;flex-shrink:0;margin-top:1px">&#x2744;&#xFE0F; Cold</span>
+          <div style="font-size:12.5px;color:var(--sub);line-height:1.55"><b style="color:var(--text)">Score 0&ndash;3.</b> No real conversation yet &mdash; missed calls, voicemails, or no interest shown so far. Normal for new leads; not a bad lead, just early.</div>
+        </div>
+        <div style="display:flex;align-items:flex-start;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px 14px">
+          <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:800;color:#fff;background:#d97706;border-radius:20px;padding:3px 10px;flex-shrink:0;margin-top:1px">&#x1F324;&#xFE0F; Warm</span>
+          <div style="font-size:12.5px;color:var(--sub);line-height:1.55"><b style="color:var(--text)">Score 4&ndash;6.</b> They engaged &mdash; asked questions, showed some interest, maybe a few objections. Worth a follow-up soon.</div>
+        </div>
+        <div style="display:flex;align-items:flex-start;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px 14px">
+          <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:800;color:#fff;background:var(--green);border-radius:20px;padding:3px 10px;flex-shrink:0;margin-top:1px">&#x1F525; Hot</span>
+          <div style="font-size:12.5px;color:var(--sub);line-height:1.55"><b style="color:var(--text)">Score 7&ndash;10.</b> Strong interest and momentum &mdash; ready to book, negotiating, or asking to move forward. Act on these first.</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--sub);line-height:1.55;margin-top:14px">The AI re-scores the lead after every call based on interest, urgency, objections and momentum. This is separate from the sales stage &mdash; the stage tracks <b>where</b> the lead is in your process; the temperature tracks <b>how keen</b> they are right now.</div>
     </div>
   </div>
 </div>
@@ -4047,7 +4075,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-01 memory-7';
+var APP_VERSION = 'v2026-08-02 temp-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7394,14 +7422,38 @@ function leadCampLabel(l){
   return String(nm);
 }
 
-// AI hot/cold score badge (0-10): red 0-3, amber 4-6, green 7-10.
-// Tap-safe: title shows the AI's one-line reason. Hidden until a lead is scored.
+// AI temperature badge (score 0-10 shown as a word): Cold 0-3 (slate),
+// Warm 4-6 (amber), Hot 7-10 (green). The old numeric "\uD83D\uDD25 2" badge sat next to
+// the numbered stage pill ("2. Call Not Connected") and read as the same number
+// twice \u2014 words remove that. Tap (or the \u24d8) opens the explainer sheet with this
+// lead's exact score and the AI's reason.
+function aiTempOf(s){
+  return s>=7 ? {w:'Hot', e:'\uD83D\uDD25', bg:'var(--green)'}
+       : s>=4 ? {w:'Warm', e:'\uD83C\uDF24\uFE0F', bg:'#d97706'}
+              : {w:'Cold', e:'\u2744\uFE0F', bg:'#64748b'};
+}
 function aiScoreBadge(l){
   if(!l || l.ai_score==null || isNaN(l.ai_score)) return '';
-  var s=Number(l.ai_score);
-  var bg = s>=7 ? 'var(--green)' : (s>=4 ? '#d97706' : '#cc0000');
-  var reason=String(l.ai_score_reason||'').replace(/"/g,'&quot;');
-  return '<span title="'+reason+'" style="display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:800;color:#fff;background:'+bg+';border-radius:20px;padding:2px 8px;line-height:1.3">\uD83D\uDD25 '+s+'</span>';
+  var s=Number(l.ai_score), t=aiTempOf(s);
+  return '<span onclick="event.stopPropagation();openTempInfo('+l.id+')" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:800;color:#fff;background:'+t.bg+';border-radius:20px;padding:2px 9px;line-height:1.3;cursor:pointer">'+t.e+' '+t.w
+    +' <span style="width:13px;height:13px;border:1.3px solid rgba(255,255,255,.9);border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;font-style:normal">i</span></span>';
+}
+// Explainer sheet: what Cold / Warm / Hot mean, plus this lead's own score.
+function openTempInfo(localId){
+  var box=document.getElementById('tiLead');
+  if(box){
+    var l=leads.find(function(x){return x.id===localId;});
+    if(l && l.ai_score!=null && !isNaN(l.ai_score)){
+      var s=Number(l.ai_score), t=aiTempOf(s);
+      box.innerHTML='<div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:16px">'
+        +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:'+(l.ai_score_reason?'6px':'0')+'">'
+        +'<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:800;color:#fff;background:'+t.bg+';border-radius:20px;padding:3px 10px">'+t.e+' '+t.w+'</span>'
+        +'<span style="font-size:13.5px;font-weight:800;color:var(--text)">'+sanitize(l.name||'This lead')+' \u2014 '+s+'/10</span></div>'
+        +(l.ai_score_reason?'<div style="font-size:12.5px;color:var(--sub);line-height:1.55">'+sanitize(l.ai_score_reason)+'</div>':'')
+        +'</div>';
+    } else box.innerHTML='';
+  }
+  openSheet('tempInfoSh');
 }
 function lRow(l,anySel,forceDetailed){
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -11137,7 +11189,7 @@ async function loadLeadActivity(localId, dbId) {
       // AI call notes: description is just the card title; the narrative lives in
       // summary and the score/stage/follow-up line lives in ai_summary.
       if(type === 'ai_analysis') {
-        body = (row.summary||'') + (row.ai_summary ? ' \u00B7 ' + row.ai_summary : '');
+        body = ((row.summary||'') + (row.ai_summary ? '\n' + row.ai_summary : '')).trim() || rawBody;
       }
       var label = type === 'sms_received' ? 'SMS Received'
                 : type === 'sms_sent'     ? 'SMS Sent'
@@ -12184,6 +12236,7 @@ function renderLeadScreen(id) {
   h += '</div>';
   // Stage badge + Edit button
   h += '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">';
+  h += aiScoreBadge(l);
   h += stgBadge(l.stage);
   h += '<button onclick="openEditLead(curLid)" style="width:32px;height:32px;border-radius:9px;background:var(--bg);border:1px solid var(--border);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">';
   h += '<svg fill="none" stroke="var(--sub)" stroke-width="2" viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
@@ -12286,14 +12339,22 @@ function renderLeadScreen(id) {
     }
   }
 
-  // ══ \ud83d\ude4b HUMAN-ONLY SWITCH — pause the AI for this one lead ══
-  if (typeof isClientMode!=='function' || !isClientMode() || window._clientAiEnabled===true)
-  h += '<div onclick="toggleHumanOnly('+l.id+')" style="background:var(--white);padding:12px 16px;margin-bottom:4px;display:flex;align-items:center;gap:10px;cursor:pointer">'
-    + '<div style="font-size:20px;flex-shrink:0">\ud83e\udd16</div>'
-    + '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px;color:var(--text)">AI handling this lead</div>'
-    + '<div style="font-size:12px;color:var(--sub)">'+(l.human_only?'OFF \u2014 a human is handling this lead; the AI stays silent':'ON \u2014 the AI may call and text this lead automatically')+'</div></div>'
-    + '<div style="width:44px;height:26px;border-radius:20px;background:'+(l.human_only?'var(--border)':'var(--green)')+';position:relative;flex-shrink:0;transition:background .15s"><div style="position:absolute;top:3px;'+(l.human_only?'left:3px':'right:3px')+';width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)"></div></div>'
-    + '</div>';
+  // ══ \ud83e\udd16 AI AUTOPILOT (per-lead) — pause the AI for this one lead. Shows an
+  // amber hint when this lead's switch is ON but the campaign's Autopilot master
+  // (AI Employee → "AI can call my leads") is OFF, so the two switches explain
+  // each other instead of silently fighting. ══
+  if (typeof isClientMode!=='function' || !isClientMode() || window._clientAiEnabled===true){
+    var _apAi = (_camp && _camp.settings && _camp.settings.ai) || null;
+    var _apMasterOff = !!(_apAi && _apAi.outbound_on !== true);
+    h += '<div onclick="toggleHumanOnly('+l.id+')" style="background:var(--white);padding:12px 16px;margin-bottom:4px;display:flex;align-items:center;gap:10px;cursor:pointer">'
+      + '<div style="font-size:20px;flex-shrink:0">\ud83e\udd16</div>'
+      + '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px;color:var(--text)">AI Autopilot for this lead</div>'
+      + '<div style="font-size:12px;color:var(--sub)">'+(l.human_only?'OFF \u2014 a human is handling this lead; the AI stays silent':'ON \u2014 the AI may call and text this lead automatically')+'</div>'
+      + (_apMasterOff && !l.human_only ? '<div style="font-size:11.5px;color:#8a6116;background:#fff7e6;border:1px solid #f2d49b;border-radius:8px;padding:6px 9px;margin-top:6px;line-height:1.45">\u26a0\ufe0f Autopilot is OFF for this whole campaign, so the AI isn\u2019t calling anyone right now. Turn it on in Campaign settings \u2192 AI Employee.</div>' : '')
+      + '</div>'
+      + '<div style="width:44px;height:26px;border-radius:20px;background:'+(l.human_only?'var(--border)':'var(--green)')+';position:relative;flex-shrink:0;transition:background .15s"><div style="position:absolute;top:3px;'+(l.human_only?'left:3px':'right:3px')+';width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)"></div></div>'
+      + '</div>';
+  }
 
   // ══ SECTION 2 — COMMUNICATION & CALL (moved up to just under the lead info) ══
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
@@ -18006,6 +18067,7 @@ async function preloadActivity() {
         var rawBody=(row.description||'').replace(/\s*\(SID:[^)]+\)/g,'').trim();
         var body=rawBody;
         if(type==='sms_received'){ var m=rawBody.match(/:\s*"?(.+?)"?\s*$/); if(m) body=m[1]; }
+        if(type==='ai_analysis'){ body=((row.summary||'')+(row.ai_summary?'\n'+row.ai_summary:'')).trim()||rawBody; }
         var label=type==='sms_received'?'📩 SMS Reply':type==='sms_sent'?'💬 SMS Sent':type==='email_sent'?'Email Sent':type==='email_received'?'Email Received':type==='email_opened'?'Email Opened':type==='call'?'📞 Call':type==='assignment'?'👤 Assigned':rawBody.slice(0,50);
         // Emails: description holds the subject; full body lives in metadata.
         var emailSubj='', emailBody='';
@@ -21255,8 +21317,8 @@ function csOpenPage(page){
       +   '<div class="cs-note" style="margin-top:8px">Overnight works too: 6:00 PM to 9:00 AM means the AI covers your evenings and nights, and you take calls during the day.</div>'
       +   _selRow('Timezone for these hours', '<select id="csAiTz" class="cs-in" style="margin-bottom:0">'+_tzOpts+'</select>')
       + '</div>'
-      + '<div class="cs-h" style="margin-top:20px">\uD83D\uDCE3 Calling your leads</div>'
-      + '<div class="cs-note">When this is on, the AI can phone this campaign\u2019s leads to qualify them and book appointments. You choose whether that happens automatically for every new lead, or only when you press the AI Call button on a lead.</div>'
+      + '<div class="cs-h" style="margin-top:20px">\uD83D\uDCE3 AI Autopilot \u2014 calling your leads</div>'
+      + '<div class="cs-note">When this is on, the AI can phone this campaign\u2019s leads to qualify them and book appointments. You choose whether that happens automatically for every new lead, or only when you press the AI Call button on a lead. Each lead also has its own Autopilot switch \u2014 flip it off on a lead when a human takes over.</div>'
       + '<div style="display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:13px 14px">'
       +   '<span style="flex:1;font-size:13px;font-weight:800;color:var(--text)">AI can call my leads</span>'
       +   _csToggleHTML('csAiOut', _ai.outbound_on === true)
