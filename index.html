@@ -4195,7 +4195,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-04 plans-7';
+var APP_VERSION = 'v2026-08-04 funnel-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -13356,36 +13356,82 @@ var ADVIUZ_PLANS=[
 function openPlansSheet(){
   var box=document.getElementById('plansBody'); if(!box) return;
   var curPlan=(window._clientSubPlan||'').toLowerCase();
-  var h='<div style="background:#ede9fe;border-radius:12px;padding:12px 14px;margin-bottom:14px">'
-    +'<div style="font-size:13px;font-weight:800;color:#5b21b6;margin-bottom:3px">\u2728 One AI brain across every channel</div>'
-    +'<div style="font-size:12px;color:#6d5aa8;line-height:1.55">Your AI knows what your team said on human calls too \u2014 then calls, texts, and emails with the full picture. It drafts your SMS and emails for you.</div>'
-    +'</div>'
-    +'<div style="font-size:12px;color:var(--sub);line-height:1.5;margin-bottom:12px">Each plan buys how far down your sales funnel the AI goes. All plans are fully managed \u2014 built and run for you. Support Mon\u2013Fri, 10\u20136 CST.</div>';
-  ADVIUZ_PLANS.forEach(function(pl){
-    var mine=(curPlan===pl.k);
-    var hi=(pl.k==='growth');
-    h+='<div style="border:'+(hi?'2px solid var(--green)':'1.5px solid var(--border)')+';border-radius:15px;padding:16px;margin-bottom:12px;background:var(--white);position:relative">'
-      +(pl.badge?'<div style="position:absolute;top:-9px;left:14px;background:'+(pl.k==='starter'?'#7c3aed':'var(--green)')+';color:#fff;font-size:10px;font-weight:800;letter-spacing:.08em;padding:3px 10px;border-radius:10px">'+pl.badge+'</div>':'')
-      +'<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:3px'+(pl.badge?';margin-top:4px':'')+'">'
-      +  '<span style="font-size:16px;font-weight:800;color:var(--text)">'+pl.name+'</span>'
-      +  '<span style="flex:1"></span>'
-      +  '<span style="font-size:21px;font-weight:900;color:var(--text)">'+pl.price+'</span>'
-      +  '<span style="font-size:11px;color:var(--sub);font-weight:700">CAD '+pl.per+'</span>'
-      +'</div>'
-      +'<div style="font-size:12.5px;color:var(--sub);margin-bottom:11px">'+pl.tag+'</div>'
-      +(pl.stats?'<div style="display:flex;gap:6px;margin-bottom:11px">'+pl.stats.map(function(st){ return '<div style="flex:1;background:var(--bg);border-radius:9px;padding:7px 2px;text-align:center"><div style="font-size:14px;font-weight:900;color:var(--text)">'+st[0]+'</div><div style="font-size:9.5px;color:var(--sub);font-weight:700;text-transform:uppercase;letter-spacing:.04em">'+st[1]+'</div></div>'; }).join('')+'</div>':'')
-      + pl.inc.map(function(x){ return '<div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px"><span style="color:var(--green);font-weight:900;flex-shrink:0">\u2713</span><span style="font-size:13px;color:var(--text);line-height:1.5">'+x+'</span></div>'; }).join('')
-      +(mine
-        ? '<div style="margin-top:11px;text-align:center;padding:11px;border-radius:11px;background:var(--greenl,#e7f8f3);color:var(--green);font-size:13px;font-weight:800">\u2B50 Your current plan'
-          +(window._clientPlanStatus==='past_due'
-             ? '<div style="font-size:11px;font-weight:700;color:#b45309;margin-top:3px">\u26A0\uFE0F Last payment failed \u2014 we\u2019ll retry your card</div>'
-             : (window._clientPlanRenews?'<div style="font-size:11px;font-weight:600;margin-top:3px">Renews '+new Date(window._clientPlanRenews).toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' \u00b7 auto-charges monthly</div>':''))
-          +'</div>'
-        : '<button onclick="plansBuy(\''+pl.k+'\')" style="width:100%;margin-top:11px;padding:12px;border:none;border-radius:11px;background:'+(hi?'var(--green)':'var(--text)')+';color:#fff;font-weight:800;font-size:14px;font-family:var(--f);cursor:pointer">Get '+pl.name.replace(/^\S+\s/,'')+' \u2014 '+pl.price+'/mo</button>'
-          +'<div onclick="plansRequest(\''+pl.k+'\')" style="text-align:center;font-size:11.5px;color:var(--sub);margin-top:7px;cursor:pointer;text-decoration:underline;text-underline-offset:2px">or ask us \u2014 we\u2019ll send a payment link</div>')
+  var canTrial=!window._clientTrialUsed && !curPlan;
+  // The funnel coverage map (master sketch): steps down the left, one column
+  // per plan, green check where the plan covers the step, dashed dash where
+  // the AI stops. Steps 1-3 every plan, 4-6 Growth+, 7-8 Scale.
+  var STEPS=[
+    ['1','Lead comes in','Form, call, or missed call',1,1,1],
+    ['2','AI answers & calls back','Inbound & missed calls answered \u00b7 every new lead called within minutes',1,1,1],
+    ['3','Meeting gets booked','AI books it & sends AI-drafted reminders \u00b7 notes + temperature on every lead',1,1,1],
+    ['4','One brain remembers','AI recalls every touch \u2014 even what your team said on human calls',0,1,1],
+    ['5','Relentless follow-up','Retries no-answers \u00b7 callbacks at the asked time \u00b7 missed-call text-back',0,1,1],
+    ['6','Nobody slips away','Bulk SMS & email with AI drafting \u00b7 no-show recovery',0,1,1],
+    ['7','Deal gets closed','Automatic call / SMS / email sequences \u00b7 branded two-way email with tracking',0,0,1],
+    ['8','Nothing ever dies','Bulk AI reactivation of old leads \u00b7 long-term nurture',0,0,1]
+  ];
+  var LIMITS=[
+    ['AI minutes / mo','500','750','1,250'],
+    ['AI calls / mo','1,500','4,000','Unltd*'],
+    ['SMS / mo','1,500','4,000','Unltd*'],
+    ['Team users','5','10','20']
+  ];
+  var keys=['starter','growth','scale'];
+  function colHead(name,price,k){
+    var mine=(curPlan===k), hot=(k==='growth');
+    return '<div style="flex:1;text-align:center;padding:6px 2px 5px;border-radius:10px;'+(hot?'background:var(--greenl,#e7f8f3);':'')+'">'
+      +'<div style="font-size:12px;font-weight:800;color:'+(hot?'var(--green)':'var(--text)')+'">'+name+(mine?' \u2B50':'')+'</div>'
+      +'<div style="font-size:10.5px;font-weight:700;color:var(--sub)">'+price+'</div>'
+      +(hot?'<div style="font-size:8.5px;font-weight:800;letter-spacing:.05em;color:var(--green)">POPULAR</div>':'')
+      +'</div>';
+  }
+  function cell(on){
+    return on
+      ? '<div style="flex:1;border-radius:9px;background:var(--greenl,#e7f8f3);display:flex;align-items:center;justify-content:center;color:var(--green);font-weight:900;font-size:13px">\u2713</div>'
+      : '<div style="flex:1;border-radius:9px;border:1.5px dashed var(--border);display:flex;align-items:center;justify-content:center;color:var(--sub);font-size:12px">\u2014</div>';
+  }
+  var h='<div style="font-size:12.5px;color:var(--sub);line-height:1.55;margin-bottom:12px">Each plan buys how far down your sales funnel the AI goes. Fully managed \u2014 built and run for you.</div>';
+  h+='<div style="display:flex;gap:5px;margin-bottom:6px"><div style="flex:1.6"></div>'+colHead('\uD83D\uDCDE Starter','$499',keys[0])+colHead('\uD83E\uDD16 Growth','$999',keys[1])+colHead('\uD83C\uDFC6 Scale','$1,999',keys[2])+'</div>';
+  h+='<div style="display:flex;flex-direction:column;gap:5px">';
+  STEPS.forEach(function(st){
+    h+='<div style="display:flex;gap:5px;align-items:stretch">'
+      +'<div style="flex:1.6;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:8px 10px;min-width:0">'
+      +'<div style="font-size:12px;font-weight:800;color:var(--text)">'+st[0]+' \u00b7 '+st[1]+'</div>'
+      +'<div style="font-size:10.5px;color:var(--sub);line-height:1.45;margin-top:1px">'+st[2]+'</div>'
+      +'</div>'+cell(st[3])+cell(st[4])+cell(st[5])+'</div>';
+  });
+  h+='</div>';
+  h+='<div style="display:flex;flex-direction:column;gap:4px;margin-top:10px">';
+  LIMITS.forEach(function(L){
+    h+='<div style="display:flex;gap:5px;align-items:center">'
+      +'<div style="flex:1.6;font-size:11px;font-weight:700;color:var(--sub);padding:0 10px">'+L[0]+'</div>'
+      +'<div style="flex:1;text-align:center;background:var(--bg);border-radius:8px;padding:6px 2px;font-size:11.5px;font-weight:800;color:var(--text)">'+L[1]+'</div>'
+      +'<div style="flex:1;text-align:center;background:var(--bg);border-radius:8px;padding:6px 2px;font-size:11.5px;font-weight:800;color:var(--text)">'+L[2]+'</div>'
+      +'<div style="flex:1;text-align:center;background:var(--bg);border-radius:8px;padding:6px 2px;font-size:11.5px;font-weight:800;color:var(--text)">'+L[3]+'</div>'
       +'</div>';
   });
-  h+='<div style="font-size:11.5px;color:var(--sub);line-height:1.6;margin-top:4px">All plans monthly \u2014 cancel anytime. Extra AI minutes $75 / 100 \u00b7 extra SMS $10 / 500 \u00b7 *Unlimited = 12,000 fair-use. Limits only pace automation \u2014 replying to a customer always works. \uD83D\uDCE3 Digital Flyer advertising is a separate pay-per-view service.</div>'
+  h+='</div>';
+  if(curPlan){
+    var statusLine = window._clientPlanStatus==='past_due'
+      ? '\u26A0\uFE0F Last payment failed \u2014 we\u2019ll retry your card'
+      : window._clientPlanStatus==='trialing'
+      ? '\uD83C\uDF81 Free trial \u00b7 first charge '+(window._clientPlanRenews?new Date(window._clientPlanRenews).toLocaleDateString('en-CA',{month:'short',day:'numeric'}):'soon')+' \u00b7 cancel anytime \u2014 just ask us'
+      : (window._clientPlanRenews?'Renews '+new Date(window._clientPlanRenews).toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' \u00b7 auto-charges monthly':'');
+    h+='<div style="margin-top:12px;text-align:center;padding:12px;border-radius:11px;background:var(--greenl,#e7f8f3);color:var(--green);font-size:13px;font-weight:800">\u2B50 Your current plan: '+(curPlan.charAt(0).toUpperCase()+curPlan.slice(1))
+      +(statusLine?'<div style="font-size:11px;font-weight:700;margin-top:3px">'+statusLine+'</div>':'')
+      +'</div>'
+      +'<div onclick="plansRequest(\'\')" style="text-align:center;font-size:11.5px;color:var(--sub);margin-top:8px;cursor:pointer;text-decoration:underline;text-underline-offset:2px">Want to upgrade or change plans? Ask us</div>';
+  } else {
+    h+='<div style="display:flex;gap:5px;margin-top:10px"><div style="flex:1.6;display:flex;align-items:center;font-size:11px;font-weight:800;color:var(--sub);padding:0 10px">'+(canTrial?'\uD83C\uDF81 Try free':'Start')+'</div>';
+    for(var bi=0;bi<keys.length;bi++){
+      var hot=(keys[bi]==='growth');
+      h+='<button onclick="plansBuy(\''+keys[bi]+'\''+(canTrial?',1':'')+')" style="flex:1;padding:10px 2px;border:none;border-radius:10px;background:'+(hot?'var(--green)':'var(--text)')+';color:#fff;font-weight:800;font-size:11.5px;font-family:var(--f);cursor:pointer">'+(canTrial?'1 mo FREE':'Get')+'</button>';
+    }
+    h+='</div>';
+    if(canTrial) h+='<div style="text-align:center;font-size:11px;color:var(--sub);margin-top:7px">$0 today \u00b7 card saved \u00b7 first charge next month \u00b7 cancel anytime</div>';
+    h+='<div onclick="plansRequest(\'\')" style="text-align:center;font-size:11.5px;color:var(--sub);margin-top:7px;cursor:pointer;text-decoration:underline;text-underline-offset:2px">or ask us \u2014 we\u2019ll send a payment link</div>';
+  }
+  h+='<div style="font-size:11.5px;color:var(--sub);line-height:1.6;margin-top:12px">All plans monthly \u2014 cancel anytime. Extra AI minutes $75 / 100 \u00b7 extra SMS $10 / 500 \u00b7 *Unlimited = 12,000 fair-use. Limits only pace automation \u2014 replying to a customer always works. \uD83D\uDCE3 Digital Flyer advertising is a separate pay-per-view service.</div>'
     +'<div style="font-size:11px;color:var(--muted,#94a3b8);line-height:1.6;margin-top:6px">Prefer yearly? 2 months free + $999 setup fee waived \u2014 just ask us.</div>';
   box.innerHTML=h;
   openSheet('plansSh');
@@ -13394,17 +13440,21 @@ function openPlansSheet(){
 // live server-side in plan-checkout, which also verifies this login belongs to
 // this business before creating the Stripe subscription checkout. Card entry,
 // receipts, and every monthly auto-charge are handled by Stripe from there.
-async function plansBuy(key){
+async function plansBuy(key,trial){
   var pl=ADVIUZ_PLANS.find(function(x){return x.k===key;})||{};
   var cid=(window._clientData&&_clientData.id)||window._clientId||'';
   if(!cid){ showToast('Open this from your business login to subscribe \u2014 or tap \u201cask us\u201d below'); return; }
-  if(!confirm('Subscribe to '+pl.name+' \u2014 '+pl.price+' CAD per month?\n\nSecure Stripe checkout opens next. Your card is charged monthly and you can cancel anytime by asking us.')) return;
+  var firstChargeStr=new Date(Date.now()+30*24*3600*1000).toLocaleDateString('en-CA',{month:'long',day:'numeric'});
+  var msg=trial
+    ? 'Start your FREE month of '+pl.name+'?\n\nYour card is saved now but $0 is charged today. Your first charge of '+pl.price+' CAD happens on '+firstChargeStr+' \u2014 unless you cancel before then. Cancel anytime, no charge, just ask us.'
+    : 'Subscribe to '+pl.name+' \u2014 '+pl.price+' CAD per month?\n\nSecure Stripe checkout opens next. Your card is charged monthly and you can cancel anytime by asking us.';
+  if(!confirm(msg)) return;
   showToast('Opening secure checkout\u2026');
   try{
     var r=await fetch(SB_URL+'/functions/v1/plan-checkout',{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken,'apikey':SB_ANON},
-      body:JSON.stringify({ plan:key, client_id:cid })
+      body:JSON.stringify({ plan:key, client_id:cid, trial:!!trial })
     });
     var j=await r.json().catch(function(){return{};});
     if(r.ok && j.url){
@@ -13419,7 +13469,8 @@ setTimeout(function(){
   try{
     var sp=new URLSearchParams(location.search);
     if(sp.get('planok')){
-      showToast('\uD83C\uDF89 Payment received \u2014 your '+sp.get('planok')+' plan is being activated');
+      if(sp.get('trial')) showToast('\uD83C\uDF81 Free month started \u2014 nothing charged today');
+      else showToast('\uD83C\uDF89 Payment received \u2014 your '+sp.get('planok')+' plan is being activated');
       history.replaceState(null,'',location.pathname);
     } else if(sp.get('plancancel')){
       showToast('Checkout cancelled \u2014 nothing was charged');
@@ -13429,7 +13480,8 @@ setTimeout(function(){
 },1500);
 async function plansRequest(key){
   var pl=ADVIUZ_PLANS.find(function(x){return x.k===key;})||{};
-  if(!confirm('Tell the Adviuz team you\u2019re interested in '+pl.name+' ('+pl.price+' '+pl.per+')?\n\nWe\u2019ll reach out the same business day \u2014 nothing is charged now.')) return;
+  var lbl=pl.k?(pl.name+' ('+pl.price+' '+pl.per+')'):'our plans';
+  if(!confirm('Tell the Adviuz team you\u2019re interested in '+lbl+'?\n\nWe\u2019ll reach out the same business day \u2014 nothing is charged now.')) return;
   var biz=(window._clientData&&(_clientData.business_name||_clientData.contact_name))||'A client';
   var em=(window._clientData&&_clientData.email)||(currentUser&&currentUser.email)||'';
   var ok=true;
@@ -13439,9 +13491,9 @@ async function plansRequest(key){
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken,'apikey':SB_ANON},
       body:JSON.stringify({
         to:'sales@adviuz.com',
-        subject:'\uD83D\uDC8E Plan request: '+biz+' \u2192 '+(pl.name||key),
-        html:'<p><b>'+biz+'</b> tapped <b>'+(pl.name||key)+' \u2014 '+(pl.price||'')+' '+(pl.per||'')+'</b> in the app.</p><p>Contact: '+(em||'no email on file')+'</p><p>Follow up today.</p>',
-        text:biz+' requested '+(pl.name||key),
+        subject:'\uD83D\uDC8E Plan request: '+biz+' \u2192 '+(pl.name||key||'Plans & Pricing'),
+        html:'<p><b>'+biz+'</b> tapped <b>'+(pl.name||key||'Plans & Pricing')+' \u2014 '+(pl.price||'')+' '+(pl.per||'')+'</b> in the app.</p><p>Contact: '+(em||'no email on file')+'</p><p>Follow up today.</p>',
+        text:biz+' requested '+(pl.name||key||'plan info'),
         type:'transactional', from_email:'sales@adviuz.com', from_name:'Adviuz Hub', reply_to:(em||'sales@adviuz.com')
       })
     });
@@ -18995,6 +19047,7 @@ async function showClientUI() {
   window._clientSubPlan    = (c.plan || '').toLowerCase();
   window._clientPlanRenews = c.plan_renews_at || null;
   window._clientPlanStatus = c.plan_status || null;
+  window._clientTrialUsed  = !!c.trial_used;
   try {
     var ciRes = await sbFetch('/rest/v1/rpc/get_client_ai_status', { method:'POST', body: JSON.stringify({ p_client_id: c.id }) });
     if (ciRes.ok) {
@@ -19433,7 +19486,7 @@ function clientDashHTML() {
       +'<span style="font-size:20px;flex-shrink:0">\uD83E\uDD16</span>'
       +'<div style="flex:1;min-width:0">'
       +'<div style="font-size:13.5px;font-weight:800;color:#fff">Your leads are calling after hours \u2014 the AI answers</div>'
-      +'<div style="font-size:12px;color:#9fb3cf;margin-top:2px">Hire your AI sales team \u2014 plans from $499</div>'
+      +'<div style="font-size:12px;color:#9fb3cf;margin-top:2px">Try it FREE for 1 month \u2014 plans from $499</div>'
       +'</div><span style="color:#9fb3cf;font-weight:800">\u203A</span></div>';
   }
   return promo + clientCampaignListHTML();
