@@ -4194,7 +4194,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-04 playbook-1';
+var APP_VERSION = 'v2026-08-04 playbook-2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -11139,9 +11139,14 @@ function pbPreview(id){
   if(!ov){ ov=document.createElement('div'); ov.id='pbPrevOv'; document.body.appendChild(ov); }
   ov.style.cssText='position:fixed;inset:0;z-index:990;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:18px';
   ov.onclick=function(ev){ if(ev.target===ov) ov.style.display='none'; };
+  var testBtn='';
+  if(chLive==='sms'||chLive==='email'){
+    testBtn='<button onclick="pbTestSend(\''+s.id+'\')" id="pbTestBtn" style="width:100%;margin-top:14px;padding:12px;border:none;border-radius:11px;background:var(--text);color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:var(--f)">\uD83E\uDDEA Send this to me for real</button>'
+      +'<div style="font-size:10.5px;color:var(--sub);text-align:center;margin-top:6px">'+(chLive==='sms'?'A real text from your business number \u2014 to a number you choose':'A real email from your business address \u2014 to an address you choose')+'</div>';
+  }
   ov.innerHTML='<div style="background:var(--white);border-radius:16px;max-width:430px;width:100%;max-height:84dvh;overflow:auto;padding:16px 16px calc(20px + env(safe-area-inset-bottom))">'
     +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><div style="font-size:13px;font-weight:800;color:var(--text)">'+_pbDelayLbl(s.delay_hours)+' \u00b7 '+(PB_CHIP[chLive]||chLive)+'</div><button class="sh-x" onclick="document.getElementById(\'pbPrevOv\').style.display=\'none\'">\u2715</button></div>'
-    +inner+'</div>';
+    +inner+testBtn+'</div>';
   ov.style.display='flex';
 }
 async function pbAiCall(id, improve){
@@ -11165,6 +11170,41 @@ async function pbAiCall(id, improve){
     } else showToast((d&&d.error)||'The AI could not write this one \u2014 try again');
   }catch(e){ showToast('The AI could not write this one \u2014 try again'); }
   if(b){ b.disabled=false; b.textContent=improve?'Improve':'\u2728 Write with AI'; }
+}
+async function pbTestSend(id){
+  var s=(_pbSteps||[]).find(function(x){return String(x.id)===String(id);}); if(!s) return;
+  var editing=(String(_pbEditId)===String(id));
+  var ch=editing?(((document.getElementById('pbEdCh')||{}).value)||s.channel):s.channel;
+  var bodyTxt=editing?(((document.getElementById('pbEdBody')||{}).value)||s.body):s.body;
+  var subjTxt=editing?(((document.getElementById('pbEdSubj')||{}).value)||s.subject||''):(s.subject||'');
+  if(ch!=='sms'&&ch!=='email'){ showToast('Tests are for text and email steps'); return; }
+  var me=window._clientData||{};
+  var biz=_clientNm()||'Your business';
+  var first=String(me.contact_name||me.business_name||'there').trim().split(' ')[0]||'there';
+  var pz=function(t){ return String(t||'').replace(/\{name\}/gi,first).replace(/\[Customer Name\]/gi,first).replace(/\{business\}/gi,biz).replace(/\[Business Name\]/gi,biz); };
+  var btn=document.getElementById('pbTestBtn');
+  if(ch==='sms'){
+    var ph=prompt('Send the test text to which number?\n\nIt goes out from your real business number and uses one SMS from your balance.', me.phone||'');
+    if(!ph||!String(ph).trim()) return;
+    if(btn){ btn.disabled=true; btn.textContent='Sending\u2026'; }
+    try{
+      var r=await sbFetch('/functions/v1/twilio-sms',{ method:'POST', body: JSON.stringify({ to:String(ph).trim(), message:pz(bodyTxt), lead_id:'', client_id:window._clientId||'' }) });
+      var d=await r.json().catch(function(){return{};});
+      if(r.ok&&!d.error) showToast('\uD83E\uDDEA Test text sent \u2014 check your phone');
+      else showToast('Could not send: '+((d&&d.error)||('HTTP '+r.status)));
+    }catch(e){ showToast('Could not send the test text'); }
+  } else {
+    var em=prompt('Send the test email to which address?\n\nIt goes out from your real business email address.', me.email||'');
+    if(!em||!String(em).trim()) return;
+    if(btn){ btn.disabled=true; btn.textContent='Sending\u2026'; }
+    try{
+      var r2=await sbFetch('/functions/v1/client-email',{ method:'POST', body: JSON.stringify({ client_id:window._clientId||null, lead_id:null, to:String(em).trim(), subject:'[Test] '+pz(subjTxt), message:pz(bodyTxt) }) });
+      var d2=await r2.json().catch(function(){return{};});
+      if(r2.ok&&!(d2&&d2.ok===false)&&!(d2&&d2.error)) showToast('\uD83E\uDDEA Test email sent \u2014 check your inbox');
+      else showToast('Could not send: '+((d2&&d2.error)||('HTTP '+r2.status)));
+    }catch(e){ showToast('Could not send the test email'); }
+  }
+  if(btn){ btn.disabled=false; btn.textContent='\uD83E\uDDEA Send this to me for real'; }
 }
 function pbAiGen(id){ pbAiCall(id,false); }
 function pbAiImprove(id){ pbAiCall(id,true); }
