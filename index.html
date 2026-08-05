@@ -4194,7 +4194,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-04 funnel-6';
+var APP_VERSION = 'v2026-08-04 playbook-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -11098,6 +11098,136 @@ var PB_ORDER=['1','2','3','6','7','9','10','11'];
 var PB_NAMES={'1':'\uD83C\uDF31 Fresh Lead','2':'\uD83D\uDCF5 Call Not Connected','3':'\uD83D\uDCDE Callback Requested','6':'\uD83E\uDD1D Meeting Done','7':'\uD83D\uDCC4 Proposal Sent','9':'\uD83C\uDF89 Deal Closed','10':'\uD83D\uDE45 Not Interested','11':'\uD83C\uDF31 Future Prospect'};
 var PB_CHIP={'sms':'\uD83D\uDCAC Text','email':'\uD83D\uDCE7 Email','call':'\uD83E\uDD16 AI Call','task':'\uD83D\uDC64 Task'};
 function _pbDelayLbl(h){ h=Number(h)||0; if(h===0) return 'Right away'; if(h<24) return h+'h in'; return 'Day '+Math.round(h/24); }
+async function pbMaster(el){
+  var on=!!(el&&el.checked);
+  try{
+    await sbFetch('/rest/v1/playbook_stages?on_conflict=campaign_id,stage_key',{ method:'POST',
+      headers:{'Prefer':'resolution=merge-duplicates,return=minimal'},
+      body: JSON.stringify({ campaign_id:_pbCid, client_id:_pbClientId, stage_key:'_master', active:on, updated_at:new Date().toISOString() }) });
+    _pbStages['_master']=on;
+    showToast(on?'\u2705 Playbook is LIVE again':'\u23F8 Everything paused \u2014 nothing will send until you switch it back on');
+  }catch(e){ showToast('Could not change'); }
+  renderPlaybook();
+}
+function pbPreview(id){
+  var s=(_pbSteps||[]).find(function(x){return String(x.id)===String(id);}); if(!s) return;
+  var biz=_clientNm()||'Your business';
+  var bodyLive=(String(_pbEditId)===String(id))?((document.getElementById('pbEdBody')||{}).value||s.body):s.body;
+  var subjLive=(String(_pbEditId)===String(id))?((document.getElementById('pbEdSubj')||{}).value||s.subject):s.subject;
+  var chLive=(String(_pbEditId)===String(id))?(((document.getElementById('pbEdCh')||{}).value)||s.channel):s.channel;
+  var pz=function(t){ return String(t||'').replace(/\{name\}/gi,'Sarah').replace(/\[Customer Name\]/gi,'Sarah').replace(/\{business\}/gi,biz).replace(/\[Business Name\]/gi,biz); };
+  var inner='';
+  if(chLive==='sms'){
+    inner='<div style="font-size:11px;color:var(--sub);text-align:center;margin-bottom:10px">Exactly what a lead named Sarah receives as a text</div>'
+      +'<div style="background:#f2f2f7;border-radius:18px;padding:16px 12px 18px;max-width:340px;margin:0 auto">'
+      +'<div style="text-align:center;font-size:10.5px;color:#8e8e93;margin-bottom:8px">'+_escTxt(biz)+'</div>'
+      +'<div style="background:#e9e9eb;color:#111;border-radius:16px;padding:10px 13px;font-size:14px;line-height:1.45;max-width:88%;white-space:pre-wrap">'+_escTxt(pz(bodyLive))+'</div>'
+      +'</div>';
+  } else if(chLive==='email'){
+    inner='<div style="font-size:11px;color:var(--sub);text-align:center;margin-bottom:10px">Exactly what Sarah sees in her inbox \u2014 your real email design</div>'
+      +(typeof edEmailShellHTML==='function'
+        ? edEmailShellHTML(pz(subjLive||''), pz(bodyLive))
+        : '<div style="border:1px solid var(--border);border-radius:10px;padding:16px;white-space:pre-wrap;font-size:13px;color:var(--text)">'+_escTxt(pz(bodyLive))+'</div>');
+  } else if(chLive==='call'){
+    inner='<div style="font-size:11px;color:var(--sub);text-align:center;margin-bottom:10px">The AI caller\u2019s mission for this call \u2014 leads never see this text</div>'
+      +'<div style="border:1px solid var(--border);border-radius:12px;padding:14px;font-size:13px;line-height:1.6;background:var(--bg);color:var(--text)">\uD83E\uDD16 '+_escTxt(pz(bodyLive))+'</div>';
+  } else {
+    inner='<div style="font-size:11px;color:var(--sub);text-align:center;margin-bottom:10px">The task your team member receives</div>'
+      +'<div style="border:1px solid var(--border);border-radius:12px;padding:14px;font-size:13px;line-height:1.6;background:var(--bg);color:var(--text)">\uD83D\uDC64 '+_escTxt(pz(bodyLive))+'</div>';
+  }
+  var ov=document.getElementById('pbPrevOv');
+  if(!ov){ ov=document.createElement('div'); ov.id='pbPrevOv'; document.body.appendChild(ov); }
+  ov.style.cssText='position:fixed;inset:0;z-index:990;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.onclick=function(ev){ if(ev.target===ov) ov.style.display='none'; };
+  ov.innerHTML='<div style="background:var(--white);border-radius:16px;max-width:430px;width:100%;max-height:84dvh;overflow:auto;padding:16px 16px calc(20px + env(safe-area-inset-bottom))">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><div style="font-size:13px;font-weight:800;color:var(--text)">'+_pbDelayLbl(s.delay_hours)+' \u00b7 '+(PB_CHIP[chLive]||chLive)+'</div><button class="sh-x" onclick="document.getElementById(\'pbPrevOv\').style.display=\'none\'">\u2715</button></div>'
+    +inner+'</div>';
+  ov.style.display='flex';
+}
+async function pbAiCall(id, improve){
+  var b=document.getElementById(improve?'pbAiImpBtn':'pbAiGenBtn');
+  var ch=(document.getElementById('pbEdCh')||{}).value||'sms';
+  var payload={ action:(improve?'step_improve':'step_generate'), campaign_id:_pbCid, step_id:id, channel:ch };
+  if(improve){
+    payload.instruction=((document.getElementById('pbEdImp')||{}).value||'').trim();
+    payload.subject=(document.getElementById('pbEdSubj')||{}).value||'';
+    payload.body=(document.getElementById('pbEdBody')||{}).value||'';
+    if(!payload.instruction){ showToast('Tell the AI what to change first \u2014 e.g. \u201cshorter and friendlier\u201d'); return; }
+  }
+  if(b){ b.disabled=true; b.textContent=improve?'Improving\u2026':'Writing\u2026'; }
+  try{
+    var r=await sbFetch('/functions/v1/playbook',{ method:'POST', body: JSON.stringify(payload) });
+    var d=await r.json().catch(function(){return{};});
+    if(r.ok&&d&&d.ok){
+      var sj=document.getElementById('pbEdSubj'); if(sj&&ch==='email'&&d.subject) sj.value=d.subject;
+      var bo=document.getElementById('pbEdBody'); if(bo) bo.value=d.body||'';
+      showToast('\u2728 '+(improve?'Improved':'Draft written')+' \u2014 review it, then Save');
+    } else showToast((d&&d.error)||'The AI could not write this one \u2014 try again');
+  }catch(e){ showToast('The AI could not write this one \u2014 try again'); }
+  if(b){ b.disabled=false; b.textContent=improve?'Improve':'\u2728 Write with AI'; }
+}
+function pbAiGen(id){ pbAiCall(id,false); }
+function pbAiImprove(id){ pbAiCall(id,true); }
+var _pbBtnCss='flex-shrink:0;width:34px;height:34px;border:1px solid var(--border);border-radius:9px;background:var(--white);font-size:14px;cursor:pointer;font-family:var(--f);';
+async function pbTrackerToggle(){
+  var box=document.getElementById('pbTrackBox'); if(!box) return;
+  if(box.style.display!=='none'){ box.style.display='none'; return; }
+  box.style.display='block';
+  box.innerHTML='<div style="font-size:12px;color:var(--sub);padding:10px 2px">Loading\u2026</div>';
+  try{
+    var r=await sbFetch('/rest/v1/playbook_enrollments?campaign_id=eq.'+encodeURIComponent(_pbCid)+'&status=in.(active,paused)&select=id,lead_id,stage_key,status,next_step_no,next_at,entered_at,pause_reason&order=next_at.asc&limit=200');
+    var rows=r.ok?await r.json():[];
+    if(!Array.isArray(rows)) rows=[];
+    var nameById={};
+    (window.leads||[]).forEach(function(l){ if(l&&l.dbId) nameById[l.dbId]=l.name||''; });
+    var missing=rows.filter(function(e){ return !nameById[e.lead_id]; }).map(function(e){ return e.lead_id; });
+    if(missing.length){
+      try{
+        var nr=await sbFetch('/rest/v1/leads?id=in.('+missing.slice(0,100).join(',')+')&select=id,name');
+        (nr.ok?await nr.json():[]).forEach(function(l){ nameById[l.id]=l.name||''; });
+      }catch(e){}
+    }
+    if(!rows.length){
+      box.innerHTML='<div style="font-size:12px;color:var(--sub);padding:12px 2px;line-height:1.6">Nobody is in a sequence right now. Leads join automatically the moment they enter a stage that\u2019s switched ON.</div>';
+      return;
+    }
+    var h='';
+    PB_ORDER.forEach(function(key){
+      var es=rows.filter(function(e){ return String(e.stage_key)===String(key); });
+      if(!es.length) return;
+      h+='<div style="font-size:11px;font-weight:800;color:var(--sub);margin:12px 2px 6px;text-transform:uppercase;letter-spacing:.05em">'+(PB_NAMES[key]||('Stage '+key))+' \u00b7 '+es.length+'</div>';
+      es.forEach(function(e){
+        var nm=nameById[e.lead_id]||'Lead';
+        var stp=(_pbSteps||[]).find(function(x){ return String(x.stage_key)===String(e.stage_key)&&Number(x.step_no)===Number(e.next_step_no); });
+        var nxt = e.status==='paused'
+          ? ('\u23F8 Paused'+(e.pause_reason==='manual'?' by you \u2014 stays paused until you resume':((e.pause_reason==='lead_replied'||e.pause_reason==='ai_drafted')?' \u2014 they replied':'')))
+          : (stp ? ('Next: '+(PB_CHIP[stp.channel]||stp.channel)+(e.next_at?' \u00b7 '+new Date(e.next_at).toLocaleString('en-CA',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'')) : 'Finishing up');
+        h+='<div style="display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:11px;padding:9px 11px;margin-bottom:6px;background:var(--white)">'
+          +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_escTxt(nm)+'</div>'
+          +'<div style="font-size:11px;color:'+(e.status==='paused'?'#b45309':'var(--sub)')+'">'+nxt+'</div></div>'
+          +(e.status==='paused'
+            ? '<button onclick="pbEnr(\''+e.id+'\',\'resume\')" style="'+_pbBtnCss+'color:var(--green)">\u25B6</button>'
+            : '<button onclick="pbEnr(\''+e.id+'\',\'pause\')" style="'+_pbBtnCss+'color:#b45309">\u23F8</button>')
+          +'<button onclick="pbEnr(\''+e.id+'\',\'stop\')" style="'+_pbBtnCss+'color:var(--red,#dc2626)">\u2715</button>'
+          +'</div>';
+      });
+    });
+    h+='<div style="font-size:10.5px;color:var(--sub);margin-top:6px;line-height:1.6">\u23F8 pauses just this lead \u00b7 \u2715 removes them for good. Sequences also stop by themselves when a lead replies, books, or changes stage.</div>';
+    box.innerHTML=h;
+  }catch(e){ box.innerHTML='<div style="font-size:12px;color:var(--sub);padding:10px 2px">Could not load \u2014 try again.</div>'; }
+}
+async function pbEnr(id, act){
+  if(act==='stop' && !confirm('Remove this lead from the sequence?\n\nNo more automatic messages for them in this stage. Moving to a new stage can enrol them again.')) return;
+  var patch = act==='pause' ? { status:'paused', pause_reason:'manual', paused_at:new Date().toISOString() }
+    : act==='resume' ? { status:'active', pause_reason:null, paused_at:null }
+    : { status:'stopped', pause_reason:'manual_exit' };
+  try{
+    await sbFetch('/rest/v1/playbook_enrollments?id=eq.'+encodeURIComponent(id),{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify(patch) });
+    showToast(act==='pause'?'\u23F8 Paused for this lead':act==='resume'?'\u25B6 Resumed':'Removed from the sequence');
+  }catch(e){ showToast('Could not change'); }
+  var box=document.getElementById('pbTrackBox'); if(box) box.style.display='none';
+  pbTrackerToggle();
+}
 function openPlaybook(){
   var cp=(typeof _csCp==='function')?_csCp():null;
   if(!cp||!cp.id){ showToast('Open a campaign first'); return; }
@@ -11130,6 +11260,14 @@ function renderPlaybook(){
     return;
   }
   var h='<div class="cs-note" style="margin-top:0">Timing counts from when a lead <b>enters</b> each stage. Every stage stays OFF until you switch it on \u2014 nothing sends before that. Tap any message to edit it.</div>';
+  var mOn=(_pbStages['_master']!==false);
+  h+='<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;margin-top:12px;border:1.5px solid '+(mOn?'var(--green)':'var(--border)')+';border-radius:12px;background:'+(mOn?'#e7f8f3':'var(--bg)')+'">'
+    +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:800;color:var(--text)">\u26A1 Master switch</div>'
+    +'<div style="font-size:11px;color:'+(mOn?'var(--green)':'#b45309')+';font-weight:600">'+(mOn?'Playbook is live \u2014 the stage switches below decide what sends':'Everything is PAUSED \u2014 nothing sends until this is back on')+'</div></div>'
+    +'<label style="display:flex;align-items:center;cursor:pointer"><input type="checkbox" '+(mOn?'checked':'')+' onchange="pbMaster(this)" style="width:19px;height:19px;accent-color:var(--green)"></label>'
+    +'</div>';
+  h+='<button onclick="pbTrackerToggle()" style="width:100%;margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:11px;background:var(--white);color:var(--text);font-size:12.5px;font-weight:700;cursor:pointer;font-family:var(--f)">\uD83D\uDC65 Who\u2019s in the sequences right now?</button>'
+    +'<div id="pbTrackBox" style="display:none"></div>';
   PB_ORDER.forEach(function(key){
     var steps=_pbSteps.filter(function(s){ return String(s.stage_key)===key; });
     if(!steps.length) return;
@@ -11158,7 +11296,8 @@ function _pbStepHtml(s){
   if(!editing){
     var prev=String((s.channel==='email'&&s.subject)?(s.subject+' \u2014 '):'')+String(s.body||'');
     return '<div onclick="pbEdit(\''+s.id+'\')" style="padding:10px 14px;border-top:1px solid var(--border);cursor:pointer;background:var(--white)">'
-      +head+'<div style="font-size:12px;color:var(--text);margin-top:4px;line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'+_escTxt(prev)+'</div></div>';
+      +head+'<div style="font-size:12px;color:var(--text);margin-top:4px;line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'+_escTxt(prev)+'</div>'
+      +'<div onclick="event.stopPropagation();pbPreview(\''+s.id+'\')" style="display:inline-block;font-size:11px;font-weight:800;color:var(--green);margin-top:6px;text-decoration:underline;text-underline-offset:2px">\uD83D\uDC41 Preview</div></div>';
   }
   var h=Number(s.delay_hours)||0;
   var unit=(h>0&&h%24===0)?'days':'hours';
@@ -11173,6 +11312,14 @@ function _pbStepHtml(s){
     +'</select></div>'
     +'<input class="cs-in" id="pbEdSubj" placeholder="Email subject" value="'+_escTxt(s.subject||'').replace(/"/g,'&quot;')+'" style="margin-top:8px;display:'+(s.channel==='email'?'block':'none')+'">'
     +'<textarea class="cs-in" id="pbEdBody" style="min-height:110px;margin-top:8px">'+_escTxt(s.body||'')+'</textarea>'
+    +'<div style="display:flex;gap:8px;margin-top:8px">'
+    +'<button id="pbAiGenBtn" onclick="pbAiGen(\''+s.id+'\')" style="flex:1;padding:9px;border:1px solid var(--border);border-radius:9px;background:var(--white);color:#6d28d9;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">\u2728 Write with AI</button>'
+    +'<button onclick="event.stopPropagation();pbPreview(\''+s.id+'\')" style="flex:1;padding:9px;border:1px solid var(--border);border-radius:9px;background:var(--white);color:var(--sub);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">\uD83D\uDC41 Preview</button>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;margin-top:8px">'
+    +'<input class="cs-in" id="pbEdImp" placeholder="Tell the AI what to change \u2014 e.g. shorter and friendlier" style="flex:1;margin-bottom:0">'
+    +'<button id="pbAiImpBtn" onclick="pbAiImprove(\''+s.id+'\')" style="flex-shrink:0;padding:9px 14px;border:none;border-radius:9px;background:#6d28d9;color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">Improve</button>'
+    +'</div>'
     +'<div style="display:flex;gap:8px;margin-top:8px">'
     +'<button onclick="pbDelStep(\''+s.id+'\')" style="padding:9px 12px;border:1px solid var(--border);border-radius:9px;background:var(--white);color:var(--red);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">Delete</button>'
     +'<button onclick="_pbEditId=null;renderPlaybook()" style="flex:1;padding:9px;border:1px solid var(--border);border-radius:9px;background:var(--white);color:var(--sub);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">Cancel</button>'
