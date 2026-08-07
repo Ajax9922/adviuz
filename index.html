@@ -4194,7 +4194,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-06 today-fix-1';
+var APP_VERSION = 'v2026-08-07 approvals-2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7861,7 +7861,42 @@ function updateSelUI(){
 // FOLLOW-UPS TAB
 // ═══════════════════════════════════════
 
+function fuChipCounts(){
+  var base=tasks.concat(apptTaskItems()).filter(function(t){
+    if(t.done)return false;
+    if(fuSeg==='today')return t.date===TOD;
+    if(fuSeg==='past')return t.date<TOD;
+    if(t.date<=TOD)return false;
+    return _fuInRange(t.date);
+  }).filter(function(t){
+    if(!schQ) return true;
+    var q=schQ.toLowerCase();
+    if(((t.note||'').toLowerCase().indexOf(q)!==-1)) return true;
+    var ld=leads.find(function(l){return l.id===t.lid});
+    return leadMatchesQ(ld, schQ);
+  }).filter(gfTaskInScope);
+  var fu=0, ap=0;
+  base.forEach(function(t){ if(t._appt) ap++; else fu++; });
+  var pend=0;
+  (window._apprItems||[]).forEach(function(it){ if(it.status==='pending') pend++; });
+  if(window._isAdviuzStaff && window._adminData){
+    pend += ((_adminData.reportReviews||[]).length) + ((_adminData.caReports||[]).length);
+  }
+  if(window._isAdviuzStaff && Array.isArray(window._annDrafts)) pend += window._annDrafts.length;
+  return { fu:fu, appt:ap, all:fu+ap, appr:pend, apprKnown:(window._apprItems!==undefined) };
+}
 function followupsHTML(){
+  if(window._apprItems===undefined && !window._apprLoading) loadApprovals();
+  var cn=fuChipCounts();
+  var chips='<div class="filter-bar">'
+    +'<div class="fchip '+(fuTypeFilter===''?'on':'')+'" onclick="fuTypeFilter=\'\';document.getElementById(\'content\').innerHTML=followupsHTML()">All ('+cn.all+')</div>'
+    +'<div class="fchip '+(fuTypeFilter==='fu'?'on':'')+'" onclick="fuTypeFilter=\'fu\';document.getElementById(\'content\').innerHTML=followupsHTML()">🗓 Follow-ups ('+cn.fu+')</div>'
+    +'<div class="fchip '+(fuTypeFilter==='appt'?'on':'')+'" onclick="fuTypeFilter=\'appt\';document.getElementById(\'content\').innerHTML=followupsHTML()">📅 Appointments ('+cn.appt+')</div>'
+    +'<div class="fchip '+(fuTypeFilter==='approvals'?'on':'')+'" onclick="fuTypeFilter=\'approvals\';document.getElementById(\'content\').innerHTML=followupsHTML()">✅ Approvals'+(cn.apprKnown?' ('+cn.appr+')':'')+'</div>'
+    +'</div>';
+  if(fuTypeFilter==='approvals'){
+    return chips + approvalsListHTML();
+  }
   return '<div class="segment">'
     +'<button class="seg-btn '+(fuSeg==='past'?'on':'')+'" onclick="fuSeg=\'past\';document.getElementById(\'content\').innerHTML=followupsHTML()">Past</button>'
     +'<button class="seg-btn '+(fuSeg==='today'?'on':'')+'" onclick="fuSeg=\'today\';document.getElementById(\'content\').innerHTML=followupsHTML()">Today</button>'
@@ -7870,12 +7905,93 @@ function followupsHTML(){
     +((fuSeg==='future' && window._fuRange)
       ? '<div style="padding:0 16px 6px;display:flex"><span style="display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--green);background:var(--greenl,#e7f8f3);border:1.5px solid var(--green);border-radius:20px;padding:5px 12px">\uD83D\uDCC5 '+window._fuRange.label+'<span onclick="fuRangeClear()" style="cursor:pointer;font-weight:800;padding:0 2px">\u2715</span></span></div>'
       : '')
-    +'<div class="filter-bar">'
-    +'<div class="fchip '+(fuTypeFilter===''?'on':'')+'" onclick="fuTypeFilter=\'\';document.getElementById(\'content\').innerHTML=followupsHTML()">All</div>'
-    +'<div class="fchip '+(fuTypeFilter==='fu'?'on':'')+'" onclick="fuTypeFilter=\'fu\';document.getElementById(\'content\').innerHTML=followupsHTML()">🗓 Follow-ups</div>'
-    +'<div class="fchip '+(fuTypeFilter==='appt'?'on':'')+'" onclick="fuTypeFilter=\'appt\';document.getElementById(\'content\').innerHTML=followupsHTML()">📅 Appointments</div>'
-    +'</div>'
+    +chips
     +taskListHTML();
+}
+
+// ═══ APPROVALS — everything the AI wants a human yes/no on ═══
+var _apprSeg='pending';
+function apprEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c];}); }
+async function loadApprovals(){
+  window._apprLoading=true;
+  try{
+    var r=await sbFetch('/functions/v1/ai-approvals?action=list',{ method:'POST', body: JSON.stringify({}) });
+    var d=r&&r.ok?await r.json().catch(function(){return{};}):{};
+    window._apprItems=(d&&d.items)||[];
+  }catch(e){ window._apprItems=[]; }
+  if(window._isAdviuzStaff){
+    try{ if(typeof loadReportReviews==='function') await loadReportReviews(); }catch(_e){}
+    try{ if(typeof loadCaReports==='function') await loadCaReports(); }catch(_e){}
+  }
+  window._apprLoading=false;
+  if(curTab==='followups' && fuTypeFilter==='approvals'){ var ct=document.getElementById('content'); if(ct) ct.innerHTML=followupsHTML(); }
+}
+function apprTypeMeta(t){
+  if(t==='script_improvement') return ['🎓','Script improvement'];
+  if(t==='sms') return ['💬','Text message'];
+  if(t==='email') return ['✉️','Email'];
+  if(t==='call') return ['📞','Call'];
+  return ['📋', t||'Action'];
+}
+function approvalsListHTML(){
+  var items=window._apprItems;
+  if(window._apprLoading || items===undefined) return '<div style="padding:44px 16px;text-align:center;color:var(--sub)">Loading approvals…</div>';
+  var seg='<div class="segment">'
+    +'<button class="seg-btn '+(_apprSeg==='pending'?'on':'')+'" onclick="_apprSeg=\'pending\';document.getElementById(\'content\').innerHTML=followupsHTML()">Pending</button>'
+    +'<button class="seg-btn '+(_apprSeg==='done'?'on':'')+'" onclick="_apprSeg=\'done\';document.getElementById(\'content\').innerHTML=followupsHTML()">Decided</button>'
+    +'</div>';
+  var list=(items||[]).filter(function(it){ return _apprSeg==='pending' ? it.status==='pending' : it.status!=='pending'; });
+  // Operator review cards (campaign reports, CA quarterlies, weekly updates)
+  // live here now instead of the Dashboard. Staff-only; each self-hides when empty.
+  var opCards='';
+  if(_apprSeg==='pending' && window._isAdviuzStaff){
+    try{ opCards += (typeof caReviewCardsHTML==='function'?caReviewCardsHTML():''); }catch(_e){}
+    try{ opCards += (typeof reportReviewCardsHTML==='function'?reportReviewCardsHTML():''); }catch(_e){}
+    try{ opCards += (typeof annReviewCardsHTML==='function'?annReviewCardsHTML():''); }catch(_e){}
+    if(opCards) opCards='<div style="margin:2px 2px 8px">'+opCards+'</div>';
+  }
+  if(!list.length && !opCards) return seg+'<div style="padding:44px 16px;text-align:center;color:var(--sub)">'+(_apprSeg==='pending'?'Nothing waiting for approval 🎉':'No decided approvals yet')+'</div>';
+  if(!list.length) return seg+opCards+'<div style="padding:24px 16px;text-align:center;color:var(--sub)">No other approvals pending</div>';
+  var h=seg+opCards+'<div style="padding:2px 14px calc(90px + env(safe-area-inset-bottom))">';
+  list.forEach(function(it){
+    var m=apprTypeMeta(it.action_type); var p=it.payload||{};
+    var title=p.title || (it.action_type==='sms' ? ('Text to '+(it.lead_name||p.to||'lead')) : it.action_type==='email' ? (p.subject||('Email to '+(it.lead_name||'lead'))) : m[1]);
+    var body=p.suggestion||p.message||p.body||'';
+    var stCol = it.status==='pending' ? '#b45309' : (it.status==='sent'||it.status==='approved') ? 'var(--green)' : it.status==='rejected' ? '#b91c1c' : 'var(--sub)';
+    var stBg  = it.status==='pending' ? '#fef3c7' : (it.status==='sent'||it.status==='approved') ? 'var(--greenl,#e7f8f3)' : it.status==='rejected' ? '#fee2e2' : 'var(--bg)';
+    var wd=new Date(it.created_at);
+    var whenTxt=wd.toLocaleDateString(undefined,{month:'short',day:'numeric'})+' '+wd.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
+    h+='<div style="background:var(--surface);border:1px solid var(--line,#e5e7eb);border-radius:14px;padding:13px 14px;margin-bottom:10px">'
+      +'<div style="display:flex;align-items:center;gap:9px">'
+      +'<span style="font-size:17px">'+m[0]+'</span>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:800;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+apprEsc(title)+'</div>'
+      +'<div style="font-size:11px;color:var(--sub);margin-top:1px">'+m[1]+(it.lead_name?' · '+apprEsc(it.lead_name):'')+' · '+whenTxt+'</div></div>'
+      +'<span style="font-size:10.5px;font-weight:800;color:'+stCol+';background:'+stBg+';border-radius:12px;padding:3px 9px;text-transform:capitalize;flex:none">'+apprEsc(it.status)+'</span>'
+      +'</div>'
+      +(body?'<div style="font-size:12.5px;color:var(--text);margin-top:9px;line-height:1.45;white-space:pre-wrap">'+apprEsc(String(body).slice(0,420))+'</div>':'')
+      +(it.error?'<div style="font-size:11.5px;color:#b91c1c;margin-top:6px">⚠ '+apprEsc(it.error)+'</div>':'')
+      +(it.lead_id?'<div style="margin-top:8px"><span onclick="openLead(\''+it.lead_id+'\')" style="font-size:12px;font-weight:700;color:var(--green);cursor:pointer">View lead →</span></div>':'')
+      +(it.status==='pending'
+        ? '<div style="display:flex;gap:8px;margin-top:11px">'
+          +'<button onclick="apprDecide(\''+it.id+'\',\'approve\',this)" style="flex:1;background:var(--green);color:#fff;border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:800;cursor:pointer">Approve</button>'
+          +'<button onclick="apprDecide(\''+it.id+'\',\'reject\',this)" style="flex:1;background:var(--bg);color:var(--text);border:1.5px solid var(--line,#e5e7eb);border-radius:10px;padding:10px;font-size:13px;font-weight:800;cursor:pointer">Reject</button>'
+          +'</div>'
+        : '')
+      +'</div>';
+  });
+  return h+'</div>';
+}
+async function apprDecide(id,decision,btn){
+  if(btn){ btn.disabled=true; btn.style.opacity='.6'; btn.textContent=(decision==='approve'?'Approving…':'Rejecting…'); }
+  try{
+    var r=await sbFetch('/functions/v1/ai-approvals?action=decide',{ method:'POST', body: JSON.stringify({ id:id, decision:decision }) });
+    var d=r&&r.ok?await r.json().catch(function(){return{};}):await r.json().catch(function(){return{};});
+    if(d&&d.status==='sent') showToast('Approved — message sent');
+    else if(d&&d.status==='approved') showToast(d.error?('Approved, but: '+d.error):'Approved');
+    else if(d&&d.status==='rejected') showToast('Rejected');
+    else showToast((d&&d.error)||'Could not save the decision');
+  }catch(e){ showToast('Could not save the decision'); }
+  loadApprovals();
 }
 
 // ═══ CAMPAIGN EMAIL SENDER (staff-only editor) ═══
@@ -9177,6 +9293,14 @@ function apptTaskItems(){
     var z = isoToZonedParts(l.appointment_at, tz);
     return { _appt:true, lid:l.id, type:'meeting', date:z.date, time:z.time, note:'', done:false };
   });
+}
+// Re-render whichever screen is hosting the review/approval cards right now.
+function _reviewHostRefresh(){
+  var c=document.getElementById('content'); if(!c) return;
+  try{
+    if(curTab==='followups'){ c.innerHTML=followupsHTML(); }
+    else if(curTab==='dashboard' && typeof adminDashHTML==='function' && !isClientMode()){ c.innerHTML=adminDashHTML(); }
+  }catch(_e){}
 }
 function taskListHTML(){
   var f=tasks.concat(apptTaskItems()).filter(function(t){
@@ -13809,7 +13933,7 @@ function annReviewCardsHTML(){
       .then(function(r){ return r.ok?r.json():[]; })
       .then(function(rows){
         window._annDrafts=rows||[];
-        if(curTab==='dashboard'){ var c=document.getElementById('content'); if(c) c.innerHTML=adminDashHTML(); }
+        _reviewHostRefresh();
       }).catch(function(){ window._annDrafts=[]; });
     return '';
   }
@@ -13962,7 +14086,7 @@ async function aeApproveSend(){
   window._annDrafts=(window._annDrafts||[]).filter(function(x){ return x.id!==d.id; });
   closeSheet('annEditSh');
   showToast(failed? ('Sent '+sent+' \u00b7 '+failed+' failed') : ('\u2705 Update sent to all '+sent+' advertisers'));
-  if(curTab==='dashboard'){ var cc=document.getElementById('content'); if(cc) cc.innerHTML=adminDashHTML(); }
+  _reviewHostRefresh();
 }
 
 // ═══ 📣 FEATURE ANNOUNCEMENTS (announce-1) ═══
@@ -24093,12 +24217,7 @@ function adminDashHTML() {
     h += '<div style="flex-shrink:0;padding:6px 14px;border-radius:20px;font-family:var(--f);font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid '+(cur===t.k?'var(--text)':'var(--border)')+';background:'+(cur===t.k?'var(--text)':'var(--white)')+';color:'+(cur===t.k?'#fff':'var(--sub)')+'" onclick="'+_tclick.replace(/"/g,'&quot;')+'">'+t.l+'</div>';
   });
   h += '</div>';
-  // Task 3c: yellow attention card(s) for any pending CA quarterly reviews
-  h += caReviewCardsHTML();
-  // Campaign report emails held for admin approval before they reach the client
-  h += reportReviewCardsHTML();
-  // Weekly "What's new" drafts awaiting the admin's review + approval
-  h += annReviewCardsHTML();
+  // Review/approval cards moved to Follow-ups → Approvals (approvals-2).
   if (!_adminLoaded) {
     return h + '<div style="text-align:center;padding:60px 20px;color:var(--sub)"><div style="font-size:32px;margin-bottom:12px">&#x231B;</div><div style="font-size:14px">Loading...</div></div>';
   }
@@ -30098,9 +30217,7 @@ async function approveReportReview(){
     showToast('\u2705 Report sent to the client');
     closeSheet('rrSh');
     await loadReportReviews();
-    if(document.getElementById('content') && typeof adminDashHTML==='function' && !isClientMode()){
-      try{ document.getElementById('content').innerHTML = adminDashHTML(); }catch(_e){}
-    }
+    _reviewHostRefresh();
   }catch(e){ showToast('Could not send \u2014 try again'); }
   if(btn){ btn.textContent='\u2705 Approve &amp; send'.replace('&amp;','&'); btn.disabled=false; }
 }
@@ -30114,9 +30231,7 @@ async function dismissReportReview(id){
     showToast('Report dismissed \u2014 nothing was sent');
     closeSheet('rrSh');
     await loadReportReviews();
-    if(document.getElementById('content') && typeof adminDashHTML==='function' && !isClientMode()){
-      try{ document.getElementById('content').innerHTML = adminDashHTML(); }catch(_e){}
-    }
+    _reviewHostRefresh();
   }catch(e){ showToast('Could not dismiss \u2014 try again'); }
 }
 
@@ -30294,8 +30409,7 @@ async function sendCaReportNow(caReportId) {
       showToast('\u2705 Report sent (' + (data.attached ? 'attachment' : 'link') + ')');
       closeSheet('caReviewSh');
       await loadCaReports();
-      var box = document.getElementById('content');
-      if (box) box.innerHTML = adminDashHTML();
+      _reviewHostRefresh();
     } else {
       var errTxt = '';
       try { errTxt = (await res.json()).error || ''; } catch(_e) {}
@@ -30324,8 +30438,7 @@ async function snoozeCaReport(caReportId) {
     if (res.ok) {
       showToast('\u23F0 Snoozed 24 hours');
       await loadCaReports();
-      var box = document.getElementById('content');
-      if (box) box.innerHTML = adminDashHTML();
+      _reviewHostRefresh();
     } else {
       showToast('Snooze failed');
     }
@@ -30360,8 +30473,7 @@ async function submitCaReject() {
       showToast('Report rejected');
       closeSheet('caRejectSh');
       await loadCaReports();
-      var box = document.getElementById('content');
-      if (box) box.innerHTML = adminDashHTML();
+      _reviewHostRefresh();
     } else {
       showToast('Reject failed');
     }
