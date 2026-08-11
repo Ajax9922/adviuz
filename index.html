@@ -4194,7 +4194,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-10 camp-reminders-1';
+var APP_VERSION = 'v2026-08-11 adviuz-inbox-2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -7929,6 +7929,7 @@ async function loadApprovals(){
 function apprTypeMeta(t){
   if(t==='booking') return ['📅','Demo booking — approving sends the invite'];
   if(t==='script_improvement') return ['🎓','Script improvement'];
+  if(t==='email_lead') return ['📨','Email inquiry — approving creates the lead'];
   if(t==='sms') return ['💬','Text message'];
   if(t==='email') return ['✉️','Email'];
   if(t==='call') return ['📞','Call'];
@@ -7991,6 +7992,7 @@ async function apprDecide(id,decision,btn){
     var r=await sbFetch('/functions/v1/ai-approvals?action=decide',{ method:'POST', body: JSON.stringify({ id:id, decision:decision }) });
     var d=r&&r.ok?await r.json().catch(function(){return{};}):await r.json().catch(function(){return{};});
     if(d&&d.status==='sent') showToast('Approved — message sent');
+    else if(d&&d.status==='approved'&&d.lead_id) showToast(d.note==='already a lead'?'Approved — already a lead, email added to their timeline':'Approved — lead created in Adviuz Sales');
     else if(d&&d.status==='approved') showToast(d.error?('Approved, but: '+d.error):'Approved');
     else if(d&&d.status==='rejected') showToast('Rejected');
     else showToast((d&&d.error)||'Could not save the decision');
@@ -7998,6 +8000,101 @@ async function apprDecide(id,decision,btn){
   loadApprovals();
 }
 
+// ═══ ADVIUZ INBOX (staff-only) — every email that reached reply.adviuz.com ═══
+function _advInboxMeta(row){
+  // icon, label, colour for each routing outcome
+  var mt=row.matched_type, cl=row.classification||'';
+  if(mt==='client')   return ['🏢','Client · '+(row.matched_name||row.from_email),'var(--blue,#2563eb)'];
+  if(mt==='new_lead') return ['🆕','New lead created'+(row.matched_name?' · '+row.matched_name:''),'var(--green)'];
+  if(mt==='lead')     return ['👤','Lead · '+(row.matched_name||row.from_email),'var(--green)'];
+  if(mt==='review')   return ['❓','Waiting for your review in Approvals','#b45309'];
+  if(mt==='filtered'){
+    if(cl==='loop')    return ['🔁','Our own email (loop guard)','var(--sub)'];
+    if(cl==='machine') return ['🤖','Automated mail — set aside','var(--sub)'];
+    if(cl==='not_lead')return ['🚫','AI: not a lead — set aside','var(--sub)'];
+    if(cl==='rejected_by_admin') return ['🚫','You rejected this inquiry','var(--sub)'];
+    return ['📥','Filed','var(--sub)'];
+  }
+  return ['📥',mt||'Email','var(--sub)'];
+}
+async function loadAdvInbox(){
+  window._advInboxLoading=true;
+  var c=document.getElementById('content'); if(c && curTab==='calls') c.innerHTML=callsHTML();
+  try{
+    var r=await sbFetch('/rest/v1/rpc/adviuz_inbox_list',{method:'POST',body:JSON.stringify({p_filter:'all',p_limit:100})});
+    var rows=r.ok?await r.json().catch(function(){return[];}):[];
+    window._advInbox=Array.isArray(rows)?rows:[];
+  }catch(e){ window._advInbox=[]; }
+  window._advInboxLoading=false;
+  var c2=document.getElementById('content'); if(c2 && curTab==='calls') c2.innerHTML=callsHTML();
+}
+// Rows for the Inbox Email feed: only what the lead timelines DON'T already
+// show — client mail, strangers under review, and filed-away mail. Emails
+// matched to a lead surface through the lead's own timeline, so they are
+// excluded here to avoid duplicates.
+function ibAdviuzRows(){
+  if(!window._isAdviuzStaff || isClientMode()) return [];
+  var out=[];
+  (window._advInbox||[]).forEach(function(x){
+    if(x.matched_type==='lead' || x.matched_type==='new_lead') return;
+    if(x.matched_type==='filtered' && !window._ibShowFiled) return;
+    var d=x.created_at?new Date(x.created_at):null;
+    out.push({
+      key:'adv_'+x.id, adv:x, advId:x.id, lid:0,
+      name:(x.from_name||x.from_email||'Unknown'),
+      subject:x.subject||'', body:(x.body_text||'').trim(),
+      inbound:true,
+      sortMs:(d&&!isNaN(d))?d.getTime():0,
+      dayKey:(d&&!isNaN(d))?locDayKey(d):'',
+      timeLbl:(d&&!isNaN(d))?d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}):''
+    });
+  });
+  return out;
+}
+// Small toggle under the chips (Email view only): reveal or hide filed-away mail.
+function advFiledToggleHTML(){
+  if(!window._isAdviuzStaff || isClientMode() || window._advInbox===undefined) return '';
+  var n=(window._advInbox||[]).filter(function(x){ return x.matched_type==='filtered'; }).length;
+  if(!n) return '';
+  var on=!!window._ibShowFiled;
+  return '<div style="padding:2px 14px 6px"><span onclick="window._ibShowFiled='+(on?'false':'true')+';var c=document.getElementById(\'content\');if(c)c.innerHTML=callsHTML()" style="font-size:11.5px;font-weight:700;color:var(--sub);cursor:pointer;text-decoration:underline">'+(on?'Hide':'Show')+' filed-away mail ('+n+') — spam, vendors, auto-replies</span></div>';
+}
+// Inbox card for an Adviuz-inbox email (client / review / filed) — same shape
+// as the lead email cards, with a status chip and in-place expansion.
+function advEmailCardHTML(r){
+  var x=r.adv, m=_advInboxMeta(x);
+  var eKey='ibadv_'+r.advId;
+  var eOpen=!!window._ibOpen[eKey];
+  var iMail='<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>';
+  var chipBg = x.matched_type==='review' ? '#fef3c7' : x.matched_type==='client' ? '#e0f2fe' : 'var(--bg)';
+  var chipTx = x.matched_type==='review' ? '#b45309' : x.matched_type==='client' ? 'var(--blue,#2563eb)' : 'var(--sub)';
+  var chipLbl = x.matched_type==='review' ? '\u2753 Review' : x.matched_type==='client' ? '\uD83C\uDFE2 Client' : '\uD83D\uDCE5 Filed';
+  var iDown='<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>';
+  var iUp='<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg>';
+  var h='<div style="border-bottom:1px solid var(--border);background:var(--white)">'
+    +'<div style="display:flex;align-items:flex-start;gap:11px;padding:12px 14px">'
+    +'<div class="call-av" style="background:'+chipBg+';color:'+chipTx+'">'+iMail+'</div>'
+    +'<div style="flex:1;min-width:0">'
+    +  '<div style="display:flex;align-items:center;gap:6px">'
+    +    '<span style="font-size:15px;font-weight:700;color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+sanitize(r.name)+'</span>'
+    +    '<span style="flex-shrink:0;font-size:9px;font-weight:800;padding:2px 7px;border-radius:20px;background:'+chipBg+';color:'+chipTx+'">'+chipLbl+'</span>'
+    +  '</div>'
+    +  '<div style="font-size:12.5px;font-weight:700;color:var(--text);margin-top:2px;'+(eOpen?'':'overflow:hidden;text-overflow:ellipsis;white-space:nowrap')+'">'+sanitize(r.subject||'(no subject)')+'</div>'
+    +  (!eOpen && r.body?'<div style="font-size:12px;color:var(--sub);margin-top:2px;line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'+sanitize(r.body)+'</div>':'')
+    +  '<div style="font-size:11px;color:var(--sub);margin-top:3px">'+r.timeLbl+'</div>'
+    +'</div>'
+    +'<button onclick="window._ibOpen[\''+eKey+'\']='+(eOpen?'false':'true')+';var c2=document.getElementById(\'content\');if(c2)c2.innerHTML=callsHTML()" style="width:28px;height:28px;border-radius:50%;border:1.5px solid var(--border);background:var(--bg);color:var(--sub);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0">'+(eOpen?iUp:iDown)+'</button>'
+    +'</div>';
+  if(eOpen){
+    h+='<div style="padding:0 14px 13px">'
+      +'<div style="font-size:11px;font-weight:800;color:'+m[2]+';margin-bottom:6px">'+m[0]+' '+sanitize(m[1])+' \u00b7 '+sanitize(x.from_email||'')+'</div>'
+      +(x.ai_summary?'<div style="font-size:12px;color:var(--sub);margin-bottom:7px">\uD83E\uDD16 '+sanitize(x.ai_summary)+'</div>':'')
+      +'<div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px 14px;font-size:13.5px;color:var(--text);line-height:1.6;white-space:pre-wrap">'+sanitize(r.body||'(no message text)')+'</div>'
+      +(x.matched_type==='review'?'<div style="margin-top:9px;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:9px 13px;font-size:12px;color:#9a3412">Waiting for you \u2014 decide it in <b>Follow-ups \u2192 Approvals</b>. Approving creates the lead.</div>':'')
+      +'</div>';
+  }
+  return h+'</div>';
+}
 // ═══ CAMPAIGN EMAIL SENDER (staff-only editor) ═══
 function bwEditCampEmail(campId){
   window._bwCampEmId=campId;
@@ -10769,11 +10866,18 @@ function callsHTML(){
   }
   var _sched = ibScheduledRows();
   var _emails = ibEmailRows();
+  if(window._isAdviuzStaff && !isClientMode()){
+    if(window._advInbox===undefined && !window._advInboxLoading) loadAdvInbox();
+    _emails=_emails.concat(ibAdviuzRows());
+    _emails.sort(function(a,b){ return b.sortMs-a.sortMs; });
+  }
   if(_cq){
     _emails = _emails.filter(function(r){
       if((r.subject||'').toLowerCase().indexOf(_cq)!==-1) return true;
       if((r.body||'').toLowerCase().indexOf(_cq)!==-1) return true;
+      if((r.name||'').toLowerCase().indexOf(_cq)!==-1) return true;
       var ld=leads.find(function(l){return l.id===r.lid});
+      if(!ld) return false;
       return leadMatchesQ(ld, schQ);
     });
   }
@@ -10881,6 +10985,7 @@ function callsHTML(){
 
   // ── Shared email card: compact row that expands in place via chevron ──
   function emailCardHTML(r){
+    if(r.adv) return advEmailCardHTML(r);
     var bdr=r.inbound?'#0284c7':'#4f46e5';
     var eKey='ibem_'+r.key;
     var eOpen=!!window._ibOpen[eKey];
@@ -11027,7 +11132,7 @@ function callsHTML(){
       });
       if(openE) eHtml+='</div>';
     }
-    return '<div id="liveCallsPanel"></div><div id="aiApprovalsPanel"></div>' + chipsBar + eHtml + '<div style="height:8px"></div>';
+    return '<div id="liveCallsPanel"></div><div id="aiApprovalsPanel"></div>' + chipsBar + advFiledToggleHTML() + eHtml + '<div style="height:8px"></div>';
   }
 
   var emptyLbl = window._ibChan==='sms' ? 'No text messages yet' : window._ibChan==='call' ? 'No calls yet' : 'Nothing here yet';
