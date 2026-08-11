@@ -4194,7 +4194,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-07 approvals-4';
+var APP_VERSION = 'v2026-08-10 camp-reminders-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -9730,7 +9730,7 @@ function adminCampDetailHTML(campId){
   var pct = c.view_budget>0?Math.min(100,Math.round((c.views_used||0)/c.view_budget*100)):0;
   if(!window._cmRange) window._cmRange='all';
   window._cmLastT=null; window._cmCfg=null; window._cmPriceEdit=false;
-  setTimeout(function(){ loadCampDash(campId); loadCampLinks(campId); loadCampPnl(campId); }, 30);
+  setTimeout(function(){ loadCampDash(campId); loadCampLinks(campId); loadCampPnl(campId); loadCampReminders(campId); }, 30);
   var ist = 'padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-family:var(--f);font-size:13px;color:var(--text);background:var(--white)';
   var h = '<div style="padding:12px 14px">';
   h += '<button onclick="adminBackToCampaigns()" style="background:none;border:none;color:var(--sub);font-family:var(--f);font-size:13px;cursor:pointer;padding:0 0 12px 0;display:flex;align-items:center;gap:5px">\u2039 Campaigns</button>';
@@ -9747,6 +9747,7 @@ function adminCampDetailHTML(campId){
      + '<button onclick="cmApplyCustom(\''+campId+'\')" style="padding:7px 14px;border:none;border-radius:8px;background:var(--text);color:#fff;font-family:var(--f);font-weight:700;font-size:13px;cursor:pointer">Apply</button></div>';
   h += '<div id="cmSrcRow" style="display:flex;gap:6px;margin-bottom:14px;overflow-x:auto">'+cmSourceChips(campId)+'</div>';
   h += '<div id="cmPnl" style="margin-bottom:16px"><div style="text-align:center;color:var(--muted);font-size:13px;padding:18px">Loading\u2026</div></div>';
+  h += '<div id="cmRem" style="margin-bottom:16px"></div>';
   h += '<div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:8px">\uD83D\uDCC8 Performance</div>';
   h += '<div id="cmCards"><div style="text-align:center;color:var(--muted);font-size:13px;padding:18px">Loading\u2026</div></div>';
   h += '<div style="height:16px"></div>';
@@ -9862,6 +9863,126 @@ async function loadCampLinks(campId){
     box.innerHTML=out;
   }catch(e){ box.innerHTML=''; }
 }
+// ── Campaign-finished REMINDERS: status card + manual staff sends ──
+// Backend: campaign-reminders edge fn (auto sequence) + campaign_reminder_status RPC.
+var _cremLabels = {
+  d0_push:'Day 0 \u00B7 App push', d0_email:'Day 0 \u00B7 Results email',
+  d1_sms:'Day 1 \u00B7 Text message', d2_email:'Day 2 \u00B7 Email',
+  d4_push:'Day 4 \u00B7 App push', d7_push:'Day 7 \u00B7 Morning push',
+  d7_email:'Day 7 \u00B7 Evening email', d15_email:'Day 15 \u00B7 Morning email',
+  d15_sms:'Day 15 \u00B7 Afternoon text',
+  manual_email:'Manual \u00B7 Email', manual_sms:'Manual \u00B7 Text', manual_push:'Manual \u00B7 Push'
+};
+function _cremWhen(t){
+  var d=new Date(t); if(isNaN(d)) return '';
+  return d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit',hour12:true});
+}
+async function loadCampReminders(campId){
+  var box=document.getElementById('cmRem'); if(!box) return;
+  var btn=function(ch,icon,lbl){
+    return '<button onclick="campRemConfirm(\''+campId+'\',\''+ch+'\')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:10px 6px;border:1.5px solid var(--border);border-radius:10px;background:var(--white);color:var(--text);font-family:var(--f);font-size:12px;font-weight:800;cursor:pointer">'+icon+' '+lbl+'</button>';
+  };
+  var head='<div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:8px">\uD83D\uDD14 Campaign Reminders</div>'
+    + '<div style="display:flex;gap:7px;margin-bottom:10px">'
+    + btn('email','\uD83D\uDCE7','Send Email') + btn('sms','\uD83D\uDCAC','Send Text') + btn('push','\uD83D\uDD14','Send Push')
+    + '</div>';
+  box.innerHTML=head+'<div id="cmRemBody" style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:12px 13px;font-size:12px;color:var(--sub)">Loading\u2026</div>';
+  try{
+    var r=await sbFetch('/rest/v1/rpc/campaign_reminder_status',{method:'POST',body:JSON.stringify({p_campaign_id:campId})});
+    var j=r.ok?await r.json().catch(function(){return null;}):null;
+    var body=document.getElementById('cmRemBody'); if(!body) return;
+    var st=j&&j.state, emails=(j&&j.emails)||[];
+    if(!st){
+      body.innerHTML='<div style="color:var(--sub)">No reminders sent for this campaign yet. The automatic sequence starts when the campaign runs out of views (master switch permitting), or send one manually above.</div>';
+      return;
+    }
+    var byRid={}; emails.forEach(function(e){ if(e.resend_id) byRid[e.resend_id]=e; });
+    var steps=Array.isArray(st.steps_sent)?st.steps_sent:[];
+    var h='';
+    if(st.stopped_at){
+      var reason=st.stop_reason==='topped_up'?'\uD83D\uDCB0 Client topped up \u2014 sequence stopped'
+        :(st.stop_reason==='sequence_complete'?'\u2705 Sequence finished (all steps sent)':'\u23F9 Stopped ('+sanitize(st.stop_reason||'')+')');
+      h+='<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:8px">'+reason+'</div>';
+    } else {
+      h+='<div style="font-size:12px;font-weight:700;color:var(--green);margin-bottom:8px">\u25B6 Sequence running \u2014 started '+_cremWhen(st.finished_at)+'</div>';
+    }
+    if(!steps.length){ h+='<div style="color:var(--sub)">Nothing sent yet.</div>'; }
+    steps.forEach(function(sp){
+      var lbl=_cremLabels[sp.k]||sp.k;
+      var chips='';
+      if(sp.skipped){ chips='<span style="font-size:10px;font-weight:700;color:var(--sub)">skipped</span>'; }
+      else if(sp.resend_id && byRid[sp.resend_id]){
+        var e=byRid[sp.resend_id];
+        if(e.clicked_at) chips='<span style="font-size:10px;font-weight:800;color:var(--blue,#2563eb)">\uD83D\uDD17 Clicked</span>';
+        else if(e.opened_at) chips='<span style="font-size:10px;font-weight:800;color:var(--green)">\uD83D\uDC41 Opened</span>';
+        else chips='<span style="font-size:10px;font-weight:700;color:var(--sub)">\u2709\uFE0F Sent</span>';
+      } else { chips='<span style="font-size:10px;font-weight:700;color:var(--sub)">\u2713 Sent</span>'; }
+      h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px solid var(--border)">'
+        + '<div><div style="font-size:12.5px;font-weight:700;color:'+(sp.skipped?'var(--sub)':'var(--text)')+'">'+lbl+'</div>'
+        + '<div style="font-size:10.5px;color:var(--sub)">'+_cremWhen(sp.at)+'</div></div>'
+        + chips + '</div>';
+    });
+    body.innerHTML=h;
+  }catch(e){
+    var b2=document.getElementById('cmRemBody');
+    if(b2) b2.innerHTML='<div style="color:var(--sub)">Could not load reminder status.</div>';
+  }
+}
+function ensureCampRemSheet(){
+  if(document.getElementById('campRemSh')) return;
+  var html=
+    '<div class="sheet-ov" id="campRemSh" onclick="if(event.target===this)closeSheet(\'campRemSh\')" style="z-index:900">'
+    + '<div class="sheet" style="max-height:70dvh">'
+    +   '<div class="sheet-handle"></div>'
+    +   '<div class="sheet-head">'
+    +     '<div class="sheet-title" id="campRemShTitle">Send reminder</div>'
+    +     '<button class="sheet-x" onclick="closeSheet(\'campRemSh\')">\u2715</button>'
+    +   '</div>'
+    +   '<div class="sh-body" id="campRemShBody" style="padding:6px 16px;padding-bottom:calc(28px + env(safe-area-inset-bottom))"></div>'
+    + '</div>'
+    + '</div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+function campRemConfirm(campId, channel){
+  ensureCampRemSheet();
+  var c=((typeof _adminData!=='undefined' && _adminData.campaigns)||[]).find(function(x){ return String(x.id)===String(campId); })||{};
+  var cn=(c.clients&&c.clients.business_name)||'this client';
+  var what=channel==='email'
+    ? 'the full results email (views, leads, and one-tap top-up buttons)'
+    : channel==='sms' ? 'the reminder text message (from the Adviuz number)'
+    : 'an app push notification to their registered devices';
+  var t=document.getElementById('campRemShTitle');
+  if(t) t.textContent=(channel==='email'?'\uD83D\uDCE7 Send Email':(channel==='sms'?'\uD83D\uDCAC Send Text':'\uD83D\uDD14 Send Push'));
+  var body=document.getElementById('campRemShBody');
+  if(body) body.innerHTML=
+      '<div style="font-size:13.5px;color:var(--text);line-height:1.6;margin:6px 0 14px">This will send <b>'+what+'</b> for the campaign <b>'+sanitize(c.name||'')+'</b> to <b>'+sanitize(cn)+'</b> \u2014 a real message to a real client.</div>'
+    + '<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:10px 13px;font-size:12px;color:#9a3412;margin-bottom:14px">Double-check the campaign and client above before confirming.</div>'
+    + '<div style="display:flex;gap:8px">'
+    +   '<button onclick="closeSheet(\'campRemSh\')" style="flex:1;padding:12px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer">Cancel</button>'
+    +   '<button id="campRemGoBtn" onclick="campRemSend(\''+campId+'\',\''+channel+'\')" style="flex:2;padding:12px;border-radius:10px;border:none;background:var(--green);color:#fff;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer">Yes, send it</button>'
+    + '</div>';
+  openSheet('campRemSh');
+}
+async function campRemSend(campId, channel){
+  var go=document.getElementById('campRemGoBtn');
+  if(go){ go.disabled=true; go.textContent='Sending\u2026'; }
+  try{
+    var r=await sbFetch('/functions/v1/campaign-reminders',{method:'POST',body:JSON.stringify({action:'manual',campaign_id:campId,channel:channel})});
+    var j=await r.json().catch(function(){return{};});
+    if(j&&j.success){
+      showToast(channel==='email'?'\uD83D\uDCE7 Email sent':(channel==='sms'?'\uD83D\uDCAC Text sent':'\uD83D\uDD14 Push sent'));
+      closeSheet('campRemSh');
+      loadCampReminders(campId);
+    } else {
+      showToast('\u26A0\uFE0F Not sent: '+((j&&(j.error||j.reason))||'unknown error'));
+      if(go){ go.disabled=false; go.textContent='Yes, send it'; }
+    }
+  }catch(e){
+    showToast('\u26A0\uFE0F Send failed \u2014 try again');
+    if(go){ go.disabled=false; go.textContent='Yes, send it'; }
+  }
+}
+
 // ── Per-campaign Profit & Loss: editable price + expense list + domain nudge ──
 var SHARED_BASES = ['hairtattoopromotion.com','adviuz.ca','adviuz.com'];
 function cmHostOf(u){ if(!u) return ''; return String(u).replace(/^https?:\/\//i,'').split('/')[0].split('?')[0].toLowerCase().replace(/^www\./,''); }
