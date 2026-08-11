@@ -1598,6 +1598,10 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
 
       <!-- Attachments -->
       <div class="fg"><label class="flbl">Attachments <span style="font-weight:400;color:var(--sub);font-size:10px">(optional — up to 5 files, 7 MB total)</span></label>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <button type="button" id="emAttModeL" onclick="emAttMode('link')" style="flex:1;padding:9px;border-radius:10px;border:1.5px solid var(--green);background:var(--greenl,#e7f8f3);color:var(--green);font-size:12px;font-weight:800;cursor:pointer;font-family:var(--f)">🔗 Send as download links</button>
+          <button type="button" id="emAttModeA" onclick="emAttMode('attach')" style="flex:1;padding:9px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-size:12px;font-weight:800;cursor:pointer;font-family:var(--f)">📎 Attach to email</button>
+        </div>
         <label style="display:block;padding:10px;border:1.5px dashed var(--border);border-radius:10px;background:var(--bg);font-size:12.5px;font-weight:700;color:var(--sub);text-align:center;cursor:pointer">
           📎 Attach files
           <input type="file" id="emAttInput" multiple onchange="emAttPicked(this)" style="display:none">
@@ -3665,6 +3669,18 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
             <div class="note-tpl" onclick="tplInsertVar('{{time}}')">{{time}}</div>
           </div>
           <div style="font-size:11px;color:var(--sub);margin-top:6px;line-height:1.5">{{date}} and {{time}} use the lead's booked appointment. Landing-page custom fields work too — type the field's key inside double curly braces.</div>
+          <div style="margin-top:10px">
+            <span onclick="tplBtnToggle()" style="font-size:12.5px;font-weight:700;color:var(--blue,#2563eb);cursor:pointer">➕ Insert a button (link or call)</span>
+            <div id="tplBtnBox" style="display:none;border:1.5px solid var(--border);border-radius:12px;padding:12px;margin-top:8px;background:var(--bg)">
+              <div style="display:flex;gap:8px;margin-bottom:8px">
+                <button type="button" id="tplBtnKindLink" onclick="tplBtnKind('link')" style="flex:1;padding:9px;border-radius:10px;border:1.5px solid var(--green);background:var(--greenl,#e7f8f3);color:var(--green);font-size:12.5px;font-weight:800;cursor:pointer;font-family:var(--f)">🔗 Link</button>
+                <button type="button" id="tplBtnKindCall" onclick="tplBtnKind('call')" style="flex:1;padding:9px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-size:12.5px;font-weight:800;cursor:pointer;font-family:var(--f)">📞 Call</button>
+              </div>
+              <div class="fg" style="margin-bottom:8px"><label class="flbl">Button text</label><input class="finp" id="tplBtnLbl" placeholder="e.g. Book now · View design · Call us" style="background:var(--white)"></div>
+              <div class="fg" style="margin-bottom:10px"><label class="flbl" id="tplBtnValLbl">Link</label><input class="finp" id="tplBtnVal" placeholder="https://…" style="background:var(--white)"></div>
+              <button type="button" onclick="tplBtnInsert()" class="btn btn-primary" style="width:100%;justify-content:center;padding:9px">Insert into body</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -4220,7 +4236,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-11 email-composer-1';
+var APP_VERSION = 'v2026-08-11 email-composer-2';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -15849,7 +15865,7 @@ function ceLoadTemplates(){
     .then(function(rows){
       if(rows && rows.length){ window._ceTpls=rows; cePaintTplRow(); tplPaintMgrList(); if(typeof advPaintTplRow==='function') advPaintTplRow(); return; }
       // Operator (house) account: start empty — no clinic starter seeds here.
-      if(!window._clientId){ window._ceTpls=[]; cePaintTplRow(); tplPaintMgrList(); if(typeof advPaintTplRow==='function') advPaintTplRow(); return; }
+      if(!window._clientId || cid===window._ADV_HOUSE){ window._ceTpls=[]; cePaintTplRow(); tplPaintMgrList(); if(typeof advPaintTplRow==='function') advPaintTplRow(); return; }
       // First time for this client: seed the four starters as editable rows.
       var biz=(window._clientData&&window._clientData.business_name)||(window._ceFrom&&window._ceFrom.from_name)||'our clinic';
       var seed=[
@@ -15930,8 +15946,31 @@ function openTplMgr(){
 function tplPaintMgrList(){
   var box=document.getElementById('tplMgrList'); if(!box) return;
   var tpls=window._ceTpls;
-  if(!tpls){ box.innerHTML='<div style="font-size:12px;color:var(--sub);padding:8px 0">Loading…</div>'; return; }
-  if(!tpls.length){ box.innerHTML='<div style="font-size:13px;color:var(--sub);padding:8px 0">No custom templates yet — tap the button above to create your first one.</div>'; return; }
+  var staffHouse = window._isAdviuzStaff && !isClientMode() && !window._clientId;
+  var sysNames = staffHouse ? Object.keys(window._ADV_SYS_NAME||{}).map(function(k){return window._ADV_SYS_NAME[k];}) : [];
+  var sysH='';
+  if(staffHouse){
+    sysH+='<div style="font-size:10.5px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin:2px 0 6px">System templates — the chips on Send Email</div>'
+      +'<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:14px">';
+    var _first=true;
+    Object.keys(window._ADV_SYS_NAME||{}).forEach(function(k){
+      var nm=window._ADV_SYS_NAME[k];
+      var ov=(tpls||[]).find(function(x){return String(x.name||'').trim()===nm;});
+      sysH+='<div style="padding:12px 14px;'+(_first?'':'border-top:1px solid var(--border)')+'">'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
+        +'<div style="min-width:0"><div style="font-size:13.5px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+nm+'</div>'
+        +'<div style="font-size:11.5px;color:'+(ov?'var(--green)':'var(--sub)')+'">'+(ov?'✏️ Edited — your wording is live':'Default wording')+'</div></div>'
+        +'<div style="display:flex;gap:6px;flex-shrink:0">'
+        +'<button onclick="tplSysEdit(\''+k+'\')" style="padding:6px 12px;border-radius:8px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">Edit</button>'
+        +(ov?'<button onclick="tplSysReset(\''+k+'\')" style="padding:6px 12px;border-radius:8px;border:1.5px solid #fecaca;background:#fff;color:var(--red);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">Reset</button>':'')
+        +'</div></div></div>';
+      _first=false;
+    });
+    sysH+='</div><div style="font-size:10.5px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin:2px 0 6px">Your own templates</div>';
+  }
+  if(!tpls){ box.innerHTML=sysH+'<div style="font-size:12px;color:var(--sub);padding:8px 0">Loading…</div>'; return; }
+  tpls=(tpls||[]).filter(function(t){ return sysNames.indexOf(String(t.name||'').trim())===-1; });
+  if(!tpls.length){ box.innerHTML=sysH+'<div style="font-size:13px;color:var(--sub);padding:8px 0">No custom templates yet — tap the button above to create your first one.</div>'; return; }
   var h='<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden">';
   tpls.forEach(function(t,i){
     h+='<div style="padding:12px 14px;'+(i?'border-top:1px solid var(--border)':'')+'">'
@@ -15943,7 +15982,7 @@ function tplPaintMgrList(){
       +'<button onclick="tplDelete(\''+t.id+'\')" style="padding:6px 12px;border-radius:8px;border:1.5px solid #fecaca;background:#fff;color:var(--red);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">Delete</button>'
       +'</div></div></div>';
   });
-  box.innerHTML=h+'</div>';
+  box.innerHTML=sysH+h+'</div>';
 }
 function tplDelete(id){
   var t=(window._ceTpls||[]).find(function(x){return String(x.id)===String(id);});
@@ -17935,6 +17974,7 @@ function openEmail(id){
     if(document.getElementById('emailCc'))   document.getElementById('emailCc').value = '';
     renderCcSuggestions(l);
     window._emAtt=[]; if(typeof emPaintAtts==='function') emPaintAtts();
+    window._emAttMode='link'; if(typeof emAttMode==='function') emAttMode('link');
     window._emAiChat=[];
     var _mb=document.getElementById('emMoreBox'); if(_mb) _mb.style.display='none';
     var _mbn=document.getElementById('emMoreBtn'); if(_mbn) _mbn.textContent='\uFF0B More';
@@ -18135,6 +18175,8 @@ function advPaintTplRow(){
   var row=document.getElementById('advTplRow'); if(!row) return;
   var tpls=window._ceTpls;
   if(tpls===undefined||tpls===null){ row.innerHTML='<span style="font-size:12px;color:var(--sub)">Loading\u2026</span>'; return; }
+  var _sysN=Object.keys(window._ADV_SYS_NAME||{}).map(function(k){return window._ADV_SYS_NAME[k];});
+  tpls=(tpls||[]).filter(function(t){ return _sysN.indexOf(String(t.name||'').trim())===-1; });
   if(!tpls.length){ row.innerHTML='<span style="font-size:12px;color:var(--sub)">No custom templates yet \u2014 tap Manage templates to create one with AI.</span>'; return; }
   row.innerHTML=tpls.map(function(t){
     return '<div class="note-tpl" onclick="advApplyTpl(\''+t.id+'\')">\u2B50 '+String(t.name||'Template').replace(/</g,'&lt;')+'</div>';
@@ -18171,6 +18213,93 @@ function tplSendTest(){
     reset();
   })
   .catch(function(){ showToast('Test failed \u2014 try again'); reset(); });
+}
+
+// ── Editable system templates: chip key → the name it appears under in Manage ──
+window._ADV_SYS_NAME = {
+  followup:'Follow-up', intro:'Introduction', meeting:'Book Meeting', support:'Support Reply',
+  design_in_process:'Design in Process', design_updated:'Design Updated',
+  audience_target:'Audience Target', account_in_process:'Account Setup', account_ready:'Account Ready'
+};
+function _advSysOverride(name){
+  return (window._ceTpls||[]).find(function(x){ return String(x.name||'').trim()===name; })||null;
+}
+function tplSysEdit(key){
+  var name=(window._ADV_SYS_NAME||{})[key]; if(!name) return;
+  var ov=_advSysOverride(name);
+  if(ov){ tplEdit(ov.id); return; }
+  var def=(typeof MASTER_EMAIL_TPLS!=='undefined'&&MASTER_EMAIL_TPLS[key])||{subj:'',body:''};
+  tplNew();
+  var el;
+  el=document.getElementById('tplEditTitle'); if(el) el.textContent='Edit system template';
+  el=document.getElementById('tplName'); if(el) el.value=name;
+  el=document.getElementById('tplSubj'); if(el) el.value=def.subj||'';
+  el=document.getElementById('tplBody'); if(el) el.value=String(def.body||'').replace(/\{name\}/g,'{{name}}');
+  showToast('Editing "'+name+'" \u2014 save with the same name to replace the chip\u2019s wording');
+}
+function tplSysReset(key){
+  var name=(window._ADV_SYS_NAME||{})[key]; if(!name) return;
+  var ov=_advSysOverride(name);
+  if(!ov){ showToast('Already using the default wording'); return; }
+  tplDelete(ov.id);
+}
+// ── [Button: Label | link] token → real navy button in the sent email ──
+function _advBtnHtml(str){
+  return String(str||'').replace(/\[\s*Button:\s*([^|\]]+?)\s*\|\s*([^\]]+?)\s*\]/gi, function(_m,lbl,url){
+    var u=String(url||'').trim();
+    if(!/^tel:/i.test(u) && !/^https?:\/\//i.test(u)) u='https://'+u;
+    return '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:10px 0"><tr><td align="center">'
+      +'<table cellpadding="0" cellspacing="0" border="0"><tr>'
+      +'<td style="background:#001f3f;border-radius:6px;padding:14px 34px">'
+      +'<a href="'+u+'" target="_blank" style="color:#fff;text-decoration:none;font-size:15px;font-weight:bold;font-family:Helvetica,Arial,sans-serif;display:block">'+String(lbl).trim()+'</a>'
+      +'</td></tr></table></td></tr></table>';
+  });
+}
+// ── Insert-a-button box in the template editor ──
+window._tplBtnKind='link';
+function tplBtnToggle(){
+  var b=document.getElementById('tplBtnBox'); if(b) b.style.display=(b.style.display==='none'?'block':'none');
+}
+function tplBtnKind(k){
+  window._tplBtnKind=k;
+  var on='1.5px solid var(--green)', off='1.5px solid var(--border)';
+  var L=document.getElementById('tplBtnKindLink'), C=document.getElementById('tplBtnKindCall');
+  if(L){ L.style.border=(k==='link')?on:off; L.style.background=(k==='link')?'var(--greenl,#e7f8f3)':'var(--white)'; L.style.color=(k==='link')?'var(--green)':'var(--text)'; }
+  if(C){ C.style.border=(k==='call')?on:off; C.style.background=(k==='call')?'var(--greenl,#e7f8f3)':'var(--white)'; C.style.color=(k==='call')?'var(--green)':'var(--text)'; }
+  var vl=document.getElementById('tplBtnValLbl'); if(vl) vl.textContent=(k==='call')?'Phone number':'Link';
+  var vi=document.getElementById('tplBtnVal'); if(vi) vi.placeholder=(k==='call')?'+1 647 250 1152':'https://\u2026';
+}
+function tplBtnInsert(){
+  var lbl=((document.getElementById('tplBtnLbl')||{}).value||'').trim();
+  var val=((document.getElementById('tplBtnVal')||{}).value||'').trim();
+  if(!lbl||!val){ showToast('Button text and '+(window._tplBtnKind==='call'?'phone number':'link')+' are both needed'); return; }
+  var url;
+  if(window._tplBtnKind==='call'){
+    var digits=val.replace(/\D/g,'');
+    if(digits.length<10){ showToast('That phone number looks too short'); return; }
+    url='tel:+'+digits;
+  } else {
+    url=/^https?:\/\//i.test(val)?val:('https://'+val);
+  }
+  var el=document.getElementById('tplBody'); if(!el) return;
+  var tok='\n[Button: '+lbl+' | '+url+']\n';
+  var s=el.selectionStart!=null?el.selectionStart:el.value.length;
+  var e=el.selectionEnd!=null?el.selectionEnd:el.value.length;
+  el.value = el.value.slice(0,s) + tok + el.value.slice(e);
+  try{ el.focus(); el.setSelectionRange(s+tok.length,s+tok.length); }catch(_e){}
+  var lb=document.getElementById('tplBtnLbl'); if(lb) lb.value='';
+  var vb=document.getElementById('tplBtnVal'); if(vb) vb.value='';
+  var bx=document.getElementById('tplBtnBox'); if(bx) bx.style.display='none';
+  var pv=document.getElementById('tplPvBox'); if(pv&&pv.style.display!=='none') tplPaintPreview();
+  showToast('Button added \u2014 it becomes a real button in the sent email');
+}
+// ── Attachment delivery mode: real attachment, or uploaded file + download link ──
+function emAttMode(m){
+  window._emAttMode=m;
+  var on='1.5px solid var(--green)', off='1.5px solid var(--border)';
+  var L=document.getElementById('emAttModeL'), A=document.getElementById('emAttModeA');
+  if(L){ L.style.border=(m==='link')?on:off; L.style.background=(m==='link')?'var(--greenl,#e7f8f3)':'var(--white)'; L.style.color=(m==='link')?'var(--green)':'var(--text)'; }
+  if(A){ A.style.border=(m==='attach')?on:off; A.style.background=(m==='attach')?'var(--greenl,#e7f8f3)':'var(--white)'; A.style.color=(m==='attach')?'var(--green)':'var(--text)'; }
 }
 
 var _emailLeadId = null;
@@ -18798,8 +18927,12 @@ function applyMasterEmailTpl(key){
   var tpl = MASTER_EMAIL_TPLS[key]; if(!tpl) return;
   var from = (document.getElementById('emailFrom')||{}).value||'relations@adviuz.com';
   var teamName = FROM_NAMES[from]||'Adviuz Team';
-  var s=document.getElementById('emailSubj'); if(s) s.value=buildSubj(tpl.subj);
-  var b=document.getElementById('emailBody'); if(b) b.value=tpl.body.replace(/{name}/g,firstName);
+  // If the operator edited this system template in Manage templates, use that wording.
+  var _sysNm=(window._ADV_SYS_NAME||{})[key];
+  var _ov=(_sysNm&&window._isAdviuzStaff&&!isClientMode())?((window._ceTpls||[]).find(function(x){return String(x.name||'').trim()===_sysNm;})):null;
+  var s=document.getElementById('emailSubj'); if(s) s.value=buildSubj(_ov?String(_ov.subject||tpl.subj):tpl.subj);
+  var _bTxt=_ov?_ceMerge(String(_ov.body||''), l||{}).replace(/{name}/g,firstName):tpl.body.replace(/{name}/g,firstName);
+  var b=document.getElementById('emailBody'); if(b) b.value=_bTxt;
   // Design templates: offer an OPTIONAL "View Your Design" link (branded button)
   window._brandedDesignKey = (key==='design_in_process'||key==='design_updated') ? key : null;
   var drow2 = document.getElementById('designUrlRow');
@@ -18828,6 +18961,7 @@ function buildBrandedHtml(body, fromEmail, designUrl, isHtml){
                : '<div style="height:6px"></div>';
     }).join('');
   }
+  lines = (typeof _advBtnHtml==='function') ? _advBtnHtml(lines) : lines;
   // Optional "View Your Design" branded button (only when a real URL is supplied)
   var btnHtml = '';
   if (designUrl && /^https?:\/\//i.test(designUrl)) {
@@ -19004,6 +19138,35 @@ async function sendEmail(){
   if(btn){ btn.textContent='Sending...'; btn.disabled=true; }
   try {
     var finalHtml;
+    // Link mode: upload each file to storage first, build the download section.
+    var _linkSection='', _linkText='';
+    if((window._emAttMode||'link')==='link' && window._emAtt && window._emAtt.length){
+      var _rows='';
+      for(var _ai=0; _ai<window._emAtt.length; _ai++){
+        var _a=window._emAtt[_ai];
+        var _safe=String(_a.filename||'file').replace(/[^a-zA-Z0-9._-]+/g,'_').slice(0,80);
+        var _path='em_'+Date.now()+'_'+_ai+'_'+_safe;
+        var _bin=Uint8Array.from(atob(_a.content), function(c){ return c.charCodeAt(0); });
+        var _ur=await fetch(SB_URL+'/storage/v1/object/email-attachments/'+_path, {
+          method:'POST',
+          headers:{ 'Authorization':'Bearer '+authToken, 'apikey':SB_ANON, 'Content-Type':'application/octet-stream', 'x-upsert':'true' },
+          body:_bin
+        });
+        if(!_ur.ok) throw new Error('File upload failed for "'+_a.filename+'" — nothing was sent');
+        var _pub=SB_URL+'/storage/v1/object/public/email-attachments/'+_path;
+        var _kb=_a.size>1048576?((_a.size/1048576).toFixed(1)+' MB'):(Math.max(1,Math.round(_a.size/1024))+' KB');
+        _rows+='<tr><td style="padding:7px 0;border-bottom:1px solid #f3f4f6;font-size:13px;color:#111827;font-family:Helvetica,Arial,sans-serif">\uD83D\uDCCE '+String(_a.filename).replace(/</g,'&lt;')+' <span style="color:#9ca3af;font-size:11px">('+_kb+')</span></td>'
+          +'<td align="right" style="padding:7px 0;border-bottom:1px solid #f3f4f6"><a href="'+_pub+'" target="_blank" style="display:inline-block;background:#001f3f;color:#ffffff;text-decoration:none;font-size:12px;font-weight:700;padding:8px 16px;border-radius:6px;font-family:Helvetica,Arial,sans-serif">Download</a></td></tr>';
+        _linkText+='\n'+_a.filename+': '+_pub;
+      }
+      _linkSection='<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;padding:0 0 20px"><tr><td align="center">'
+        +'<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#ffffff;border-radius:8px;border:1px solid #e5e7eb">'
+        +'<tr><td style="padding:16px 20px">'
+        +'<div style="font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;font-family:Helvetica,Arial,sans-serif">Files for you</div>'
+        +'<table width="100%" cellpadding="0" cellspacing="0" border="0">'+_rows+'</table>'
+        +'</td></tr></table></td></tr></table>';
+      if(_linkText) _linkText='\n\nFiles:'+_linkText;
+    }
     if(window._useProposalTemplate) {
       var l2 = _emailLeadId ? leads.find(function(x){return x.id===_emailLeadId;}) : null;
       finalHtml = buildProposalHtml(
@@ -19039,15 +19202,16 @@ async function sendEmail(){
       var dUrlS = window._brandedDesignKey ? ((document.getElementById('designUrlInput')||{}).value||'').trim() : '';
       finalHtml = buildBrandedHtml(bodyHtml||body, fromEmail, dUrlS, !!bodyHtml);
     }
+    if(_linkSection) finalHtml = String(finalHtml).replace('</body>', _linkSection+'</body>');
     var res = await fetch(SB_FUNC_URL+'/send-email', {
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken,'apikey':SB_ANON},
       body: JSON.stringify({
-        to:to, cc:(cc||undefined), subject:fullSubj, html:finalHtml, text:body,
+        to:to, cc:(cc||undefined), subject:fullSubj, html:finalHtml, text:body+_linkText,
         type:'transactional', from_email:fromEmail, from_name:FROM_NAMES[fromEmail]||'Adviuz Team',
         reply_to:fromEmail, lead_id:_emailLeadId||null, client_id:window._clientId||null,
         headers:{'X-Priority':'1','Importance':'high','X-Mailer':'Adviuz CRM'},
-        attachments:(window._emAtt&&window._emAtt.length)?window._emAtt.map(function(a){return {filename:a.filename, content:a.content};}):undefined
+        attachments:((window._emAttMode||'link')==='attach'&&window._emAtt&&window._emAtt.length)?window._emAtt.map(function(a){return {filename:a.filename, content:a.content};}):undefined
       })
     });
     var data = await res.json();
