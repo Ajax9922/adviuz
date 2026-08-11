@@ -3649,6 +3649,25 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
         </div>
         <div id="tplFormatHint" style="font-size:11px;color:var(--sub);margin-top:5px;line-height:1.5">Your message inside the standard Adviuz header and footer.</div>
       </div>
+      <div class="fg" id="tplMediaBox" style="display:none">
+        <label class="flbl">Images &amp; video <span style="font-weight:400;color:var(--sub);font-size:10px">(optional — the AI weaves them into the design)</span></label>
+        <div style="display:flex;gap:8px">
+          <label style="flex:1;display:block;padding:10px;border:1.5px dashed var(--border);border-radius:10px;background:var(--bg);font-size:12.5px;font-weight:700;color:var(--sub);text-align:center;cursor:pointer">
+            🖼 Upload image
+            <input type="file" id="tplImgInput" accept="image/*" multiple onchange="tplImgPicked(this)" style="display:none">
+          </label>
+          <button type="button" onclick="tplVidToggle()" style="flex:1;padding:10px;border:1.5px dashed var(--border);border-radius:10px;background:var(--bg);font-size:12.5px;font-weight:700;color:var(--sub);cursor:pointer;font-family:var(--f)">▶ Add video link</button>
+        </div>
+        <div id="tplVidBox" style="display:none;margin-top:8px;display:none">
+          <div style="display:flex;gap:8px">
+            <input class="finp" id="tplVidUrl" placeholder="Paste a YouTube or video page link…" style="flex:1;background:var(--white)">
+            <button type="button" onclick="tplVidAdd()" style="padding:0 16px;border-radius:10px;border:none;background:var(--text);color:#fff;font-size:12.5px;font-weight:800;cursor:pointer;font-family:var(--f)">Add</button>
+          </div>
+          <div style="font-size:11px;color:var(--sub);margin-top:4px">Emails can’t play videos — YouTube links become a clickable preview image; other links become a ▶ Watch button.</div>
+        </div>
+        <div id="tplMediaList" style="display:flex;flex-direction:column;gap:6px;margin-top:8px"></div>
+        <div id="tplMediaHint" style="display:none;font-size:11px;color:var(--sub);margin-top:4px">Now tell the AI where each one goes — e.g. “use image 1 as the top banner and put the video after the second section”.</div>
+      </div>
       <div class="fg"><label class="flbl">Template name</label>
         <input class="finp" id="tplName" placeholder="e.g. Invisalign welcome">
       </div>
@@ -4252,7 +4271,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-11 email-composer-5';
+var APP_VERSION = 'v2026-08-11 email-composer-6';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -16027,6 +16046,7 @@ function tplNew(){
   ['tplAiCmd','tplName','tplSubj','tplBody'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
   tplResetChatUi();
   var _tb=document.getElementById('tplTestBtn'); if(_tb) _tb.style.display=(window._isAdviuzStaff&&!isClientMode())?'block':'none';
+  window._tplMedia=[]; tplMediaPaint();
   tplSetFormat('plain');
   var _fr=document.getElementById('tplFormatRow'); if(_fr) _fr.style.display='';
   openSheet('tplEditSh');
@@ -16049,6 +16069,7 @@ function tplEdit(id){
   el=document.getElementById('tplBody'); if(el){ if(t.format==='html'){ el.value=t.body||''; } else if(_RT_RICH_RE.test(String(t.body||''))) el.innerHTML=t.body||''; else el.value=t.body||''; }
   tplResetChatUi();
   var _tb2=document.getElementById('tplTestBtn'); if(_tb2) _tb2.style.display=(window._isAdviuzStaff&&!isClientMode())?'block':'none';
+  window._tplMedia=[]; tplMediaPaint();
   tplSetFormat((t.format==='html')?'html':'plain');
   var _fr2=document.getElementById('tplFormatRow'); if(_fr2) _fr2.style.display='';
   openSheet('tplEditSh');
@@ -16087,7 +16108,7 @@ function tplAskAi(){
   }
   window._tplChat.push({role:'user',content:cmd});
   var biz=(window._clientData&&window._clientData.business_name)||(window._ceFrom&&window._ceFrom.from_name)||'the business';
-  sbFetch('/functions/v1/template-ai',{method:'POST',body:JSON.stringify({business_name:biz,format:(window._tplFormat==='html')?'html':'plain',history:window._tplChat})})
+  sbFetch('/functions/v1/template-ai',{method:'POST',body:JSON.stringify({business_name:biz,format:(window._tplFormat==='html')?'html':'plain',media:(window._tplFormat==='html')?(window._tplMedia||[]):[],history:window._tplChat})})
     .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
     .then(function(r){
       if(!r.ok||!r.d||r.d.error) throw new Error((r.d&&r.d.error)||'AI failed');
@@ -18439,8 +18460,70 @@ function tplSetFormat(f){
     : 'A fully designed email \u2014 describe it to the AI ("newsletter with 3 sections and a book-now button") and it builds the whole design. The body below holds the design\u2019s code.';
   var fb=document.getElementById('tplFmtBar');
   if(fb) fb.style.display=(isP && window._isAdviuzStaff && !isClientMode())?'flex':'none';
+  var mb=document.getElementById('tplMediaBox');
+  if(mb) mb.style.display=isP?'none':'block';
   var pv=document.getElementById('tplPvBox'); if(pv&&pv.style.display!=='none') tplPaintPreview();
 }
+// ── Newsletter media: uploaded images + video links, handed to the AI designer ──
+window._tplMedia = [];
+function tplVidToggle(){ var b=document.getElementById('tplVidBox'); if(b) b.style.display=(b.style.display==='none'?'block':'none'); }
+function tplMediaPaint(){
+  var box=document.getElementById('tplMediaList'); if(!box) return;
+  var list=window._tplMedia||[];
+  box.innerHTML=list.map(function(m,i){
+    var icon=m.kind==='video'?'\u25B6':'\uD83D\uDDBC';
+    var lbl=m.kind==='video'?('Video '+(i+1)):('Image '+(i+1));
+    return '<div style="display:flex;align-items:center;gap:8px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:7px 11px">'
+      +(m.kind==='image'?'<img src="'+m.url+'" style="width:34px;height:34px;object-fit:cover;border-radius:7px;flex-shrink:0" alt="">':'<span style="width:34px;height:34px;border-radius:7px;background:#001f3f;color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0">'+icon+'</span>')
+      +'<span style="flex:1;min-width:0;font-size:12.5px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+lbl+(m.name?' \u00b7 <span style="font-weight:500;color:var(--sub)">'+String(m.name).replace(/</g,'&lt;')+'</span>':'')+'</span>'
+      +'<span onclick="tplMediaRemove('+i+')" style="flex-shrink:0;font-size:14px;color:var(--red);cursor:pointer;padding:0 2px">\u2715</span>'
+      +'</div>';
+  }).join('');
+  var hint=document.getElementById('tplMediaHint'); if(hint) hint.style.display=list.length?'block':'none';
+}
+function tplMediaRemove(i){ window._tplMedia=(window._tplMedia||[]).filter(function(_m,idx){return idx!==i;}); tplMediaPaint(); }
+function tplImgPicked(input){
+  var files=Array.from((input&&input.files)||[]);
+  if(!files.length) return;
+  window._tplMedia=window._tplMedia||[];
+  var room=Math.max(0, 6-window._tplMedia.length);
+  if(files.length>room) showToast('Maximum 6 items per template');
+  var queue=files.slice(0,room);
+  var next=function(){
+    var f=queue.shift();
+    if(!f){ input.value=''; tplMediaPaint(); return; }
+    if(f.size>4*1024*1024){ showToast('"'+f.name+'" is over 4 MB \u2014 use a smaller image'); next(); return; }
+    var safe=String(f.name||'image').replace(/[^a-zA-Z0-9._-]+/g,'_').slice(0,60);
+    var path='tplimg_'+Date.now()+'_'+safe;
+    showToast('Uploading '+f.name+'\u2026');
+    fetch(SB_URL+'/storage/v1/object/email-attachments/'+path,{
+      method:'POST',
+      headers:{ 'Authorization':'Bearer '+authToken, 'apikey':SB_ANON, 'Content-Type':(f.type||'application/octet-stream') },
+      body:f
+    }).then(function(r){
+      if(!r.ok) throw 0;
+      window._tplMedia.push({ kind:'image', name:f.name, url:SB_URL+'/storage/v1/object/public/email-attachments/'+path });
+      next();
+    }).catch(function(){ showToast('Upload failed for "'+f.name+'" \u2014 try again'); next(); });
+  };
+  next();
+}
+function tplVidAdd(){
+  var el=document.getElementById('tplVidUrl');
+  var v=(el&&el.value||'').trim();
+  if(!v){ showToast('Paste the video link first'); return; }
+  if(!/^https?:\/\//i.test(v)) v='https://'+v;
+  window._tplMedia=window._tplMedia||[];
+  if(window._tplMedia.length>=6){ showToast('Maximum 6 items per template'); return; }
+  var m=v.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{6,20})/);
+  var thumb=m?('https://img.youtube.com/vi/'+m[1]+'/hqdefault.jpg'):null;
+  window._tplMedia.push({ kind:'video', name:(m?'YouTube':'Video link'), url:v, thumb:thumb });
+  if(el) el.value='';
+  var b=document.getElementById('tplVidBox'); if(b) b.style.display='none';
+  tplMediaPaint();
+  showToast(thumb?'\u25B6 Added \u2014 it becomes a clickable preview image':'\u25B6 Added \u2014 it becomes a \u25B6 Watch button');
+}
+
 // Full-design custom template chosen on the compose screen (like Proposal).
 window._useCustomHtmlTpl = null;
 
