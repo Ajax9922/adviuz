@@ -1907,6 +1907,15 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
 </div>
 
 <!-- ═══ CAMPAIGN SORT SHEET (client dashboard) ═══ -->
+<div class="sheet-ov" id="aiFuelSh" style="z-index:900" onclick="if(event.target===this)closeSheet('aiFuelSh')">
+  <div class="sheet" onclick="event.stopPropagation()">
+    <div class="sh-head">
+      <div class="sheet-title">🤖 AI fuel</div>
+      <button class="sh-x" onclick="closeSheet('aiFuelSh')">✕</button>
+    </div>
+    <div class="sh-body" id="aiFuelBody" style="padding-bottom:calc(28px + env(safe-area-inset-bottom))"></div>
+  </div>
+</div>
 <div class="sheet-ov" id="campSortSh" style="z-index:880" onclick="if(event.target===this)closeSheet('campSortSh')">
   <div class="sheet"><div class="sheet-handle"></div>
     <div class="sh-head">
@@ -4272,7 +4281,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-11 campaign-brand-1';
+var APP_VERSION = 'v2026-08-12 ai-fuel-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -16109,7 +16118,7 @@ function tplAskAi(){
   }
   window._tplChat.push({role:'user',content:cmd});
   var biz=(window._clientData&&window._clientData.business_name)||(window._ceFrom&&window._ceFrom.from_name)||'the business';
-  sbFetch('/functions/v1/template-ai',{method:'POST',body:JSON.stringify({business_name:biz,format:(window._tplFormat&&window._tplFormat!=='plain')?'html':'plain',media:(window._tplFormat&&window._tplFormat!=='plain')?(window._tplMedia||[]):[],history:window._tplChat})})
+  sbFetch('/functions/v1/template-ai',{method:'POST',body:JSON.stringify({business_name:biz,client_id:window._clientId||null,format:(window._tplFormat&&window._tplFormat!=='plain')?'html':'plain',media:(window._tplFormat&&window._tplFormat!=='plain')?(window._tplMedia||[]):[],history:window._tplChat})})
     .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
     .then(function(r){
       if(!r.ok||!r.d||r.d.error) throw new Error((r.d&&r.d.error)||'AI failed');
@@ -21259,6 +21268,7 @@ function _estLeadsText(){
   if (!mx || mn===mx) return (mn||mx).toLocaleString();
   return mn.toLocaleString()+'\u2013'+mx.toLocaleString();
 }
+function _fuelKick(){ if(window._fuelT) clearTimeout(window._fuelT); window._fuelT=setTimeout(function(){ (window._aiWallets?Promise.resolve(paintAiFuel()):loadAiFuel()); },300); }
 function _clientCampCard(cp) {
   var active     = (cp.status||'').toLowerCase() === 'active';
   var paused     = (cp.status||'').toLowerCase() === 'paused';
@@ -21301,6 +21311,8 @@ function _clientCampCard(cp) {
   if (!selMode) h += _campToggleSwitch(cp.id, active, exhausted);
   h += '</div>';
 
+  _fuelKick();
+  h += '<div id="fuel_'+cp.id+'" onclick="event.stopPropagation();openAiFuel(\''+cp.id+'\')" style="display:none;margin-bottom:10px"></div>';
   // ── Big "Total Exposure" tile (above the 3 stats per user spec) ──
   h += '<div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:10px">'
     +    '<div style="font-size:10px;font-weight:700;color:var(--sub);letter-spacing:.05em;text-transform:uppercase">Total Exposure</div>'
@@ -22837,6 +22849,66 @@ function crAddDayOf(){ var el=document.getElementById('crSchedList'); if(el) el.
 function crRemove(btn){ var r=btn.closest('.cr-row'); if(r) r.remove(); }
 
 // ── Post-meeting review (Stage 3D) ──
+// ── AI fuel (allowance wallets): meters + frozen state ──
+window._aiWallets = null;
+async function loadAiFuel(){
+  try{
+    var r = await sbFetch('/rest/v1/rpc/my_ai_wallets',{method:'POST',body:'{}'});
+    if(!r.ok) return;
+    window._aiWallets = await r.json();
+    paintAiFuel();
+  }catch(e){}
+}
+function _fuelNum(n){ n=Number(n)||0; return n<0?0:(n>=1000?(Math.round(n/100)/10)+'k':String(Math.round(n))); }
+function paintAiFuel(){
+  var ws = window._aiWallets||[];
+  ws.forEach(function(w){
+    if(w.kind!=='campaign'||!w.campaign_id) return;
+    var el = document.getElementById('fuel_'+w.campaign_id);
+    if(!el) return;
+    var frozen = !w.campaign_active;
+    var chips = '\uD83E\uDD16 '+_fuelNum(w.ai_minutes)+' min \u00b7 '+_fuelNum(w.sms)+' SMS \u00b7 '+_fuelNum(w.emails)+' emails \u00b7 '+_fuelNum(w.ai_credits)+' AI';
+    el.style.display='block';
+    el.innerHTML = '<div style="display:flex;align-items:center;gap:8px;background:'+(frozen?'#eff6ff':'#f5f3ff')+';border:1px solid '+(frozen?'#bfdbfe':'#ddd6fe')+';border-radius:11px;padding:9px 12px;cursor:pointer">'
+      + '<span style="font-size:12px;font-weight:800;color:'+(frozen?'#1d4ed8':'#6d28d9')+';flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
+      + (frozen?'\u2744\uFE0F AI fuel frozen \u2014 safe: ':'')+chips+'</span>'
+      + '<span style="font-size:11px;font-weight:700;color:var(--sub);flex-shrink:0">\u203A</span></div>';
+  });
+}
+function openAiFuel(cid){
+  var ws = window._aiWallets||[];
+  var body = document.getElementById('aiFuelBody');
+  if(!body) return;
+  var rows='';
+  ws.forEach(function(w){
+    var title = w.kind==='campaign' ? ((w.campaign_name||'Campaign')+' \u00b7 free bundle')
+              : w.kind==='package'  ? (w.label||'Your package')
+              : w.kind==='plan'     ? (w.label||'Monthly plan')
+              : '14-day trial';
+    var frozen = (w.kind==='campaign' && !w.campaign_active);
+    var exp = w.expires_at ? ('<div style="font-size:11px;color:var(--sub);margin-top:4px">Valid until '+new Date(w.expires_at).toLocaleDateString('en-CA',{year:'numeric',month:'short',day:'numeric'})+'</div>') : '';
+    var meter = function(lbl,val){
+      return '<div style="background:var(--bg);border-radius:9px;padding:8px 4px;text-align:center">'
+        +'<div style="font-size:14px;font-weight:800;color:'+(frozen?'#94a3b8':'var(--text)')+'">'+_fuelNum(val)+'</div>'
+        +'<div style="font-size:8.5px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.04em;margin-top:1px">'+lbl+'</div></div>';
+    };
+    rows += '<div style="background:var(--white);border:1px solid var(--border);border-radius:13px;padding:13px;margin-bottom:10px'+(frozen?';opacity:.85':'')+'">'
+      + '<div style="display:flex;align-items:center;gap:7px;margin-bottom:9px">'
+      + '<span style="font-size:13px;font-weight:800;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+title+'</span>'
+      + (frozen?'<span style="flex-shrink:0;font-size:10.5px;font-weight:800;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:20px;padding:3px 9px">\u2744\uFE0F Frozen</span>'
+               :'<span style="flex-shrink:0;font-size:10.5px;font-weight:800;color:var(--green);background:#ecfdf5;border:1px solid #a7f3d0;border-radius:20px;padding:3px 9px">Active</span>')
+      + '</div>'
+      + '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px">'
+      + meter('Min',w.ai_minutes)+meter('SMS',w.sms)+meter('Emails',w.emails)+meter('Calls',w.ivr_calls)+meter('AI',w.ai_credits)
+      + '</div>'+exp
+      + (frozen?'<div style="font-size:11.5px;color:var(--sub);margin-top:9px;line-height:1.5">Your leftover fuel is safe. Recharge this campaign to unfreeze it and get a fresh free bundle on top \u2014 or upgrade to an AI Sales Engine plan so your AI never pauses.</div>':'')
+      + '</div>';
+  });
+  if(!rows) rows='<div style="font-size:13px;color:var(--sub);padding:20px 4px;text-align:center">No AI fuel yet \u2014 your first campaign recharge comes with a free bundle of AI minutes, texts and emails.</div>';
+  body.innerHTML = rows
+    + '<div style="font-size:11px;color:var(--sub);line-height:1.6;padding:2px 2px 0">Every recharge includes a free Power Bundle: AI calling minutes, texts, emails, answered calls and AI credits. Fuel is spent automatically as your AI employee works, and each campaign\u2019s bundle belongs to that campaign.</div>';
+  openSheet('aiFuelSh');
+}
 var _mrLid = null, _mrOutcome = null;
 function openMeetingReview(lid){
   var l = leads.find(function(x){return x.id===lid;}); if(!l) return;
