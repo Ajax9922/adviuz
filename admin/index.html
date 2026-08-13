@@ -674,7 +674,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-07-28 ai-calling-2</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-08-12 agent-creator-1</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -5574,6 +5574,8 @@ function openEditCampaign(btn) {
     + '</div>'
     + '<div style="font-size:12px;font-weight:800;color:var(--text);margin:14px 0 4px">This campaign&apos;s AI agents</div>'
     + '<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Copy the agent IDs from the Retell dashboard. The inbound agent answers calls to <span id="ecam-retell-numlbl" style="font-weight:700">this campaign&apos;s number</span>; the outbound agent makes AI calls to leads.</div>'
+    + '<button type="button" id="aac-open-btn" onclick="_aacOpen()" style="width:100%;margin-bottom:6px;padding:12px;border:none;border-radius:8px;background:var(--brand);color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:var(--font)">&#9889; Create AI Agent automatically</button>'
+    + '<div style="font-size:10px;color:var(--muted);margin-bottom:12px">One tap builds the inbound + outbound agents from this client&apos;s Business Brain, connects the number, and turns everything on. Or fill the IDs below by hand.</div>'
     + '<div class="form-group"><label class="fld">Inbound agent ID (answers calls)</label><input class="fld" id="ecam-retell-in-agent" placeholder="agent_&hellip;"></div>'
     + '<div class="form-group"><label class="fld">Outbound agent ID (calls leads)</label><input class="fld" id="ecam-retell-out-agent" placeholder="agent_&hellip;"></div>'
     + '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);cursor:pointer;margin-bottom:12px"><input type="checkbox" id="ecam-retell-active" style="width:16px;height:16px;accent-color:var(--brand)"> This number is live on Retell</label>'
@@ -6570,6 +6572,76 @@ async function _ecamWireRouter(){
   if(btn){ btn.disabled=false; btn.innerHTML='\ud83d\udea6 Turn on Smart Call Routing for this number'; }
 }
 
+
+// ── ⚡ ONE-TAP AI AGENT CREATOR ──
+async function _aacOpen(){
+  openModal('aacModal');
+  var L=document.getElementById('aac-loading'), F=document.getElementById('aac-form'), D=document.getElementById('aac-done'), B=document.getElementById('aac-create-btn');
+  if(L){L.style.display='block';L.textContent='Checking this campaign\u2026';}
+  if(F)F.style.display='none'; if(D)D.style.display='none';
+  if(B){B.style.display='';B.disabled=true;B.innerHTML='\u26A1 Create agent now';}
+  try{
+    var r=await sbAdmin('/functions/v1/agent-creator',{ method:'POST', body:JSON.stringify({ action:'preview', campaign_id:window._editCampaignId }) });
+    var d=await r.json().catch(function(){ return {}; });
+    if(!r.ok||d.error){ if(L)L.textContent=(d&&d.error)||'Could not check this campaign.'; return; }
+    window._aacPreview=d;
+    var free=(d.candidates||[]).filter(function(c){ return !c.taken; });
+    var sm=document.getElementById('aac-summary');
+    if(sm){
+      var bits=[];
+      bits.push('<b>'+ (d.business||'') +'</b> \u2014 campaign \u201C'+ (d.campaign||'') +'\u201D');
+      bits.push(d.brain_ok ? ('\u2705 Business Brain: '+d.brain_count+' entries \u2014 the agent will know the services, hours, offers and locations.') : '\u26A0\uFE0F Business Brain is EMPTY \u2014 add entries first, the agent would have nothing to say.');
+      bits.push(free.length ? ('\u2705 Free number available \u2014 nothing to buy.') : '\u26A0\uFE0F No free number \u2014 every number on file already has agents.');
+      if(d.has_ai_profile) bits.push('\u2705 AI Profile notes found \u2014 they will be included.');
+      sm.innerHTML=bits.join('<br>');
+    }
+    var sel=document.getElementById('aac-phone');
+    if(sel){
+      sel.innerHTML='';
+      free.forEach(function(c){ var o=document.createElement('option'); o.value=c.phone; o.textContent=c.phone; sel.appendChild(o); });
+      (d.candidates||[]).filter(function(c){ return c.taken; }).forEach(function(c){ var o=document.createElement('option'); o.value=''; o.disabled=true; o.textContent=c.phone+' \u2014 already has agents'; sel.appendChild(o); });
+    }
+    var nm=document.getElementById('aac-name'); if(nm) nm.value=d.default_agent_name||'Sarah';
+    var fw=document.getElementById('aac-forward'); if(fw&&!fw.value) fw.value=d.forward_suggestion||'';
+    if(L)L.style.display='none'; if(F)F.style.display='block';
+    if(B)B.disabled=!(d.brain_ok&&free.length);
+  }catch(e){ if(L)L.textContent='Could not check this campaign.'; }
+}
+async function _aacCreate(){
+  var d=window._aacPreview||{};
+  var phone=(document.getElementById('aac-phone')||{}).value||'';
+  var name=((document.getElementById('aac-name')||{}).value||'Sarah').trim()||'Sarah';
+  var fwd=((document.getElementById('aac-forward')||{}).value||'').trim();
+  if(!phone){ toast('Pick a phone number'); return; }
+  if(!fwd){ toast('Enter the human transfer number'); return; }
+  if(!confirm('Create the AI agents for \u201C'+(d.campaign||'this campaign')+'\u201D on '+phone+'?\n\nBuilds both agents from the Business Brain, connects the number, registers it in Retell, and switches this client to AI-enabled. No new number is purchased. Takes about 30 seconds.')) return;
+  var B=document.getElementById('aac-create-btn');
+  if(B){ B.disabled=true; B.textContent='Creating\u2026 about 30 seconds'; }
+  try{
+    var r=await sbAdmin('/functions/v1/agent-creator',{ method:'POST', body:JSON.stringify({ action:'create', campaign_id:window._editCampaignId, phone:phone, forward_to:fwd, agent_name:name }) });
+    var res=await r.json().catch(function(){ return {}; });
+    if(!r.ok||!res.success){ toast('Could not create'+((res&&res.error)?': '+res.error:'')); if(B){ B.disabled=false; B.innerHTML='\u26A1 Create agent now'; } return; }
+    var F=document.getElementById('aac-form'), D=document.getElementById('aac-done');
+    if(F)F.style.display='none'; if(B)B.style.display='none';
+    var ok=function(t){ return '<div style="font-size:12px;color:var(--text);margin-bottom:6px">\u2705 '+t+'</div>'; };
+    var html='';
+    html+='<div style="font-size:14px;font-weight:800;color:var(--text);margin-bottom:10px">\u26A1 The AI agent is live on '+res.phone+'</div>';
+    html+=ok('Inbound answering agent created &amp; published');
+    html+=ok('Outbound calling agent created &amp; published');
+    html+=ok('Number connected to Smart Call Routing');
+    html+=ok('Number registered in Retell \u2014 outbound calls show this caller ID');
+    html+=ok('Client switched to AI-enabled');
+    if(res.warnings&&res.warnings.length){ html+='<div style="font-size:12px;color:#b45309;margin:8px 0">\u26A0\uFE0F Finished with warnings:<br>'+res.warnings.map(function(w){ return '&bull; '+w; }).join('<br>')+'</div>'; }
+    html+='<div style="background:var(--surface2,#f7f7f9);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-size:12px;color:var(--text);line-height:1.7;margin-top:10px"><b>Last step:</b> tick \u201CAI answers incoming calls\u201D at the top of this tab, press <b>Save AI calling settings</b>, then call '+res.phone+' to hear your new agent.</div>';
+    if(D){ D.innerHTML=html; D.style.display='block'; }
+    var ia=document.getElementById('ecam-retell-in-agent'); if(ia) ia.value=res.inbound_agent_id||'';
+    var oa=document.getElementById('ecam-retell-out-agent'); if(oa) oa.value=res.outbound_agent_id||'';
+    var ac=document.getElementById('ecam-retell-active'); if(ac) ac.checked=true;
+    window._editCamTwNumber=res.phone;
+    try{ _ecamLoadRetellStatus(); }catch(e){}
+    toast('\u26A1 AI agent created');
+  }catch(e){ toast('Could not create the agent'); if(B){ B.disabled=false; B.innerHTML='\u26A1 Create agent now'; } }
+}
 
 // ── VIEW CAMPAIGN LEADS ──
 function viewCampaignLeads(campaignId, campaignName) {
@@ -7691,6 +7763,32 @@ async function deleteCampaign(el) {
   if (el) el.href = URL.createObjectURL(blob);
 })();
 </script>
+<!-- AI AGENT CREATOR MODAL -->
+<div class="modal-overlay" id="aacModal" onclick="if(event.target===this)closeModal('aacModal')" style="z-index:300">
+  <div class="modal" style="max-width:560px;max-height:90vh;overflow-y:auto">
+    <div class="modal-head">
+      <div class="modal-title">&#9889; Create AI Agent</div>
+      <button class="modal-close" onclick="closeModal('aacModal')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div id="aac-body" style="padding:18px 18px calc(18px + env(safe-area-inset-bottom))">
+      <div id="aac-loading" style="font-size:13px;color:var(--muted)">Checking this campaign&hellip;</div>
+      <div id="aac-form" style="display:none">
+        <div id="aac-summary" style="background:var(--surface2,#f7f7f9);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-size:12px;color:var(--text);line-height:1.7;margin-bottom:14px"></div>
+        <div class="form-group"><label class="fld">Phone number to use (no purchase &mdash; reusing an existing number)</label><select class="fld" id="aac-phone"></select></div>
+        <div class="form-group"><label class="fld">Agent name (what the AI calls itself)</label><input class="fld" id="aac-name" value="Sarah"></div>
+        <div class="form-group"><label class="fld">Transfer calls to this human number</label><input class="fld" id="aac-forward" placeholder="+1&hellip;"><div style="font-size:10px;color:var(--muted);margin-top:4px">When a caller asks for a real person, the AI warm-transfers here with a spoken hand-off summary.</div></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Voice: <b>Sarah</b> &mdash; the same proven voice as Gul Orthodontics. Both an inbound answering agent and an outbound calling agent are created and published.</div>
+      </div>
+      <div id="aac-done" style="display:none"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('aacModal')">Close</button>
+      <button class="btn-save" id="aac-create-btn" onclick="_aacCreate()" disabled>&#9889; Create agent now</button>
+    </div>
+  </div>
+</div>
 <!-- BULK CREATE MODAL -->
 <div class="modal-overlay" id="bulkCreateModal" onclick="if(event.target===this)closeModal('bulkCreateModal')" style="z-index:200">
   <div class="modal" style="max-width:680px;max-height:90vh;overflow-y:auto">
