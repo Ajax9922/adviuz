@@ -674,7 +674,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-08-12 agent-creator-1</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-08-12 agent-creator-2</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -6593,6 +6593,7 @@ async function _aacOpen(){
       bits.push(d.brain_ok ? ('\u2705 Business Brain: '+d.brain_count+' entries \u2014 the agent will know the services, hours, offers and locations.') : '\u26A0\uFE0F Business Brain is EMPTY \u2014 add entries first, the agent would have nothing to say.');
       bits.push(free.length ? ('\u2705 Free number available \u2014 nothing to buy.') : '\u26A0\uFE0F No free number \u2014 every number on file already has agents.');
       if(d.has_ai_profile) bits.push('\u2705 AI Profile notes found \u2014 they will be included.');
+      bits.push(d.has_calendar?'\u2705 Calendar connected \u2014 the agent can book real appointments.':'\u2139\uFE0F No calendar linked \u2014 the agent will collect preferred city & time and promise a team callback (it never books).');
       sm.innerHTML=bits.join('<br>');
     }
     var sel=document.getElementById('aac-phone');
@@ -6602,6 +6603,7 @@ async function _aacOpen(){
       (d.candidates||[]).filter(function(c){ return c.taken; }).forEach(function(c){ var o=document.createElement('option'); o.value=''; o.disabled=true; o.textContent=c.phone+' \u2014 already has agents'; sel.appendChild(o); });
     }
     var nm=document.getElementById('aac-name'); if(nm) nm.value=d.default_agent_name||'Sarah';
+    var pn=document.getElementById('aac-public'); if(pn) pn.value=d.public_name||'';
     var fw=document.getElementById('aac-forward'); if(fw&&!fw.value) fw.value=d.forward_suggestion||'';
     if(L)L.style.display='none'; if(F)F.style.display='block';
     if(B)B.disabled=!(d.brain_ok&&free.length);
@@ -6618,7 +6620,7 @@ async function _aacCreate(){
   var B=document.getElementById('aac-create-btn');
   if(B){ B.disabled=true; B.textContent='Creating\u2026 about 30 seconds'; }
   try{
-    var r=await sbAdmin('/functions/v1/agent-creator',{ method:'POST', body:JSON.stringify({ action:'create', campaign_id:window._editCampaignId, phone:phone, forward_to:fwd, agent_name:name }) });
+    var r=await sbAdmin('/functions/v1/agent-creator',{ method:'POST', body:JSON.stringify({ action:'create', campaign_id:window._editCampaignId, phone:phone, forward_to:fwd, agent_name:name, public_name:((document.getElementById('aac-public')||{}).value||'').trim() }) });
     var res=await r.json().catch(function(){ return {}; });
     if(!r.ok||!res.success){ toast('Could not create'+((res&&res.error)?': '+res.error:'')); if(B){ B.disabled=false; B.innerHTML='\u26A1 Create agent now'; } return; }
     var F=document.getElementById('aac-form'), D=document.getElementById('aac-done');
@@ -7776,7 +7778,8 @@ async function deleteCampaign(el) {
       <div id="aac-loading" style="font-size:13px;color:var(--muted)">Checking this campaign&hellip;</div>
       <div id="aac-form" style="display:none">
         <div id="aac-summary" style="background:var(--surface2,#f7f7f9);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-size:12px;color:var(--text);line-height:1.7;margin-bottom:14px"></div>
-        <div class="form-group"><label class="fld">Phone number to use (no purchase &mdash; reusing an existing number)</label><select class="fld" id="aac-phone"></select></div>
+        <div class="form-group"><label class="fld">Business name the agent says out loud</label><input class="fld" id="aac-public"><div style="font-size:10px;color:var(--muted);margin-top:4px">This is the brand callers hear, e.g. &ldquo;Hair Loss Clinic&rdquo; &mdash; not the legal company name.</div></div>
+      <div class="form-group"><label class="fld">Phone number to use (no purchase &mdash; reusing an existing number)</label><select class="fld" id="aac-phone"></select></div>
         <div class="form-group"><label class="fld">Agent name (what the AI calls itself)</label><input class="fld" id="aac-name" value="Sarah"></div>
         <div class="form-group"><label class="fld">Transfer calls to this human number</label><input class="fld" id="aac-forward" placeholder="+1&hellip;"><div style="font-size:10px;color:var(--muted);margin-top:4px">When a caller asks for a real person, the AI warm-transfers here with a spoken hand-off summary.</div></div>
         <div style="font-size:11px;color:var(--muted);margin-top:2px">Voice: <b>Sarah</b> &mdash; the same proven voice as Gul Orthodontics. Both an inbound answering agent and an outbound calling agent are created and published.</div>
