@@ -4281,7 +4281,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-12 ai-fuel-4';
+var APP_VERSION = 'v2026-08-12 coach-notes-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -11322,12 +11322,16 @@ async function loadAiApprovals(){
     var r=await sbFetch('/rest/v1/ai_pending_actions?status=eq.pending&order=created_at.asc&select=id,action_type,payload,lead_id,campaign_id,client_id,created_at,expires_at&limit=25');
     var rows=r.ok?await r.json():[];
     window._apprItems=rows||[];
+    try{
+      var r2=await sbFetch('/rest/v1/ai_pending_actions?action_type=eq.script_improvement&status=in.(pending_client,pending_admin)&order=created_at.desc&select=id,status,payload,lead_id,campaign_id,client_id,created_at&limit=20');
+      window._coachApprItems=r2.ok?await r2.json():[];
+    }catch(e){ window._coachApprItems=[]; }
     renderAiApprovals(window._apprItems);
   }catch(e){ /* ignore */ }
 }
 function renderAiApprovals(rows){
   var panel=document.getElementById('aiApprovalsPanel'); if(!panel) return;
-  if(!rows || !rows.length){ panel.innerHTML=''; return; }
+  if(!rows || !rows.length){ panel.innerHTML=''; renderCoachApprovals(); return; }
   var h='<div style="background:#fff7e6;border:1px solid #f2d49b;border-radius:14px;padding:12px 14px;margin-bottom:12px">'
     +'<div style="font-size:12px;font-weight:800;color:#8a6116">\uD83D\uDD50 AI is waiting for your approval ('+rows.length+')</div>';
   h+=rows.map(function(a){
@@ -11343,6 +11347,21 @@ function renderAiApprovals(rows){
   }).join('');
   h+='</div>';
   panel.innerHTML=h;
+  renderCoachApprovals();
+}
+function renderCoachApprovals(){
+  var host=document.getElementById('aiApprovalsPanel'); if(!host) return;
+  var rows=window._coachApprItems||[]; if(!rows.length) return;
+  var h='<div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:14px;padding:12px 14px;margin-bottom:12px">'
+    +'<div style="font-size:12px;font-weight:800;color:#3730a3">\uD83C\uDF93 Script improvements ('+rows.length+')</div>';
+  rows.forEach(function(imp){
+    var p=imp.payload||{};
+    h+='<div style="margin-top:8px">'
+      +'<div style="font-size:11px;color:var(--sub)">'+_escTxt((p.business_name?p.business_name+' \u00b7 ':'')+(p.campaign_name||''))+'</div>'
+      +coachImpCardHTML(imp)+'</div>';
+  });
+  h+='</div>';
+  host.innerHTML = h + host.innerHTML;
 }
 function openAiAppr(id){
   var item=(window._apprItems||[]).find(function(a){ return String(a.id)===String(id); });
@@ -12235,6 +12254,12 @@ function openLead(id) {
 
 async function loadLeadActivity(localId, dbId) {
   try {
+    window._lastActLead = { localId: localId, dbId: dbId };
+    // \uD83C\uDF93 Manager notes: open script-improvement cards for this lead
+    try {
+      var _ci = await sbFetch('/rest/v1/ai_pending_actions?lead_id=eq.'+dbId+'&action_type=eq.script_improvement&select=id,status,payload,campaign_id,created_at&order=created_at.desc&limit=20');
+      window._coachImps = _ci.ok ? await _ci.json() : [];
+    } catch(e){ window._coachImps = []; }
     // Read from THREE tables:
     //   lead_activity — webhook events (calls, the lead's SMS replies)
     //   activity_log  — panel events (notes, stage changes)
@@ -12323,6 +12348,7 @@ async function loadLeadActivity(localId, dbId) {
         call_note:    row.call_note || null,
         is_ai:        !!(row.metadata && (row.metadata.handler === 'ai' || row.metadata.ai === true)),
         transcript:   (row.metadata && row.metadata.transcript) || '',
+        coach:        (row.metadata && row.metadata.coach) || null,
         email_subject: emailSubj,
         email_body:    emailBody,
         email_id:      (row.metadata && row.metadata.email_id) ? String(row.metadata.email_id) : '',
@@ -13252,6 +13278,97 @@ function lsToggleTranscript(){
   d.style.display = open ? 'none' : 'block';
   if(b) b.textContent = open ? 'View transcript ▾' : 'Hide transcript ▴';
 }
+// ─── 🎓 MANAGER NOTES (Call Coach) — under every graded call card ──────────
+// Same expand/collapse pattern as the transcript; NO inner scroll by design.
+function lsToggleCoach(id){
+  var el=document.getElementById('coach-'+id); if(!el) return;
+  var open = el.style.display==='none';
+  el.style.display = open ? 'block' : 'none';
+  var b=document.getElementById('coach-btn-'+id);
+  if(b) b.textContent = open ? '\uD83C\uDF93 Hide manager notes \u25B4' : '\uD83C\uDF93 Manager notes \u25BE';
+}
+function _coachChip(txt, bg, col){
+  return '<span style="display:inline-block;font-size:10px;font-weight:800;padding:3px 9px;border-radius:20px;background:'+bg+';color:'+col+'">'+txt+'</span>';
+}
+function coachImpCardHTML(imp){
+  var p=imp.payload||{};
+  var items=Array.isArray(p.items)?p.items:[];
+  var h='<div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;margin-top:8px">';
+  h+='<div style="font-size:11px;font-weight:800;color:var(--text);margin-bottom:6px">\uD83D\uDCA1 Suggested script improvement'+(items.length>1?'s':'')+'</div>';
+  items.forEach(function(it){
+    h+='<div style="margin-bottom:6px"><div style="font-size:12px;font-weight:700;color:var(--text)">'+_escTxt(it.title||'')+'</div>'
+      +'<div style="font-size:12px;color:var(--sub);line-height:1.55">'+_escTxt(it.suggestion||'')+'</div></div>';
+  });
+  var st=String(imp.status||'');
+  var admin = !isClientMode();
+  if(st==='pending_client'){
+    if(admin){
+      h+='<div style="margin-top:4px">'+_coachChip('Waiting for client approval','#fef3c7','#92400e')+'</div>';
+      h+='<div style="display:flex;gap:8px;margin-top:8px">'
+        +'<button onclick="coachDecide(\''+imp.id+'\',\'admin-approve\',this)" style="flex:1;padding:9px;border:none;border-radius:8px;background:var(--green);color:#fff;font-size:12px;font-weight:800;cursor:pointer">\u2705 Approve &amp; apply now</button>'
+        +'<button onclick="coachDecide(\''+imp.id+'\',\'admin-deny\',this)" style="flex:1;padding:9px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--sub);font-size:12px;font-weight:700;cursor:pointer">Deny</button></div>';
+    } else {
+      h+='<div style="display:flex;gap:8px;margin-top:8px">'
+        +'<button onclick="coachDecide(\''+imp.id+'\',\'client-approve\',this)" style="flex:1;padding:9px;border:none;border-radius:8px;background:var(--green);color:#fff;font-size:12px;font-weight:800;cursor:pointer">\u2705 Approve</button>'
+        +'<button onclick="coachDecide(\''+imp.id+'\',\'client-deny\',this)" style="flex:1;padding:9px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--sub);font-size:12px;font-weight:700;cursor:pointer">Deny</button></div>';
+      h+='<div style="font-size:10px;color:var(--sub);margin-top:6px">Approving sends this to Adviuz for a final check \u2014 nothing changes until they confirm.</div>';
+    }
+  } else if(st==='pending_admin'){
+    if(admin){
+      h+='<div style="margin-top:4px">'+_coachChip('Client approved \u2014 your final OK needed','#dbeafe','#1d4ed8')+'</div>';
+      h+='<div style="display:flex;gap:8px;margin-top:8px">'
+        +'<button onclick="coachDecide(\''+imp.id+'\',\'admin-approve\',this)" style="flex:1;padding:9px;border:none;border-radius:8px;background:var(--green);color:#fff;font-size:12px;font-weight:800;cursor:pointer">\u2705 Final approve &amp; apply</button>'
+        +'<button onclick="coachDecide(\''+imp.id+'\',\'admin-deny\',this)" style="flex:1;padding:9px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--sub);font-size:12px;font-weight:700;cursor:pointer">Deny</button></div>';
+    } else {
+      h+='<div style="margin-top:4px">'+_coachChip('\u2705 Approved \u2014 pending Adviuz final approval','#fef3c7','#92400e')+'</div>';
+    }
+  } else if(st==='applied'){
+    h+='<div style="margin-top:4px">'+_coachChip('\u2705 Approved &amp; live \u2014 the agent now uses this','#dcfce7','#166534')+'</div>';
+  } else if(st==='rejected'){
+    h+='<div style="margin-top:4px">'+_coachChip('Declined \u2014 no change was made','#f3f4f6','#6b7280')+'</div>';
+  }
+  h+='</div>';
+  return h;
+}
+function coachNotesHTML(item){
+  var c=item.coach;
+  var imps=(window._coachImps||[]).filter(function(x){ var p=x.payload||{}; return String(p.call_ref||'')===String(item.id); });
+  if(!c && !imps.length) return '';
+  var h='<button onclick="lsToggleCoach(\''+item.id+'\')" id="coach-btn-'+item.id+'" style="background:none;border:none;color:var(--blue);font-size:12px;font-weight:700;cursor:pointer;padding:8px 0 0;display:block">\uD83C\uDF93 Manager notes \u25BE</button>';
+  h+='<div id="coach-'+item.id+'" style="display:none;margin-top:8px">';
+  if(c){
+    h+='<div style="background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:10px 12px">';
+    h+='<div style="font-size:11px;font-weight:800;color:#92400e;margin-bottom:6px">\uD83C\uDF93 Call Coach \u00b7 Score '+(c.score!=null?c.score:'\u2014')+'/10</div>';
+    (c.wins||[]).forEach(function(w){ h+='<div style="font-size:12px;color:#166534;line-height:1.6">\u2705 '+_escTxt(w)+'</div>'; });
+    (c.issues||[]).forEach(function(i){
+      h+='<div style="font-size:12px;color:#b45309;line-height:1.6">\u26A0\uFE0F '+_escTxt(i.what||'')
+        +(i.evidence?'<span style="color:var(--sub)"> \u2014 \u201C'+_escTxt(String(i.evidence).slice(0,90))+'\u201D</span>':'')+'</div>';
+    });
+    h+='</div>';
+  }
+  imps.forEach(function(imp){ h+=coachImpCardHTML(imp); });
+  h+='</div>';
+  return h;
+}
+async function coachDecide(id, act, btn){
+  var msgs={ 'client-approve':'Approve this improvement? It goes to Adviuz for a final check before anything changes.',
+             'client-deny':'Deny this improvement? The script stays exactly as it is.',
+             'admin-approve':'Final approval: apply this change to the live AI agents now?',
+             'admin-deny':'Deny this improvement? The script stays exactly as it is.' };
+  if(!confirm(msgs[act]||'Are you sure?')) return;
+  if(btn){ btn.disabled=true; btn.textContent=(act==='admin-approve')?'Applying\u2026 ~20s':'\u2026'; }
+  try{
+    var r=await sbFetch('/functions/v1/coach-approve',{ method:'POST', body: JSON.stringify({ action:act, id:id }) });
+    var d=await r.json().catch(function(){return {};});
+    if(!r.ok||d.error){ showToast('Could not save: '+((d&&d.error)||('HTTP '+r.status))); if(btn){btn.disabled=false;} return; }
+    if(d.status==='applied') showToast('\u2705 Applied \u2014 the agent script is updated and live');
+    else if(d.status==='pending_admin') showToast('\u2705 Approved \u2014 sent to Adviuz for final approval');
+    else showToast('Saved');
+    if(window._lastActLead) loadLeadActivity(window._lastActLead.localId, window._lastActLead.dbId);
+    if(typeof loadAiApprovals==='function') loadAiApprovals();
+  }catch(e){ showToast('Could not save \u2014 try again'); if(btn){btn.disabled=false;} }
+}
+
 function lsToggleActTx(id){
   var d = document.getElementById('act-tx-'+id), b = document.getElementById('act-tx-btn-'+id);
   if(!d) return;
@@ -13836,6 +13953,8 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
         h += '<button onclick="lsToggleActTx(\''+item.id+'\')" id="act-tx-btn-'+item.id+'" style="background:none;border:none;color:var(--blue);font-size:12px;font-weight:700;cursor:pointer;padding:8px 0 0;display:block">View transcript ▾</button>';
         h += '<div id="act-tx-'+item.id+'" style="display:none;white-space:pre-wrap;font-size:12px;color:var(--sub);line-height:1.65;margin-top:8px;max-height:300px;overflow:auto;background:var(--bg);border-radius:8px;padding:12px">'+sanitize(item.transcript)+'</div>';
       }
+
+      h += coachNotesHTML(item);
 
       h += '</div>'; // end card
 
