@@ -674,7 +674,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-08-12 brain-crm-2</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-08-12 brain-crm-3</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -5598,6 +5598,7 @@ function openEditCampaign(btn) {
     +     '<input class="fld" id="eb-new-title" placeholder="Title (e.g. Opening hours)" style="margin-bottom:6px">'
     +     '<select class="fld" id="eb-new-cat" style="margin-bottom:6px"><option value="general">General</option><option value="services">Services</option><option value="offer">Offer</option></select>'
     +     '<textarea class="fld" id="eb-new-content" rows="3" placeholder="The fact itself, in plain words"></textarea>'
+    +     '<select class="fld" id="eb-new-scope" style="margin-top:6px"><option value="camp">Only this campaign&apos;s agent knows this</option><option value="all">Every campaign&apos;s agent knows this (shared)</option></select>'
     +     '<button type="button" onclick="_ebAdd(this)" style="width:100%;margin-top:8px;padding:10px;border:none;border-radius:8px;background:var(--brand);color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--font)">&#10133; Add to Brain</button>'
     +   '</div>'
     + '</div>'
@@ -6229,7 +6230,7 @@ async function _ebLoad(){
   var host=document.getElementById('ecam-brain-list'); if(!host) return;
   host.innerHTML='<div style="font-size:11px;color:var(--muted)">Loading\u2026</div>';
   try{
-    var r=await sbAdmin('/rest/v1/client_brain_entries?client_id=eq.'+window._editCamClientId+'&select=id,title,content,category,status,source&order=created_at.asc');
+    var r=await sbAdmin('/rest/v1/client_brain_entries?client_id=eq.'+window._editCamClientId+'&or=(campaign_id.is.null,campaign_id.eq.'+window._editCampaignId+')&select=id,title,content,category,status,source,campaign_id&order=created_at.asc');
     var rows=r.ok?await r.json():[];
     window._ebRows=rows||[];
     if(!rows.length){ host.innerHTML='<div style="font-size:11px;color:var(--muted)">No entries yet \u2014 an AI agent for this client would have nothing to say. Add the first fact below.</div>'; return; }
@@ -6242,10 +6243,12 @@ function _ebRowHTML(e){
     ? '<span style="font-size:9px;font-weight:800;padding:2px 7px;border-radius:12px;background:#dcfce7;color:#166534">APPROVED</span>'
     : '<span style="font-size:9px;font-weight:800;padding:2px 7px;border-radius:12px;background:#fef3c7;color:#92400e">PROPOSED \u2014 the AI ignores this until approved</span>';
   var h='<div style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px">';
-  h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'+chip+'<span style="font-size:9px;color:var(--muted)">'+_ebEsc(e.source||'manual')+'</span></div>';
+  var scopeChip = e.campaign_id ? '<span style="font-size:9px;font-weight:800;padding:2px 7px;border-radius:12px;background:#e0e7ff;color:#3730a3">THIS CAMPAIGN</span>' : '<span style="font-size:9px;font-weight:800;padding:2px 7px;border-radius:12px;background:#f3f4f6;color:#4b5563">ALL CAMPAIGNS</span>';
+  h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">'+chip+scopeChip+'<span style="font-size:9px;color:var(--muted)">'+_ebEsc(e.source||'manual')+'</span></div>';
   h+='<input class="fld" id="eb-t-'+e.id+'" value="'+_ebEsc(e.title)+'" style="margin-bottom:6px">';
   h+='<select class="fld" id="eb-c-'+e.id+'" style="margin-bottom:6px">'+['general','services','offer'].map(function(c){ return '<option value="'+c+'"'+(e.category===c?' selected':'')+'>'+c.charAt(0).toUpperCase()+c.slice(1)+'</option>'; }).join('')+'</select>';
   h+='<textarea class="fld" id="eb-b-'+e.id+'" rows="3">'+_ebEsc(e.content)+'</textarea>';
+  h+='<select class="fld" id="eb-s-'+e.id+'" style="margin-top:6px"><option value="camp"'+(e.campaign_id?' selected':'')+'>Only this campaign&apos;s agent knows this</option><option value="all"'+(e.campaign_id?'':' selected')+'>Every campaign&apos;s agent knows this (shared)</option></select>';
   h+='<div style="display:flex;gap:8px;margin-top:8px">';
   if(e.status!=='approved') h+='<button type="button" onclick="_ebApprove(\''+e.id+'\',this)" style="flex:1;padding:8px;border:none;border-radius:8px;background:#059669;color:#fff;font-size:11px;font-weight:800;cursor:pointer">&#9989; Approve</button>';
   h+='<button type="button" onclick="_ebSave(\''+e.id+'\',this)" style="flex:1;padding:8px;border:none;border-radius:8px;background:var(--brand);color:#fff;font-size:11px;font-weight:700;cursor:pointer">&#128190; Save</button>';
@@ -6260,7 +6263,7 @@ async function _ebAdd(btn){
   if(!t||!b){ toast('Give the fact a title and content'); return; }
   if(btn) btn.disabled=true;
   try{
-    var r=await sbAdmin('/rest/v1/client_brain_entries',{ method:'POST', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ client_id:window._editCamClientId, title:t, content:b, category:c, status:'approved', source:'manual' }) });
+    var r=await sbAdmin('/rest/v1/client_brain_entries',{ method:'POST', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ client_id:window._editCamClientId, campaign_id:(((document.getElementById('eb-new-scope')||{}).value||'camp')==='all'?null:window._editCampaignId), title:t, content:b, category:c, status:'approved', source:'manual' }) });
     if(!r.ok){ toast('Could not add'); if(btn) btn.disabled=false; return; }
     var ti=document.getElementById('eb-new-title'); if(ti) ti.value='';
     var co=document.getElementById('eb-new-content'); if(co) co.value='';
@@ -6275,7 +6278,8 @@ async function _ebSave(id,btn){
   if(!t||!b){ toast('Title and content cannot be empty'); return; }
   if(btn){ btn.disabled=true; btn.textContent='\u2026'; }
   try{
-    var r=await sbAdmin('/rest/v1/client_brain_entries?id=eq.'+encodeURIComponent(id),{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ title:t, content:b, category:c }) });
+    var sc=(document.getElementById('eb-s-'+id)||{}).value||'camp';
+    var r=await sbAdmin('/rest/v1/client_brain_entries?id=eq.'+encodeURIComponent(id),{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ title:t, content:b, category:c, campaign_id:(sc==='all'?null:window._editCampaignId) }) });
     toast(r.ok?'Saved':'Could not save');
   }catch(e){ toast('Could not save'); }
   if(btn){ btn.disabled=false; btn.innerHTML='&#128190; Save'; }
