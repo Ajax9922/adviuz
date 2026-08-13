@@ -4276,7 +4276,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-12 sched-followups-1';
+var APP_VERSION = 'v2026-08-13 login-fix-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -4565,8 +4565,17 @@ async function sendPartnerOTP() {
       headers: { 'Content-Type':'application/json', 'apikey': SB_ANON },
       body: JSON.stringify({ email: email, create_user: false })
     });
-    var data = await res.json();
-    if (!res.ok) throw new Error(data.msg || data.message || "This email isn't registered. Please contact your manager.");
+    // The auth server sometimes replies with a plain-text page (e.g. when the
+    // rate limiter blocks a request). Parsing that as JSON is what produced
+    // the cryptic "did not match the expected pattern" error — read the body
+    // safely and translate the status into plain words instead.
+    var _raw = await res.text();
+    var data = {};
+    try { data = _raw ? JSON.parse(_raw) : {}; } catch(_e) { data = {}; }
+    if (!res.ok) {
+      if (res.status === 429) throw new Error('Too many code requests right now. Please wait 5\u201310 minutes and try again.');
+      throw new Error(data.msg || data.message || data.error_description || ("Could not send the code (error " + res.status + "). Please try again in a few minutes."));
+    }
 
     // Show step 2
     document.getElementById('otpStep1').style.display = 'none';
@@ -4754,7 +4763,10 @@ async function verifyPartnerOTP() {
       headers: { 'Content-Type':'application/json', 'apikey': SB_ANON },
       body: JSON.stringify({ email: email, token: code, type: 'email' })
     });
-    var data = await res.json();
+    var _raw = await res.text();
+    var data = {};
+    try { data = _raw ? JSON.parse(_raw) : {}; } catch(_e) { data = {}; }
+    if (res.status === 429) throw new Error('Too many attempts right now. Please wait a few minutes and try again.');
     if (!res.ok || data.error) throw new Error(data.error_description || data.msg || 'Invalid or expired code');
 
     authToken   = data.access_token;
