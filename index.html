@@ -4276,7 +4276,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-12 email-setup-1';
+var APP_VERSION = 'v2026-08-12 sched-followups-1';
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -12288,6 +12288,28 @@ async function loadLeadActivity(localId, dbId) {
       var _ci = await sbFetch('/rest/v1/ai_pending_actions?lead_id=eq.'+dbId+'&action_type=eq.script_improvement&select=id,status,payload,campaign_id,created_at&order=created_at.desc&limit=20');
       window._coachImps = _ci.ok ? await _ci.json() : [];
     } catch(e){ window._coachImps = []; }
+    // \uD83D\uDCC5 Remaining automated follow-ups for this lead -> Scheduled section
+    try{
+      window._pbSched = [];
+      var _en = await sbFetch('/rest/v1/playbook_enrollments?lead_id=eq.'+dbId+'&status=eq.active&select=id,campaign_id,stage_key,next_step_no,entered_at,skipped_steps&limit=1');
+      var _enr = _en.ok ? await _en.json() : [];
+      var en = _enr[0] || null;
+      if (en){
+        var _st = await sbFetch('/rest/v1/playbook_steps?campaign_id=eq.'+en.campaign_id+'&stage_key=eq.'+encodeURIComponent(en.stage_key)+'&active=eq.true&select=step_no,delay_hours,channel,subject,body&order=delay_hours.asc,step_no.asc');
+        var _steps = _st.ok ? await _st.json() : [];
+        var _i0 = _steps.findIndex(function(s){ return Number(s.step_no)===Number(en.next_step_no); });
+        if (_i0 >= 0){
+          var _skips = Array.isArray(en.skipped_steps) ? en.skipped_steps.map(Number) : [];
+          window._pbSched = _steps.slice(_i0).map(function(s){
+            return { enr: en.id, step_no: Number(s.step_no), channel: s.channel,
+                     subject: s.subject||'', body: s.body||'',
+                     due: new Date(en.entered_at).getTime() + Number(s.delay_hours)*3600000,
+                     day: Math.round(Number(s.delay_hours)/24),
+                     skipped: _skips.indexOf(Number(s.step_no)) > -1 };
+          });
+        }
+      }
+    } catch(e){ window._pbSched = []; }
     // Read from THREE tables:
     //   lead_activity — webhook events (calls, the lead's SMS replies)
     //   activity_log  — panel events (notes, stage changes)
@@ -13378,6 +13400,23 @@ function coachNotesHTML(item){
   h+='</div>';
   return h;
 }
+async function pbSkipOne(enrId, stepNo, btn){
+  if(btn && btn.dataset.armed!=='1'){
+    btn.dataset.armed='1'; btn.textContent='Tap again to cancel this message';
+    setTimeout(function(){ if(btn){ btn.dataset.armed='0'; btn.textContent='\uD83D\uDEAB Cancel this one'; } }, 3500);
+    return;
+  }
+  try{
+    var r=await sbFetch('/rest/v1/playbook_enrollments?id=eq.'+encodeURIComponent(enrId)+'&select=skipped_steps');
+    var rows=r.ok?await r.json():[];
+    var cur=(rows[0]&&Array.isArray(rows[0].skipped_steps))?rows[0].skipped_steps:[];
+    if(cur.indexOf(stepNo)===-1) cur.push(stepNo);
+    var p=await sbFetch('/rest/v1/playbook_enrollments?id=eq.'+encodeURIComponent(enrId),{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ skipped_steps: cur }) });
+    if(!p.ok){ showToast('Could not cancel \u2014 try again'); return; }
+    showToast('\u2705 Cancelled \u2014 that message will be skipped');
+    if(window._lastActLead) loadLeadActivity(window._lastActLead.localId, window._lastActLead.dbId);
+  }catch(e){ showToast('Could not cancel \u2014 try again'); }
+}
 async function coachDecide(id, act, btn){
   var msgs={ 'client-approve':'Approve this improvement? It goes to Adviuz for a final check before anything changes.',
              'client-deny':'Deny this improvement? The script stays exactly as it is.',
@@ -13839,6 +13878,16 @@ function renderLeadScreen(id) {
         time:isNaN(d)?'':d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}),
         body:s.subject||'' });
     });
+    ((window._pbSched)||[]).forEach(function(p){
+      if(p.skipped) return;
+      var d=new Date(p.due);
+      var icon=p.channel==='email'?'\uD83D\uDCE7':p.channel==='sms'?'\uD83D\uDCAC':p.channel==='call'?'\uD83D\uDCDE':'\uD83D\uDC64';
+      var kind=p.channel==='email'?'Email':p.channel==='sms'?'Text':p.channel==='call'?'AI call':'Task';
+      _schedItems.push({ type:'sched_pb', _when:p.due, _pbEnr:p.enr, _pbStep:p.step_no,
+        label: icon+' Automated follow-up \u00b7 '+kind+(p.day?' \u00b7 Day '+p.day:''),
+        time: isNaN(d)?'':d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}),
+        body: (p.channel==='email'&&p.subject?(p.subject+'\n'):'')+String(p.body||'').slice(0,180) });
+    });
     _schedItems.sort(function(x,y){ return x._when-y._when; });
   }catch(e){}
   var filteredActs = (actFilter==='payment') ? _pmtItems : (actFilter==='sched') ? _schedItems : acts.filter(filterGroups[actFilter]||filterGroups.all);
@@ -13996,13 +14045,16 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
 
       h += '</div>'; // end card
 
-    } else if (item.type === 'sched_sms' || item.type === 'sched_email') {
+    } else if (item.type === 'sched_sms' || item.type === 'sched_email' || item.type === 'sched_pb') {
       // ── UPCOMING SCHEDULED ITEM — amber card, email ones can be cancelled ──
       h += '<div class="ld-act-dot">🕐</div>';
       h += '<div class="ld-act-body" style="width:100%">';
       h += '<span class="ld-act-label">'+item.label+'</span><span class="ld-act-time">'+item.time+'</span>';
       if(item.body){
         h += '<div style="margin-top:6px;padding:9px 12px;background:#fffbeb;border-left:3px solid #f59e0b;border-radius:0 8px 8px 0;font-size:13px;color:var(--text);line-height:1.5;white-space:pre-wrap">'+sanitize(item.body)+'</div>';
+      }
+      if(item.type==='sched_pb'){
+        h += '<button onclick="pbSkipOne(\''+item._pbEnr+'\','+item._pbStep+',this)" style="margin-top:8px;padding:8px 12px;border:1px solid #fca5a5;border-radius:8px;background:#fff;color:#dc2626;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">\uD83D\uDEAB Cancel this one</button>';
       }
       if(item.type==='sched_email' && item._schedId){
         h += '<button onclick="ceCancelSchedAnywhere(\''+item._schedId+'\','+l.id+')" style="margin-top:6px;padding:5px 12px;border-radius:20px;border:1.5px solid #fecaca;background:#fff;color:var(--red);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">Cancel</button>';
