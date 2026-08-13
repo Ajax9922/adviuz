@@ -674,7 +674,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-08-12 brain-crm-1</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-08-12 brain-crm-2</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -5587,6 +5587,11 @@ function openEditCampaign(btn) {
     + '</div>'
     + '<div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">'
     +   '<div style="font-size:12px;font-weight:800;color:var(--text)">&#129504; Business Brain <span style="font-weight:400;color:var(--muted)">(everything the AI knows about this client &mdash; shared across all their campaigns; only APPROVED facts reach the agents)</span></div>'
+    +   '<div style="display:flex;gap:8px;margin-top:10px">'
+    +     '<button type="button" onclick="_ebRebuild(this)" style="flex:1;padding:10px;border:none;border-radius:8px;background:var(--brand);color:#fff;font-size:11px;font-weight:800;cursor:pointer;font-family:var(--font)">&#10024; Rebuild Brain from landing page</button>'
+    +     '<button type="button" onclick="_ebSync(this)" style="flex:1;padding:10px;border:none;border-radius:8px;background:#059669;color:#fff;font-size:11px;font-weight:800;cursor:pointer;font-family:var(--font)">&#128260; Push Brain to AI agents</button>'
+    +   '</div>'
+    +   '<div style="font-size:10px;color:var(--muted);margin-top:6px">Rebuild reads this campaign&apos;s landing page (plus the client&apos;s website if you give one) and drafts new facts as PROPOSED &mdash; nothing reaches the AI until you approve. Push updates the live inbound + outbound agents with the current APPROVED facts.</div>'
     +   '<div id="ecam-brain-list" style="margin-top:10px"><div style="font-size:11px;color:var(--muted)">Loading&hellip;</div></div>'
     +   '<div style="margin-top:12px;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px">'
     +     '<div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:6px">Add a fact</div>'
@@ -6290,6 +6295,32 @@ async function _ebDel(id,btn){
     toast(r.ok?'Deleted':'Could not delete');
   }catch(e){ toast('Could not delete'); }
   _ebLoad();
+}
+
+async function _ebRebuild(btn){
+  var url = prompt('Client website to ALSO read (optional \u2014 leave blank to use only the landing page):', '');
+  if (url === null) return;
+  if (!confirm('Draft a fresh Business Brain from this campaign\u2019s landing page' + (url.trim() ? ' + ' + url.trim() : '') + '?\n\nNew facts arrive as PROPOSED \u2014 nothing changes for the AI until you approve them.')) return;
+  if (btn){ btn.disabled = true; btn.textContent = 'Reading & drafting\u2026 ~30s'; }
+  try{
+    var r = await sbAdmin('/functions/v1/brain-builder', { method:'POST', body: JSON.stringify({ campaign_id: window._editCampaignId, website_url: url.trim() }) });
+    var d = await r.json().catch(function(){ return {}; });
+    if (!r.ok || d.error){ toast('Could not draft: ' + ((d && d.error) || ('HTTP ' + r.status))); }
+    else { toast('\u2728 ' + (d.drafted||0) + ' facts drafted as PROPOSED \u2014 review and approve below'); _ebLoad(); }
+  }catch(e){ toast('Could not draft \u2014 try again'); }
+  if (btn){ btn.disabled = false; btn.innerHTML = '&#10024; Rebuild Brain from landing page'; }
+}
+async function _ebSync(btn){
+  if (!confirm('Update the live inbound + outbound AI agents with the current APPROVED Brain facts?\n\nProposed and deleted facts disappear from the agents. Takes about 15 seconds.')) return;
+  if (btn){ btn.disabled = true; btn.textContent = 'Updating agents\u2026'; }
+  try{
+    var r = await sbAdmin('/functions/v1/agent-creator', { method:'POST', body: JSON.stringify({ action:'sync', campaign_id: window._editCampaignId }) });
+    var d = await r.json().catch(function(){ return {}; });
+    if (!r.ok || d.error){ toast('Could not update: ' + ((d && d.error) || ('HTTP ' + r.status))); }
+    else if (d.success){ toast('\u2705 Both agents updated & republished with ' + (d.brain_count||0) + ' approved facts'); }
+    else { toast('Updated with warnings: ' + ((d.warnings||[]).join(', ') || 'check Retell')); }
+  }catch(e){ toast('Could not update \u2014 try again'); }
+  if (btn){ btn.disabled = false; btn.innerHTML = '&#128260; Push Brain to AI agents'; }
 }
 
 function closeCampaignEditor(){
