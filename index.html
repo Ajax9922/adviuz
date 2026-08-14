@@ -4229,6 +4229,23 @@ Reply to this email or give us a call any time.
 </div>
 
 
+<div class="act-sheet-ov" id="aiCallShOv" onclick="if(event.target===this)closeAiCallSheet()">
+  <div class="act-sheet">
+    <div class="act-sheet-handle"></div>
+    <div style="text-align:center;padding:6px 0 2px">
+      <div style="width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,#ede9fe,#dbeafe);display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 10px">&#x1F916;</div>
+      <div style="font-size:11px;font-weight:800;color:var(--sub);letter-spacing:.08em;text-transform:uppercase">Start an AI call</div>
+      <div id="aiCsName" style="font-size:22px;font-weight:800;color:var(--text);margin-top:4px"></div>
+      <div id="aiCsPhone" style="font-size:14px;color:var(--sub);margin-top:2px"></div>
+    </div>
+    <div id="aiCsGate" style="margin:14px 0 0"></div>
+    <div style="display:flex;gap:10px;margin-top:16px;padding-bottom:calc(10px + env(safe-area-inset-bottom))">
+      <button onclick="closeAiCallSheet()" style="flex:1;padding:15px;border:1px solid var(--border);border-radius:14px;background:var(--white);color:var(--text);font-size:15px;font-weight:700;cursor:pointer;font-family:var(--f)">Cancel</button>
+      <button id="aiCsGo" onclick="aiCsConfirm()" style="flex:1.4;padding:15px;border:none;border-radius:14px;background:var(--green);color:#fff;font-size:15px;font-weight:800;cursor:pointer;font-family:var(--f)">&#x1F916; Call now</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ CAMPAIGNS SCREEN ═══ -->
 <div class="camp-screen" id="campScreen">
   <div class="camp-topbar">
@@ -4276,7 +4293,23 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-14 ai-call-confirm-2';
+var APP_VERSION = 'v2026-08-14 ai-call-sheet-1';
+// Deep link: a push notification can land the owner straight on a campaign's
+// AI Employee settings page (used by "notify owner to turn on AI calling").
+(function(){
+  try{
+    var p = new URLSearchParams(location.search);
+    if (p.get('open') !== 'camp_ai') return;
+    var cid = p.get('cid') || '';
+    var tries = 0;
+    var t = setInterval(function(){
+      tries++;
+      var ready = Array.isArray(window._clientCampaigns) && window._clientCampaigns.length && typeof apGoToAiSettings === 'function';
+      if (ready){ clearInterval(t); try{ apGoToAiSettings(cid); }catch(e){} }
+      if (tries > 60) clearInterval(t);
+    }, 500);
+  }catch(e){}
+})();
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
@@ -15534,6 +15567,56 @@ async function startAiCall(leadId, phone, agent, firstName){
     }
   } catch(e){ showToast('Error starting AI call'); }
 }
+window._aiCsLead = null;
+function closeAiCallSheet(){ var o=document.getElementById('aiCallShOv'); if(o) o.classList.remove('open'); }
+function openAiCallSheet(l){
+  window._aiCsLead = l;
+  var nEl=document.getElementById('aiCsName');  if(nEl) nEl.textContent = l.name || 'This lead';
+  var pEl=document.getElementById('aiCsPhone'); if(pEl) pEl.textContent = l.ph || '';
+  var camp = (typeof ibCampaignFor==='function') ? ibCampaignFor(l) : null;
+  var ai = (camp && camp.settings && camp.settings.ai) || null;
+  var on = !!(ai && ai.outbound_on === true);
+  var gate=document.getElementById('aiCsGate'); var go=document.getElementById('aiCsGo');
+  if(on){
+    if(gate) gate.innerHTML = '<div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:10px 12px;font-size:12.5px;color:#065f46;line-height:1.5">\u2705 AI calling is on for this campaign. The AI calls from the campaign number and the live call appears on this lead right away.</div>';
+    if(go){ go.disabled=false; go.style.opacity='1'; }
+  } else {
+    var canOpen = (window._isAdviuzStaff===true || window._isAccountOwner===true);
+    var inner = '<div style="background:#fff7e6;border:1px solid #f2d49b;border-radius:10px;padding:10px 12px;font-size:12.5px;color:#8a6116;line-height:1.5">\u26A0\uFE0F <b>AI outbound calling is OFF for this campaign.</b> The AI cannot place this call until it is switched on.</div>';
+    if(canOpen){
+      inner += '<button onclick="closeAiCallSheet();apGoToAiSettings(\''+String((camp&&camp.id)||'')+'\')" style="width:100%;margin-top:10px;padding:13px;border:none;border-radius:12px;background:var(--blue,#2563eb);color:#fff;font-size:13.5px;font-weight:800;cursor:pointer;font-family:var(--f)">\u2699\uFE0F Open AI settings to turn it on</button>';
+    } else {
+      inner += '<button id="aiCsNotifyBtn" onclick="aiCsNotifyOwner(\''+String((camp&&camp.id)||'')+'\')" style="width:100%;margin-top:10px;padding:13px;border:none;border-radius:12px;background:#d97706;color:#fff;font-size:13.5px;font-weight:800;cursor:pointer;font-family:var(--f)">\uD83D\uDD14 Notify the owner to turn it on</button>';
+    }
+    if(gate) gate.innerHTML = inner;
+    if(go){ go.disabled=true; go.style.opacity='.4'; }
+  }
+  var o=document.getElementById('aiCallShOv'); if(o) o.classList.add('open');
+}
+function aiCsConfirm(){
+  var go=document.getElementById('aiCsGo'); if(go && go.disabled) return;
+  var l=window._aiCsLead; if(!l) return;
+  closeAiCallSheet();
+  var nm=String(l.name||'').trim();
+  startAiCall(l.id, l.ph, 'sarah', nm ? nm.split(' ')[0] : 'there');
+}
+async function aiCsNotifyOwner(campId){
+  var btn=document.getElementById('aiCsNotifyBtn');
+  if(btn){ btn.disabled=true; btn.textContent='Sending\u2026'; }
+  var cp=(window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(campId); });
+  var cName=(cp && cp.name) ? cp.name : 'your campaign';
+  try{
+    var r=await sbFetch('/functions/v1/send-push', { method:'POST', body: JSON.stringify({
+      client_id: window._clientId || null,
+      title: '\uD83E\uDD16 Turn on AI calling',
+      body: 'Your team tried to start an AI call on "'+cName+'" but AI outbound calling is off. Tap to open the switch.',
+      url: '/?open=camp_ai&cid='+encodeURIComponent(campId),
+      tag: 'ai-outbound-'+campId
+    }) });
+    if(r && r.ok){ showToast('\uD83D\uDD14 Owner notified \u2014 their notification opens the switch directly'); if(btn){ btn.textContent='\u2705 Owner notified'; } }
+    else { showToast('Could not send the notification \u2014 try again'); if(btn){ btn.disabled=false; btn.textContent='\uD83D\uDD14 Notify the owner to turn it on'; } }
+  }catch(e){ showToast('Could not send the notification \u2014 try again'); if(btn){ btn.disabled=false; btn.textContent='\uD83D\uDD14 Notify the owner to turn it on'; } }
+}
 function lsDoAiCall(){
   var l=lsGetLead();if(!l)return;
   if(isPartnerMode()){showToast('🔒 AI Calls are only available for Authorized Sellers — contact your admin to unlock');return;}
@@ -15542,9 +15625,7 @@ function lsDoAiCall(){
     {field:'name',     label:'Contact Name',    placeholder:'e.g. John Smith'},
     {field:'location', label:'City / Province', placeholder:'e.g. Toronto, ON'}
   ], 'AI Call', function(){
-    var nm=String(l.name||'').trim();
-    if(!confirm('\uD83E\uDD16 The AI will call '+(nm||'this lead')+' at '+(l.ph||'their number')+' right now.\n\nStart the AI call?')) return;
-    startAiCall(l.id,l.ph,'sarah', nm ? nm.split(' ')[0] : 'there');
+    openAiCallSheet(l);
   });
 }
 function lsDoEmail(){
