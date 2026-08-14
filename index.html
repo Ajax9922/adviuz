@@ -4303,7 +4303,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-14 reports-redesign-1';
+var APP_VERSION = 'v2026-08-14 reports-redesign-2';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -8931,7 +8931,7 @@ function bulkChannelReportHTML(ch){
 // Period boundaries use LOCAL midnights (locDayKey principle) so "Today" means
 // the user's today, not UTC's.
 function commPeriodRange(){
-  var p=window._commPeriod||'7d';
+  var p=window._commPeriod||'all';
   var now=new Date();
   var d0=new Date(now.getFullYear(),now.getMonth(),now.getDate());
   var from,to=null;
@@ -8940,6 +8940,7 @@ function commPeriodRange(){
   else if(p==='14d'){ from=new Date(d0.getTime()-13*86400000); }
   else if(p==='30d'){ from=new Date(d0.getTime()-29*86400000); }
   else if(p==='90d'){ from=new Date(d0.getTime()-89*86400000); }
+  else if(p==='all'){ from=null; to=null; }
   else if(p==='custom'){
     var cf=window._commCustomFrom, ct=window._commCustomTo;
     from = cf ? new Date(cf+'T00:00:00') : new Date(d0.getTime()-6*86400000);
@@ -8949,9 +8950,9 @@ function commPeriodRange(){
   return {from:from,to:to};
 }
 function commPeriodChips(ch){
-  var p=window._commPeriod||'7d';
-  var chips=[['today','Today'],['yest','Yesterday'],['7d','7 days'],['14d','14 days'],['30d','30 days'],['90d','90 days'],['custom','\uD83D\uDCC5 Custom']];
-  return '<div style="display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:2px 0 10px">'
+  var p=window._commPeriod||'all';
+  var chips=[['all','All time'],['today','Today'],['yest','Yesterday'],['7d','7 days'],['14d','14 days'],['30d','30 days'],['90d','90 days'],['custom','\uD83D\uDCC5 Custom']];
+  return '<div style="display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:2px 0 10px;-webkit-mask-image:linear-gradient(90deg,#000 90%,transparent);mask-image:linear-gradient(90deg,#000 90%,transparent)">'
     + chips.map(function(c){ var on=p===c[0];
         return '<button onclick="window._commPeriod=\''+c[0]+'\';window._rptTab=\''+ch+'\';document.getElementById(\'content\').innerHTML=reportsHTML()" style="flex-shrink:0;padding:7px 13px;border-radius:20px;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'var(--green)':'var(--white)')+';color:'+(on?'#fff':'var(--sub)')+';font-size:12px;font-weight:800;cursor:pointer;font-family:var(--f);white-space:nowrap">'+c[1]+'</button>';
       }).join('')
@@ -8961,7 +8962,7 @@ function commInRange(iso,R){
   if(!iso) return false;
   var t=new Date(iso).getTime();
   if(isNaN(t)) return false;
-  if(t<R.from.getTime()) return false;
+  if(R.from && t<R.from.getTime()) return false;
   if(R.to && t>=R.to.getTime()) return false;
   return true;
 }
@@ -9042,12 +9043,17 @@ function commReportHTML(ch){
         : '<div style="flex:1;min-width:0;text-align:center;padding:2px 0">'+inner+'</div>';
     };
     var _dv='<div style="width:1px;background:var(--border);align-self:stretch"></div>';
-    h+='<div style="display:flex;align-items:center;gap:6px;background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:13px 6px;margin-bottom:10px">'
-      + _cell(tot,'Total calls \u203a','var(--text)',"commDrill('call','all','','')") + _dv
-      + _cell(ansd,'Answered \u203a '+pct+'%','var(--green)',"commDrill('call','all','','answered')") + _dv
-      + _cell(mins+'m','Talk time','var(--text)','') + _dv
-      + _cell(minsOf(aC)+'m','AI min \u203a','#7c3aed',"commDrill('call','ai','','')") + _dv
-      + _cell(_missTot,'Missed \u203a','var(--red,#dc2626)',"commDrill('call','all','','notanswered')")
+    h+='<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:13px 6px 11px;margin-bottom:10px">'
+      + '<div style="display:flex;align-items:center;gap:6px">'
+      +   _cell(tot,'Total calls \u203a','var(--text)',"commDrill('call','all','','')") + _dv
+      +   _cell(ansd,'Answered \u203a '+pct+'%','var(--green)',"commDrill('call','all','','answered')") + _dv
+      +   _cell(_missTot,'Missed \u203a','var(--red,#dc2626)',"commDrill('call','all','','notanswered')")
+      + '</div>'
+      + '<div style="display:flex;align-items:center;gap:6px;border-top:1px solid var(--border);margin-top:11px;padding:10px 8px 0">'
+      +   '<div style="flex:1;text-align:center;font-size:12.5px;color:var(--text)">\u23F1\uFE0F <b>'+mins+'m</b> <span style="color:var(--sub)">Talk time</span></div>'
+      +   _dv
+      +   '<div onclick="commDrill(\'call\',\'ai\',\'\',\'\')" style="flex:1;text-align:center;font-size:12.5px;color:#7c3aed;cursor:pointer">\uD83E\uDD16 <b>'+minsOf(aC)+'m</b> <span style="color:#6d28d9">AI talk time \u203a</span></div>'
+      + '</div>'
       +'</div>';
 
     // One story-style card per caller type. Every blue number is tappable and
@@ -9084,14 +9090,28 @@ function commReportHTML(ch){
     (function(){
       var avg=function(a){ return a.length ? a.reduce(function(x,y){return x+y;},0)/a.length : null; };
       var aH=avg(spdH), aA=avg(spdA);
-      var line = (aH!=null && aA!=null && aA<aH)
-        ? '<b>AI reached leads much faster than Human</b><br><span style="font-size:11px;color:var(--sub)">Lead to first call</span>'
-        : '<b>Lead \u2192 first call speed</b><br><span style="font-size:11px;color:var(--sub)">Average wait before the first call</span>';
-      h+='<div style="display:flex;align-items:center;gap:12px;background:#ecfdf5;border:1.5px solid #a7f3d0;border-radius:13px;padding:12px 14px;margin-bottom:10px">'
-        +'<span style="width:36px;height:36px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0">\u26A1</span>'
-        +'<span style="flex:1;min-width:0;font-size:12.5px;color:var(--text);line-height:1.45">'+line+'</span>'
-        +'<span style="text-align:center;flex-shrink:0"><span style="display:block;font-size:10px;color:var(--sub);font-weight:700">Human</span><span style="display:block;font-size:16px;font-weight:900;color:var(--text)">'+fmtSpd(spdH)+'</span></span>'
-        +'<span style="text-align:center;flex-shrink:0"><span style="display:block;font-size:10px;color:#059669;font-weight:700">AI</span><span style="display:block;font-size:16px;font-weight:900;color:var(--green)">'+fmtSpd(spdA)+'</span></span>'
+      var faster='';
+      if(aH!=null && aA!=null && aA>0 && aH>aA){
+        var x=aH/aA;
+        faster='<span style="font-size:10.5px;font-weight:900;color:#065f46;background:#a7f3d0;border-radius:20px;padding:3px 10px">'+(x>=2?(Math.round(x)+'\u00d7 faster'):'faster')+'</span>';
+      }
+      var title=(aH!=null&&aA!=null&&aA<aH)?'AI reaches your leads first':'Lead \u2192 first call speed';
+      var box=function(icon,lbl,val,hl){
+        return '<div style="flex:1;text-align:center;background:'+(hl?'#059669':'#ffffff')+';border:1.5px solid '+(hl?'#059669':'var(--border)')+';border-radius:11px;padding:10px 4px">'
+          +'<div style="font-size:10.5px;font-weight:800;color:'+(hl?'rgba(255,255,255,.85)':'var(--sub)')+'">'+icon+' '+lbl+'</div>'
+          +'<div style="font-size:21px;font-weight:900;color:'+(hl?'#fff':'var(--text)')+';margin-top:2px;letter-spacing:-.02em">'+val+'</div>'
+          +'</div>';
+      };
+      h+='<div style="background:#ecfdf5;border:1.5px solid #a7f3d0;border-radius:13px;padding:12px 14px;margin-bottom:10px">'
+        +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
+        +'<span style="font-size:16px">\u26A1</span>'
+        +'<span style="flex:1;min-width:0;font-size:13px;font-weight:800;color:var(--text)">'+title+'</span>'+faster+'</div>'
+        +'<div style="display:flex;gap:8px;align-items:stretch">'
+        + box('\uD83D\uDC64','Human wait',fmtSpd(spdH),false)
+        + '<div style="display:flex;align-items:center;font-size:11px;font-weight:800;color:var(--sub)">vs</div>'
+        + box('\uD83E\uDD16','AI wait',fmtSpd(spdA),true)
+        +'</div>'
+        +'<div style="font-size:10.5px;color:var(--sub);margin-top:8px">Average wait between a lead arriving and their first call.</div>'
         +'</div>';
     })();
 
@@ -9109,38 +9129,62 @@ function commReportHTML(ch){
       ],'\uD83D\uDC64 Human','\uD83E\uDD16 AI');
     })();
 
-    // Daily trend: human (green) vs AI (purple) stacked bars across the period.
+    // Trend chart — daily bars for short ranges, weekly for long/all-time,
+    // with gridlines, value ticks, and an honest empty state.
     (function(){
-      var fromT=R.from?R.from.getTime():null;
       var toT=(R.to?R.to.getTime():Date.now()+1);
-      if(fromT==null) return;
-      var days=Math.max(1,Math.round((toT-fromT)/86400000));
-      if(days>62) return; // beyond ~2 months, daily bars turn to dust
-      var bucketMs=86400000, buckets=days;
+      var fromT=R.from?R.from.getTime():null;
+      if(fromT==null){
+        var earliest=null;
+        calls.forEach(function(c){ var t=new Date(c.date).getTime(); if(!isNaN(t)&&(earliest==null||t<earliest)) earliest=t; });
+        if(earliest==null){ h+='<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:18px;margin-bottom:10px;text-align:center;font-size:12.5px;color:var(--sub)">No calls yet \u2014 the trend chart appears once calls start happening.</div>'; return; }
+        fromT=new Date(earliest).setHours(0,0,0,0);
+      }
+      var days=Math.max(1,Math.ceil((toT-fromT)/86400000));
+      var weekly=days>31;
+      var bMs=weekly?7*86400000:86400000;
+      var buckets=Math.max(1,Math.ceil((toT-fromT)/bMs));
+      if(buckets>60){ fromT=toT-60*bMs; buckets=60; }
       var H=new Array(buckets).fill(0), A=new Array(buckets).fill(0);
+      var any=false;
       calls.forEach(function(c){
         var t=new Date(c.date).getTime(); if(isNaN(t)) return;
-        var i=Math.floor((t-fromT)/bucketMs); if(i<0||i>=buckets) return;
-        if(c.ai) A[i]++; else H[i]++;
+        var i=Math.floor((t-fromT)/bMs); if(i<0||i>=buckets) return;
+        if(c.ai) A[i]++; else H[i]++; any=true;
       });
+      if(!any){ h+='<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:18px;margin-bottom:10px;text-align:center;font-size:12.5px;color:var(--sub)">No calls in this period.</div>'; return; }
       var mx=1; for(var i=0;i<buckets;i++) mx=Math.max(mx,H[i]+A[i]);
+      var CH=86;
       var bars='';
       for(var i=0;i<buckets;i++){
-        var hh=Math.round(H[i]/mx*44), ah=Math.round(A[i]/mx*44);
-        bars+='<div style="flex:1;min-width:2px;display:flex;flex-direction:column-reverse;gap:1px;height:48px">'
-          +(hh>0?'<div style="height:'+hh+'px;background:var(--green);border-radius:2px"></div>':'')
-          +(ah>0?'<div style="height:'+ah+'px;background:#7c3aed;border-radius:2px"></div>':'')
+        var totB=H[i]+A[i];
+        var hh=Math.round(H[i]/mx*CH), ah=Math.round(A[i]/mx*CH);
+        if(H[i]>0&&hh<3) hh=3; if(A[i]>0&&ah<3) ah=3;
+        bars+='<div style="flex:1;min-width:3px;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-end;height:'+CH+'px;position:relative;z-index:1">'
+          +(totB>0&&buckets<=20?'<div style="font-size:8.5px;font-weight:800;color:var(--sub);text-align:center;margin-bottom:1px">'+totB+'</div>':'')
+          +(ah>0?'<div style="height:'+ah+'px;background:#7c3aed;border-radius:2px 2px 0 0"></div>':'')
+          +(hh>0?'<div style="height:'+hh+'px;background:var(--green);border-radius:'+(ah>0?'0':'2px 2px 0 0')+'"></div>':'')
           +'</div>';
       }
       var lblFrom=new Date(fromT).toLocaleDateString('en-CA',{month:'short',day:'numeric'});
+      var midT=fromT+(toT-fromT)/2;
+      var lblMid=new Date(midT).toLocaleDateString('en-CA',{month:'short',day:'numeric'});
       var lblTo=new Date(toT-1).toLocaleDateString('en-CA',{month:'short',day:'numeric'});
-      h+='<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:12px 14px;margin-bottom:10px">'
-        +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:13px;font-weight:800;color:var(--text)">Calls per day</span>'
-        +'<span style="font-size:10.5px;color:var(--sub)"><span style="color:var(--green);font-weight:800">\u25A0</span> Human &nbsp;<span style="color:#7c3aed;font-weight:800">\u25A0</span> AI</span></div>'
-        +'<div style="display:flex;align-items:flex-end;gap:2px">'+bars+'</div>'
-        +'<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted,#9ca3af);margin-top:4px"><span>'+lblFrom+'</span><span>'+lblTo+'</span></div>'
+      h+='<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:13px 14px;margin-bottom:10px">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span style="font-size:13px;font-weight:800;color:var(--text)">Calls per '+(weekly?'week':'day')+'</span>'
+        +'<span style="font-size:10.5px;color:var(--sub)"><span style="color:var(--green);font-weight:900">\u25A0</span> Human &nbsp;<span style="color:#7c3aed;font-weight:900">\u25A0</span> AI</span></div>'
+        +'<div style="position:relative">'
+        +'<div style="position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;z-index:0">'
+        +'<div style="border-top:1px dashed var(--border);font-size:8.5px;color:var(--muted,#9ca3af);line-height:1;padding-left:1px">'+mx+'</div>'
+        +'<div style="border-top:1px dashed var(--border);font-size:8.5px;color:var(--muted,#9ca3af);line-height:1;padding-left:1px">'+Math.round(mx/2)+'</div>'
+        +'<div style="border-top:1px solid var(--border)"></div>'
+        +'</div>'
+        +'<div style="display:flex;align-items:flex-end;gap:2px;position:relative;z-index:1">'+bars+'</div>'
+        +'</div>'
+        +'<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted,#9ca3af);margin-top:5px"><span>'+lblFrom+'</span><span>'+lblMid+'</span><span>'+lblTo+'</span></div>'
         +'</div>';
     })();
+
     // Drill-down list (Image-4 style): each row opens exactly those calls.
     (function(){
       var vm=calls.filter(function(c){return c.out==='voicemail';}).length;
@@ -9159,26 +9203,7 @@ function commReportHTML(ch){
         + rowD('\uD83D\uDCE9','#fef3c7','Voicemail','Went to voicemail',vm,"commDrill('call','all','','voicemail')")
         +'</div>';
     })();
-    if(window._clientAiEnabled){
-      var _wLeft=0, _wCamps=0;
-      (window._aiWallets||[]).forEach(function(x){ if(x.kind==='campaign'){ _wLeft+=Number(x.ai_minutes)||0; _wCamps++; } });
-      h+='<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:14px;margin-bottom:10px">'
-        +   '<div style="display:flex;align-items:center;gap:10px">'
-        +     '<span style="flex:1;min-width:0">'
-        +       '<span style="display:block;font-size:13px;font-weight:800;color:var(--text)">\uD83E\uDD16 AI minutes</span>'
-        +       '<span style="display:block;font-size:12px;color:var(--sub);margin-top:2px">'
-        +         ((Number(window._clientAiTotal)||0) > 0
-                    ? (Math.max(0,(Number(window._clientAiTotal)||0)-(Number(window._clientAiMinutes)||0)).toLocaleString()+' used \u00b7 '+(Number(window._clientAiMinutes)||0).toLocaleString()+' of '+(Number(window._clientAiTotal)||0).toLocaleString()+' left')
-                    : (_wCamps>0
-                        ? (Math.round(_wLeft).toLocaleString()+' AI minutes left across '+_wCamps+' campaign bundle'+(_wCamps>1?'s':'')+' \u2014 tap \uD83D\uDCDC Balance history on a campaign for details')
-                        : ((Number(window._clientAiMinutes)||0).toLocaleString()+' left')))
-        +       '</span>'
-        +     '</span>'
-        +     '<button onclick="requestAiMinutes(this)" style="border:none;border-radius:10px;background:var(--green);color:#fff;font-family:var(--f);font-weight:800;font-size:13px;padding:11px 14px;cursor:pointer;flex-shrink:0">\u2795 Add minutes</button>'
-        +   '</div>'
-        + '</div>';
-    }
-    h+='<div style="font-size:11.5px;color:var(--sub);line-height:1.55">Answered means someone picked up. Minutes are total talk time for the calls in this period. AI minutes above are your account balance and don\u2019t change with the period picker.</div>';
+    h+='<div style="font-size:11.5px;color:var(--sub);line-height:1.55">Answered means someone picked up. Talk time is the total minutes on calls in this period.</div>';
   }
 
   if(ch==='sms'){
