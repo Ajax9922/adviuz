@@ -2186,6 +2186,16 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
     </div>
   </div>
 </div>
+<div class="sheet-ov" id="aiMinSh" onclick="if(event.target===this)closeSheet('aiMinSh')">
+  <div class="sheet" style="max-height:92vh"><div class="sheet-handle"></div>
+    <div class="sh-head">
+      <div class="sh-title" id="amTitle">&#x1F916; Where your AI minutes went</div>
+      <button class="sh-x" onclick="closeSheet('aiMinSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" id="amBody" style="padding-bottom:calc(28px + env(safe-area-inset-bottom))"></div>
+  </div>
+</div>
+
 <div class="sheet-ov" id="fuelHistSh" onclick="if(event.target===this)closeSheet('fuelHistSh')">
   <div class="sheet" style="max-height:92vh"><div class="sheet-handle"></div>
     <div class="sh-head">
@@ -4303,7 +4313,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-14 reports-redesign-2';
+var APP_VERSION = 'v2026-08-14 ai-minutes-sheet-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -23336,6 +23346,46 @@ async function loadAiFuel(){
     paintAiFuel();
   }catch(e){}
 }
+async function openAiMinutesSheet(campId){
+  var body=document.getElementById('amBody'); if(!body) return;
+  body.innerHTML='<div style="font-size:12px;color:var(--sub);padding:10px 0">Loading\u2026</div>';
+  openSheet('aiMinSh');
+  var ov=document.getElementById('aiMinSh'); if(ov) ov.style.zIndex='960';
+  var rows=[];
+  try{
+    var r=await sbFetch('/rest/v1/rpc/my_ai_call_usage',{method:'POST',body:'{}'});
+    if(r.ok) rows=await r.json();
+  }catch(e){}
+  if(campId) rows=(rows||[]).filter(function(x){ return !x.campaign_id || String(x.campaign_id)===String(campId); });
+  var totMin=0, totSec=0;
+  (rows||[]).forEach(function(x){ totMin+=Number(x.minutes)||0; totSec+=Number(x.duration_sec)||0; });
+  var h='';
+  h+='<div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:12px;padding:12px 14px;margin-bottom:12px">'
+    +'<div style="font-size:13px;font-weight:800;color:#6d28d9">'+totMin+' minute'+(totMin===1?'':'s')+' used \u00b7 '+(rows||[]).length+' AI call'+((rows||[]).length===1?'':'s')+'</div>'
+    +'<div style="font-size:11.5px;color:var(--sub);margin-top:4px;line-height:1.5">Each call is rounded up to the next full minute \u2014 industry standard, because the phone network bills us the same way. Voicemail drops count as calls.</div>'
+    +'</div>';
+  if(!(rows||[]).length){
+    h+='<div style="font-size:12.5px;color:var(--sub)">No AI calls yet \u2014 minutes appear here the moment the AI makes or answers a call.</div>';
+  } else {
+    rows.forEach(function(x){
+      var d=new Date(x.created_at);
+      var when=isNaN(d)?'':d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' \u00b7 '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'});
+      var s=Number(x.duration_sec)||0;
+      var durTxt=(s>=60?Math.floor(s/60)+'m ':'')+ (s%60)+'s';
+      var vmChip=x.voicemail?' <span style="font-size:9px;font-weight:800;padding:2px 7px;border-radius:12px;background:#fef3c7;color:#92400e">VOICEMAIL</span>':'';
+      var dirIco=x.direction==='inbound'?'\u2199\uFE0F':'\u2197\uFE0F';
+      h+='<div '+(x.lead_id?'onclick="closeSheet(\'aiMinSh\');try{var _l=(typeof leads!==\'undefined\'?leads:[]).find(function(z){return String(z.dbId||z.id)===String(\''+x.lead_id+'\');});}catch(e){}"':'')
+        +' style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:11px 13px;margin-bottom:8px">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'
+        +'<span style="font-size:13px;font-weight:800;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+dirIco+' '+_escTxt(x.lead_name||'Unknown caller')+vmChip+'</span>'
+        +'<span style="font-size:12.5px;font-weight:900;color:#6d28d9;flex-shrink:0">'+(Number(x.minutes)||0)+' min</span>'
+        +'</div>'
+        +'<div style="font-size:11px;color:var(--sub);margin-top:3px">'+when+' \u00b7 lasted '+durTxt+'</div>'
+        +'</div>';
+    });
+  }
+  body.innerHTML=h;
+}
 function _fhSrcLabel(s){
   s=String(s||'').toLowerCase();
   if(s.indexOf('launch')>-1) return 'Launch bundle';
@@ -23414,7 +23464,7 @@ function paintAiFuel(){
     var frozen = !w.campaign_active;
     // Dashboard shows the NUMBERS only; the full used-of-total bars live on
     // the campaign detail page (tap-through).
-    var chips = '\uD83E\uDD16 '+_fuelNum(w.ai_minutes)+' AI \u00b7 \uD83D\uDCAC '+_fuelNum(w.sms)+' \u00b7 \uD83D\uDCE7 '+_fuelNum(w.emails)+' \u00b7 \uD83D\uDCDE '+_fuelNum(w.ivr_calls);
+    var chips = '\uD83E\uDD16 '+_fuelNum(w.ai_minutes)+' AI min \u00b7 \uD83D\uDCAC '+_fuelNum(w.sms)+' \u00b7 \uD83D\uDCE7 '+_fuelNum(w.emails)+' \u00b7 \uD83D\uDCDE '+_fuelNum(w.ivr_calls);
     el.style.display='block';
     el.innerHTML = '<div style="display:flex;align-items:center;gap:8px;background:'+(frozen?'#eff6ff':'#f5f3ff')+';border:1px solid '+(frozen?'#bfdbfe':'#ddd6fe')+';border-radius:11px;padding:9px 12px;cursor:pointer">'
       + '<span style="font-size:12px;font-weight:800;color:'+(frozen?'#1d4ed8':'#6d28d9')+';flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
@@ -23449,7 +23499,7 @@ function _campFuelCardHTML(cp){
   var h = '<div id="fuelDetail_'+cp.id+'" style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:14px">'
     + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
     + '<span style="font-size:13.5px;font-weight:800;color:var(--text);flex:1">\uD83E\uDD16 AI Sales Engine \u00b7 '+((w.label||'Free bundle'))+'</span>'+badge+'</div>'
-    + meter('\uD83E\uDD16','AI calls', w.ai_minutes, 'ai_minutes', 'openMinutesReport()')
+    + meter('\uD83E\uDD16','AI minutes', w.ai_minutes, 'ai_minutes', 'openAiMinutesSheet(\''+String(cp.id)+'\')')
     + meter('\uD83D\uDCAC','Texts',    w.sms,        'sms',        "openUsageReport('sms')")
     + meter('\uD83D\uDCE7','Emails',   w.emails,     'emails',     "openUsageReport('email')")
     + meter('\uD83D\uDCDE','My calls', w.ivr_calls,  'ivr_calls',  "openUsageReport('calls')")
