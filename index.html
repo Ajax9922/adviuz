@@ -4303,7 +4303,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-14 reports-polish-1';
+var APP_VERSION = 'v2026-08-14 reports-redesign-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -9034,11 +9034,20 @@ function commReportHTML(ch){
     });
     var fmtSpd=function(arr){ if(!arr.length) return '\u2014'; var m=arr.reduce(function(a,b){return a+b;},0)/arr.length; if(m<1) return '<1m'; if(m<60) return Math.round(m)+'m'; if(m<2880) return (Math.round(m/60*10)/10)+'h'; return Math.round(m/1440)+'d'; };
 
-    h+='<div style="display:flex;gap:7px;margin-bottom:10px">'
-      +'<div onclick="commDrill(\'call\',\'all\',\'\',\'\')" style="flex:1;min-width:0;text-align:center;border:1.5px solid var(--border);border-radius:13px;padding:13px 4px;background:var(--white);cursor:pointer"><div style="font-size:20px;font-weight:900;color:var(--blue,#2563eb)">'+tot+'</div><div style="font-size:10.5px;color:var(--sub);font-weight:700;white-space:nowrap">Total calls \u203a</div></div>'
-      +'<div onclick="commDrill(\'call\',\'all\',\'\',\'answered\')" style="flex:1;min-width:0;text-align:center;border:1.5px solid var(--border);border-radius:13px;padding:13px 4px;background:var(--white);cursor:pointer"><div style="font-size:20px;font-weight:900;color:var(--green)">'+ansd+'</div><div style="font-size:10.5px;color:var(--sub);font-weight:700;white-space:nowrap">Answered \u203a ('+pct+'%)</div></div>'
-      + commStat(mins,'Talk min','var(--text)')
-      +'<div onclick="commDrill(\'call\',\'ai\',\'\',\'\')" style="flex:1;min-width:0;text-align:center;border:1.5px solid #ddd6fe;border-radius:13px;padding:13px 4px;background:#f5f3ff;cursor:pointer"><div style="font-size:20px;font-weight:900;color:#7c3aed">'+minsOf(aC)+'</div><div style="font-size:10.5px;color:#6d28d9;font-weight:700;white-space:nowrap">AI min used \u203a</div></div>'
+    var _missTot = tot - ansd;
+    var _cell=function(v,lbl,col,go){
+      var inner='<div style="font-size:19px;font-weight:900;color:'+col+';line-height:1.1">'+v+'</div><div style="font-size:9.5px;color:var(--sub);font-weight:700;margin-top:2px;white-space:nowrap">'+lbl+'</div>';
+      return go
+        ? '<div onclick="'+go+'" style="flex:1;min-width:0;text-align:center;cursor:pointer;padding:2px 0">'+inner+'</div>'
+        : '<div style="flex:1;min-width:0;text-align:center;padding:2px 0">'+inner+'</div>';
+    };
+    var _dv='<div style="width:1px;background:var(--border);align-self:stretch"></div>';
+    h+='<div style="display:flex;align-items:center;gap:6px;background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:13px 6px;margin-bottom:10px">'
+      + _cell(tot,'Total calls \u203a','var(--text)',"commDrill('call','all','','')") + _dv
+      + _cell(ansd,'Answered \u203a '+pct+'%','var(--green)',"commDrill('call','all','','answered')") + _dv
+      + _cell(mins+'m','Talk time','var(--text)','') + _dv
+      + _cell(minsOf(aC)+'m','AI min \u203a','#7c3aed',"commDrill('call','ai','','')") + _dv
+      + _cell(_missTot,'Missed \u203a','var(--red,#dc2626)',"commDrill('call','all','','notanswered')")
       +'</div>';
 
     // One story-style card per caller type. Every blue number is tappable and
@@ -9071,6 +9080,35 @@ function commReportHTML(ch){
         +'<span style="flex:1;min-width:0;font-size:12.5px;color:#8a6116;line-height:1.5"><b>'+_missN+' call'+(_missN>1?'s':'')+' went unanswered</b> in this period \u2014 each one is a lead who may call a competitor next. The AI can answer these for you. Tap to see them.</span>'
         +'<span style="font-size:14px;color:#b45309;flex-shrink:0">\u203A</span></div>';
     }
+    // \u26A1 Speed banner \u2014 the single most persuasive line in the product.
+    (function(){
+      var avg=function(a){ return a.length ? a.reduce(function(x,y){return x+y;},0)/a.length : null; };
+      var aH=avg(spdH), aA=avg(spdA);
+      var line = (aH!=null && aA!=null && aA<aH)
+        ? '<b>AI reached leads much faster than Human</b><br><span style="font-size:11px;color:var(--sub)">Lead to first call</span>'
+        : '<b>Lead \u2192 first call speed</b><br><span style="font-size:11px;color:var(--sub)">Average wait before the first call</span>';
+      h+='<div style="display:flex;align-items:center;gap:12px;background:#ecfdf5;border:1.5px solid #a7f3d0;border-radius:13px;padding:12px 14px;margin-bottom:10px">'
+        +'<span style="width:36px;height:36px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0">\u26A1</span>'
+        +'<span style="flex:1;min-width:0;font-size:12.5px;color:var(--text);line-height:1.45">'+line+'</span>'
+        +'<span style="text-align:center;flex-shrink:0"><span style="display:block;font-size:10px;color:var(--sub);font-weight:700">Human</span><span style="display:block;font-size:16px;font-weight:900;color:var(--text)">'+fmtSpd(spdH)+'</span></span>'
+        +'<span style="text-align:center;flex-shrink:0"><span style="display:block;font-size:10px;color:#059669;font-weight:700">AI</span><span style="display:block;font-size:16px;font-weight:900;color:var(--green)">'+fmtSpd(spdA)+'</span></span>'
+        +'</div>';
+    })();
+
+    // Human vs AI comparison table (Image-4 style; blue numbers drill down)
+    (function(){
+      var cn=function(arr){ return arr.filter(function(c){return c.out==='answered';}).length; };
+      var cH=cn(hC), cA=cn(aC);
+      var rH=hC.length?Math.round(cH/hC.length*100):0, rA=aC.length?Math.round(cA/aC.length*100):0;
+      h+=_cmpTable('call',[
+        ['\uD83D\uDCDE Calls',        hC.length, aC.length, '', '', true],
+        ['\u2705 Connected',          cH,        cA,        '', 'answered', true],
+        ['\uD83D\uDCC8 Connect rate', rH+'%',    rA+'%',    '', '', false],
+        ['\u23F1\uFE0F Talk time',    minsOf(hC)+'m', minsOf(aC)+'m', '', '', false],
+        ['\u26A1 First response',      fmtSpd(spdH), fmtSpd(spdA), '', '', false]
+      ],'\uD83D\uDC64 Human','\uD83E\uDD16 AI');
+    })();
+
     // Daily trend: human (green) vs AI (purple) stacked bars across the period.
     (function(){
       var fromT=R.from?R.from.getTime():null;
@@ -9103,9 +9141,24 @@ function commReportHTML(ch){
         +'<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted,#9ca3af);margin-top:4px"><span>'+lblFrom+'</span><span>'+lblTo+'</span></div>'
         +'</div>';
     })();
-    h+=whoCard('human','\uD83D\uDC64 Human','var(--text)',hC,fmtSpd(spdH));
-    h+=whoCard('ai','\uD83E\uDD16 AI','#7c3aed',aC,fmtSpd(spdA));
-    h+='<div style="font-size:11px;color:var(--sub);margin-bottom:12px">Tap any blue number to open exactly those calls in the Inbox. Lead \u2192 first call is the average wait between a lead arriving and someone calling them.</div>';
+    // Drill-down list (Image-4 style): each row opens exactly those calls.
+    (function(){
+      var vm=calls.filter(function(c){return c.out==='voicemail';}).length;
+      var ms=calls.filter(function(c){return c.out!=='answered'&&c.out!=='voicemail';}).length;
+      var rowD=function(ico,bg,ttl,sub,n,go){
+        return '<div onclick="'+go+'" style="display:flex;align-items:center;gap:11px;padding:11px 13px;border-top:1px solid var(--border);cursor:pointer">'
+          +'<span style="width:34px;height:34px;border-radius:50%;background:'+bg+';display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">'+ico+'</span>'
+          +'<span style="flex:1;min-width:0"><span style="display:block;font-size:13px;font-weight:800;color:var(--text)">'+ttl+'</span><span style="display:block;font-size:11px;color:var(--sub)">'+sub+'</span></span>'
+          +'<span style="font-size:15px;font-weight:900;color:var(--text);flex-shrink:0">'+n+'</span>'
+          +'<span style="font-size:13px;color:var(--sub);flex-shrink:0">\u203A</span></div>';
+      };
+      h+='<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;overflow:hidden;margin-bottom:10px">'
+        + rowD('\uD83D\uDC64','#e7f8f3','Human calls','Calls handled by your team',hC.length,"commDrill('call','human','','')").replace('border-top:1px solid var(--border);','')
+        + rowD('\uD83E\uDD16','#ede9fe','AI calls','Calls handled by the AI',aC.length,"commDrill('call','ai','','')")
+        + rowD('\uD83D\uDCF5','#fee2e2','Missed calls','Rang out \u2014 nobody picked up',ms,"commDrill('call','all','','missed')")
+        + rowD('\uD83D\uDCE9','#fef3c7','Voicemail','Went to voicemail',vm,"commDrill('call','all','','voicemail')")
+        +'</div>';
+    })();
     if(window._clientAiEnabled){
       var _wLeft=0, _wCamps=0;
       (window._aiWallets||[]).forEach(function(x){ if(x.kind==='campaign'){ _wLeft+=Number(x.ai_minutes)||0; _wCamps++; } });
@@ -21689,8 +21742,6 @@ function _clientCampCard(cp) {
   if (!selMode) h += _campToggleSwitch(cp.id, active, exhausted);
   h += '</div>';
 
-  _fuelKick();
-  h += '<div id="fuel_'+cp.id+'" onclick="event.stopPropagation();openClientCampaignDetail(\''+cp.id+'\')" style="display:none;margin-bottom:10px"></div>';
   // ── Big "Total Exposure" tile (above the 3 stats per user spec) ──
   h += '<div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:10px">'
     +    '<div style="font-size:10px;font-weight:700;color:var(--sub);letter-spacing:.05em;text-transform:uppercase">Total Exposure</div>'
@@ -21733,6 +21784,9 @@ function _clientCampCard(cp) {
   h += '<div style="height:6px;background:var(--bg);border-radius:99px;overflow:hidden;margin-bottom:4px">'
     +    '<div style="height:100%;width:'+_barPct+'%;background:linear-gradient(90deg,var(--green),#22c55e);border-radius:99px;transition:width .4s"></div>'
     +  '</div>';
+
+  _fuelKick();
+  h += '<div id="fuel_'+cp.id+'" onclick="event.stopPropagation();openClientCampaignDetail(\''+cp.id+'\')" style="display:none;margin-top:10px"></div>';
 
   // Tap-to-open hint — most clients don't realise the card itself is tappable.
   if (!selMode) {
@@ -23245,10 +23299,11 @@ async function loadAiFuel(){
         (window._aiLedger||[]).forEach(function(g){
           if(!g.campaign_id) return;
           var k=String(g.campaign_id);
-          if(!tot[k]) tot[k]={ai_minutes:0,sms:0,emails:0};
+          if(!tot[k]) tot[k]={ai_minutes:0,sms:0,emails:0,ivr_calls:0};
           tot[k].ai_minutes += Math.max(0, Number(g.ai_minutes)||0);
           tot[k].sms        += Math.max(0, Number(g.sms)||0);
           tot[k].emails     += Math.max(0, Number(g.emails)||0);
+          tot[k].ivr_calls  += Math.max(0, Number(g.ivr_calls)||0);
         });
         window._aiTotals = tot;
       }
@@ -23332,26 +23387,14 @@ function paintAiFuel(){
     var el = document.getElementById('fuel_'+w.campaign_id);
     if(!el) return;
     var frozen = !w.campaign_active;
-    var tot = (window._aiTotals||{})[String(w.campaign_id)] || null;
-    var bar = function(icon,label,rem,total,go){
-      var t=Number(total)||0, rv=Math.max(0,Number(rem)||0);
-      var used=t>0?Math.max(0,t-rv):0;
-      var pct=t>0?Math.min(100,Math.round(used/t*100)):0;
-      var col= rv<=0?'#dc2626':((t>0 && rv/t<=0.2)?'#f59e0b':'#059669');
-      var right = t>0 ? (_fuelNum(used)+' of '+_fuelNum(t)+' used \u00b7 '+_fuelNum(rv)+' left') : (_fuelNum(rv)+' left');
-      return '<div onclick="event.stopPropagation();'+go+'" style="cursor:pointer;margin-top:7px">'
-        + '<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;font-weight:700;color:var(--text)"><span>'+icon+' '+label+'</span><span style="color:var(--sub);font-weight:600">'+right+'</span></div>'
-        + '<div style="height:6px;border-radius:999px;background:var(--border);overflow:hidden;margin-top:3px"><div style="height:100%;width:'+pct+'%;background:'+col+';border-radius:999px"></div></div>'
-        + '</div>';
-    };
+    // Dashboard shows the NUMBERS only; the full used-of-total bars live on
+    // the campaign detail page (tap-through).
+    var chips = '\uD83E\uDD16 '+_fuelNum(w.ai_minutes)+' AI \u00b7 \uD83D\uDCAC '+_fuelNum(w.sms)+' \u00b7 \uD83D\uDCE7 '+_fuelNum(w.emails)+' \u00b7 \uD83D\uDCDE '+_fuelNum(w.ivr_calls);
     el.style.display='block';
-    el.innerHTML = '<div style="background:'+(frozen?'#eff6ff':'#f5f3ff')+';border:1px solid '+(frozen?'#bfdbfe':'#ddd6fe')+';border-radius:11px;padding:9px 12px 11px">'
-      + (frozen?'<div style="font-size:11.5px;font-weight:800;color:#1d4ed8">\u2744\uFE0F AI fuel frozen \u2014 nothing is being spent</div>':'')
-      + bar('\uD83E\uDD16','AI calls', w.ai_minutes, tot&&tot.ai_minutes, 'openMinutesReport()')
-      + bar('\uD83D\uDCAC','Texts',    w.sms,        tot&&tot.sms,        "openUsageReport('sms')")
-      + bar('\uD83D\uDCE7','Emails',   w.emails,     tot&&tot.emails,     "openUsageReport('email')")
-      + '<div onclick="event.stopPropagation();openFuelHistory(\''+String(w.campaign_id)+'\')" style="text-align:right;font-size:11px;font-weight:800;color:'+(frozen?'#1d4ed8':'#6d28d9')+';margin-top:8px;cursor:pointer">\uD83D\uDCDC Balance history \u203A</div>'
-      + '</div>';
+    el.innerHTML = '<div style="display:flex;align-items:center;gap:8px;background:'+(frozen?'#eff6ff':'#f5f3ff')+';border:1px solid '+(frozen?'#bfdbfe':'#ddd6fe')+';border-radius:11px;padding:9px 12px;cursor:pointer">'
+      + '<span style="font-size:12px;font-weight:800;color:'+(frozen?'#1d4ed8':'#6d28d9')+';flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
+      + (frozen?'\u2744\uFE0F Frozen \u2014 safe: ':'')+chips+'</span>'
+      + '<span style="font-size:11px;font-weight:700;color:var(--sub);flex-shrink:0">\u203A</span></div>';
   });
 }
 function _campFuelCardHTML(cp){
@@ -23363,10 +23406,17 @@ function _campFuelCardHTML(cp){
   var expired = w.expires_at && (new Date(w.expires_at) < new Date());
   var total = (Number(w.ai_minutes)||0)+(Number(w.sms)||0)+(Number(w.emails)||0)+(Number(w.ivr_calls)||0);
   var exhausted = total<=0 || expired;
-  var meter = function(lbl,val){
-    return '<div style="background:var(--bg);border-radius:9px;padding:8px 2px;text-align:center">'
-      +'<div style="font-size:14px;font-weight:800;color:'+((frozen||exhausted)?'#94a3b8':'var(--text)')+'">'+_fuelNum(val)+'</div>'
-      +'<div style="font-size:8px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.03em;margin-top:1px">'+lbl+'</div></div>';
+  var _dtTot = (window._aiTotals||{})[String(cp.id)] || null;
+  var meter = function(icon,lbl,rem,totKey,go){
+    var t=_dtTot?Number(_dtTot[totKey])||0:0, rv=Math.max(0,Number(rem)||0);
+    var used=t>0?Math.max(0,t-rv):0;
+    var pct=t>0?Math.min(100,Math.round(used/t*100)):0;
+    var col=(frozen||exhausted)?'#94a3b8':(rv<=0?'#dc2626':((t>0&&rv/t<=0.2)?'#f59e0b':'var(--green)'));
+    var right=t>0?(_fuelNum(used)+' of '+_fuelNum(t)+' used \u00b7 <b>'+_fuelNum(rv)+' left</b>'):('<b>'+_fuelNum(rv)+' left</b>');
+    return '<div onclick="event.stopPropagation();'+go+'" style="cursor:pointer;margin-top:9px">'
+      +'<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;font-weight:700;color:var(--text)"><span>'+icon+' '+lbl+'</span><span style="color:var(--sub);font-weight:600">'+right+'</span></div>'
+      +'<div style="height:7px;border-radius:999px;background:var(--border);overflow:hidden;margin-top:4px"><div style="height:100%;width:'+pct+'%;background:'+col+';border-radius:999px"></div></div>'
+      +'</div>';
   };
   var badge = exhausted ? '<span style="font-size:10.5px;font-weight:800;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:20px;padding:3px 9px">'+(expired?'Expired':'Used up')+'</span>'
             : frozen   ? '<span style="font-size:10.5px;font-weight:800;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:20px;padding:3px 9px">\u2744\uFE0F Frozen</span>'
@@ -23374,9 +23424,11 @@ function _campFuelCardHTML(cp){
   var h = '<div id="fuelDetail_'+cp.id+'" style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:14px">'
     + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
     + '<span style="font-size:13.5px;font-weight:800;color:var(--text);flex:1">\uD83E\uDD16 AI Sales Engine \u00b7 '+((w.label||'Free bundle'))+'</span>'+badge+'</div>'
-    + '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px">'
-    + meter('AI calls',w.ai_minutes)+meter('Texts',w.sms)+meter('Emails',w.emails)+meter('My calls',w.ivr_calls)
-    + '</div>';
+    + meter('\uD83E\uDD16','AI calls', w.ai_minutes, 'ai_minutes', 'openMinutesReport()')
+    + meter('\uD83D\uDCAC','Texts',    w.sms,        'sms',        "openUsageReport('sms')")
+    + meter('\uD83D\uDCE7','Emails',   w.emails,     'emails',     "openUsageReport('email')")
+    + meter('\uD83D\uDCDE','My calls', w.ivr_calls,  'ivr_calls',  "openUsageReport('calls')")
+    + '<div onclick="event.stopPropagation();openFuelHistory(\''+String(cp.id)+'\')" style="text-align:right;font-size:11.5px;font-weight:800;color:#6d28d9;margin-top:10px;cursor:pointer">\uD83D\uDCDC Balance history \u203A</div>';
   if(w.expires_at) h += '<div style="font-size:11px;color:var(--sub);margin-top:8px">Valid until '+new Date(w.expires_at).toLocaleDateString('en-CA',{year:'numeric',month:'short',day:'numeric'})+'</div>';
   if(exhausted){
     h += '<div style="font-size:12px;color:var(--sub);margin-top:9px;line-height:1.5">'+(expired?'This bundle has expired.':'This campaign\u2019s AI fuel is used up.')+' Add balance for a fresh free bundle, or upgrade so your AI never pauses.</div>'
