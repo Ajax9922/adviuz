@@ -15518,7 +15518,7 @@ async function startAiCall(leadId, phone, agent, firstName){
   try {
     var res = await sbFetch('/functions/v1/ai-call-lead', { method:'POST', body: JSON.stringify({ lead_id: dbId }) });
     var data = await res.json().catch(function(){ return {}; });
-    if(res.ok && data && data.ok){
+    if(res.ok && data && data.ok && !data.blocked && !data.skipped && !data.deferred){
       showToast('🤖 AI is calling '+(firstName||'the lead')+' now');
       // Open the live call screen immediately. The live row only appears once
       // the phone actually starts ringing, so give it extra patience (below).
@@ -15526,9 +15526,11 @@ async function startAiCall(leadId, phone, agent, firstName){
         window._liveDetailAllow = 12;
         openLiveCall(data.call_id, firstName||'AI call');
       }
+    } else if(data && data.deferred){
+      showToast('⏳ AI call postponed: '+(data.reason||'the lead is busy right now'));
     } else {
-      var msg = (data && (data.skipped || data.error)) ? (': '+(data.skipped||data.error)) : '';
-      showToast('Could not start AI call'+msg);
+      var msg = (data && (data.skipped || data.error || data.reason)) ? (': '+(data.skipped||data.error||data.reason)) : '';
+      showToast('🚫 AI call did not start'+msg);
     }
   } catch(e){ showToast('Error starting AI call'); }
 }
