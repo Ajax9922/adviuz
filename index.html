@@ -4293,7 +4293,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-14 ai-call-sheet-1';
+var APP_VERSION = 'v2026-08-14 fuel-bars-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -21476,7 +21476,8 @@ function clientCampaignListHTML() {
   //    Sits directly above the auto-call toggle. Bar fills as minutes are
   //    used. Purple normally; amber when <=100 min left; red when <=25 left.
   //    Hidden entirely for non-AI clients. ──
-  if (window._clientAiEnabled) {
+  // Bundle clients have no monthly allowance — a '0 of 0' card only confuses.
+  if (window._clientAiEnabled && (Number(window._clientAiTotal)||0) > 0) {
     var _aiTot  = Number(window._clientAiTotal)||0;
     var _aiBal  = Number(window._clientAiMinutes)||0;
     var _aiUsed = Math.max(0, _aiTot - _aiBal);
@@ -23158,13 +23159,37 @@ function crRemove(btn){ var r=btn.closest('.cr-row'); if(r) r.remove(); }
 // ── Post-meeting review (Stage 3D) ──
 // ── AI fuel (allowance wallets): meters + frozen state ──
 window._aiWallets = null;
+window._aiLedger = null;
+window._aiTotals = {};
 async function loadAiFuel(){
   try{
     var r = await sbFetch('/rest/v1/rpc/my_ai_wallets',{method:'POST',body:'{}'});
     if(!r.ok) return;
     window._aiWallets = await r.json();
+    // Grant history -> per-campaign totals, so the bars can show used-of-total.
+    try{
+      var r2 = await sbFetch('/rest/v1/rpc/my_ai_wallet_ledger',{method:'POST',body:'{}'});
+      if(r2.ok){
+        window._aiLedger = await r2.json();
+        var tot={};
+        (window._aiLedger||[]).forEach(function(g){
+          if(!g.campaign_id) return;
+          var k=String(g.campaign_id);
+          if(!tot[k]) tot[k]={ai_minutes:0,sms:0,emails:0};
+          tot[k].ai_minutes += Math.max(0, Number(g.ai_minutes)||0);
+          tot[k].sms        += Math.max(0, Number(g.sms)||0);
+          tot[k].emails     += Math.max(0, Number(g.emails)||0);
+        });
+        window._aiTotals = tot;
+      }
+    }catch(_e){}
     paintAiFuel();
   }catch(e){}
+}
+function openUsageReport(kind){
+  window._rptTab = (kind==='sms') ? 'sms' : (kind==='email' ? 'email' : 'calls');
+  var el = document.getElementById('tab-reports');
+  if (typeof goTab === 'function') goTab('reports', el);
 }
 function _fuelNum(n){ n=Number(n)||0; return n<0?0:(n>=1000?(Math.round(n/100)/10)+'k':String(Math.round(n))); }
 function paintAiFuel(){
@@ -23174,12 +23199,25 @@ function paintAiFuel(){
     var el = document.getElementById('fuel_'+w.campaign_id);
     if(!el) return;
     var frozen = !w.campaign_active;
-    var chips = '\uD83E\uDD16 '+_fuelNum(w.ai_minutes)+' AI min \u00b7 '+_fuelNum(w.sms)+' texts \u00b7 '+_fuelNum(w.emails)+' emails';
+    var tot = (window._aiTotals||{})[String(w.campaign_id)] || null;
+    var bar = function(icon,label,rem,total,go){
+      var t=Number(total)||0, rv=Math.max(0,Number(rem)||0);
+      var used=t>0?Math.max(0,t-rv):0;
+      var pct=t>0?Math.min(100,Math.round(used/t*100)):0;
+      var col= rv<=0?'#dc2626':((t>0 && rv/t<=0.2)?'#f59e0b':'#059669');
+      var right = t>0 ? (_fuelNum(used)+' of '+_fuelNum(t)+' used \u00b7 '+_fuelNum(rv)+' left') : (_fuelNum(rv)+' left');
+      return '<div onclick="event.stopPropagation();'+go+'" style="cursor:pointer;margin-top:7px">'
+        + '<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;font-weight:700;color:var(--text)"><span>'+icon+' '+label+'</span><span style="color:var(--sub);font-weight:600">'+right+'</span></div>'
+        + '<div style="height:6px;border-radius:999px;background:var(--border);overflow:hidden;margin-top:3px"><div style="height:100%;width:'+pct+'%;background:'+col+';border-radius:999px"></div></div>'
+        + '</div>';
+    };
     el.style.display='block';
-    el.innerHTML = '<div style="display:flex;align-items:center;gap:8px;background:'+(frozen?'#eff6ff':'#f5f3ff')+';border:1px solid '+(frozen?'#bfdbfe':'#ddd6fe')+';border-radius:11px;padding:9px 12px;cursor:pointer">'
-      + '<span style="font-size:12px;font-weight:800;color:'+(frozen?'#1d4ed8':'#6d28d9')+';flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
-      + (frozen?'\u2744\uFE0F AI fuel frozen \u2014 safe: ':'')+chips+'</span>'
-      + '<span style="font-size:11px;font-weight:700;color:var(--sub);flex-shrink:0">\u203A</span></div>';
+    el.innerHTML = '<div style="background:'+(frozen?'#eff6ff':'#f5f3ff')+';border:1px solid '+(frozen?'#bfdbfe':'#ddd6fe')+';border-radius:11px;padding:9px 12px 11px">'
+      + (frozen?'<div style="font-size:11.5px;font-weight:800;color:#1d4ed8">\u2744\uFE0F AI fuel frozen \u2014 nothing is being spent</div>':'')
+      + bar('\uD83E\uDD16','AI calls', w.ai_minutes, tot&&tot.ai_minutes, 'openMinutesReport()')
+      + bar('\uD83D\uDCAC','Texts',    w.sms,        tot&&tot.sms,        "openUsageReport('sms')")
+      + bar('\uD83D\uDCE7','Emails',   w.emails,     tot&&tot.emails,     "openUsageReport('email')")
+      + '</div>';
   });
 }
 function _campFuelCardHTML(cp){
