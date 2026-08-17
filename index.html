@@ -1064,6 +1064,35 @@ body.impersonating .ls-topbar{padding-top:8px}
 /* Budget bar */
 .camp-budget{padding:8px 14px 12px;background:var(--white)}
 
+
+/* ═══ Set Appointment calendar ═══ */
+.cal-wrap{background:var(--white);border:1px solid var(--border);border-radius:14px;padding:12px}
+.cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.cal-title{font-size:14px;font-weight:800;color:var(--text)}
+.cal-nav{width:34px;height:34px;border-radius:10px;border:1px solid var(--border);background:var(--white);color:var(--text);font-size:20px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:var(--f)}
+.cal-nav:disabled{opacity:.35;cursor:default}
+.cal-dow{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px}
+.cal-dow span{text-align:center;font-size:10.5px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.04em}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal-day{aspect-ratio:1;border-radius:10px;border:1px solid transparent;background:transparent;font-size:13px;font-weight:700;color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;position:relative;font-family:var(--f);padding:0}
+.cal-day.off{color:var(--muted,#b0b7c3);cursor:default;background:transparent}
+.cal-day.open{background:var(--bg);border-color:var(--border)}
+.cal-day.open:hover{border-color:var(--green)}
+.cal-day.full{background:var(--bg);color:var(--sub);text-decoration:line-through;cursor:default}
+.cal-day.today::after{content:'';position:absolute;bottom:4px;left:50%;transform:translateX(-50%);width:4px;height:4px;border-radius:50%;background:var(--green)}
+.cal-day.sel{background:var(--green);border-color:var(--green);color:#fff}
+.cal-day.booked::before{content:'';position:absolute;top:4px;right:4px;width:6px;height:6px;border-radius:50%;background:var(--blue)}
+.cal-slots{display:flex;flex-wrap:wrap;gap:8px}
+.cal-slot{border:1px solid var(--border);background:var(--white);color:var(--text);border-radius:10px;padding:9px 12px;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--f);min-width:84px;text-align:center}
+.cal-slot:hover{border-color:var(--green)}
+.cal-slot.sel{background:var(--green);border-color:var(--green);color:#fff}
+.cal-loading{opacity:.55;pointer-events:none}
+
+/* Activity filter chips: swipe on mobile, wrap on desktop (no hidden scrollbar trap) */
+.act-chips{display:flex;gap:6px;overflow-x:auto;margin:0 -16px;padding:0 16px 10px;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+.act-chips::-webkit-scrollbar{height:4px}
+.act-chips::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+@media (min-width:900px){ .act-chips{flex-wrap:wrap;overflow-x:visible;padding-bottom:6px} }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -3499,11 +3528,26 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
     <div class="sheet-head"><div class="sheet-title">Set Appointment</div><button class="sheet-x" onclick="closeSheet('apptSh')">&#x2715;</button></div>
     <div class="sh-body" style="padding-bottom:calc(32px + env(safe-area-inset-bottom,0px))">
       <div id="apptTzNote" style="font-size:12px;color:var(--sub);margin-bottom:14px;line-height:1.6">Pick the date and time in the lead's local time.</div>
-      <div class="flbl" style="margin-bottom:6px">Date</div>
-      <input class="finp" type="date" id="apptDate" style="margin-bottom:14px">
-      <div class="flbl" style="margin-bottom:6px">Time</div>
-      <input class="finp" type="time" id="apptTime" style="margin-bottom:18px">
-      <button id="apptSaveBtn" class="btn btn-primary" onclick="saveAppt()" style="width:100%;justify-content:center;margin-bottom:8px">Save appointment</button>
+      <input type="hidden" id="apptDate"><input type="hidden" id="apptTime">
+      <div class="flbl" style="margin-bottom:6px">Appointment length</div>
+      <select class="finp" id="apptDur" onchange="calDurChange()" style="margin-bottom:14px">
+        <option value="15">15 min</option><option value="20">20 min</option><option value="30">30 min</option><option value="45">45 min</option>
+        <option value="60" selected>1 hour</option><option value="75">1 hr 15 min</option><option value="90">1 hr 30 min</option><option value="120">2 hours</option>
+      </select>
+      <div class="cal-wrap">
+        <div class="cal-head">
+          <button type="button" class="cal-nav" onclick="calMove(-1)" aria-label="Previous month">&#8249;</button>
+          <div class="cal-title" id="calTitle">&nbsp;</div>
+          <button type="button" class="cal-nav" onclick="calMove(1)" aria-label="Next month">&#8250;</button>
+        </div>
+        <div class="cal-dow"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
+        <div class="cal-grid" id="calGrid"></div>
+        <div id="calSlotsHead" class="flbl" style="margin:12px 0 6px;display:none">Available times</div>
+        <div id="calSlots" class="cal-slots"></div>
+        <div id="calMsg" style="font-size:12.5px;color:var(--sub);line-height:1.5;text-align:center;padding:10px 4px"></div>
+      </div>
+      <div id="calPicked" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:11px 13px;font-size:13.5px;font-weight:700;color:var(--text);margin:12px 0 4px;text-align:center"></div>
+      <button id="apptSaveBtn" class="btn btn-primary" onclick="saveAppt()" style="width:100%;justify-content:center;margin:12px 0 8px" disabled>Save appointment</button>
       <button id="apptCancelBtn" onclick="apptCancelStart()" style="display:none;width:100%;padding:12px;border-radius:12px;border:1.5px solid #fecaca;background:var(--white);color:var(--red);font-size:14px;font-weight:700;cursor:pointer;font-family:var(--f);margin-bottom:10px">Cancel appointment…</button>
       <div id="apptCancelBox" style="display:none;background:#fef2f2;border:1.5px solid #fecaca;border-radius:14px;padding:14px 15px;margin-bottom:10px">
         <div id="apptCancelTxt" style="font-size:13px;color:var(--text);line-height:1.6;margin-bottom:10px"></div>
@@ -4313,7 +4357,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-14 ai-minutes-sheet-1';
+var APP_VERSION = 'v2026-08-17 booking-calendar-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -5704,6 +5748,7 @@ function mapLead(l, i) {
     partner_id: l.partner_id || null,
     meeting_date: l.meeting_date || null,
     appointment_at: l.appointment_at || null,
+    appointment_duration_min: l.appointment_duration_min || null,
     appt_reminders_sent: l.appt_reminders_sent || null,
     timezone: l.timezone || null,
     meeting_outcome: l.meeting_outcome || null,
@@ -14129,7 +14174,7 @@ function renderLeadScreen(id) {
   h += '</div>';
 
   // Filter chips row (horizontal scroll)
-  h += '<div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:10px;scrollbar-width:none;-ms-overflow-style:none;margin:0 -16px;padding:0 16px 10px">';
+  h += '<div class="act-chips" onwheel="if(this.scrollWidth>this.clientWidth&&Math.abs(event.deltaY)>Math.abs(event.deltaX)){this.scrollLeft+=event.deltaY;event.preventDefault();}">';
   filterTabs.forEach(function(tab){
     var isActive = actFilter === tab.k;
     var count = (tab.k==='payment') ? _pmtItems.length : (tab.k==='sched') ? _schedItems.length : acts.filter(filterGroups[tab.k]).length;
@@ -23095,21 +23140,19 @@ function openApptSheet(leadId){
   var note = document.getElementById('apptTzNote');
   if(note) note.innerHTML = 'Pick the date and time in the lead\'s local time — <b>'+tzShortLabel(tz)+'</b>. We\'ll remind them on their own clock, wherever they are.';
   var dEl=document.getElementById('apptDate'), tEl=document.getElementById('apptTime');
-  if(l.appointment_at){ var z=isoToZonedParts(l.appointment_at, tz); if(dEl)dEl.value=z.date; if(tEl)tEl.value=z.time; }
-  else {
-    // No appointment yet → default to today (lead's clock) at 10:00 so the
-    // fields are never blank and it's obvious how to use them.
-    var nowZ = (typeof isoToZonedParts==='function') ? isoToZonedParts(new Date().toISOString(), tz) : {date:'',time:''};
-    if(dEl) dEl.value = nowZ.date || '';
-    if(tEl) tEl.value = '10:00';
-  }
-  // Belt-and-suspenders: if anything left the date blank, fall back to the
-  // phone's local date in YYYY-MM-DD so the field always shows a value.
-  if(dEl && !dEl.value){
-    var _n=new Date();
-    dEl.value=_n.getFullYear()+'-'+String(_n.getMonth()+1).padStart(2,'0')+'-'+String(_n.getDate()).padStart(2,'0');
-  }
-  if(tEl && !tEl.value){ tEl.value='10:00'; }
+  if(dEl) dEl.value=''; if(tEl) tEl.value='';
+  // Real-availability calendar: same engine the AI uses (clinic hours, gaps, team size).
+  // The clinic's own timezone drives the calendar; the reminder engine still uses the lead's clock.
+  var _campTz = tz;
+  try {
+    var _cps=[].concat(window._clientCampaigns||[], (window._adminData&&window._adminData.campaigns)||[]);
+    var _cp=_cps.find(function(c){ return String(c.id)===String(l.campaign_id||l.campaign); });
+    var _st=_cp&&_cp.settings; if(typeof _st==='string'){ try{ _st=JSON.parse(_st); }catch(_e2){ _st=null; } }
+    _campTz = (_st&&_st.ai&&_st.ai.booking&&_st.ai.booking.tz) || (_st&&_st.ai&&_st.ai.tz) || tz;
+  } catch(_e){}
+  window._apptTz = _campTz;
+  if(note) note.innerHTML = 'Pick an open day, then a time. Times are shown in the clinic\'s time zone \u2014 <b>'+tzShortLabel(_campTz)+'</b>. Only real openings are shown.';
+  calBoot(l, _campTz);
   // Contextual buttons: an existing appointment can be rescheduled or cancelled.
   var sb=document.getElementById('apptSaveBtn');
   if(sb) sb.textContent = l.appointment_at ? 'Reschedule appointment' : 'Save appointment';
@@ -23215,24 +23258,126 @@ async function apptCancelConfirm(){
   if(go){ go.textContent='Yes, cancel it'; go.disabled=false; }
 }
 
+// ═══ SET APPOINTMENT — real-availability calendar (same engine as the AI) ═══
+window._cal = { y:0, m:0, tz:'America/Toronto', slots:{}, open:[], data:null, selDate:'', selIso:'', dur:60, cache:{}, campId:'', leadId:'', busy:false };
+function _calPad(n){ return String(n).padStart(2,'0'); }
+function _calMonthKey(y,m){ return y+'-'+_calPad(m+1); }
+function calBoot(l, tz){
+  var c = window._cal;
+  c.tz = tz; c.slots = {}; c.open = []; c.data = null; c.selDate = ''; c.selIso = ''; c.cache = {};
+  c.campId = String(l.campaign_id || l.campaign || ''); c.leadId = String(l.dbId || l.id || '');
+  var now = isoToZonedParts(new Date().toISOString(), tz);
+  var start = l.appointment_at ? isoToZonedParts(l.appointment_at, tz).date : now.date;
+  var parts = start.split('-'); c.y = parseInt(parts[0],10); c.m = parseInt(parts[1],10)-1;
+  var durSel = document.getElementById('apptDur');
+  c.dur = (l.appointment_duration_min && Number(l.appointment_duration_min)) || 60;
+  if (durSel) durSel.value = String([15,20,30,45,60,75,90,120].indexOf(c.dur)>=0 ? c.dur : 60);
+  var picked = document.getElementById('calPicked'); if (picked){ picked.style.display='none'; picked.textContent=''; }
+  var sb = document.getElementById('apptSaveBtn'); if (sb) sb.disabled = true;
+  calLoad(true);
+}
+function calMove(dir){
+  var c = window._cal; if (c.busy) return;
+  c.m += dir; if (c.m < 0){ c.m = 11; c.y--; } if (c.m > 11){ c.m = 0; c.y++; }
+  c.selDate=''; c.selIso=''; var sb=document.getElementById('apptSaveBtn'); if(sb) sb.disabled=true;
+  var picked=document.getElementById('calPicked'); if(picked){ picked.style.display='none'; }
+  calLoad(false);
+}
+function calDurChange(){
+  var c = window._cal; var el = document.getElementById('apptDur');
+  c.dur = parseInt(el && el.value, 10) || 60;
+  c.cache = {}; c.selIso=''; var sb=document.getElementById('apptSaveBtn'); if(sb) sb.disabled=true;
+  var picked=document.getElementById('calPicked'); if(picked){ picked.style.display='none'; }
+  calLoad(false, true);
+}
+async function calLoad(first, keepDay){
+  var c = window._cal; var key = _calMonthKey(c.y,c.m) + '|' + c.dur;
+  var grid = document.getElementById('calGrid'), title = document.getElementById('calTitle'), msg = document.getElementById('calMsg');
+  if (title) title.textContent = new Date(c.y, c.m, 1).toLocaleString('en-CA', { month:'long', year:'numeric' });
+  if (!c.campId){ if (grid) grid.innerHTML=''; if (msg) msg.textContent = 'This lead has no campaign — a campaign is needed for booking hours.'; return; }
+  if (c.cache[key]){ c.data = c.cache[key]; calRender(keepDay); return; }
+  c.busy = true; if (grid) grid.classList.add('cal-loading'); if (msg) msg.textContent = 'Checking availability\u2026';
+  try {
+    var r = await sbFetch('/functions/v1/retell-tools?action=slots', { method:'POST', body: JSON.stringify({ campaign_id: c.campId, lead_id: c.leadId, month: _calMonthKey(c.y,c.m), duration_min: c.dur }) });
+    var j = await r.json().catch(function(){ return {}; });
+    if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP '+r.status));
+    c.data = j; c.cache[key] = j; c.tz = j.tz || c.tz;
+    if (first && j.default_duration_min && !c._durSetOnce){ c._durSetOnce = true; }
+    calRender(keepDay);
+  } catch(e){
+    if (msg) msg.textContent = 'Could not load availability \u2014 ' + (e && e.message ? e.message : 'try again');
+    if (grid) grid.innerHTML = '';
+  } finally { c.busy = false; if (grid) grid.classList.remove('cal-loading'); }
+}
+function calRender(keepDay){
+  var c = window._cal, d = c.data || {}; var grid = document.getElementById('calGrid'), msg = document.getElementById('calMsg');
+  var slots = d.slots || {}, open = d.open_days || [];
+  var todayStr = isoToZonedParts(new Date().toISOString(), c.tz).date;
+  var first = new Date(c.y, c.m, 1).getDay(); var days = new Date(c.y, c.m+1, 0).getDate();
+  var mk = _calMonthKey(c.y,c.m);
+  // Lead's existing appointment (to mark it)
+  var l = leads.find(function(x){ return x.id===window._apptLeadId; });
+  var bookedDate = (l && l.appointment_at) ? isoToZonedParts(l.appointment_at, c.tz).date : '';
+  var h = '';
+  for (var i=0;i<first;i++) h += '<span></span>';
+  for (var dd=1; dd<=days; dd++){
+    var ds = mk+'-'+_calPad(dd);
+    var isOpen = open.indexOf(ds) >= 0, has = !!(slots[ds] && slots[ds].length);
+    var cls = 'cal-day' + (has ? ' open' : (isOpen ? ' full' : ' off')) + (ds===todayStr ? ' today' : '') + (ds===c.selDate ? ' sel' : '') + (ds===bookedDate ? ' booked' : '');
+    h += '<button type="button" class="'+cls+'" '+(has ? 'onclick="calPickDay(\''+ds+'\')"' : 'disabled')+' title="'+(has ? (slots[ds].length+' open') : (isOpen ? 'Fully booked' : 'No slots available'))+'">'+dd+'</button>';
+  }
+  if (grid) grid.innerHTML = h;
+  var prev = document.querySelector('.cal-nav'); if (prev){ prev.disabled = (mk <= todayStr.slice(0,7)); }
+  var openCount = Object.keys(slots).length;
+  if (msg) msg.textContent = openCount ? 'Tap a day to see open times \u00b7 times shown in '+tzShortLabel(c.tz) : 'No open times this month for a '+c.dur+'-minute appointment. Try another month or a shorter length.';
+  if (keepDay && c.selDate && slots[c.selDate]) calPickDay(c.selDate); else { var sh=document.getElementById('calSlotsHead'); if(sh) sh.style.display='none'; var ss=document.getElementById('calSlots'); if(ss) ss.innerHTML=''; }
+}
+function calPickDay(ds){
+  var c = window._cal; c.selDate = ds; c.selIso = '';
+  var slots = (c.data && c.data.slots && c.data.slots[ds]) || [];
+  document.querySelectorAll('.cal-day.sel').forEach(function(b){ b.classList.remove('sel'); });
+  document.querySelectorAll('.cal-day').forEach(function(b){ if (b.textContent===String(parseInt(ds.slice(8),10)) && !b.disabled) b.classList.add('sel'); });
+  var head = document.getElementById('calSlotsHead'), box = document.getElementById('calSlots');
+  if (head) head.style.display = slots.length ? 'block' : 'none';
+  if (box) box.innerHTML = slots.map(function(iso){
+    var z = isoToZonedParts(iso, c.tz); var hh = parseInt(z.time.slice(0,2),10), mm = z.time.slice(3,5);
+    var lbl = ((hh%12)||12)+':'+mm+' '+(hh>=12?'PM':'AM');
+    return '<button type="button" class="cal-slot" data-iso="'+iso+'" onclick="calPickSlot(this)">'+lbl+'</button>';
+  }).join('');
+  var sb=document.getElementById('apptSaveBtn'); if(sb) sb.disabled=true;
+  var picked=document.getElementById('calPicked'); if(picked){ picked.style.display='none'; }
+}
+function calPickSlot(btn){
+  var c = window._cal; c.selIso = btn.dataset.iso;
+  document.querySelectorAll('.cal-slot.sel').forEach(function(b){ b.classList.remove('sel'); }); btn.classList.add('sel');
+  var z = isoToZonedParts(c.selIso, c.tz);
+  var dEl = document.getElementById('apptDate'), tEl = document.getElementById('apptTime');
+  if (dEl) dEl.value = z.date; if (tEl) tEl.value = z.time;
+  var picked = document.getElementById('calPicked');
+  if (picked){ picked.style.display='block'; picked.textContent = fmtApptLocal(c.selIso, c.tz) + ' \u00b7 ' + (c.dur<60 ? c.dur+' min' : (c.dur%60===0 ? (c.dur/60)+' hr' : (c.dur/60).toFixed(1)+' hr')); }
+  var sb=document.getElementById('apptSaveBtn'); if(sb) sb.disabled=false;
+}
+
 async function saveAppt(){
   var leadId = window._apptLeadId;
   var l = leads.find(function(x){ return x.id===leadId; });
   if(!l){ closeSheet('apptSh'); return; }
   var _prevAppt = l.appointment_at || null;
   var d=(document.getElementById('apptDate')||{}).value, t=(document.getElementById('apptTime')||{}).value;
-  if(!d || !t){ showToast('Please pick a date and time'); return; }
+  if(!d || !t){ showToast('Pick an open day and a time first'); return; }
   var tz = window._apptTz || l.timezone || tzFromPhone(l.ph) || 'America/Toronto';
-  var iso = zonedToUtcISO(d, t, tz);
+  var iso = (window._cal && window._cal.selIso) ? window._cal.selIso : zonedToUtcISO(d, t, tz);
+  var _durMin = (window._cal && window._cal.dur) || 60;
   var btn=document.getElementById('apptSaveBtn'); if(btn){ btn.textContent='Saving…'; btn.disabled=true; }
   try{
     var _sn = parseInt((String(l.stage||'').match(/^(\d+)/)||[])[1]||'0',10);
     var _bump = (isNaN(_sn) || _sn < 5);
-    var _patch = { appointment_at: iso, sms_consent: true, updated_at:new Date().toISOString(), meeting_outcome:null, visit_locked_at:null, meeting_prompt_sent_at:null };
+    var _patch = { appointment_at: iso, appointment_duration_min: _durMin, sms_consent: true, updated_at:new Date().toISOString(), meeting_outcome:null, visit_locked_at:null, meeting_prompt_sent_at:null };
     if(_bump){ _patch.stage='5. Meeting Booked'; _patch.stage_code='meeting_booked'; _patch.stage_changed_at=new Date().toISOString(); }
     var res = await sbFetch('/rest/v1/leads?id=eq.'+l.dbId, { method:'PATCH', body: JSON.stringify(_patch) });
     if(!res.ok) throw new Error('save failed');
     l.appointment_at = iso;
+    l.appointment_duration_min = _durMin;
     l.ok = true;   // reminders require SMS consent — booking implies wanting them
     l.meeting_outcome = null; l.visit_locked_at = null;
     if(_bump){ l.stage='5. Meeting Booked'; l.stage_code='meeting_booked'; }
@@ -24310,6 +24455,7 @@ function csOpenMenu(){
       + _csMenuRow('\uD83D\uDD14', 'Lead Alerts',          'Phone &amp; email for this campaign\u2019s leads', "csOpenPage('alerts')")
       + ((window._isAdviuzStaff || window._isAccountOwner) ? _csMenuRow('\uD83D\uDCE7', 'Email Setup', 'Send address, logo &amp; footer for this campaign', 'csOpenEmailSender()') : '')
       + ((window._isAdviuzStaff || window._isAccountOwner) ? _csMenuRow('\uD83E\uDD16', 'AI Employee', 'When the AI answers &amp; calls for this campaign', "csOpenPage('ai')") : '')
+      + ((window._isAdviuzStaff || window._isAccountOwner) ? _csMenuRow('\uD83D\uDDD3\uFE0F', 'Booking Settings', 'Hours, appointment length, gaps &amp; team size \u2014 used by the AI and the calendar', "csOpenPage('booking')") : '')
       + ((window._isAdviuzStaff || window._isAccountOwner) ? _csMenuRow('\uD83D\uDCD6', 'Automated Follow-ups', 'Your stage-by-stage follow-up messages, written by AI', 'openPlaybook()') : '');
   }
   _csFooter('menu');
@@ -24415,6 +24561,11 @@ function csOpenPage(page){
     csListRender('phones');
     csListRender('emails');
   }
+  else if (page === 'booking'){
+    if (t) t.textContent = (window._csCpName||'Campaign') + ' \u00b7 Booking Settings';
+    body.innerHTML = bkRenderPage(((cp.settings && cp.settings.ai) || {}).booking || null, ((cp.settings && cp.settings.ai) || {}).tz || 'America/Toronto');
+    bkRenderDays();
+  }
   else if (page === 'ai'){
     if (t) t.textContent = (window._csCpName||'Campaign') + ' \u00b7 AI Employee';
     var _ai = (cp.settings && cp.settings.ai) || {};
@@ -24496,6 +24647,131 @@ function csOpenPage(page){
   _csFooter(page);
   var b = document.querySelector('#campSettingsSh .sh-body'); if (b) b.scrollTop = 0;
 }
+// ═══ BOOKING SETTINGS (per campaign) — one source of truth for the AI and the calendar ═══
+var BK_DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+var BK_DAY_LABEL = { Mon:'Monday', Tue:'Tuesday', Wed:'Wednesday', Thu:'Thursday', Fri:'Friday', Sat:'Saturday', Sun:'Sunday' };
+function _bkEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+function _bkWeeksLabel(w){
+  if(!w || !w.length) return 'every';
+  var k = w.slice().sort().join(',');
+  if(k==='1,3') return '13'; if(k==='2,4') return '24'; if(k==='1') return '1'; if(k==='2') return '2'; if(k==='3') return '3'; if(k==='4') return '4'; if(k==='5') return '5';
+  return 'every';
+}
+function _bkWeeksFromLabel(l){
+  return ({ 'every':[], '13':[1,3], '24':[2,4], '1':[1], '2':[2], '3':[3], '4':[4], '5':[5] })[l] || [];
+}
+// Legacy support: old {days,start,end} config → per-day hours
+function _bkNormalize(bk, tz){
+  var out = { tz: (bk&&bk.tz)||tz||'America/Toronto', slot_min: (bk&&Number(bk.slot_min))||30, default_duration_min: (bk&&Number(bk.default_duration_min))||60,
+    buffer_min: (bk&&bk.buffer_min!=null)?Number(bk.buffer_min):0, capacity: (bk&&Number(bk.capacity))||1,
+    min_notice_hours: (bk&&bk.min_notice_hours!=null)?Number(bk.min_notice_hours):2, max_days_ahead: (bk&&Number(bk.max_days_ahead))||60, hours:{} };
+  if(bk && bk.hours && typeof bk.hours==='object' && Object.keys(bk.hours).length){
+    BK_DAYS.forEach(function(d){ if(Array.isArray(bk.hours[d]) && bk.hours[d].length) out.hours[d]=bk.hours[d].map(function(w){ return { start:w.start||'09:00', end:w.end||'17:00', weeks:Array.isArray(w.weeks)?w.weeks.map(Number):[] }; }); });
+  } else if (bk && Array.isArray(bk.days) && bk.days.length){
+    var st=String(bk.start!=null?bk.start:9).padStart(2,'0')+':00', en=String(bk.end!=null?bk.end:17).padStart(2,'0')+':00';
+    bk.days.forEach(function(d){ out.hours[d]=[{start:st,end:en,weeks:[]}]; });
+  } else if (!bk) {
+    ['Mon','Tue','Wed','Thu','Fri'].forEach(function(d){ out.hours[d]=[{start:'09:00',end:'17:00',weeks:[]}]; });
+  }
+  return out;
+}
+window._bkDraft = null;
+function bkRenderPage(bk, tz){
+  var cfg = _bkNormalize(bk, tz);
+  window._bkDraft = cfg;
+  var _lbl = function(x){ return '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin:14px 0 5px">'+x+'</div>'; };
+  var _num = function(id, val, min, max, step, unit){
+    return '<div style="display:flex;align-items:center;gap:8px"><input id="'+id+'" type="number" class="cs-in" min="'+min+'" max="'+max+'" step="'+step+'" value="'+val+'" style="margin-bottom:0;width:110px;text-align:center"><span style="font-size:13px;color:var(--sub)">'+unit+'</span></div>';
+  };
+  var _tzOpts = [['America/Toronto','Eastern (Toronto)'],['America/Winnipeg','Central (Winnipeg)'],['America/Regina','Saskatchewan (Regina)'],['America/Edmonton','Mountain (Edmonton)'],['America/Vancouver','Pacific (Vancouver)'],['America/Halifax','Atlantic (Halifax)'],['America/St_Johns','Newfoundland (St. John\'s)']]
+    .map(function(o){ return '<option value="'+o[0]+'"'+(cfg.tz===o[0]?' selected':'')+'>'+o[1]+'</option>'; }).join('');
+  var slotOpts = [15,20,30,45,60].map(function(n){ return '<option value="'+n+'"'+(cfg.slot_min===n?' selected':'')+'>Every '+n+' min</option>'; }).join('');
+  var durOpts = [15,20,30,45,60,75,90,120].map(function(n){ return '<option value="'+n+'"'+(cfg.default_duration_min===n?' selected':'')+'>'+(n<60?n+' min':(n%60===0?(n/60)+' hr':(n/60).toFixed(1)+' hr'))+'</option>'; }).join('');
+  return ''
+    + '<div class="cs-note">These rules drive <b>everything</b> that books time for this campaign — your AI receptionist offers only these slots, and the Set Appointment calendar shows the same openings. Change it here, and both update instantly.</div>'
+    + '<div class="cs-h" style="margin-top:6px">\uD83D\uDD52 Days &amp; hours</div>'
+    + '<div class="cs-note">Turn a day on, set the hours, and choose which weeks it applies to (for example, only the 2nd and 4th Saturday). Tap <b>+ hours</b> to add a second window on the same day, like a lunch break.</div>'
+    + '<div id="bkDays"></div>'
+    + '<div class="cs-h" style="margin-top:20px">\uD83D\uDCCF Appointment length &amp; gaps</div>'
+    + _lbl('Default appointment length') + '<select id="bkDur" class="cs-in" style="margin-bottom:0">'+durOpts+'</select>'
+    + '<div class="cs-note" style="margin-top:6px">You can still change the length for any single booking in the calendar.</div>'
+    + _lbl('Gap between appointments') + _num('bkBuf', cfg.buffer_min, 0, 120, 5, 'minutes to reset between visits')
+    + _lbl('Time-slot spacing') + '<select id="bkSlot" class="cs-in" style="margin-bottom:0">'+slotOpts+'</select>'
+    + '<div class="cs-note" style="margin-top:6px">How often a new appointment can start \u2014 e.g. every 30 min gives 10:00, 10:30, 11:00\u2026</div>'
+    + '<div class="cs-h" style="margin-top:20px">\uD83D\uDC65 Team size</div>'
+    + _lbl('Appointments at the same time') + _num('bkCap', cfg.capacity, 1, 20, 1, 'at once')
+    + '<div class="cs-note" style="margin-top:6px">Set this to the number of people (or rooms) that can see a patient at the same time. <b>1</b> = one provider. <b>3</b> = three staff, so three people can book 10:00 AM.</div>'
+    + '<div class="cs-h" style="margin-top:20px">\u23F3 Booking rules</div>'
+    + _lbl('Minimum notice') + _num('bkNotice', cfg.min_notice_hours, 0, 168, 1, 'hours ahead \u2014 nothing sooner than this')
+    + _lbl('How far ahead people can book') + _num('bkAhead', cfg.max_days_ahead, 1, 365, 1, 'days')
+    + _lbl('Time zone for these hours') + '<select id="bkTz" class="cs-in" style="margin-bottom:0">'+_tzOpts+'</select>'
+    + '';
+}
+function bkRenderDays(){
+  var cfg = window._bkDraft; var host = document.getElementById('bkDays'); if(!cfg || !host) return;
+  var wkOpts = [['every','Every week'],['13','1st &amp; 3rd week'],['24','2nd &amp; 4th week'],['1','1st week only'],['2','2nd week only'],['3','3rd week only'],['4','4th week only'],['5','5th week only']];
+  host.innerHTML = BK_DAYS.map(function(d){
+    var wins = cfg.hours[d] || [];
+    var on = wins.length > 0;
+    var rows = wins.map(function(w, i){
+      var wl = _bkWeeksLabel(w.weeks);
+      return '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px">'
+        + '<input type="time" class="cs-in bk-t" data-d="'+d+'" data-i="'+i+'" data-k="start" value="'+_bkEsc(w.start)+'" style="margin-bottom:0;width:112px" onchange="bkEdit(this)">'
+        + '<span style="font-size:12px;color:var(--sub)">to</span>'
+        + '<input type="time" class="cs-in bk-t" data-d="'+d+'" data-i="'+i+'" data-k="end" value="'+_bkEsc(w.end)+'" style="margin-bottom:0;width:112px" onchange="bkEdit(this)">'
+        + '<select class="cs-in" data-d="'+d+'" data-i="'+i+'" data-k="weeks" style="margin-bottom:0;flex:1;min-width:140px" onchange="bkEdit(this)">'
+        +   wkOpts.map(function(o){ return '<option value="'+o[0]+'"'+(wl===o[0]?' selected':'')+'>'+o[1]+'</option>'; }).join('')
+        + '</select>'
+        + '<button type="button" onclick="bkRemoveWin(\''+d+'\','+i+')" title="Remove" style="border:none;background:none;color:var(--red);font-size:20px;line-height:1;cursor:pointer;padding:0 4px">&times;</button>'
+        + '</div>';
+    }).join('');
+    return '<div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px 13px;margin-top:8px">'
+      + '<div style="display:flex;align-items:center;gap:10px">'
+      +   '<span style="flex:1;font-size:13px;font-weight:800;color:'+(on?'var(--text)':'var(--sub)')+'">'+BK_DAY_LABEL[d]+'</span>'
+      +   (on ? '<button type="button" onclick="bkAddWin(\''+d+'\')" style="border:1px solid var(--border);background:var(--white);color:var(--text);font-size:12px;font-weight:700;border-radius:8px;padding:5px 9px;cursor:pointer;font-family:var(--f)">+ hours</button>' : '')
+      +   '<button type="button" onclick="bkToggleDay(\''+d+'\')" style="border:none;background:none;cursor:pointer;padding:0" aria-label="Toggle"><span style="display:inline-block;width:42px;height:24px;border-radius:12px;background:'+(on?'var(--green)':'var(--border)')+';position:relative;transition:background .15s"><span style="position:absolute;top:2px;left:'+(on?'20px':'2px')+';width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:left .15s"></span></span></button>'
+      + '</div>'
+      + rows
+      + '</div>';
+  }).join('');
+}
+function bkToggleDay(d){
+  var cfg = window._bkDraft; if(!cfg) return;
+  if(cfg.hours[d] && cfg.hours[d].length) delete cfg.hours[d];
+  else cfg.hours[d] = [{start:'09:00', end:'17:00', weeks:[]}];
+  bkRenderDays();
+}
+function bkAddWin(d){ var cfg=window._bkDraft; if(!cfg) return; (cfg.hours[d]=cfg.hours[d]||[]).push({start:'13:00',end:'17:00',weeks:[]}); bkRenderDays(); }
+function bkRemoveWin(d,i){ var cfg=window._bkDraft; if(!cfg||!cfg.hours[d]) return; cfg.hours[d].splice(i,1); if(!cfg.hours[d].length) delete cfg.hours[d]; bkRenderDays(); }
+function bkEdit(el){
+  var cfg=window._bkDraft; if(!cfg) return;
+  var d=el.dataset.d, i=Number(el.dataset.i), k=el.dataset.k; var w=cfg.hours[d]&&cfg.hours[d][i]; if(!w) return;
+  if(k==='weeks') w.weeks=_bkWeeksFromLabel(el.value); else w[k]=el.value;
+}
+// Read the page back into a clean config object (validated). Returns null on error (toast shown).
+function bkCollect(){
+  var cfg = window._bkDraft; if(!cfg){ showToast('Nothing to save'); return null; }
+  var v = function(id){ var el=document.getElementById(id); return el ? el.value : ''; };
+  var out = {
+    tz: v('bkTz') || 'America/Toronto',
+    slot_min: Math.max(5, parseInt(v('bkSlot'),10) || 30),
+    default_duration_min: Math.max(5, parseInt(v('bkDur'),10) || 60),
+    buffer_min: Math.max(0, parseInt(v('bkBuf'),10) || 0),
+    capacity: Math.max(1, parseInt(v('bkCap'),10) || 1),
+    min_notice_hours: Math.max(0, parseFloat(v('bkNotice')) || 0),
+    max_days_ahead: Math.max(1, parseInt(v('bkAhead'),10) || 60),
+    hours: {}
+  };
+  var anyDay = false;
+  for (var d in cfg.hours){
+    var wins = (cfg.hours[d]||[]).filter(function(w){ return w.start && w.end; });
+    for (var j=0;j<wins.length;j++){ if (wins[j].end <= wins[j].start){ showToast(BK_DAY_LABEL[d]+': closing time must be after opening time'); return null; } }
+    if (wins.length){ anyDay = true; out.hours[d] = wins.map(function(w){ var o={start:w.start,end:w.end}; if(w.weeks&&w.weeks.length) o.weeks=w.weeks; return o; }); }
+  }
+  if (!anyDay){ showToast('Turn on at least one day'); return null; }
+  return out;
+}
+
 function csAiSchedChange(){
   var m = document.getElementById('csAiSched');
   var w = document.getElementById('csAiWin');
@@ -24550,8 +24826,15 @@ async function saveCampSettings(){
       approvals: {
         sms: (v('csAiApprSms') === 'auto') ? 'auto' : 'review',
         email: (v('csAiApprEmail') === 'auto') ? 'auto' : 'review'
-      }
+      },
+      booking: ((cp.settings && cp.settings.ai && cp.settings.ai.booking) || undefined)
     };
+    if (!s.ai.booking) delete s.ai.booking;
+    patchBody = { settings: s };
+  } else if (page === 'booking'){
+    var _bk = bkCollect();
+    if (!_bk) return;
+    s.ai = Object.assign({}, (cp.settings && cp.settings.ai) || {}, { booking: _bk });
     patchBody = { settings: s };
     var _fwdAi = v('csAiFwd');
     if (_fwdAi) patchBody.forward_to_phone = _fwdAi;
