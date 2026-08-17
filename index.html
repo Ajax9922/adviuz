@@ -4357,7 +4357,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-17 booking-calendar-1';
+var APP_VERSION = 'v2026-08-17 team-devices-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -33385,17 +33385,31 @@ document.addEventListener('click', function(ev){
                  .then(function(r){ return r&&r.ok?r.json():[]; }).catch(function(){ return []; });
     var mReq = sbFetch('/rest/v1/client_members?client_id=eq.'+encodeURIComponent(cid())+'&select=id,user_id,role,lead_scope,is_active,user_type,phone')
                  .then(function(r){ return r&&r.ok?r.json():[]; }).catch(function(){ return []; });
-    Promise.all([pReq,mReq]).then(function(res){
+    // Server-side truth: every login tied to this account (roster, profiles, AND any stray
+    // login that only shows up through a registered phone), with device lists.
+    var aReq = sbFetch('/functions/v1/team-access', { method:'POST', body: JSON.stringify({ action:'list', client_id: cid() }) })
+                 .then(function(r){ return r&&r.ok?r.json():{}; }).catch(function(){ return {}; });
+    Promise.all([pReq,mReq,aReq]).then(function(res){
       memberBy = {};
       (res[1]||[]).forEach(function(m){ memberBy[String(m.user_id)] = m; });
-      // The roster is what the database goes by, so show that — minus Adviuz
-      // staff and minus the owner's own login, which can't be edited here.
+      var acc = (res[2] && res[2].users) || [];
+      window._teamAccess = {}; acc.forEach(function(a){ window._teamAccess[String(a.user_id)] = a; });
+      // Start from profiles that are on the roster (minus Adviuz staff and the owner's own login) …
+      var seen = {};
       users = (res[0]||[]).filter(function(u){
         var m = memberBy[String(u.user_id)];
         if(!m) return false;
         if(m.user_type==='staff') return false;
         if(String(u.user_id)===String(window._authUserId||'')) return false;
-        return true;
+        seen[String(u.user_id)] = true; return true;
+      });
+      // … then surface any login the server found that has NO profile/roster row (a stray
+      // login created outside this screen). It shows up so the owner can cut it off.
+      acc.forEach(function(a){
+        var id = String(a.user_id||'');
+        if(!id || seen[id] || a.is_owner || String(id)===String(window._authUserId||'')) return;
+        users.push({ user_id:id, display_name:a.display_name||'', email:a.email||'', role:a.role||'', is_active:a.is_active!==false, _stray:true });
+        seen[id]=true;
       });
       cb&&cb();
     });
@@ -33471,14 +33485,19 @@ document.addEventListener('click', function(ev){
         var label = m.role || u.role || 'Team';
         var init = (u.display_name||u.email||'?').split(' ').map(function(w){return w[0]||'';}).join('').slice(0,2).toUpperCase();
         var active = (m.is_active!==false && u.is_active!==false);
+        var acc = (window._teamAccess||{})[String(u.user_id)] || {};
+        var nDev = (acc.devices||[]).length;
+        var devTxt = nDev ? (nDev+' device'+(nDev>1?'s':'')+' \u00b7 notifications on') : 'no devices';
+        if(acc.banned) devTxt = 'login disabled';
         h += '<div class="usr-row" onclick="openUserEdit(\'' + esc(String(u.user_id||'')) + '\')">'
           +'<div class="usr-av" style="background:'+col+'22;color:'+col+'">'+esc(init)+'</div>'
           +'<div style="flex:1;min-width:0">'
           +  '<div style="font-size:14px;font-weight:700;color:var(--text)">'+esc(u.display_name||'(no name)')+(active?'':' <span style="color:var(--sub);font-weight:500">\u00b7 paused</span>')+'</div>'
           +  '<div style="font-size:11.5px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(u.email||'')+'</div>'
-          +  '<div style="font-size:11px;color:var(--green);font-weight:700;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(scopeSummary(u))+'</div>'
+          +  '<div style="font-size:11px;color:var(--green);font-weight:700;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(u._stray ? 'Not on the roster \u2014 review this login' : scopeSummary(u))+'</div>'
+          +  '<div style="font-size:11px;color:'+(acc.banned?'#dc2626':(nDev?'var(--sub)':'var(--muted,#9aa3b2)'))+';margin-top:2px">\uD83D\uDCF1 '+esc(devTxt)+'</div>'
           +'</div>'
-          +'<span class="usr-badge" style="background:'+col+'18;color:'+col+'">'+esc(label)+'</span>'
+          +'<span class="usr-badge" style="background:'+(u._stray?'#fef3c7':col+'18')+';color:'+(u._stray?'#92400e':col)+'">'+esc(u._stray?'Stray login':label)+'</span>'
         +'</div>';
       });
       h += '</div>';
@@ -33550,6 +33569,40 @@ document.addEventListener('click', function(ev){
     renderUserEdit();
   };
 
+  function teDevicesBlock(){
+    var acc = (window._teamAccess||{})[String(draft.user_id)] || {};
+    var devs = acc.devices || [];
+    var rows = devs.length ? devs.map(function(d){
+      var when = d.since ? new Date(d.since).toLocaleDateString('en-CA',{month:'short',day:'numeric'}) : '';
+      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--border);font-size:13px">'
+        +'<span style="font-size:16px">\uD83D\uDCF1</span><span style="flex:1;min-width:0;color:var(--text)">'+esc(d.label||'Device')+(when?' <span style="color:var(--sub);font-size:11.5px">\u00b7 since '+esc(when)+'</span>':'')+'</span>'
+        +'<button type="button" onclick="teRemoveDevice(\''+esc(String(d.id))+'\')" style="border:1px solid var(--border);background:var(--white);color:var(--red);font-size:12px;font-weight:700;border-radius:8px;padding:5px 9px;cursor:pointer;font-family:var(--f)">Remove</button></div>';
+    }).join('') : '<div style="font-size:12.5px;color:var(--sub);padding:6px 0 2px">No phones or browsers registered for notifications.</div>';
+    return '<div class="te-field"><label class="te-label">Devices getting notifications</label>'
+      +'<div style="border:1.5px solid var(--border);border-radius:11px;padding:8px 12px 10px">'
+      +'<div style="font-size:11.5px;color:var(--sub);line-height:1.45;margin-bottom:6px">Every phone or browser where they turned on alerts. Removing a device stops its notifications instantly \u2014 even if the app is still installed.</div>'
+      + rows
+      +'<button type="button" id="teSignoutBtn" onclick="teSignoutAll()" style="width:100%;margin-top:10px;padding:10px;border:1.5px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text);font-weight:700;font-size:13px;font-family:var(--f);cursor:pointer">Sign out of all devices</button>'
+      +'<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:6px">Stops all notifications and logs them out everywhere. They can sign in again unless you pause or remove them.</div>'
+      +'</div></div>';
+  }
+  function teAccess(payload){
+    return sbFetch('/functions/v1/team-access', { method:'POST', body: JSON.stringify(Object.assign({ client_id: cid() }, payload)) })
+      .then(function(r){ return r.json().then(function(d){ if(!r.ok||d.error) throw new Error(d.error||('HTTP '+r.status)); return d; }); });
+  }
+  window.teRemoveDevice = function(subId){
+    teAccess({ action:'remove_device', sub_id: subId })
+      .then(function(){ if(typeof showToast==='function') showToast('Device removed \u2014 notifications stopped'); loadTeam(function(){ renderTeam(); renderUserEdit(); }); })
+      .catch(function(e){ if(typeof showToast==='function') showToast('Could not remove: '+(e.message||'error')); });
+  };
+  window.teSignoutAll = function(){
+    if(!draft || !draft.user_id) return;
+    if(!confirm('Sign '+(draft.display_name||'this person')+' out of all devices?\n\nAll their notifications stop and they are logged out everywhere. They can sign in again.')) return;
+    var b=document.getElementById('teSignoutBtn'); if(b){ b.textContent='Signing out\u2026'; b.disabled=true; }
+    teAccess({ action:'signout', user_id: draft.user_id })
+      .then(function(d){ if(typeof showToast==='function') showToast('Signed out everywhere \u00b7 '+(d.devices_removed||0)+' device'+((d.devices_removed||0)===1?'':'s')+' cleared'); loadTeam(function(){ renderTeam(); renderUserEdit(); }); })
+      .catch(function(e){ if(b){ b.textContent='Sign out of all devices'; b.disabled=false; } if(typeof showToast==='function') showToast('Could not sign out: '+(e.message||'error')); });
+  };
   function checkBoxRow(label, checked, onchange, bold){
     return '<label style="display:flex;gap:9px;align-items:center;padding:7px 0;font-size:13.5px;'
       + (bold?'font-weight:700;':'') + 'color:var(--text);cursor:pointer">'
@@ -33604,8 +33657,9 @@ document.addEventListener('click', function(ev){
       + pickerBlock('Locations','location')
       + pickerBlock('Services','service')
       +'<div style="font-size:11px;color:var(--sub);margin:-4px 0 14px;line-height:1.45">They will not see leads, calls or reports outside these \u2014 and the Dashboard stays yours alone.</div>'
+      +(isNew?'':teDevicesBlock())
       +(isNew?'':'<div class="te-row" style="border:1.5px solid var(--border);border-radius:11px;padding:10px 12px;margin-bottom:12px">'
-        +'<div><div class="te-rname">Access</div><div class="te-rsub">'+(draft.is_active?'They can sign in':'Signed out \u2014 no access')+'</div></div>'
+        +'<div><div class="te-rname">Access</div><div class="te-rsub">'+(draft.is_active?'They can sign in':'Paused \u2014 signed out everywhere, cannot sign in')+'</div></div>'
         +'<div class="te-sw '+(draft.is_active?'on':'')+'" onclick="_teActive()"></div></div>')
       +'<button onclick="saveTeamUser()" id="teSaveBtn" style="width:100%;padding:13px;border:none;border-radius:11px;background:var(--green);color:#fff;font-weight:700;font-size:14px;font-family:var(--f);cursor:pointer;margin-top:2px">Save</button>'
       +(isNew?'':'<button onclick="removeTeamUser()" id="teDelBtn" style="width:100%;padding:11px;border:1.5px solid #fecaca;border-radius:11px;background:#fef2f2;color:#dc2626;font-weight:700;font-size:13px;font-family:var(--f);cursor:pointer;margin-top:8px">Remove from team</button>')
@@ -33681,19 +33735,29 @@ document.addEventListener('click', function(ev){
               display_name: draft.display_name, phone: draft.phone||null,
               role: roleLabel, is_active: draft.is_active, lead_scope: scope }) });
       })
+      .then(function(){
+        // Enforce the Access switch for real: paused = signed out everywhere + login disabled;
+        // resumed = login re-enabled. (Roster/profile flags alone never stopped notifications.)
+        var acc = (window._teamAccess||{})[String(draft.user_id)] || {};
+        var wantOff = draft.is_active===false, isOff = !!acc.banned;
+        if(wantOff && !isOff) return teAccess({ action:'disable', user_id: draft.user_id });
+        if(!wantOff && isOff) return teAccess({ action:'enable', user_id: draft.user_id });
+      })
       .then(function(){ done('Saved'); })
       .catch(fail);
   };
 
   window.removeTeamUser = function(){
     if(!draft || !draft.user_id) return;
-    if(!confirm('Remove '+(draft.display_name||'this person')+' from '+clientName()+'?\n\nThey lose access immediately. Their leads, calls and notes stay.')) return;
+    if(!confirm('Remove '+(draft.display_name||'this person')+' from '+clientName()+'?\n\nThey are signed out of every device, all their notifications stop, and their login is disabled immediately. Their leads, calls and notes stay.')) return;
     var btn=document.getElementById('teDelBtn'); if(btn){ btn.textContent='Removing\u2026'; btn.disabled=true; }
-    sbFetch('/rest/v1/client_members?user_id=eq.'+encodeURIComponent(draft.user_id)+'&client_id=eq.'+encodeURIComponent(cid()), { method:'DELETE' })
-      .then(function(r){ if(!r.ok) throw new Error('Could not remove');
+    // 1) Kill switch (devices + sessions + login) — this is what actually cuts them off.
+    teAccess({ action:'disable', user_id: draft.user_id })
+      .then(function(){ return sbFetch('/rest/v1/client_members?user_id=eq.'+encodeURIComponent(draft.user_id)+'&client_id=eq.'+encodeURIComponent(cid()), { method:'DELETE' }); })
+      .then(function(r){ if(r && !r.ok && r.status!==404) throw new Error('Could not remove');
         return sbFetch('/rest/v1/user_profiles?user_id=eq.'+encodeURIComponent(draft.user_id)+'&client_id=eq.'+encodeURIComponent(cid()), { method:'DELETE' }); })
       .then(function(){
-        if(typeof showToast==='function') showToast('Removed');
+        if(typeof showToast==='function') showToast('Removed \u2014 signed out everywhere, notifications stopped');
         closeSheet('userEditSh'); loadTeam(function(){ renderTeam(); });
       })
       .catch(function(e){
