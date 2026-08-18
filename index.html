@@ -4357,7 +4357,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-17 approval-chips-1';
+var APP_VERSION = 'v2026-08-18 inbox-approvals-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -8079,17 +8079,13 @@ function fuChipCounts(){
   return { fu:fu, appt:ap, all:fu+ap, appr:pend+coachN, apprKnown:(window._apprItems!==undefined) };
 }
 function followupsHTML(){
-  if(window._apprItems===undefined && !window._apprLoading) loadApprovals();
   var cn=fuChipCounts();
   var chips='<div class="filter-bar">'
     +'<div class="fchip '+(fuTypeFilter===''?'on':'')+'" onclick="fuTypeFilter=\'\';document.getElementById(\'content\').innerHTML=followupsHTML()">All ('+cn.all+')</div>'
     +'<div class="fchip '+(fuTypeFilter==='fu'?'on':'')+'" onclick="fuTypeFilter=\'fu\';document.getElementById(\'content\').innerHTML=followupsHTML()">🗓 Follow-ups ('+cn.fu+')</div>'
     +'<div class="fchip '+(fuTypeFilter==='appt'?'on':'')+'" onclick="fuTypeFilter=\'appt\';document.getElementById(\'content\').innerHTML=followupsHTML()">📅 Appointments ('+cn.appt+')</div>'
-    +'<div class="fchip '+(fuTypeFilter==='approvals'?'on':'')+'" onclick="fuTypeFilter=\'approvals\';document.getElementById(\'content\').innerHTML=followupsHTML()">✅ Approvals'+(cn.apprKnown?' ('+cn.appr+')':'')+'</div>'
     +'</div>';
-  if(fuTypeFilter==='approvals'){
-    return chips + approvalsListHTML();
-  }
+  if(fuTypeFilter==='approvals'){ fuTypeFilter=''; }
   return '<div class="segment">'
     +'<button class="seg-btn '+(fuSeg==='past'?'on':'')+'" onclick="fuSeg=\'past\';document.getElementById(\'content\').innerHTML=followupsHTML()">Past</button>'
     +'<button class="seg-btn '+(fuSeg==='today'?'on':'')+'" onclick="fuSeg=\'today\';document.getElementById(\'content\').innerHTML=followupsHTML()">Today</button>'
@@ -8118,7 +8114,37 @@ async function loadApprovals(){
     try{ if(typeof loadCaReports==='function') await loadCaReports(); }catch(_e){}
   }
   window._apprLoading=false;
-  if(curTab==='followups' && fuTypeFilter==='approvals'){ var ct=document.getElementById('content'); if(ct) ct.innerHTML=followupsHTML(); }
+  _apprRerender(true);
+}
+// Approvals live in the Inbox now (chip next to AI / Human). Re-render whichever
+// tab is showing them; if the Inbox is on another view, just refresh the count chip.
+function _apprPendingCount(){
+  var pend=0;
+  (window._apprItems||[]).forEach(function(it){ if(it.status==='pending') pend++; });
+  if(window._isAdviuzStaff && window._adminData){
+    pend += ((_adminData.reportReviews||[]).length) + ((_adminData.caReports||[]).length);
+  }
+  if(window._isAdviuzStaff && Array.isArray(window._annDrafts)) pend += window._annDrafts.length;
+  pend += (window._coachApprItems||[]).length;
+  return pend;
+}
+function _apprRerender(onlyIfShowing){
+  var ct=document.getElementById('content'); if(!ct) return;
+  if(curTab==='calls'){
+    if(window._ibWho==='appr'){ ct.innerHTML=callsHTML(); return; }
+    var chip=document.getElementById('ibApprChip');
+    if(chip){ chip.textContent='\u2705 Pending approvals'+(window._apprItems!==undefined?' ('+_apprPendingCount()+')':''); }
+    if(!onlyIfShowing) ct.innerHTML=callsHTML();
+    return;
+  }
+  if(curTab==='followups'){ ct.innerHTML=followupsHTML(); }
+}
+function apprOpenInbox(){
+  window._ibWho='appr';
+  var b=document.getElementById('tab-calls');
+  if(curTab!=='calls' && b && typeof goTab==='function') goTab('calls', b);
+  else { var ct=document.getElementById('content'); if(ct) ct.innerHTML=callsHTML(); }
+  if(window._apprItems===undefined && !window._apprLoading) loadApprovals();
 }
 function apprTypeMeta(t){
   if(t==='booking') return ['📅','Demo booking — approving sends the invite'];
@@ -8133,8 +8159,8 @@ function approvalsListHTML(){
   var items=window._apprItems;
   if(window._apprLoading || items===undefined) return '<div style="padding:44px 16px;text-align:center;color:var(--sub)">Loading approvals…</div>';
   var seg='<div class="segment">'
-    +'<button class="seg-btn '+(_apprSeg==='pending'?'on':'')+'" onclick="_apprSeg=\'pending\';document.getElementById(\'content\').innerHTML=followupsHTML()">Pending</button>'
-    +'<button class="seg-btn '+(_apprSeg==='done'?'on':'')+'" onclick="_apprSeg=\'done\';document.getElementById(\'content\').innerHTML=followupsHTML()">Decided</button>'
+    +'<button class="seg-btn '+(_apprSeg==='pending'?'on':'')+'" onclick="_apprSeg=\'pending\';_apprRerender()">Pending</button>'
+    +'<button class="seg-btn '+(_apprSeg==='done'?'on':'')+'" onclick="_apprSeg=\'done\';_apprRerender()">Decided</button>'
     +'</div>';
   var list=(items||[]).filter(function(it){ return _apprSeg==='pending' ? it.status==='pending' : it.status!=='pending'; });
   // ── Type chips: All · SMS · Email · Call · Script · Booking · Email lead (only types that have items) ──
@@ -8144,11 +8170,20 @@ function approvalsListHTML(){
   var _totalN=list.length+_coachAll.length;
   var _t=window._apprType||'all'; if(_t!=='all' && !_counts[_t]) _t='all';
   var chips='<div class="act-chips" style="margin:6px -16px 4px;padding:0 16px 8px">'
-    +'<div class="fchip '+(_t==='all'?'on':'')+'" onclick="window._apprType=\'all\';document.getElementById(\'content\').innerHTML=followupsHTML()">All ('+_totalN+')</div>';
-  _typeDefs.forEach(function(d){ if(!_counts[d[0]]) return; chips+='<div class="fchip '+(_t===d[0]?'on':'')+'" onclick="window._apprType=\''+d[0]+'\';document.getElementById(\'content\').innerHTML=followupsHTML()">'+d[1]+' '+d[2]+' ('+_counts[d[0]]+')</div>'; });
+    +'<div class="fchip '+(_t==='all'?'on':'')+'" onclick="window._apprType=\'all\';_apprRerender()">All ('+_totalN+')</div>';
+  _typeDefs.forEach(function(d){ if(!_counts[d[0]]) return; chips+='<div class="fchip '+(_t===d[0]?'on':'')+'" onclick="window._apprType=\''+d[0]+'\';_apprRerender()">'+d[1]+' '+d[2]+' ('+_counts[d[0]]+')</div>'; });
   chips+='</div>';
   if(_totalN) seg+=chips;
   if(_t!=='all') list=list.filter(function(it){ return it.action_type===_t; });
+  // Bulk approve for texts / emails when one type is filtered (two taps: arm, then confirm).
+  if(_apprSeg==='pending' && (_t==='sms'||_t==='email') && list.length>1){
+    var _armed=(window._apprBulkArm===_t);
+    seg+='<div style="padding:0 16px 8px;display:flex;gap:8px;align-items:center">'
+      +'<button onclick="apprApproveAll(\''+_t+'\',this)" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid '+(_armed?'#b45309':'var(--green)')+';background:'+(_armed?'#fef3c7':'var(--greenl,#e7f8f3)')+';color:'+(_armed?'#b45309':'var(--green)')+';font-family:var(--f);font-size:12.5px;font-weight:800;cursor:pointer">'
+      +(_armed?'Tap again to send all '+list.length+' '+(_t==='sms'?'texts':'emails')+' now':'\u2705 Approve &amp; send all '+list.length+' '+(_t==='sms'?'texts':'emails'))+'</button>'
+      +(_armed?'<button onclick="window._apprBulkArm=null;_apprRerender()" style="padding:10px 12px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);color:var(--sub);font-family:var(--f);font-size:12.5px;font-weight:700;cursor:pointer">Cancel</button>':'')
+      +'</div>';
+  }
   var _coach = (_t==='all' || _t==='script_improvement') ? _coachAll : [];
   // Operator review cards (campaign reports, CA quarterlies, weekly updates)
   // live here now instead of the Dashboard. Staff-only; each self-hides when empty.
@@ -8195,9 +8230,10 @@ function approvalsListHTML(){
       +(it.lead_id?'<div style="margin-top:8px"><span onclick="openLead(\''+it.lead_id+'\')" style="font-size:12px;font-weight:700;color:var(--green);cursor:pointer">View lead →</span></div>':'')
       +(it.status==='pending'
         ? '<div style="display:flex;gap:8px;margin-top:11px">'
-          +'<button onclick="apprDecide(\''+it.id+'\',\'approve\',this)" style="flex:1;background:var(--green);color:#fff;border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:800;cursor:pointer">Approve</button>'
+          +'<button onclick="apprDecide(\''+it.id+'\',\'approve\',this)" style="flex:1;background:var(--green);color:#fff;border:none;border-radius:10px;padding:10px;font-size:13px;font-weight:800;cursor:pointer">'+((it.action_type==='sms'||it.action_type==='email')?'Approve &amp; send':'Approve')+'</button>'
           +'<button onclick="apprDecide(\''+it.id+'\',\'reject\',this)" style="flex:1;background:var(--bg);color:var(--text);border:1.5px solid var(--line,#e5e7eb);border-radius:10px;padding:10px;font-size:13px;font-weight:800;cursor:pointer">Reject</button>'
           +'</div>'
+          +((it.action_type==='sms'||it.action_type==='email')?'<div style="text-align:center;margin-top:8px"><span onclick="openAiAppr(\''+it.id+'\')" style="font-size:12px;font-weight:700;color:var(--blue,#2563eb);cursor:pointer">\u270E Edit before sending</span></div>':'')
         : '')
       +'</div>';
   });
@@ -8214,6 +8250,24 @@ async function apprDecide(id,decision,btn){
     else if(d&&d.status==='rejected') showToast('Rejected');
     else showToast((d&&d.error)||'Could not save the decision');
   }catch(e){ showToast('Could not save the decision'); }
+  loadApprovals();
+}
+async function apprApproveAll(type,btn){
+  if(window._apprBulkArm!==type){ window._apprBulkArm=type; _apprRerender(); return; }
+  window._apprBulkArm=null;
+  var ids=(window._apprItems||[]).filter(function(it){ return it.status==='pending' && it.action_type===type; }).map(function(it){ return it.id; });
+  if(!ids.length){ _apprRerender(); return; }
+  if(btn){ btn.disabled=true; btn.textContent='Sending 0 of '+ids.length+'\u2026'; }
+  var okN=0, badN=0;
+  for(var i=0;i<ids.length;i++){
+    try{
+      var r=await sbFetch('/functions/v1/ai-approvals?action=decide',{ method:'POST', body: JSON.stringify({ id:ids[i], decision:'approve' }) });
+      var d=await r.json().catch(function(){return{};});
+      if(d&&(d.status==='sent'||d.status==='approved')&&!d.error) okN++; else badN++;
+    }catch(e){ badN++; }
+    if(btn) btn.textContent='Sending '+(i+1)+' of '+ids.length+'\u2026';
+  }
+  showToast(okN+' sent'+(badN?' \u00b7 '+badN+' could not be sent \u2014 see the cards':''));
   loadApprovals();
 }
 
@@ -11213,7 +11267,7 @@ function callsHTML(){
 
   function chChip(v,lbl){
     var on=(window._ibChan===v);
-    return '<button onclick="window._ibChan=\''+v+'\';var c=document.getElementById(\'content\');if(c)c.innerHTML=callsHTML()" style="padding:8px 14px;border-radius:99px;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'var(--green)':'var(--white)')+';color:'+(on?'#fff':'var(--text)')+';font-family:var(--f);font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap">'+lbl+'</button>';
+    return '<button onclick="window._ibChan=\''+v+'\';if(window._ibWho===\'appr\')window._ibWho=\'all\';var c=document.getElementById(\'content\');if(c)c.innerHTML=callsHTML()" style="padding:8px 14px;border-radius:99px;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'var(--green)':'var(--white)')+';color:'+(on?'#fff':'var(--text)')+';font-family:var(--f);font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap">'+lbl+'</button>';
   }
   function whoChip(v,lbl){
     var on=(window._ibWho===v);
@@ -11250,12 +11304,15 @@ function callsHTML(){
     +   chChip('email','\uD83D\uDCE7 Email ('+_emails.length+')')
     +   chChip('sched','\u23F3 Scheduled ('+(_sched.length + ((window._ibSchedEmails&&window._ibSchedEmails.length)||0))+')')
     + '</div>'
-    + ((window._ibChan==='sched'||window._ibChan==='email') ? '' :
-      '<div style="padding:4px 14px 8px;display:flex;gap:7px">'
-    +   whoChip('all','All')
-    +   whoChip('ai','\uD83E\uDD16 AI')
-    +   whoChip('human','\uD83D\uDC64 Human')
-    + '</div>');
+    + '<div style="padding:4px 14px 8px;display:flex;gap:7px;overflow-x:auto;-webkit-overflow-scrolling:touch">'
+    +   ((window._ibChan==='sched'||window._ibChan==='email') ? '' : (whoChip('all','All') + whoChip('ai','\uD83E\uDD16 AI') + whoChip('human','\uD83D\uDC64 Human')))
+    +   '<button id="ibApprChip" onclick="window._ibWho=\'appr\';var c=document.getElementById(\'content\');if(c)c.innerHTML=callsHTML();if(window._apprItems===undefined&&!window._apprLoading)loadApprovals()" style="padding:6px 11px;border-radius:99px;border:1.5px solid '+(window._ibWho==='appr'?'#b45309':'#f2d49b')+';background:'+(window._ibWho==='appr'?'#fef3c7':'#fff7e6')+';color:#8a6116;font-family:var(--f);font-size:11.5px;font-weight:800;cursor:pointer;white-space:nowrap;margin-left:auto">\u2705 Pending approvals'+(window._apprItems!==undefined?' ('+_apprPendingCount()+')':'')+'</button>'
+    + '</div>';
+  // ── Approvals view: everything the AI is waiting on a yes/no for ──
+  if (window._ibWho === 'appr'){
+    if(window._apprItems===undefined && !window._apprLoading) loadApprovals();
+    return '<div id="liveCallsPanel"></div><div id="aiApprovalsPanel"></div>' + chipsBar + approvalsListHTML() + '<div style="height:8px"></div>';
+  }
 
   // ── Icons ──
   var iPhone='<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.13.96.36 1.9.68 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.91.32 1.85.55 2.81.68A2 2 0 0122 16.92z"/></svg>';
@@ -11592,20 +11649,15 @@ async function loadCoachApprovals(){
   }catch(e){ window._coachApprItems=[]; }
 }
 async function loadAiApprovals(){
-  var panel=document.getElementById('aiApprovalsPanel'); if(!panel) return;
-  try{
-    var r=await sbFetch('/rest/v1/ai_pending_actions?status=eq.pending&order=created_at.asc&select=id,action_type,payload,lead_id,campaign_id,client_id,created_at,expires_at&limit=25');
-    var rows=r.ok?await r.json():[];
-    window._apprItems=rows||[];
-    try{
-      var r2=await sbFetch('/rest/v1/ai_pending_actions?action_type=eq.script_improvement&status=in.(pending_client,pending_admin)&order=created_at.desc&select=id,status,payload,lead_id,campaign_id,client_id,created_at&limit=20');
-      window._coachApprItems=r2.ok?await r2.json():[];
-    }catch(e){ window._coachApprItems=[]; }
-    renderAiApprovals(window._apprItems);
-  }catch(e){ /* ignore */ }
+  // One loader for every approval (texts, emails, call-script ideas, bookings…).
+  // The old yellow strip is gone — the "Pending approvals" chip in the Inbox
+  // opens the full list instead.
+  if(window._apprLoading) return;
+  await loadApprovals();
 }
 function renderAiApprovals(rows){
   var panel=document.getElementById('aiApprovalsPanel'); if(!panel) return;
+  panel.innerHTML=''; return;
   if(!rows || !rows.length){ panel.innerHTML=''; renderCoachApprovals(); return; }
   var h='<div style="background:#fff7e6;border:1px solid #f2d49b;border-radius:14px;padding:12px 14px;margin-bottom:12px">'
     +'<div style="font-size:12px;font-weight:800;color:#8a6116">\uD83D\uDD50 AI is waiting for your approval ('+rows.length+')</div>';
@@ -11625,8 +11677,8 @@ function renderAiApprovals(rows){
   renderCoachApprovals();
 }
 function renderCoachApprovals(){
-  // Script-improvement cards live in Follow-ups \u2192 Approvals now, not the Inbox.
-  if(curTab==='followups' && fuTypeFilter==='approvals'){ var ct=document.getElementById('content'); if(ct) ct.innerHTML=followupsHTML(); }
+  // Script-improvement cards live in Inbox \u2192 Pending approvals now.
+  _apprRerender(true);
   return;
   var host=document.getElementById('aiApprovalsPanel'); if(!host) return;
   var rows=window._coachApprItems||[]; if(!rows.length) return;
@@ -23271,12 +23323,20 @@ async function apptCancelConfirm(){
           _cxTpl=(_st&&_st.appt&&_st.appt.cancel_msg)?String(_st.appt.cancel_msg).trim():'';
         }catch(_e){}
         var _biz=(window._clientData&&(window._clientData.business_name||window._clientData.name))||'us';
+        // Same clock rule as the confirmation text: clinic time when the campaign says so.
+        var _cxTz=tz;
+        try{ var _bk=_st&&_st.ai&&_st.ai.booking; if(_bk&&_bk.speak_clinic_time===true&&_bk.tz) _cxTz=String(_bk.tz); }catch(_e3){}
+        var _cxDate=whenTxt, _cxTime='';
+        try{
+          _cxDate=new Intl.DateTimeFormat('en-US',{timeZone:_cxTz,weekday:'long',month:'long',day:'numeric'}).format(new Date(old));
+          _cxTime=new Intl.DateTimeFormat('en-US',{timeZone:_cxTz,hour:'numeric',minute:'2-digit',hour12:true}).format(new Date(old));
+        }catch(_e4){}
         var _cxMsg=_cxTpl
           ? _cxTpl.replace(/\{name\}/g,first).replace(/\{when\}/g,whenTxt)
                   .replace(/\{business\}/g,_biz)
                   .replace(/\[Customer Name\]/gi,first)
-                  .replace(/\[Appointment Date\]/gi,whenTxt)
-                  .replace(/\[Appointment Time\]/gi,whenTxt)
+                  .replace(/\[Appointment Date\]/gi,_cxDate)
+                  .replace(/\[Appointment Time\]/gi,_cxTime)
                   .replace(/\[Business Name\]/gi,_biz)
                   .replace(/\[Campaign Name\]/gi,_biz)
           : ('Hi '+first+', your appointment on '+whenTxt+' has been cancelled. Reply here any time if you\u2019d like to rebook.');
