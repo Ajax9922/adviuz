@@ -4357,7 +4357,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-18 split-1';
+var APP_VERSION = 'v2026-08-18 ai-sched-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -5770,6 +5770,8 @@ function mapLead(l, i) {
     // Post-call wrap-up + action-card fields
     call_wrapup_pending: !!l.call_wrapup_pending,
     next_followup: l.next_followup || null,
+    ai_callback_at: l.ai_callback_at || null,
+    ai_call_attempts: (l.ai_call_attempts != null ? Number(l.ai_call_attempts) : 0),
     meeting_date:  l.meeting_date || null,
     meeting_outcome: l.meeting_outcome || null,
     deal_value:    (l.deal_value != null ? l.deal_value : null),
@@ -11461,6 +11463,25 @@ function callsHTML(){
     ensureSchedEmails(function(){ var c=document.getElementById('content'); if(c) c.innerHTML=callsHTML(); });
     var _seRows=(window._ibSchedEmails||[]);
     var _seHtml='';
+    // \uD83E\uDD16 Upcoming automatic AI phone calls (all leads in view)
+    var _aiRows=(leads||[]).filter(function(x){ return x.ai_callback_at && !isNaN(new Date(x.ai_callback_at)) && new Date(x.ai_callback_at).getTime()>Date.now()-3600000; })
+      .sort(function(a,b){ return new Date(a.ai_callback_at)-new Date(b.ai_callback_at); });
+    if(_aiRows.length){
+      _seHtml+='<div style="padding:12px 16px 7px;font-size:11.5px;font-weight:800;letter-spacing:.06em;color:var(--sub);text-transform:uppercase;background:var(--bg)">\uD83E\uDD16 AI phone calls <span style="color:var(--green)">('+_aiRows.length+')</span></div><div style="background:var(--white)">';
+      _aiRows.forEach(function(x){
+        var d=new Date(x.ai_callback_at);
+        var when=d.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})+' \u00b7 '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'});
+        _seHtml+='<div style="border-bottom:1px solid var(--border);padding:12px 14px;display:flex;align-items:flex-start;gap:11px">'
+          +'<div class="call-av" style="background:#eef2ff;color:#4f46e5;cursor:pointer" onclick="openLead('+x.id+')">\uD83E\uDD16</div>'
+          +'<div style="flex:1;min-width:0;cursor:pointer" onclick="openLead('+x.id+')">'
+          +'<div style="font-size:14.5px;font-weight:700;color:var(--text)">'+sanitize(x.name||'Lead')+'</div>'
+          +'<div style="font-size:12.5px;color:var(--text);margin-top:2px">Selina calls '+when+(x.ai_call_attempts?' \u00b7 try '+(x.ai_call_attempts+1):'')+'</div>'
+          +'</div>'
+          +'<button onclick="aiCallCancel('+x.id+',this)" style="flex-shrink:0;padding:6px 12px;border-radius:20px;border:1.5px solid #fecaca;background:#fff;color:var(--red);font-size:11.5px;font-weight:700;cursor:pointer;font-family:var(--f)">Cancel</button>'
+          +'</div>';
+      });
+      _seHtml+='</div>';
+    }
     if(_seRows.length){
       _seHtml+='<div style="padding:12px 16px 7px;font-size:11.5px;font-weight:800;letter-spacing:.06em;color:var(--sub);text-transform:uppercase;background:var(--bg)">\uD83D\uDCE7 Scheduled emails <span style="color:var(--green)">('+_seRows.length+')</span></div><div style="background:var(--white)">';
       _seRows.forEach(function(s){
@@ -11481,7 +11502,7 @@ function callsHTML(){
     }
     var sHtml='';
     if(!_sched.length){
-      sHtml='<div style="text-align:center;padding:32px 16px;color:var(--sub);font-size:13px">Nothing scheduled right now.<br><span style="font-size:12px">Reminders appear here automatically when an appointment is booked for a lead.</span></div>';
+      sHtml=(_seHtml ? '' : '<div style="text-align:center;padding:32px 16px;color:var(--sub);font-size:13px">Nothing scheduled right now.<br><span style="font-size:12px">AI calls, reminder texts and scheduled emails show up here automatically.</span></div>');
     } else {
       sHtml='<div style="padding:10px 14px 4px;font-size:12px;color:var(--sub);line-height:1.55">These texts go out automatically. Timing and wording come from each campaign\u2019s \u2699 settings.</div>';
       var lastK=null, openG=false;
@@ -14215,6 +14236,16 @@ function renderLeadScreen(id) {
         time:isNaN(d)?'':d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}),
         body:s.subject||'' });
     });
+    // \uD83E\uDD16 Next automatic AI phone call for this lead
+    if(l.ai_callback_at){
+      var _cbD=new Date(l.ai_callback_at);
+      if(!isNaN(_cbD) && _cbD.getTime() > Date.now()-3600000){
+        _schedItems.push({ type:'sched_aicall', _when:_cbD.getTime(),
+          label:'\uD83E\uDD16 AI phone call'+(l.ai_call_attempts?' \u00b7 try '+(l.ai_call_attempts+1):''),
+          time:_cbD.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})+' '+_cbD.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}),
+          body:'Selina will call automatically. Held if the person is texting with us; moved if it lands outside 9 AM\u20138 PM their time.' });
+      }
+    }
     ((window._pbSched)||[]).forEach(function(p){
       if(p.skipped) return;
       var d=new Date(p.due);
@@ -14382,7 +14413,7 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
 
       h += '</div>'; // end card
 
-    } else if (item.type === 'sched_sms' || item.type === 'sched_email' || item.type === 'sched_pb') {
+    } else if (item.type === 'sched_sms' || item.type === 'sched_email' || item.type === 'sched_pb' || item.type === 'sched_aicall') {
       // ── UPCOMING SCHEDULED ITEM — amber card, email ones can be cancelled ──
       h += '<div class="ld-act-dot">🕐</div>';
       h += '<div class="ld-act-body" style="width:100%">';
@@ -14392,6 +14423,12 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
       }
       if(item.type==='sched_pb'){
         h += '<button onclick="pbSkipOne(\''+item._pbEnr+'\','+item._pbStep+',this)" style="margin-top:8px;padding:8px 12px;border:1px solid #fca5a5;border-radius:8px;background:#fff;color:#dc2626;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">\uD83D\uDEAB Cancel this one</button>';
+      }
+      if(item.type==='sched_aicall'){
+        h += '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">'
+          +'<button onclick="aiCallReschedule('+l.id+')" style="padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;background:#fff;color:var(--text);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">\uD83D\uDD52 Change time</button>'
+          +'<button onclick="aiCallCancel('+l.id+',this)" style="padding:8px 12px;border:1px solid #fca5a5;border-radius:8px;background:#fff;color:#dc2626;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">\uD83D\uDEAB Cancel this call</button>'
+          +'</div>';
       }
       if(item.type==='sched_email' && item._schedId){
         h += '<button onclick="ceCancelSchedAnywhere(\''+item._schedId+'\','+l.id+')" style="margin-top:6px;padding:5px 12px;border-radius:20px;border:1.5px solid #fecaca;background:#fff;color:var(--red);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">Cancel</button>';
@@ -16102,6 +16139,53 @@ function ceAiDraft(){
 }
 
 // ═══ SCHEDULED-EMAIL CACHE — shared by Inbox and lead Activity ═══
+// \uD83E\uDD16 Scheduled AI phone calls: cancel / change time (writes leads.ai_callback_at)
+function aiCallCancel(localId, btn){
+  var l=leads.find(function(x){ return x.id===localId; }); if(!l||!l.dbId) return;
+  if(btn){ btn.disabled=true; btn.textContent='\u2026'; }
+  sbFetch('/rest/v1/leads?id=eq.'+l.dbId,{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ ai_callback_at:null }) })
+    .then(function(r){
+      if(!(r.ok||r.status===204)) throw 0;
+      l.ai_callback_at=null;
+      showToast('AI call cancelled');
+      try{ sbFetch('/rest/v1/lead_activity',{ method:'POST', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ lead_id:l.dbId, client_id:l.client_id||window._clientId||null, activity_type:'note', performed_by:(currentUser&&currentUser.email)||'user', description:'\uD83D\uDEAB Scheduled AI call cancelled' }) }); }catch(e){}
+      var c=document.getElementById('content'); if(c && curTab==='calls') c.innerHTML=callsHTML();
+      if(document.getElementById('leadScreen') && document.getElementById('leadScreen').classList.contains('open') && typeof renderLeadScreen==='function') renderLeadScreen(l.id);
+    })
+    .catch(function(){ showToast('Could not cancel \u2014 try again'); if(btn){ btn.disabled=false; btn.textContent='Cancel'; } });
+}
+function aiCallReschedule(localId){
+  var l=leads.find(function(x){ return x.id===localId; }); if(!l||!l.dbId) return;
+  var cur=l.ai_callback_at?new Date(l.ai_callback_at):new Date(Date.now()+3600000);
+  var pad=function(n){ return (n<10?'0':'')+n; };
+  var val=cur.getFullYear()+'-'+pad(cur.getMonth()+1)+'-'+pad(cur.getDate())+'T'+pad(cur.getHours())+':'+pad(cur.getMinutes());
+  var ov=document.createElement('div'); ov.className='sheet-ov'; ov.style.display='flex';
+  ov.innerHTML='<div class="sheet" style="max-height:70vh"><div class="sh-head"><div class="sh-title">\uD83E\uDD16 Change AI call time</div><button class="sh-x" onclick="this.closest(\'.sheet-ov\').remove()">\u2715</button></div>'
+    +'<div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom))">'
+    +'<div style="font-size:13px;color:var(--sub);margin-bottom:10px">Pick when Selina should call <b>'+sanitize(l.name||'this lead')+'</b>. Times are in your clock; calls are held during quiet hours automatically.</div>'
+    +'<input id="aiCbWhen" type="datetime-local" value="'+val+'" style="width:100%;padding:12px;border:1.5px solid var(--border);border-radius:10px;font-family:var(--f);font-size:15px">'
+    +'<button class="btn" style="width:100%;justify-content:center;margin-top:12px;background:var(--green);color:#fff;font-weight:800;padding:13px" onclick="aiCallRescheduleSave('+localId+',this)">Save time</button>'
+    +'</div></div>';
+  document.body.appendChild(ov);
+}
+function aiCallRescheduleSave(localId, btn){
+  var l=leads.find(function(x){ return x.id===localId; }); if(!l||!l.dbId) return;
+  var inp=document.getElementById('aiCbWhen'); var d=inp?new Date(inp.value):null;
+  if(!d||isNaN(d)){ showToast('Pick a date and time'); return; }
+  if(d.getTime()<Date.now()+60000){ showToast('Pick a time in the future'); return; }
+  if(btn){ btn.disabled=true; btn.textContent='Saving\u2026'; }
+  sbFetch('/rest/v1/leads?id=eq.'+l.dbId,{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ ai_callback_at:d.toISOString() }) })
+    .then(function(r){
+      if(!(r.ok||r.status===204)) throw 0;
+      l.ai_callback_at=d.toISOString();
+      showToast('AI call moved to '+d.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}));
+      try{ sbFetch('/rest/v1/lead_activity',{ method:'POST', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ lead_id:l.dbId, client_id:l.client_id||window._clientId||null, activity_type:'note', performed_by:(currentUser&&currentUser.email)||'user', description:'\uD83D\uDD52 Scheduled AI call moved to '+d.toLocaleString('en-CA',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) }) }); }catch(e){}
+      var o=document.querySelector('.sheet-ov'); if(o) o.remove();
+      var c=document.getElementById('content'); if(c && curTab==='calls') c.innerHTML=callsHTML();
+      if(document.getElementById('leadScreen') && document.getElementById('leadScreen').classList.contains('open') && typeof renderLeadScreen==='function') renderLeadScreen(l.id);
+    })
+    .catch(function(){ showToast('Could not save \u2014 try again'); if(btn){ btn.disabled=false; btn.textContent='Save time'; } });
+}
 function ensureSchedEmails(rerender){
   if(window._ibSchedEmails!==undefined) return;
   window._ibSchedEmails=null; // loading
