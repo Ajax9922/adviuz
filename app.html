@@ -4339,7 +4339,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-19 compose-3';
+var APP_VERSION = 'v2026-08-19 compose-4';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -11193,6 +11193,9 @@ function callsHTML(){
   window._ibOpen = window._ibOpen || {};        // per-card expand override
 
   // Collect every email activity across leads for the Email tab.
+  // Make sure every lead's emails are in memory for the Inbox, even if the bulk
+  // activity load is still running or hit a snag. One fetch per session.
+  if(!window._ibEmailsLoaded && !window._ibEmailsLoading){ ensureInboxEmails(function(){ var c=document.getElementById('content'); if(c && curTab==='calls') c.innerHTML=callsHTML(); }); }
   function ibEmailRows(){
     var out=[];
     try{
@@ -16326,6 +16329,81 @@ function aiCallRescheduleSave(localId, btn){
     })
     .catch(function(){ showToast('Could not save \u2014 try again'); if(btn){ btn.disabled=false; btn.textContent='Save time'; } });
 }
+// \uD83D\uDCE7 Inbox email loader: pulls email rows for all leads in view and merges them into leadAct.
+function emNormLogRow(row){
+  var body=(row.body||'').replace(/\s*\(SID:[^)]+\)/g,'').trim();
+  var t2=row.type||'note'; if(t2==='email') t2='email_sent';
+  var o={type:t2,label:(t2==='email_sent'?'Email Sent':(row.label||row.type)),time:row.created_at,body:body,rec:false,id:row.id};
+  if(t2==='email_sent'||t2==='email_received'){
+    var mt=row.meta||{}; var subj=mt.subject||'';
+    if(!subj){ var mS=body.match(/Subject:\s*([\s\S]*?)\s*\|\s*From:/i)||body.match(/Subject:\s*([^\n]+)/i); if(mS) subj=mS[1].trim(); }
+    if(!subj){ var ln=body.split('\n').map(function(x){return x.trim();}).filter(Boolean); if(ln.length>1) subj=ln[ln.length-1]; }
+    o.email_subject=String(subj||'').replace(/^Ref:\s*[^|]+\|\s*/,'').trim();
+    o.email_body=mt.body?String(mt.body):'';
+    o.email_id=mt.email_id?String(mt.email_id):'';
+    o.email_from=mt.from?String(mt.from):'';
+    o.body=o.email_subject||body;
+  }
+  return o;
+}
+function emNormActRow(row){
+  var type=row.activity_type||'note';
+  var rawBody=(row.description||'').replace(/\s*\(SID:[^)]+\)/g,'').trim();
+  var md=row.metadata||{};
+  return { type:type, label:(type==='email_received'?'Email Received':'Email Sent'), time:row.created_at, body:rawBody, rec:false, id:row.id,
+    direction:(row.direction||'').toLowerCase(), isInbound:(type==='email_received'),
+    email_subject:String(md.subject||rawBody).replace(/^Ref:\s*[^|]+\|\s*/,'').trim(), email_body:md.body?String(md.body):'',
+    email_id:md.email_id?String(md.email_id):'', email_from:md.from?String(md.from):'' };
+}
+function ensureInboxEmails(done){
+  if(window._ibEmailsLoaded||window._ibEmailsLoading) return;
+  window._ibEmailsLoading=true;
+  var byDbId={}; (leads||[]).forEach(function(l){ if(l.dbId) byDbId[l.dbId]=l.id; });
+  var ids=Object.keys(byDbId);
+  if(!ids.length){ window._ibEmailsLoading=false; window._ibEmailsLoaded=true; return; }
+  // Keep the URL sane: chunks of 60 ids.
+  var chunks=[]; for(var i=0;i<ids.length;i+=60) chunks.push(ids.slice(i,i+60));
+  var reqs=[];
+  chunks.forEach(function(ch){
+    var inList='in.('+ch.join(',')+')';
+    reqs.push(sbFetch('/rest/v1/activity_log?lead_id='+inList+'&type=in.(email_sent,email,email_received,email_event)&select=id,lead_id,type,label,body,meta,created_at&order=created_at.desc&limit=600').then(function(r){ return r&&r.ok?r.json():[]; }).then(function(rows){ return {kind:'log',rows:rows||[]}; }).catch(function(){ return {kind:'log',rows:[]}; }));
+    reqs.push(sbFetch('/rest/v1/lead_activity?lead_id='+inList+'&activity_type=in.(email_sent,email_received)&select=id,lead_id,activity_type,description,direction,metadata,created_at&order=created_at.desc&limit=400').then(function(r){ return r&&r.ok?r.json():[]; }).then(function(rows){ return {kind:'act',rows:rows||[]}; }).catch(function(){ return {kind:'act',rows:[]}; }));
+    reqs.push(sbFetch('/rest/v1/email_opens?lead_id='+inList+'&select=lead_id,occurred_at,resend_id,kind,link&order=occurred_at.desc&limit=600').then(function(r){ return r&&r.ok?r.json():[]; }).then(function(rows){ return {kind:'opens',rows:rows||[]}; }).catch(function(){ return {kind:'opens',rows:[]}; }));
+  });
+  Promise.all(reqs).then(function(res){
+    var logs=[], acts=[], opens=[];
+    res.forEach(function(x){ if(x.kind==='log') logs=logs.concat(x.rows); else if(x.kind==='act') acts=acts.concat(x.rows); else opens=opens.concat(x.rows); });
+    var perLead={};
+    var fmt=function(t){ var d=new Date(t); return isNaN(d)?t:(d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit',hour12:true})); };
+    logs.forEach(function(row){
+      var lid=byDbId[row.lead_id]; if(lid==null) return;
+      var P=perLead[lid]=perLead[lid]||{items:[],opens:[]};
+      if((row.type||'')==='email_event'){ if(row.meta&&row.meta.email_id) P.opens.push({resend_id:String(row.meta.email_id),kind:(String(row.meta.event||'').indexOf('click')>-1?'clicked':'opened'),occurred_at:row.created_at,link:''}); return; }
+      P.items.push(emNormLogRow(row));
+    });
+    acts.forEach(function(row){ var lid=byDbId[row.lead_id]; if(lid==null) return; var P=perLead[lid]=perLead[lid]||{items:[],opens:[]}; P.items.push(emNormActRow(row)); });
+    opens.forEach(function(r){ var lid=byDbId[r.lead_id]; if(lid==null||!r.resend_id) return; var P=perLead[lid]=perLead[lid]||{items:[],opens:[]}; P.opens.push(r); });
+    Object.keys(perLead).forEach(function(lidStr){
+      var lid=parseInt(lidStr,10); var P=perLead[lid];
+      // twin-merge (hub row + function row of the same send)
+      var keep=[];
+      P.items.sort(function(a,b){ return new Date(b.time)-new Date(a.time); }).forEach(function(a){
+        if(a.type!=='email_sent'){ keep.push(a); return; }
+        var ta=new Date(a.time).getTime();
+        var twin=keep.find(function(b){ return b.type==='email_sent' && Math.abs(new Date(b.time).getTime()-ta)<120000 && (b.email_subject||'').toLowerCase()===(a.email_subject||'').toLowerCase(); });
+        if(!twin){ keep.push(a); return; }
+        if(!twin.email_id && a.email_id) twin.email_id=a.email_id;
+        if(!twin.email_body && a.email_body) twin.email_body=a.email_body;
+      });
+      var fresh=keep.map(function(row){ return Object.assign({}, row, {time:fmt(row.time), _rawTime:row.time}); });
+      var existing=(leadAct[lid]||[]).filter(function(a){ return a.type!=='email_sent' && a.type!=='email_received'; });
+      leadAct[lid]=existing.concat(fresh).sort(function(a,b){ return new Date(b._rawTime||0)-new Date(a._rawTime||0); });
+      if(P.opens.length) emStoreOpens(lid, P.opens);
+    });
+    window._ibEmailsLoaded=true; window._ibEmailsLoading=false;
+    if(typeof done==='function') done();
+  }).catch(function(){ window._ibEmailsLoading=false; });
+}
 function ensureSchedEmails(rerender){
   if(window._ibSchedEmails!==undefined) return;
   window._ibSchedEmails=null; // loading
@@ -18855,10 +18933,11 @@ function toggleCc(btn,email){
 }
 
 // \u21A9 Reply to an email in the Adviuz tool: same subject with "Re:", original quoted below.
-function openEmailReply(id, subj, body, fromEmail){
+function openEmailReply(id, subj, body, fromEmail, msgId){
   try{ subj = subj ? decodeURIComponent(subj) : ''; }catch(e){}
   try{ body = body ? decodeURIComponent(body) : ''; }catch(e){}
-  window._emReplyPrefill = { subj: subj||'', body: body||'', from: fromEmail||'' };
+  try{ msgId = msgId ? decodeURIComponent(msgId) : ''; }catch(e){}
+  window._emReplyPrefill = { subj: subj||'', body: body||'', from: fromEmail||'', msgid: msgId||'' };
   openEmail(id);
 }
 function openEmail(id){
@@ -18880,7 +18959,7 @@ function openEmail(id){
     if(document.getElementById('emailSubj')) document.getElementById('emailSubj').value = '';
     if(document.getElementById('emailBody')) document.getElementById('emailBody').value = 'Hi '+firstName+',\n\n';
     subjSetCompany(company);
-    window._emScheduleAt=null; window._emSelRange=null;
+    window._emScheduleAt=null; window._emSelRange=null; window._emReplySubject=''; window._emReplyMsgId='';
     window._useProposalTemplate=false; window._useDesignCompleteTemplate=false; window._useTopupSuccessTemplate=false; window._useTopupTemplate=false; window._useSeqTemplate=null; window._usePlansTemplate=false; window._useCaseLoggedTemplate=false; window._useCustomHtmlTpl=null;
     var _ts=document.getElementById('emTplSel'); if(_ts) _ts.value='';
     var _ccT=document.getElementById('emCcToggle'), _ccB=document.getElementById('emCcBox'); if(_ccT) _ccT.style.display='inline'; if(_ccB) _ccB.style.display='none';
@@ -18914,8 +18993,12 @@ function openEmail(id){
     var _rp = window._emReplyPrefill; window._emReplyPrefill = null;
     if(_rp){
       var _sj=document.getElementById('emailSubj');
-      var _clean=String(_rp.subj||'').replace(/^\s*(re|fwd?):\s*/i,'').replace(/^Ref:\s*[^|]+\|\s*/i,'').trim();
+      var _orig=String(_rp.subj||'').trim();
+      var _clean=_orig.replace(/^\s*(re|fwd?):\s*/i,'').replace(/^Ref:\s*[^|]+\|\s*/i,'').trim();
       if(_sj) _sj.value = _clean ? ('Re: '+_clean) : '';
+      // Mail apps thread by subject + headers: send EXACTLY "Re: <original subject>" so it lands in the same conversation.
+      window._emReplySubject = _orig ? (/^re:/i.test(_orig) ? _orig : ('Re: '+_orig)) : '';
+      window._emReplyMsgId = _rp.msgid || '';
       if(typeof subjValidate==='function') subjValidate();
       var _bd=document.getElementById('emailBody');
       if(_bd){
@@ -19105,6 +19188,14 @@ function emAttRemove(i){
   emPaintAtts();
 }
 // ── Draft with AI: reads the lead's email thread, writes a reply as Adviuz ──
+// The branded footer already signs the email — strip any sign-off the AI adds.
+function emStripSignoff(t){
+  var x=String(t||'').replace(/\r/g,'').trim();
+  x=x.replace(/\n+\s*(best regards|kind regards|warm regards|regards|thanks(?: again)?|thank you|many thanks|cheers|sincerely|best|warmly)[,!.]?\s*\n+\s*(the )?adviuz( team| sales| support| relations)?\s*\.?\s*$/i,'');
+  x=x.replace(/\n+\s*(the )?adviuz( team)?\s*$/i,'');
+  x=x.replace(/\n+\s*(best regards|kind regards|warm regards|regards|cheers|sincerely|warmly)[,!.]?\s*$/i,'');
+  return x.trim();
+}
 function emAiDraft(){
   var l=_emailLeadId?leads.find(function(x){return x.id===_emailLeadId;}):null;
   var btn=document.getElementById('emAiBtn');
@@ -19123,7 +19214,7 @@ function emAiDraft(){
     .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
     .then(function(r){
       if(!r.ok||!r.d||r.d.error) throw 0;
-      var bodyEl=document.getElementById('emailBody'); if(bodyEl) bodyEl.value=r.d.body||'';
+      var bodyEl=document.getElementById('emailBody'); if(bodyEl) bodyEl.value=emStripSignoff(r.d.body||'');
       var subEl=document.getElementById('emailSubj');
       if(subEl && !subEl.value.trim() && r.d.subject) subEl.value=r.d.subject;
       if(typeof subjValidate==='function') subjValidate();
@@ -19147,7 +19238,7 @@ function emAiAsk(){
     window._emAiChat.push({role:'user',content:'Here is the current draft email to improve. It is a one-off email, not a reusable template \u2014 no template variables.'});
     window._emAiChat.push({role:'assistant',content:JSON.stringify({name:'draft',subject:curSubj,body:curBody})});
   }
-  window._emAiChat.push({role:'user',content:cmd+'\n\n(RULES: reply with the COMPLETE revised email only \u2014 subject and body \u2014 written to the recipient, never a message to me. Keep everything I did not ask to change. If the request is about layout you cannot control, keep the email exactly as it is and put a one-line explanation in a separate "note" field instead of the body.)'});
+  window._emAiChat.push({role:'user',content:cmd+'\n\n(RULES: reply with the COMPLETE revised email only \u2014 subject and body \u2014 written to the recipient, never a message to me. Keep everything I did not ask to change. Never add a sign-off or "Adviuz" at the end \u2014 the template signs it. If my message is a QUESTION or comment rather than an edit request, or asks for something you cannot do, keep the email exactly as it is and answer me in a separate "note" field.)'});
   sbFetch('/functions/v1/template-ai',{method:'POST',body:JSON.stringify({business_name:'Adviuz',history:window._emAiChat})})
     .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
     .then(function(r){
@@ -19160,6 +19251,14 @@ function emAiAsk(){
         window._emAiChat.pop();
         showToast((r.d.note||nb||'The AI could not make that change').slice(0,140));
         if(cmdEl) cmdEl.value='';
+        fin(); return;
+      }
+      nb=emStripSignoff(nb);
+      var _norm=function(t){ return String(t||'').replace(/\s+/g,' ').trim().toLowerCase(); };
+      var _same=(_norm(nb)===_norm(emStripSignoff(curBody))) && (!r.d.subject || _norm(r.d.subject)===_norm(curSubj));
+      if(_same){
+        if(cmdEl) cmdEl.value='';
+        showToast(r.d.note ? String(r.d.note).slice(0,160) : 'No changes made to the email');
         fin(); return;
       }
       var b=document.getElementById('emailBody'); if(b && nb) b.value=nb;
@@ -19236,13 +19335,13 @@ function emAiFromBrief(btn){
   var l=_emailLeadId?leads.find(function(x){return x.id===_emailLeadId;}):null;
   if(btn){ btn.disabled=true; btn.textContent='Writing\u2026'; }
   var hist=[
-    {role:'user',content:'Write ONE email from Adviuz (a Canadian digital-flyer advertising and AI sales engine company) to '+((l&&l.name)||'the lead')+((l&&l.company)?' at '+l.company:'')+'. It is a one-off email, not a template \u2014 no placeholders. Warm, plain, professional, short paragraphs. Return subject and body. What it should say: '+brief}
+    {role:'user',content:'Write ONE email from Adviuz (a Canadian digital-flyer advertising and AI sales engine company) to '+((l&&l.name)||'the lead')+((l&&l.company)?' at '+l.company:'')+'. It is a one-off email, not a template \u2014 no placeholders. Warm, plain, professional, short paragraphs. Do NOT add a sign-off, signature or "Adviuz" at the end \u2014 the email template adds the signature block. Return subject and body. What it should say: '+brief}
   ];
   sbFetch('/functions/v1/template-ai',{method:'POST',body:JSON.stringify({business_name:'Adviuz',history:hist})})
     .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
     .then(function(r){
       if(!r.ok||!r.d||r.d.error) throw 0;
-      var b=document.getElementById('emailBody'); if(b && r.d.body) b.value=r.d.body;
+      var b=document.getElementById('emailBody'); if(b && r.d.body) b.value=emStripSignoff(r.d.body);
       var sj=document.getElementById('emailSubj'); if(sj && r.d.subject && !sj.value.trim()) sj.value=r.d.subject;
       if(typeof subjValidate==='function') subjValidate();
       window._emAiChat=[{role:'user',content:hist[0].content},{role:'assistant',content:JSON.stringify(r.d)}];
@@ -20457,6 +20556,8 @@ async function sendEmail(){
   // Build full subject: Ref: Company | Subject
   var company = (document.getElementById('subjCompany')||{}).textContent || '';
   var fullSubj = company ? ('Ref: ' + company + ' | ' + subj) : subj;
+  if(window._emReplySubject){ fullSubj = window._emReplySubject; }
+  var _replyHeaders = window._emReplyMsgId ? { 'In-Reply-To': window._emReplyMsgId, 'References': window._emReplyMsgId } : null;
   // Don't require body for HTML templates — they build their own HTML
   var isHtmlTemplate = window._useProposalTemplate || window._useDesignCompleteTemplate
     || window._useTopupSuccessTemplate || window._useTopupTemplate || window._useCustomHtmlTpl;
@@ -20559,7 +20660,7 @@ async function sendEmail(){
         to:to, cc:(cc||undefined), subject:fullSubj, html:finalHtml, text:body+_linkText,
         type:'transactional', from_email:fromEmail, from_name:FROM_NAMES[fromEmail]||'Adviuz Team',
         reply_to:fromEmail, lead_id:_emLeadDb, client_id:_emClientDb,
-        headers:{'X-Priority':'1','Importance':'high','X-Mailer':'Adviuz CRM'},
+        headers:Object.assign({'X-Priority':'1','Importance':'high','X-Mailer':'Adviuz CRM'}, _replyHeaders||{}),
         attachments:((window._emAttMode||'link')==='attach'&&window._emAtt&&window._emAtt.length)?window._emAtt.map(function(a){return {filename:a.filename, content:a.content};}):undefined
       })
     });
@@ -20587,7 +20688,7 @@ async function sendEmail(){
     console.error('[sendEmail]',e);
   } finally {
     if(btn){ btn.textContent='Send'; btn.disabled=false; }
-    window._emScheduleAt=null;
+    window._emScheduleAt=null; window._emReplySubject=''; window._emReplyMsgId='';
   }
 }
 
@@ -21504,7 +21605,8 @@ async function showClientUI() {
 // first. Opening a lead still refreshes it via loadLeadActivity.
 async function preloadActivity() {
   try {
-    leadAct = {};  // clear stale activity so a prior panel's data can't bleed onto reused local ids
+    leadAct = {};
+    window._ibEmailsLoaded=false;  // clear stale activity so a prior panel's data can't bleed onto reused local ids
     var byDbId = {}; (leads||[]).forEach(function(l){ if (l.dbId) byDbId[l.dbId] = l.id; });
     var _partner = (typeof isPartnerMode==='function' && isPartnerMode());
     var qs;
