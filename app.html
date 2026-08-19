@@ -4363,7 +4363,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-19 op-email-3';
+var APP_VERSION = 'v2026-08-19 op-email-4';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -8574,7 +8574,7 @@ function openBulkWiz(channel){
   window._bw={ channel:channel, step:1, msg:'', subj:'', camp:'', svcs:{}, locs:{}, stages:{}, excluded:{}, schedOpen:false, at:'' };
   if(channel==='email' && isClientMode() && window._myEmailId===undefined){
     window._myEmailId=null;
-    sbFetch('/rest/v1/rpc/my_email_settings',{method:'POST',body:'{}'}).then(function(r){ return r.ok?r.json():null; })
+    sbFetch('/rest/v1/rpc/my_email_settings',{method:'POST',body: JSON.stringify({ p_client: window._clientId||null })}).then(function(r){ return r.ok?r.json():null; })
       .then(function(es){ var en=Array.isArray(es)?es[0]:es; window._myEmailId=en||null; if(window._bw&&window._bw.step===2) bwRender(); })
       .catch(function(){ window._myEmailId=null; });
   }
@@ -9015,7 +9015,7 @@ async function bwLaunch(schedIso){
   if(!picked.length){ showToast('Everyone is unticked \u2014 nobody to send to'); return; }
   if(b.channel==='email' && isClientMode()){
     try{
-      var er=await sbFetch('/rest/v1/rpc/my_email_settings',{method:'POST',body:'{}'});
+      var er=await sbFetch('/rest/v1/rpc/my_email_settings',{method:'POST',body: JSON.stringify({ p_client: window._clientId||null })});
       var es=er.ok?await er.json().catch(function(){return null;}):null;
       var en=Array.isArray(es)?es[0]:es;
       if(!en||!en.email_enabled){ showToast('Your email sending isn\u2019t set up yet \u2014 ask Adviuz to switch it on'); return; }
@@ -11956,7 +11956,7 @@ async function _pbLoadDesign(){
   // never opened this session.
   var base={};
   try{
-    var r=await sbFetch('/rest/v1/rpc/my_email_settings',{ method:'POST', body:'{}' });
+    var r=await sbFetch('/rest/v1/rpc/my_email_settings',{ method:'POST', body: JSON.stringify({ p_client: window._clientId||null }) });
     var rows=r&&r.ok?await r.json():[];
     base=(Array.isArray(rows)?rows[0]:rows)||{};
   }catch(e){}
@@ -16097,9 +16097,22 @@ function lsDoAiCall(){
     openAiCallSheet(l);
   });
 }
-function lsDoEmail(){
+function lsDoEmail(forceAdviuz){
   var l=lsGetLead();if(!l)return;
   if(isPartnerMode()){openPartnerProposal(l.id);return;}
+  // Adviuz staff working INSIDE a client's account: the lead is usually that client's customer,
+  // so offer the client's own email tool first, with Adviuz as the second option.
+  if(!forceAdviuz && window._isAdviuzStaff && !isClientMode() && window._clientId && window._clientId!==window._ADV_HOUSE){
+    var _bn=_clientNm()||'this client';
+    var ov=document.createElement('div'); ov.className='sheet-ov'; ov.style.display='flex'; ov.style.zIndex='10001';
+    ov.innerHTML='<div class="sheet" style="max-height:60vh"><div class="sh-head"><div class="sh-title">\uD83D\uDCE7 Send email as\u2026</div><button class="sh-x" onclick="this.closest(\'.sheet-ov\').remove()">\u2715</button></div>'
+      +'<div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom))">'
+      +'<button class="btn" style="width:100%;justify-content:flex-start;gap:12px;background:var(--bg);border:1.5px solid var(--green);color:var(--text);padding:14px;margin-bottom:10px;text-align:left" onclick="this.closest(\'.sheet-ov\').remove();openClientEmail('+l.id+')"><span style="font-size:20px">\uD83C\uDFE5</span><span><b>'+sanitize(_bn)+'</b><br><span style="font-size:12px;color:var(--sub)">From the client\u2019s own address \u2014 their templates, their branding. For their patients and leads.</span></span></button>'
+      +'<button class="btn" style="width:100%;justify-content:flex-start;gap:12px;background:var(--bg);border:1.5px solid var(--border);color:var(--text);padding:14px;text-align:left" onclick="this.closest(\'.sheet-ov\').remove();lsDoEmail(true)"><span style="font-size:20px">\uD83C\uDFE2</span><span><b>Adviuz</b><br><span style="font-size:12px;color:var(--sub)">From relations@ / support@ / sales@adviuz.com \u2014 Adviuz templates. For the business owner.</span></span></button>'
+      +'</div></div>';
+    document.body.appendChild(ov);
+    return;
+  }
   // The Send Email sheet is the Adviuz operator tool — internal sender
   // addresses and the Adviuz sales templates. No client-side user (client
   // owner OR their team members) may ever open it. Their own patient-email
@@ -16140,13 +16153,15 @@ function openClientEmail(id, replySubj){
   ceSetWhen('now'); ceLoadSchedPending();
   var fromEl=document.getElementById('ceFrom'); if(fromEl) fromEl.textContent='Loading\u2026';
   openSheet('clientEmailSh');
+  // Caches are per account — staff hop between accounts, so a different client means a fresh load.
+  if(window._ceCacheFor !== (window._clientId||'')){ window._ceCacheFor = (window._clientId||''); window._ceFrom=null; window._ceTpls=null; }
   // Load this client's custom templates for the chips row (cached after first load).
   if(window._ceTpls) cePaintTplRow(); else ceLoadTemplates();
   // Load the client's sender (cached after first time)
   if(window._ceFrom){ paintCeFrom(); return; }
   // Read via the safe function (returns ONLY this account's email fields; the
   // client_integrations table itself stays locked to staff/service).
-  sbFetch('/rest/v1/rpc/my_email_settings',{ method:'POST', body:'{}' })
+  sbFetch('/rest/v1/rpc/my_email_settings',{ method:'POST', body: JSON.stringify({ p_client: window._clientId||null }) })
     .then(function(r){ return r&&r.ok?r.json():[]; })
     .then(function(rows){
       var c=(Array.isArray(rows)?rows[0]:rows)||{};
@@ -16581,7 +16596,7 @@ function openEmailDesignSheet(){
   };
   openSheet('emailDesignSh');
   if(window._ceFrom){ fill(); return; }
-  sbFetch('/rest/v1/rpc/my_email_settings',{ method:'POST', body:'{}' })
+  sbFetch('/rest/v1/rpc/my_email_settings',{ method:'POST', body: JSON.stringify({ p_client: window._clientId||null }) })
     .then(function(r){ return r&&r.ok?r.json():[]; })
     .then(function(rows){
       var c=(Array.isArray(rows)?rows[0]:rows)||{};
@@ -20659,7 +20674,7 @@ async function sendBulkEmail(){
   if(!picked.length){ showToast('None of the selected leads has an email address'); return; }
   if(isClientMode()){
     try{
-      var er=await sbFetch('/rest/v1/rpc/my_email_settings',{method:'POST',body:'{}'});
+      var er=await sbFetch('/rest/v1/rpc/my_email_settings',{method:'POST',body: JSON.stringify({ p_client: window._clientId||null })});
       var es=er.ok?await er.json().catch(function(){return null;}):null;
       var en=Array.isArray(es)?es[0]:es;
       if(!en||!en.email_enabled){ showToast('Your email sending isn\u2019t set up yet \u2014 ask Adviuz to switch it on'); return; }
