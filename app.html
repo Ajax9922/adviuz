@@ -4357,7 +4357,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-19 brain-scope-1';
+var APP_VERSION = 'v2026-08-19 usage-sheets-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -24329,41 +24329,172 @@ async function loadAiFuel(){
     paintAiFuel();
   }catch(e){}
 }
-async function openAiMinutesSheet(campId){
+// ══ USAGE SHEETS (AI minutes · Texts · Emails · My calls) ══
+// All four read my_usage_detail, which reports what was ACTUALLY deducted from
+// the wallet. That is the same source as the meter bars, so a sheet total can
+// never disagree with the bar again.
+window._usgUnit = 'ai_minutes';
+window._usgCamp = null;
+window._usgRange = 'all';
+window._usgRows = null;
+
+var USG_META = {
+  ai_minutes: { icon:'\uD83E\uDD16', title:'AI minutes', word:'minute', col:'#6d28d9', bg:'#f5f3ff', bd:'#ddd6fe',
+    note:'Each AI call is rounded up to the next full minute \u2014 industry standard, because the phone network bills us the same way. Voicemail drops count as calls.',
+    empty:'No AI calls yet \u2014 minutes appear here the moment the AI makes or answers a call.' },
+  ivr_calls:  { icon:'\uD83D\uDCDE', title:'My calls', word:'minute', col:'#0f766e', bg:'#f0fdfa', bd:'#99f6e4',
+    note:'Your own calls \u2014 the ones forwarded to your phone and the ones your team makes through Adviuz. Rounded up to the next full minute. Missed calls are free.',
+    empty:'No calls yet \u2014 your own and forwarded calls appear here.' },
+  sms:        { icon:'\uD83D\uDCAC', title:'Texts', word:'text', col:'#1d4ed8', bg:'#eff6ff', bd:'#bfdbfe',
+    note:'One text = one message sent. Replies you receive are always free.',
+    empty:'No texts sent yet.' },
+  emails:     { icon:'\uD83D\uDCE7', title:'Emails', word:'email', col:'#b45309', bg:'#fffbeb', bd:'#fde68a',
+    note:'One email = one message sent. Replies you receive are always free.',
+    empty:'No emails sent yet.' }
+};
+
+var USG_RANGES = [
+  ['all','All time'], ['today','Today'], ['yesterday','Yesterday'],
+  ['tmonth','This month'], ['lmonth','Last month'],
+  ['tquarter','This quarter'], ['lquarter','Last quarter'],
+  ['l6m','Last 6 months'], ['tyear','This year'], ['lyear','Last year']
+];
+
+// Local-time range boundaries. Returns [from, toExclusive] or null for "all".
+function _usgBounds(key){
+  var n = new Date(), y = n.getFullYear(), m = n.getMonth(), d = n.getDate();
+  var D = function(yy,mm,dd){ return new Date(yy,mm,dd,0,0,0,0); };
+  var q = Math.floor(m/3);
+  switch(key){
+    case 'today':    return [D(y,m,d), D(y,m,d+1)];
+    case 'yesterday':return [D(y,m,d-1), D(y,m,d)];
+    case 'tmonth':   return [D(y,m,1), D(y,m+1,1)];
+    case 'lmonth':   return [D(y,m-1,1), D(y,m,1)];
+    case 'tquarter': return [D(y,q*3,1), D(y,q*3+3,1)];
+    case 'lquarter': return [D(y,q*3-3,1), D(y,q*3,1)];
+    case 'l6m':      return [D(y,m-5,1), D(y,m+1,1)];
+    case 'tyear':    return [D(y,0,1), D(y+1,0,1)];
+    case 'lyear':    return [D(y-1,0,1), D(y,0,1)];
+    default:         return null;
+  }
+}
+
+function openAiMinutesSheet(campId){ return openUsageSheet('ai_minutes', campId); }
+
+async function openUsageSheet(unit, campId){
   var body=document.getElementById('amBody'); if(!body) return;
+  window._usgUnit = USG_META[unit] ? unit : 'ai_minutes';
+  window._usgCamp = campId || null;
+  window._usgRange = 'all';
+  window._usgRows = null;
+  var t=document.getElementById('amTitle');
+  if(t) t.innerHTML = USG_META[window._usgUnit].icon+' Where your '+USG_META[window._usgUnit].title.toLowerCase()+' went';
   body.innerHTML='<div style="font-size:12px;color:var(--sub);padding:10px 0">Loading\u2026</div>';
   openSheet('aiMinSh');
   var ov=document.getElementById('aiMinSh'); if(ov) ov.style.zIndex='960';
-  var rows=[];
   try{
-    var r=await sbFetch('/rest/v1/rpc/my_ai_call_usage',{method:'POST',body:'{}'});
-    if(r.ok) rows=await r.json();
+    var r=await sbFetch('/rest/v1/rpc/my_usage_detail',{method:'POST',body:JSON.stringify({p_unit:window._usgUnit})});
+    window._usgRows = r.ok ? await r.json() : [];
+  }catch(e){ window._usgRows=[]; }
+  renderUsageSheet();
+}
+
+function usgSetRange(k){ window._usgRange=k; renderUsageSheet(); }
+
+// Tap a row -> open that lead's screen. openLead() wants the LOCAL row id, so
+// map the database id across first; if the lead isn't in the loaded list we
+// leave the row inert rather than opening the wrong person.
+function usgOpenLead(dbId){
+  try{
+    var L=(typeof leads!=='undefined'&&Array.isArray(leads))?leads:[];
+    var hit=L.find(function(z){ return String(z.dbId||'')===String(dbId); });
+    if(!hit){ showToast('That lead isn\u2019t in your current list'); return; }
+    closeSheet('aiMinSh');
+    setTimeout(function(){ openLead(hit.id); },180);
   }catch(e){}
-  if(campId) rows=(rows||[]).filter(function(x){ return !x.campaign_id || String(x.campaign_id)===String(campId); });
-  var totMin=0, totSec=0;
-  (rows||[]).forEach(function(x){ totMin+=Number(x.minutes)||0; totSec+=Number(x.duration_sec)||0; });
+}
+
+function _usgBars(rows, meta){
+  // Group into buckets that suit the chosen range, newest last.
+  var key = window._usgRange, byDay = (key==='today'||key==='yesterday'||key==='tmonth'||key==='lmonth'||key==='all');
+  var map={}, order=[];
+  rows.forEach(function(x){
+    var d=new Date(x.used_at); if(isNaN(d)) return;
+    var k, lbl;
+    if(byDay){ k=d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate(); lbl=d.toLocaleDateString('en-CA',{month:'short',day:'numeric'}); }
+    else     { k=d.getFullYear()+'-'+d.getMonth();                 lbl=d.toLocaleDateString('en-CA',{month:'short'}); }
+    if(!map[k]){ map[k]={lbl:lbl,v:0,t:d.getTime()}; order.push(k); }
+    map[k].v += Number(x.qty)||0;
+  });
+  var pts=order.map(function(k){ return map[k]; }).sort(function(a,b){ return a.t-b.t; });
+  if(pts.length>14) pts=pts.slice(pts.length-14);
+  if(pts.length<2) return '';
+  var max=0; pts.forEach(function(p){ if(p.v>max) max=p.v; });
+  if(max<=0) return '';
+  var bars=pts.map(function(p){
+    var pct=Math.max(4, Math.round((p.v/max)*100));
+    return '<div style="flex:1;min-width:0;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:4px">'
+      +   '<div style="font-size:9px;font-weight:800;color:'+meta.col+';opacity:'+(p.v?'1':'.35')+'">'+p.v+'</div>'
+      +   '<div title="'+p.lbl+'" style="width:100%;max-width:26px;height:'+pct+'%;min-height:3px;background:'+meta.col+';border-radius:4px 4px 2px 2px;opacity:.85"></div>'
+      +   '<div style="font-size:8.5px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%">'+_escTxt(p.lbl)+'</div>'
+      + '</div>';
+  }).join('');
+  return '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:12px 12px 10px;margin-bottom:12px">'
+    +    '<div style="display:flex;align-items:flex-end;gap:5px;height:104px">'+bars+'</div>'
+    +  '</div>';
+}
+
+function renderUsageSheet(){
+  var body=document.getElementById('amBody'); if(!body) return;
+  var meta=USG_META[window._usgUnit], all=window._usgRows||[];
+
+  // Campaign scope, then the date range.
+  var rows=all.filter(function(x){ return !window._usgCamp || String(x.campaign_id)===String(window._usgCamp); });
+  var b=_usgBounds(window._usgRange);
+  if(b) rows=rows.filter(function(x){ var d=new Date(x.used_at); return !isNaN(d) && d>=b[0] && d<b[1]; });
+
+  var tot=0; rows.forEach(function(x){ tot+=Number(x.qty)||0; });
+  var isMin=(window._usgUnit==='ai_minutes'||window._usgUnit==='ivr_calls');
+  var unitWord=meta.word+(tot===1?'':'s');
+
+  var chips=USG_RANGES.map(function(r){
+    var on=(window._usgRange===r[0]);
+    return '<button onclick="usgSetRange(\''+r[0]+'\')" style="flex-shrink:0;padding:6px 12px;border-radius:20px;cursor:pointer;font-family:var(--f);font-size:11.5px;font-weight:800;'
+      + (on?('background:'+meta.col+';color:#fff;border:1px solid '+meta.col):('background:var(--white);color:var(--sub);border:1px solid var(--border)'))
+      + '">'+r[1]+'</button>';
+  }).join('');
+
   var h='';
-  h+='<div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:12px;padding:12px 14px;margin-bottom:12px">'
-    +'<div style="font-size:13px;font-weight:800;color:#6d28d9">'+totMin+' minute'+(totMin===1?'':'s')+' used \u00b7 '+(rows||[]).length+' AI call'+((rows||[]).length===1?'':'s')+'</div>'
-    +'<div style="font-size:11.5px;color:var(--sub);margin-top:4px;line-height:1.5">Each call is rounded up to the next full minute \u2014 industry standard, because the phone network bills us the same way. Voicemail drops count as calls.</div>'
+  h+='<div style="display:flex;gap:7px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:2px 0 12px;margin:0 -2px">'+chips+'</div>';
+  h+='<div style="background:'+meta.bg+';border:1px solid '+meta.bd+';border-radius:12px;padding:12px 14px;margin-bottom:12px">'
+    +'<div style="font-size:13px;font-weight:800;color:'+meta.col+'">'+tot+' '+unitWord+' used \u00b7 '+rows.length+' '+(rows.length===1?'item':'items')+'</div>'
+    +'<div style="font-size:11.5px;color:var(--sub);margin-top:4px;line-height:1.5">'+meta.note+'</div>'
     +'</div>';
-  if(!(rows||[]).length){
-    h+='<div style="font-size:12.5px;color:var(--sub)">No AI calls yet \u2014 minutes appear here the moment the AI makes or answers a call.</div>';
+
+  h+=_usgBars(rows, meta);
+
+  if(!rows.length){
+    h+='<div style="font-size:12.5px;color:var(--sub)">'+(window._usgRange==='all'?meta.empty:'Nothing used in this period.')+'</div>';
   } else {
     rows.forEach(function(x){
-      var d=new Date(x.created_at);
+      var d=new Date(x.used_at);
       var when=isNaN(d)?'':d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' \u00b7 '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'});
-      var s=Number(x.duration_sec)||0;
-      var durTxt=(s>=60?Math.floor(s/60)+'m ':'')+ (s%60)+'s';
+      var sub=when;
+      if(isMin){
+        var sec=Number(x.duration_sec)||0;
+        if(sec>0) sub+=' \u00b7 lasted '+((sec>=60?Math.floor(sec/60)+'m ':'')+(sec%60)+'s');
+      } else if(x.note){
+        sub+=' \u00b7 '+_escTxt(String(x.note).slice(0,60));
+      }
       var vmChip=x.voicemail?' <span style="font-size:9px;font-weight:800;padding:2px 7px;border-radius:12px;background:#fef3c7;color:#92400e">VOICEMAIL</span>':'';
-      var dirIco=x.direction==='inbound'?'\u2199\uFE0F':'\u2197\uFE0F';
-      h+='<div '+(x.lead_id?'onclick="closeSheet(\'aiMinSh\');try{var _l=(typeof leads!==\'undefined\'?leads:[]).find(function(z){return String(z.dbId||z.id)===String(\''+x.lead_id+'\');});}catch(e){}"':'')
-        +' style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:11px 13px;margin-bottom:8px">'
+      var ico=isMin?(x.direction==='inbound'?'\u2199\uFE0F':'\u2197\uFE0F'):meta.icon;
+      var tap=x.lead_id?(' onclick="usgOpenLead(\''+x.lead_id+'\')" style="cursor:pointer;'):' style="';
+      h+='<div'+tap+'background:var(--white);border:1px solid var(--border);border-radius:12px;padding:11px 13px;margin-bottom:8px">'
         +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'
-        +'<span style="font-size:13px;font-weight:800;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+dirIco+' '+_escTxt(x.lead_name||'Unknown caller')+vmChip+'</span>'
-        +'<span style="font-size:12.5px;font-weight:900;color:#6d28d9;flex-shrink:0">'+(Number(x.minutes)||0)+' min</span>'
+        +'<span style="font-size:13px;font-weight:800;color:'+(x.lead_id?'var(--green)':'var(--text)')+';flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+ico+' '+_escTxt(x.lead_name||'Unknown')+vmChip+'</span>'
+        +'<span style="font-size:12.5px;font-weight:900;color:'+meta.col+';flex-shrink:0">'+(Number(x.qty)||0)+(isMin?' min':'')+'</span>'
         +'</div>'
-        +'<div style="font-size:11px;color:var(--sub);margin-top:3px">'+when+' \u00b7 lasted '+durTxt+'</div>'
+        +'<div style="font-size:11px;color:var(--sub);margin-top:3px">'+sub+'</div>'
         +'</div>';
     });
   }
@@ -24494,9 +24625,9 @@ function _campFuelCardHTML(cp){
     + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
     + '<span style="font-size:13.5px;font-weight:800;color:var(--text);flex:1">\uD83E\uDD16 AI Sales Engine \u00b7 '+((w.label||'Free bundle'))+'</span>'+badge+'</div>'
     + meter('\uD83E\uDD16','AI minutes', w.ai_minutes, 'ai_minutes', 'openAiMinutesSheet(\''+String(cp.id)+'\')')
-    + meter('\uD83D\uDCAC','Texts',    w.sms,        'sms',        "openUsageReport('sms')")
-    + meter('\uD83D\uDCE7','Emails',   w.emails,     'emails',     "openUsageReport('email')")
-    + meter('\uD83D\uDCDE','My calls', w.ivr_calls,  'ivr_calls',  "openUsageReport('calls')")
+    + meter('\uD83D\uDCAC','Texts',    w.sms,        'sms',        "openUsageSheet('sms','"+String(cp.id)+"')")
+    + meter('\uD83D\uDCE7','Emails',   w.emails,     'emails',     "openUsageSheet('emails','"+String(cp.id)+"')")
+    + meter('\uD83D\uDCDE','My calls', w.ivr_calls,  'ivr_calls',  "openUsageSheet('ivr_calls','"+String(cp.id)+"')")
     + '<div onclick="event.stopPropagation();openFuelHistory(\''+String(cp.id)+'\')" style="text-align:right;font-size:11.5px;font-weight:800;color:#6d28d9;margin-top:10px;cursor:pointer">\uD83D\uDCDC Balance history \u203A</div>';
   if(w.expires_at) h += '<div style="font-size:11px;color:var(--sub);margin-top:8px">Valid until '+new Date(w.expires_at).toLocaleDateString('en-CA',{year:'numeric',month:'short',day:'numeric'})+'</div>';
   if(exhausted){
