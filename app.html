@@ -4357,7 +4357,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-19 compose-5';
+var APP_VERSION = 'v2026-08-19 compose-6';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -11425,7 +11425,7 @@ function callsHTML(){
       +  '<div style="display:flex;align-items:center;gap:6px">'
       +    '<span onclick="openLead('+r.lid+')" style="cursor:pointer;font-size:15px;font-weight:700;color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+r.name+'</span>'
       +    '<span style="flex-shrink:0;font-size:9px;font-weight:800;padding:2px 7px;border-radius:20px;background:'+(r.inbound?'#e0f2fe':'#eef2ff')+';color:'+bdr+'">'+(r.inbound?'\u2193 Received':'\u2191 Sent')+'</span>'
-      +    (function(){ if(r.inbound||!r.email_id) return ''; var st=emOpensFor(r.lid,r.email_id); if(!st||!(st.opens.length||st.clicks.length)) return ''; var lat=st.opens.length?st.opens[0].at:st.clicks[0].at; return '<span onclick="event.stopPropagation();showEmailOpens('+r.lid+',\''+_jsq(r.email_id)+'\',\''+_jsq(r.subject||'')+'\')" style="flex-shrink:0;font-size:9.5px;font-weight:800;padding:2px 8px;border-radius:20px;border:1.5px solid var(--green);background:var(--greenl,#e7f8f3);color:var(--green);cursor:pointer;white-space:nowrap">\uD83D\uDC41 '+st.opens.length+(st.clicks.length?' \u00b7 \uD83D\uDD17 '+st.clicks.length:'')+' \u00b7 '+_emWhen(lat)+'</span>'; })()
+      +    (function(){ if(r.inbound||!r.email_id) return ''; var st=emOpensFor(r.lid,r.email_id,r.sortMs?new Date(r.sortMs).toISOString():null); if(!st||!(st.opens.length||st.clicks.length)) return ''; var lat=st.opens.length?st.opens[0].at:st.clicks[0].at; return '<span onclick="event.stopPropagation();showEmailOpens('+r.lid+',\''+_jsq(r.email_id)+'\',\''+_jsq(r.subject||'')+'\')" style="flex-shrink:0;font-size:9.5px;font-weight:800;padding:2px 8px;border-radius:20px;border:1.5px solid var(--green);background:var(--greenl,#e7f8f3);color:var(--green);cursor:pointer;white-space:nowrap">\uD83D\uDC41 '+st.opens.length+(st.clicks.length?' \u00b7 \uD83D\uDD17 '+st.clicks.length:'')+' \u00b7 '+_emWhen(lat)+'</span>'; })()
       +  '</div>'
       +  '<div style="font-size:12.5px;font-weight:700;color:var(--text);margin-top:2px;'+(eOpen?'':'overflow:hidden;text-overflow:ellipsis;white-space:nowrap')+'">'+String(r.subject||'(no subject)').replace(/</g,'&lt;')+'</div>'
       +  (!eOpen && r.body?'<div style="font-size:12px;color:var(--sub);margin-top:2px;line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'+String(r.body).replace(/</g,'&lt;')+'</div>':'')
@@ -14601,7 +14601,7 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
       h += '<div class="ld-act-body" style="width:100%">';
       h += '<span class="ld-act-label">'+item.label+'</span><span class="ld-act-time">'+item.time+'</span>';
       var _emTag = isEmailIn ? '' : '👤 '+((_clientNm())||'You');
-      var _emStat = (item.type === 'email_sent') ? emOpensFor(l.id, item.email_id) : null;
+      var _emStat = (item.type === 'email_sent') ? emOpensFor(l.id, item.email_id, item._rawTime||null) : null;
       var _emHasStat = !!(_emStat && (_emStat.opens.length || _emStat.clicks.length));
       if(_emTag || _emHasStat){
         h += '<div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">';
@@ -16609,10 +16609,26 @@ function emStoreOpens(localId, rows){
   });
   window._leadOpens[localId] = map;
 }
-function emOpensFor(localId, emailId){
+function emOpensFor(localId, emailId, sentAt){
   if(!emailId) return null;
   var m = (window._leadOpens||{})[localId];
-  return (m && m[emailId]) || null;
+  var raw = (m && m[emailId]) || null;
+  if(!raw) return null;
+  // Mail apps fire several "opened" pings per real open (image proxies, our BCC copy, retries).
+  // Collapse anything within 10 minutes into one open, and ignore pings in the first 60 s after send.
+  var sentMs = sentAt ? new Date(sentAt).getTime() : NaN;
+  var squash = function(list){
+    var keep=[]; var last=null;
+    list.slice().sort(function(a,b){ return new Date(a.at)-new Date(b.at); }).forEach(function(o){
+      var t=new Date(o.at).getTime(); if(isNaN(t)) return;
+      if(!isNaN(sentMs) && t - sentMs < 60000) return;
+      if(last!==null && t - last < 600000) return;
+      keep.push(o); last=t;
+    });
+    return keep.sort(function(a,b){ return new Date(b.at)-new Date(a.at); });
+  };
+  var out = { opens: squash(raw.opens||[]), clicks: squash(raw.clicks||[]) };
+  return (out.opens.length||out.clicks.length) ? out : null;
 }
 function _emWhen(t){
   var d = new Date(t);
@@ -16948,6 +16964,11 @@ function tplPaintMgrList(){
   var sysNames = staffHouse ? Object.keys(window._ADV_SYS_NAME||{}).map(function(k){return window._ADV_SYS_NAME[k];}) : [];
   var sysH='';
   if(staffHouse){
+    // Only the Proposal stays built in; everything else lives in "Your templates".
+    sysH+='<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:14px"><div style="padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px"><div><div style="font-size:13.5px;font-weight:700;color:var(--text)">\uD83D\uDCCB Proposal</div><div style="font-size:11.5px;color:var(--sub)">Built-in full proposal with demo video \u2014 always available in the Template dropdown</div></div></div></div>';
+    sysH+='<div style="font-size:10.5px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin:2px 0 6px">Your templates</div>';
+  }
+  if(false){
     sysH+='<div style="font-size:10.5px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin:2px 0 6px">System templates — the chips on Send Email</div>'
       +'<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:14px">';
     var _first=true;
@@ -19272,7 +19293,12 @@ function emAiDraft(){
       if(!r.ok||!r.d||r.d.error) throw 0;
       var bodyEl=document.getElementById('emailBody'); if(bodyEl) bodyEl.value=emStripSignoff(r.d.body||'');
       var subEl=document.getElementById('emailSubj');
-      if(subEl && !subEl.value.trim() && r.d.subject) subEl.value=r.d.subject;
+      if(subEl && !subEl.value.trim()){
+        var _sj2=String(r.d.subject||'').replace(/^Ref:\s*[^|]+\|\s*/i,'').trim();
+        if(!_sj2){ var _lastIn=convo.slice().reverse().find(function(m){ return m.subject; }); _sj2=_lastIn?(/^re:/i.test(_lastIn.subject)?_lastIn.subject:'Re: '+_lastIn.subject.replace(/^Ref:\s*[^|]+\|\s*/i,'')):''; }
+        if(!_sj2){ var _fl=String(r.d.body||'').split('\n').map(function(x){return x.trim();}).filter(function(x){ return x && !/^(hi|hello|dear|hey)\b/i.test(x); })[0]||''; _sj2=_fl.replace(/[.!?].*$/,'').slice(0,60); }
+        if(_sj2) subEl.value=_sj2;
+      }
       if(typeof subjValidate==='function') subjValidate();
       window._emAiChat=[];
       showToast('\u2728 Draft ready \u2014 read it over, then use the box below to refine it');
@@ -20698,7 +20724,7 @@ async function sendEmail(){
       var _sr = await sbFetch('/rest/v1/scheduled_emails', { method:'POST', headers:{ 'Prefer':'return=minimal' }, body: JSON.stringify({
         client_id: _emClientDb, lead_id: _emLeadDb, to_email: to, subject: fullSubj,
         message: body+_linkText, send_at: _scheduleAt, status:'scheduled', kind:'adviuz',
-        from_email: fromEmail, html: finalHtml, cc: (cc||null), created_by: (currentUser&&currentUser.email)||null
+        from_email: fromEmail, html: finalHtml, cc: (cc||null), created_by: (currentUser&&currentUser.id)||null
       }) });
       if(!(_sr.ok||_sr.status===201)) throw new Error('Could not schedule (HTTP '+_sr.status+')');
       window._ibSchedEmails = undefined;
