@@ -1601,6 +1601,7 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
           <button type="button" onmousedown="event.preventDefault()" onclick="emFmtColor('#15803d')" title="Green" style="width:22px;height:22px;border-radius:50%;border:2px solid var(--border);background:#15803d;cursor:pointer"></button>
           <button type="button" onmousedown="event.preventDefault()" onclick="emFmtColor('#b91c1c')" title="Red" style="width:22px;height:22px;border-radius:50%;border:2px solid var(--border);background:#b91c1c;cursor:pointer"></button>
           <button type="button" onmousedown="event.preventDefault()" onclick="emFmtColor('#6b7280')" title="Gray" style="width:22px;height:22px;border-radius:50%;border:2px solid var(--border);background:#6b7280;cursor:pointer"></button>
+          <label title="Any colour" onmousedown="emSaveSel('emailBody')" style="width:22px;height:22px;border-radius:50%;border:2px dashed var(--border);background:conic-gradient(#ef4444,#f59e0b,#22c55e,#3b82f6,#a855f7,#ef4444);cursor:pointer;position:relative;overflow:hidden;display:inline-block"><input type="color" oninput="emRestoreSel('emailBody');emFmtColor(this.value)" style="position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer"></label>
           <span style="width:1px;height:20px;background:var(--border);margin:0 3px"></span>
           <select id="emFontSel" onchange="emFmtFont(this.value)" onmousedown="event.stopPropagation()" style="height:30px;border-radius:7px;border:1px solid var(--border);background:var(--white);font-family:var(--f);font-size:11.5px;color:var(--text);padding:0 6px">
             <option value="">Font</option>
@@ -1640,6 +1641,7 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
     <div class="sh-foot">
       <button class="btn btn-ghost" onclick="closeSheet('emailSh')" style="flex:1">Cancel</button>
       <button class="btn btn-ghost" onclick="previewEmail()" style="flex:1;justify-content:center;border:1.5px solid #2563eb;color:#2563eb;">👁 Preview</button>
+      <button class="btn btn-ghost" id="schedEmailBtn" onclick="emSchedOpen()" title="Send later" style="flex:1;justify-content:center;border:1.5px solid var(--border);color:var(--text)">\u23F0 Later</button>
       <button class="btn" id="sendEmailBtn" onclick="sendEmail()" style="flex:2;justify-content:center;background:#2563eb;color:#fff">Send Email</button>
     </div>
   </div>
@@ -3754,6 +3756,7 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
           <button type="button" onmousedown="event.preventDefault()" onclick="_rtFmt('tplBody','foreColor','#15803d')" title="Green" style="width:22px;height:22px;border-radius:50%;border:2px solid var(--border);background:#15803d;cursor:pointer"></button>
           <button type="button" onmousedown="event.preventDefault()" onclick="_rtFmt('tplBody','foreColor','#b91c1c')" title="Red" style="width:22px;height:22px;border-radius:50%;border:2px solid var(--border);background:#b91c1c;cursor:pointer"></button>
           <button type="button" onmousedown="event.preventDefault()" onclick="_rtFmt('tplBody','foreColor','#6b7280')" title="Gray" style="width:22px;height:22px;border-radius:50%;border:2px solid var(--border);background:#6b7280;cursor:pointer"></button>
+          <label title="Any colour" onmousedown="emSaveSel('tplBody')" style="width:22px;height:22px;border-radius:50%;border:2px dashed var(--border);background:conic-gradient(#ef4444,#f59e0b,#22c55e,#3b82f6,#a855f7,#ef4444);cursor:pointer;position:relative;overflow:hidden;display:inline-block"><input type="color" oninput="emRestoreSel('tplBody');_rtFmt('tplBody','foreColor',this.value)" style="position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer"></label>
           <span style="width:1px;height:20px;background:var(--border);margin:0 3px"></span>
           <select id="tplFontSel" onchange="if(this.value){_rtFmt('tplBody','fontName',this.value);this.value='';}" style="height:30px;border-radius:7px;border:1px solid var(--border);background:var(--white);font-family:var(--f);font-size:11.5px;color:var(--text);padding:0 6px">
             <option value="">Font</option>
@@ -4357,7 +4360,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-19 text-to-book-1';
+var APP_VERSION = 'v2026-08-19 op-email-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -12794,10 +12797,45 @@ async function loadLeadActivity(localId, dbId) {
     // Normalize activity_log (panel writes: type, label, body)
     // Opens/clicks show as a badge on the sent email, so the activity_log copy
     // must not also appear as its own timeline row.
+    // Opens/clicks reported for Adviuz-sent emails (send-email webhook) live in
+    // activity_log as email_event rows — fold them into the opens badge too.
+    try{
+      var _evRows = rows2.filter(function(row){ return (row.type||'') === 'email_event' && row.meta && row.meta.email_id; })
+        .map(function(row){ return { resend_id: String(row.meta.email_id), kind: (String(row.meta.event||'').indexOf('click')>-1 ? 'clicked' : 'opened'), occurred_at: row.created_at, link: '' }; });
+      if(_evRows.length) emStoreOpens(localId, rows4.concat(_evRows));
+    }catch(e){}
     var norm2 = rows2.filter(function(row){ return (row.type||'') !== 'email_event'; }).map(function(row) {
       var body = (row.body||'').replace(/\s*\(SID:[^)]+\)/g,'').trim();
-      return { type:row.type||'note', label:row.label||row.type, time:row.created_at, body:body, rec:false };
+      var t2 = row.type || 'note';
+      if (t2 === 'email') t2 = 'email_sent';
+      var out = { type:t2, label:(t2==='email_sent'?'Email Sent':(row.label||row.type)), time:row.created_at, body:body, rec:false, id:row.id };
+      if (t2 === 'email_sent' || t2 === 'email_received'){
+        var mt = row.meta || {};
+        var subj = mt.subject || '';
+        if(!subj){ var mS = body.match(/Subject:\s*([^|\n]+)/i); if(mS) subj = mS[1].trim(); }
+        if(!subj){ var lines = body.split('\n').map(function(x){ return x.trim(); }).filter(Boolean); if(lines.length>1) subj = lines[lines.length-1]; }
+        out.email_subject = String(subj||'').replace(/^Ref:\s*[^|]+\|\s*/,'').trim();
+        out.email_body = mt.body ? String(mt.body) : '';
+        out.email_id = mt.email_id ? String(mt.email_id) : '';
+        out.body = out.email_subject || body;
+      }
+      return out;
     });
+    // The same Adviuz email lands twice in activity_log (the hub's own row and the
+    // send-email function's row). Keep one — the copy with the tracking id — and
+    // carry the preview text over.
+    (function(){
+      var keep = [];
+      norm2.forEach(function(a){
+        if(a.type !== 'email_sent'){ keep.push(a); return; }
+        var ta = new Date(a.time).getTime();
+        var twin = keep.find(function(b){ return b.type==='email_sent' && Math.abs(new Date(b.time).getTime()-ta) < 120000 && (b.email_subject||'').toLowerCase() === (a.email_subject||'').toLowerCase(); });
+        if(!twin){ keep.push(a); return; }
+        if(!twin.email_id && a.email_id) twin.email_id = a.email_id;
+        if(!twin.email_body && a.email_body) twin.email_body = a.email_body;
+      });
+      norm2 = keep;
+    })();
 
     // ── Dedupe: activity_log historically duplicated calls/SMS that are also
     //    in lead_activity (each event got logged to both tables). lead_activity
@@ -13838,7 +13876,8 @@ function renderLeadScreen(id) {
   // resolves the campaign across the client/admin lists, so reuse it.
   var _camp   = (typeof ibCampaignFor==='function') ? ibCampaignFor(l) : null;
   var _campNm = _camp ? (_camp.name || _camp.campaign_name || '') : (l.campaign_name || '');
-  var _subTail = (_campNm || l.svc || 'Lead') + (l.src ? ' · ' + srcLabel(l.src) : '');
+  var _svcShort = (l.svc && String(l.svc).trim().length <= 40) ? String(l.svc).trim() : '';
+  var _subTail = (_campNm || _svcShort || 'Lead') + (l.src ? ' · ' + srcLabel(l.src) : '');
   document.getElementById('lsSub').textContent = l.company ? l.name + ' · ' + _subTail : _subTail;
 
   // ── tomorrow default for date picker ──
@@ -18831,6 +18870,9 @@ function emFmt(cmd,val){
   try{ document.execCommand(cmd,false,val||null); }catch(_e){}
 }
 function emFmtColor(c){ emFmt('foreColor',c); }
+// Keep the editor's text selection alive while the colour wheel is open.
+function emSaveSel(id){ try{ var sel=window.getSelection(); if(sel && sel.rangeCount){ var r=sel.getRangeAt(0); var el=document.getElementById(id); if(el && el.contains(r.commonAncestorContainer)) window._emSelRange=r.cloneRange(); } }catch(e){} }
+function emRestoreSel(id){ try{ var r=window._emSelRange; if(!r) return; var el=document.getElementById(id); if(el) el.focus(); var sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(r); }catch(e){} }
 function emFmtFont(v){ if(!v) return; emFmt('fontName',v); var s=document.getElementById('emFontSel'); if(s) s.value=''; }
 // ── Attachments (operator sheet) — same rules as the client tool: 5 files, 7 MB ──
 function emAttPicked(input){
@@ -20043,7 +20085,43 @@ function previewEmail(){
   document.getElementById('emailPreviewOv').classList.add('open');
 }
 
+// ── Send later: pick a time, then sendEmail() stores the finished email instead of sending it ──
+function emSchedOpen(){
+  var d=new Date(Date.now()+3600000); d.setMinutes(0,0,0);
+  var pad=function(n){ return (n<10?'0':'')+n; };
+  var val=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
+  var ov=document.createElement('div'); ov.className='sheet-ov'; ov.style.display='flex'; ov.style.zIndex='10001';
+  ov.innerHTML='<div class="sheet" style="max-height:70vh"><div class="sh-head"><div class="sh-title">\u23F0 Send this email later</div><button class="sh-x" onclick="this.closest(\'.sheet-ov\').remove()">\u2715</button></div>'
+    +'<div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom))">'
+    +'<div style="font-size:13px;color:var(--sub);margin-bottom:10px">Pick when it should go out (your local time). It will appear under Inbox \u2192 Scheduled and on the lead\u2019s timeline until then, where you can cancel it.</div>'
+    +'<input id="emSchedWhen" type="datetime-local" value="'+val+'" style="width:100%;padding:12px;border:1.5px solid var(--border);border-radius:10px;font-family:var(--f);font-size:15px">'
+    +'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
+    +'<button class="btn btn-ghost" style="flex:1;justify-content:center" onclick="emSchedQuick(1)">In 1 hour</button>'
+    +'<button class="btn btn-ghost" style="flex:1;justify-content:center" onclick="emSchedQuick(\'tomorrow9\')">Tomorrow 9 AM</button>'
+    +'<button class="btn btn-ghost" style="flex:1;justify-content:center" onclick="emSchedQuick(\'monday9\')">Monday 9 AM</button>'
+    +'</div>'
+    +'<button class="btn" style="width:100%;justify-content:center;margin-top:12px;background:#2563eb;color:#fff;font-weight:800;padding:13px" onclick="emSchedConfirm(this)">Schedule email</button>'
+    +'</div></div>';
+  document.body.appendChild(ov);
+}
+function emSchedQuick(k){
+  var d=new Date();
+  if(k===1){ d=new Date(Date.now()+3600000); }
+  else if(k==='tomorrow9'){ d.setDate(d.getDate()+1); d.setHours(9,0,0,0); }
+  else if(k==='monday9'){ var add=(8-d.getDay())%7||7; d.setDate(d.getDate()+add); d.setHours(9,0,0,0); }
+  var pad=function(n){ return (n<10?'0':'')+n; };
+  var inp=document.getElementById('emSchedWhen'); if(inp) inp.value=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
+}
+function emSchedConfirm(btn){
+  var inp=document.getElementById('emSchedWhen'); var d=inp?new Date(inp.value):null;
+  if(!d||isNaN(d)){ showToast('Pick a date and time'); return; }
+  if(d.getTime()<Date.now()+60000){ showToast('Pick a time in the future'); return; }
+  window._emScheduleAt=d.toISOString();
+  var o=btn&&btn.closest('.sheet-ov'); if(o) o.remove();
+  sendEmail();
+}
 async function sendEmail(){
+  var _scheduleAt = window._emScheduleAt || null; window._emScheduleAt = null;
   var fromEmail = (document.getElementById('emailFrom')||{}).value||'relations@adviuz.com';
   var to   = (document.getElementById('emailTo')||{}).value.trim();
   var cc   = (document.getElementById('emailCc')||{}).value.trim();
@@ -20141,6 +20219,22 @@ async function sendEmail(){
       finalHtml = buildBrandedHtml(bodyHtml||body, fromEmail, dUrlS, !!bodyHtml);
     }
     if(_linkSection) finalHtml = String(finalHtml).replace('</body>', _linkSection+'</body>');
+    if(_scheduleAt){
+      // Store the finished email; process-scheduled-emails sends it through send-email at that time.
+      var _sr = await sbFetch('/rest/v1/scheduled_emails', { method:'POST', headers:{ 'Prefer':'return=minimal' }, body: JSON.stringify({
+        client_id: window._clientId||null, lead_id: _emailLeadId||null, to_email: to, subject: fullSubj,
+        message: body+_linkText, send_at: _scheduleAt, status:'scheduled', kind:'adviuz',
+        from_email: fromEmail, html: finalHtml, cc: (cc||null), created_by: (currentUser&&currentUser.email)||null
+      }) });
+      if(!(_sr.ok||_sr.status===201)) throw new Error('Could not schedule (HTTP '+_sr.status+')');
+      window._ibSchedEmails = undefined;
+      window._emAtt=[]; if(typeof emPaintAtts==='function') emPaintAtts();
+      closeSheet('emailSh');
+      var _sd=new Date(_scheduleAt);
+      showToast('Scheduled for '+_sd.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})+' '+_sd.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}));
+      if(curLid) renderLeadScreen(curLid);
+      return;
+    }
     var res = await fetch(SB_FUNC_URL+'/send-email', {
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken,'apikey':SB_ANON},
@@ -20164,7 +20258,7 @@ async function sendEmail(){
       type:      'email_sent',
       label:     'Email Sent',
       body:      '📧 From: '+fromEmail+' → To: '+to+'\n'+subj,
-      meta:      { from:fromEmail, to:to, subject:fullSubj }
+      meta:      { from:fromEmail, to:to, subject:fullSubj, body:String(body||'').slice(0,4000), email_id:(data&&data.id)||null, cc:(cc||null) }
     });
 
     window._emAtt=[]; if(typeof emPaintAtts==='function') emPaintAtts();
@@ -20176,6 +20270,7 @@ async function sendEmail(){
     console.error('[sendEmail]',e);
   } finally {
     if(btn){ btn.textContent='Send Email'; btn.disabled=false; }
+    window._emScheduleAt=null;
   }
 }
 
