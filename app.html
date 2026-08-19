@@ -4357,7 +4357,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-18 ai-sched-1';
+var APP_VERSION = 'v2026-08-19 text-to-book-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -24249,7 +24249,7 @@ var CS_TOKS = [
   ['[Location]',         'Location'],
   ['[Meeting Date]',     'Meeting date']
 ];
-function _csEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function _csEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function _csTokLabel(tok){ var p=CS_TOKS.find(function(t){return t[0]===tok;}); return p?p[1]:tok; }
 
 // ── Message editor: contenteditable with token pills ──
@@ -24813,7 +24813,20 @@ function csOpenPage(page){
       +   '<span style="flex:1;font-size:13px;font-weight:800;color:var(--text)">\u270D\uFE0F Manually added leads</span>'
       +   _csToggleHTML('csAiSrcMan', ((_ai.autocall_sources||{}).manual === true))
       + '</div>'
-      + '<div class="cs-note" style="margin-top:8px">People who call you are never auto-called. Calls only go out between 8 AM and 9 PM (Toronto) \u2014 leads that arrive overnight are queued and called the next morning at 9 AM. Opted-out leads are never called.</div>'
+      + '<div class="cs-note" style="margin-top:8px">People who call you are never auto-called. New leads get a text first and a call about 90 seconds later; follow-up calls go out after 3 PM in the lead\u2019s own timezone (4\u20136 PM first, then other windows). Overnight leads are texted now and called at 10 AM. Opted-out leads are never called.</div>'
+      + '<div class="cs-h" style="margin-top:20px">\uD83D\uDCAC AI books by text</div>'
+      + '<div class="cs-note">When this is on, your AI texts every new lead as a named team member, answers their replies and books the appointment by text \u2014 using the same calendar as calls. The opening text below is the first thing they see; the AI takes it from there.</div>'
+      + '<div style="display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:13px 14px">'
+      +   '<span style="flex:1;font-size:13px;font-weight:800;color:var(--text)">AI texts and books new leads</span>'
+      +   _csToggleHTML('csAiSmsOn', _ai.sms_book_on === true)
+      + '</div>'
+      + '<div style="display:flex;gap:10px;margin-top:12px">'
+      +   '<div style="flex:1"><div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Texts as (first name)</div><input id="csAiSmsAgent" class="cs-in" style="margin-bottom:0" placeholder="Selina" value="'+_csEsc(_ai.sms_agent_name||'')+'"></div>'
+      +   '<div style="flex:1"><div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Title</div><input id="csAiSmsTitle" class="cs-in" style="margin-bottom:0" placeholder="Front Desk" value="'+_csEsc(_ai.sms_agent_title||'')+'"></div>'
+      + '</div>'
+      + '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin:14px 0 5px">Opening text to new leads</div>'
+      + '<textarea id="csAiSmsOpener" class="cs-in" rows="9" style="margin-bottom:0;min-height:190px;line-height:1.45" placeholder="{hi},\n\n{agent} from {business}.\n\nYou\u2019ve recently inquired about \u2026\n\nI\u2019ll be calling you shortly. In the meantime, let me know what you\u2019re most interested in:\n\na) Book a consultation\nb) Learn more">'+_csEsc(_ai.sms_opener||'')+'</textarea>'
+      + '<div class="cs-note" style="margin-top:6px">Tags you can use: <b>{hi}</b> = \u201cHi Name\u201d, <b>{name}</b>, <b>{agent}</b>, <b>{title}</b>, <b>{business}</b>, <b>{phone}</b>. \u201cReply STOP to opt out\u201d is added automatically. Leave empty to use the standard opener.</div>'
       + '<div class="cs-h" style="margin-top:20px">\uD83E\uDD1D Human handoff</div>'
       + '<div class="cs-note">When a caller asks for a real person \u2014 or you jump into a live call \u2014 the AI hands the caller to this phone number. Changing it here updates your AI instantly.</div>'
       + '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Send callers to</div>'
@@ -25014,14 +25027,21 @@ async function saveCampSettings(){
         sms: (v('csAiApprSms') === 'auto') ? 'auto' : 'review',
         email: (v('csAiApprEmail') === 'auto') ? 'auto' : 'review'
       },
+      sms_book_on: _tgOn('csAiSmsOn'),
+      sms_agent_name: (v('csAiSmsAgent') || '').trim() || undefined,
+      sms_agent_title: (v('csAiSmsTitle') || '').trim() || undefined,
+      sms_opener: (function(){ var el=document.getElementById('csAiSmsOpener'); var t=el?String(el.value||'').trim():''; return t || undefined; })(),
       booking: ((cp.settings && cp.settings.ai && cp.settings.ai.booking) || undefined)
     };
     if (!s.ai.booking) delete s.ai.booking;
-    // Preserve EVERY other AI setting this tab doesn't own (AI text-to-book, agent name, opener,
-    // address, and anything added later) — never let a save on this tab wipe them.
+    if (!s.ai.sms_agent_name) delete s.ai.sms_agent_name;
+    if (!s.ai.sms_agent_title) delete s.ai.sms_agent_title;
+    if (!s.ai.sms_opener) delete s.ai.sms_opener;
+    // Preserve EVERY other AI setting this tab doesn't own (address, intro, and anything added
+    // later) — never let a save on this tab wipe them.
     (function(){
       var _prev = (cp.settings && cp.settings.ai) || {};
-      var _owned = { tz:1, schedule:1, approvals:1, inbound_on:1, outbound_on:1, outbound_mode:1, autocall_sources:1, booking:1 };
+      var _owned = { tz:1, schedule:1, approvals:1, inbound_on:1, outbound_on:1, outbound_mode:1, autocall_sources:1, booking:1, sms_book_on:1, sms_agent_name:1, sms_agent_title:1, sms_opener:1 };
       Object.keys(_prev).forEach(function(k){ if(!_owned[k] && s.ai[k] === undefined) s.ai[k] = _prev[k]; });
     })();
     patchBody = { settings: s };
