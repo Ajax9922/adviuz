@@ -4357,7 +4357,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-19 compose-6';
+var APP_VERSION = 'v2026-08-19 frozen-fix-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -24428,13 +24428,24 @@ function openUsageReport(kind){
   if (typeof goTab === 'function') goTab('reports', el);
 }
 function _fuelNum(n){ n=Number(n)||0; return n<0?0:(n>=1000?(Math.round(n/100)/10)+'k':String(Math.round(n))); }
+// Frozen must reflect the campaign's CURRENT status. The wallet snapshot is fetched
+// once per load, so after a pause/resume it goes stale and the badge sticks. Prefer
+// the live campaign row; fall back to the wallet only if the campaign isn't loaded.
+function _fuelIsFrozen(w){
+  var cid = w && w.campaign_id;
+  if(cid){
+    var cp = (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(cid); });
+    if(cp) return String(cp.status||'').toLowerCase() !== 'active';
+  }
+  return !(w && w.campaign_active);
+}
 function paintAiFuel(){
   var ws = window._aiWallets||[];
   ws.forEach(function(w){
     if(w.kind!=='campaign'||!w.campaign_id) return;
     var el = document.getElementById('fuel_'+w.campaign_id);
     if(!el) return;
-    var frozen = !w.campaign_active;
+    var frozen = _fuelIsFrozen(w);
     // Dashboard shows the NUMBERS only; the full used-of-total bars live on
     // the campaign detail page (tap-through).
     var chips = '\uD83E\uDD16 '+_fuelNum(w.ai_minutes)+' AI min \u00b7 \uD83D\uDCAC '+_fuelNum(w.sms)+' \u00b7 \uD83D\uDCE7 '+_fuelNum(w.emails)+' \u00b7 \uD83D\uDCDE '+_fuelNum(w.ivr_calls);
@@ -24450,7 +24461,7 @@ function _campFuelCardHTML(cp){
   var w = null;
   for(var i=0;i<ws.length;i++){ if(ws[i].kind==='campaign'&&String(ws[i].campaign_id)===String(cp.id)){ w=ws[i]; break; } }
   if(!w){ _fuelKick(); return '<div id="fuelDetail_'+cp.id+'"></div>'; }
-  var frozen = !w.campaign_active;
+  var frozen = _fuelIsFrozen(w);
   var expired = w.expires_at && (new Date(w.expires_at) < new Date());
   var total = (Number(w.ai_minutes)||0)+(Number(w.sms)||0)+(Number(w.emails)||0)+(Number(w.ivr_calls)||0);
   var exhausted = total<=0 || expired;
@@ -24499,7 +24510,7 @@ function openAiFuel(cid){
               : w.kind==='package'  ? (w.label||'Your package')
               : w.kind==='plan'     ? (w.label||'Monthly plan')
               : '14-day trial';
-    var frozen = (w.kind==='campaign' && !w.campaign_active);
+    var frozen = (w.kind==='campaign' && _fuelIsFrozen(w));
     var exp = w.expires_at ? ('<div style="font-size:11px;color:var(--sub);margin-top:4px">Valid until '+new Date(w.expires_at).toLocaleDateString('en-CA',{year:'numeric',month:'short',day:'numeric'})+'</div>') : '';
     var meter = function(lbl,val){
       return '<div style="background:var(--bg);border-radius:9px;padding:8px 4px;text-align:center">'
@@ -24868,6 +24879,10 @@ async function clientToggleCampaign(campId, newStatus){
     // Update local cache so re-render reflects immediately
     var cp = (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(campId); });
     if (cp) cp.status = newStatus;
+    // Keep the fuel snapshot in step, so the Frozen badge clears/sets immediately.
+    (window._aiWallets||[]).forEach(function(w){
+      if(w && String(w.campaign_id)===String(campId)) w.campaign_active = (newStatus==='active');
+    });
     showToast(newStatus === 'active' ? '▶ Campaign activated' : '⏸ Campaign paused');
     document.getElementById('content').innerHTML = clientDashHTML();
   } catch(e) {
