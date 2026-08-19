@@ -1586,7 +1586,7 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
             <option value="Georgia">Serif</option>
             <option value="Courier New">Typewriter</option>
           </select>
-          <button type="button" onmousedown="event.preventDefault()" onclick="emClearBody()" title="Clear the message" style="margin-left:auto;height:32px;padding:0 10px;border-radius:8px;border:1px solid var(--border);background:var(--white);font-size:11.5px;font-weight:700;color:var(--sub);cursor:pointer;font-family:var(--f)">Clear</button>
+          <button type="button" onmousedown="event.preventDefault()" onclick="emClearBody()" title="Clear the message" style="height:32px;padding:0 10px;border-radius:8px;border:1px solid var(--border);background:var(--white);font-size:11.5px;font-weight:700;color:var(--sub);cursor:pointer;font-family:var(--f)">Clear</button>
         </div>
         <div style="display:flex;gap:8px;margin-top:8px">
           <input class="finp" id="emAiCmd" placeholder="Tell the AI what to change… e.g. make it shorter and friendlier" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();emAiAsk();}">
@@ -4339,7 +4339,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-19 compose-2';
+var APP_VERSION = 'v2026-08-19 compose-3';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -11208,7 +11208,7 @@ function callsHTML(){
           out.push({
             key:String(a.id||('ib_'+lid+'_'+ai)),
             lid:lid, name:ld.name||'Unknown',
-            subject:a.email_subject||'', body:(a.email_body||'').trim(), email_id:a.email_id||'',
+            subject:a.email_subject||'', body:(a.email_body||'').trim(), email_id:a.email_id||'', from_email:a.email_from||'',
             inbound:(a.type==='email_received'),
             sortMs:isNaN(d)?0:d.getTime(),
             dayKey:isNaN(d)?'':locDayKey(d),
@@ -11406,6 +11406,7 @@ function callsHTML(){
     if(eOpen){
       h+='<div style="padding:0 14px 13px">'
         +'<div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px 14px;font-size:13.5px;color:var(--text);line-height:1.6;white-space:pre-wrap">'+String(r.body||'(no message text)').replace(/</g,'&lt;')+'</div>'
+        +((r.inbound&&window._isAdviuzStaff&&!isClientMode())?'<button onclick="openEmailReply('+r.lid+',\''+_jsq(r.subject||'')+'\',\''+_jsq(String(r.body||'').slice(0,2000))+'\',\''+_jsq(r.from_email||'')+'\')" style="margin-top:9px;padding:7px 16px;border-radius:20px;border:1.5px solid #4f46e5;background:#fff;color:#4f46e5;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">\u21A9 Reply</button>':'')
         +((r.inbound&&!window._isAdviuzStaff)?'<button onclick="openClientEmail('+r.lid+',\''+_jsq(r.subject||'')+'\')" style="margin-top:9px;padding:7px 16px;border-radius:20px;border:1.5px solid #4f46e5;background:#fff;color:#4f46e5;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">\u21A9 Reply</button>':'')
         +'</div>';
     }
@@ -12766,6 +12767,7 @@ async function loadLeadActivity(localId, dbId) {
         email_subject: emailSubj,
         email_body:    emailBody,
         email_id:      (row.metadata && row.metadata.email_id) ? String(row.metadata.email_id) : '',
+        email_from:    (row.metadata && row.metadata.from) ? String(row.metadata.from) : '',
         // Anything logged here as sms_sent was typed by a person in the hub.
         sender_tag:   (type === 'sms_sent') ? 'Human' : ''
       };
@@ -14594,7 +14596,11 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
       h += '<svg width="15" height="15" fill="none" stroke="'+emBdr+'" stroke-width="2.5" viewBox="0 0 24 24" style="flex-shrink:0;margin-top:2px"><polyline points="'+(_emIsOpen?'18 15 12 9 6 15':'6 9 12 15 18 9')+'"/></svg>';
       h += '</div></div>';
       if(isEmailIn){
-        h += '<button onclick="openClientEmail('+l.id+',\''+_jsq(item.email_subject||'')+'\')" style="margin-top:6px;padding:5px 12px;border-radius:20px;border:1.5px solid #4f46e5;background:#fff;color:#4f46e5;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">↩ Reply</button>';
+        if(window._isAdviuzStaff && !isClientMode() && (!window._clientId || window._clientId===window._ADV_HOUSE)){
+          h += '<button onclick="openEmailReply('+l.id+',\''+_jsq(item.email_subject||'')+'\',\''+_jsq(String(item.email_body||'').slice(0,2000))+'\',\''+_jsq(item.email_from||'')+'\')" style="margin-top:6px;padding:5px 12px;border-radius:20px;border:1.5px solid #4f46e5;background:#fff;color:#4f46e5;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">\u21A9 Reply</button>';
+        } else {
+          h += '<button onclick="openClientEmail('+l.id+',\''+_jsq(item.email_subject||'')+'\')" style="margin-top:6px;padding:5px 12px;border-radius:20px;border:1.5px solid #4f46e5;background:#fff;color:#4f46e5;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">↩ Reply</button>';
+        }
       }
 
     } else if (isInboundSms || isOutboundSms) {
@@ -18848,6 +18854,13 @@ function toggleCc(btn,email){
   inp.value=cur.join(', ');
 }
 
+// \u21A9 Reply to an email in the Adviuz tool: same subject with "Re:", original quoted below.
+function openEmailReply(id, subj, body, fromEmail){
+  try{ subj = subj ? decodeURIComponent(subj) : ''; }catch(e){}
+  try{ body = body ? decodeURIComponent(body) : ''; }catch(e){}
+  window._emReplyPrefill = { subj: subj||'', body: body||'', from: fromEmail||'' };
+  openEmail(id);
+}
 function openEmail(id){
   var l=leads.find(function(x){return x.id===id});
   if(!l) return;
@@ -18896,6 +18909,23 @@ function openEmail(id){
     console.warn('[openEmail] non-fatal prep error:', e && e.message);
   }
   var _waRow1 = document.getElementById('emailWaRow'); if(_waRow1) _waRow1.style.display='none';
+  // Reply mode: subject keeps the thread, original message quoted under the cursor.
+  try{
+    var _rp = window._emReplyPrefill; window._emReplyPrefill = null;
+    if(_rp){
+      var _sj=document.getElementById('emailSubj');
+      var _clean=String(_rp.subj||'').replace(/^\s*(re|fwd?):\s*/i,'').replace(/^Ref:\s*[^|]+\|\s*/i,'').trim();
+      if(_sj) _sj.value = _clean ? ('Re: '+_clean) : '';
+      if(typeof subjValidate==='function') subjValidate();
+      var _bd=document.getElementById('emailBody');
+      if(_bd){
+        var _q=String(_rp.body||'').trim();
+        var _lines=_q?_q.split('\n').slice(0,40).map(function(x){ return '> '+x; }).join('\n'):'';
+        _bd.value='Hi '+firstName+',\n\n\n\n'+(_lines?('\u2014\u2014\u2014 Original message'+(_rp.from?(' from '+_rp.from):'')+' \u2014\u2014\u2014\n'+_lines):'');
+      }
+      if(_rp.from){ var _to=document.getElementById('emailTo'); if(_to && !_to.value) _to.value=_rp.from; }
+    }
+  }catch(e){}
   openSheet('emailSh');
 }
 
@@ -21526,6 +21556,7 @@ async function preloadActivity() {
     function go(t){ return TG[t]||t; }
     var allLids={}; Object.keys(g1).forEach(function(k){allLids[k]=1;}); Object.keys(g2).forEach(function(k){allLids[k]=1;});
     Object.keys(allLids).forEach(function(lidStr){
+     try {
       var localId = parseInt(lidStr,10);
       var lr1 = g1[localId]||[], lr2 = g2[localId]||[], lr3 = g3[localId]||[];
       var norm1 = lr1.map(function(row){
@@ -21546,7 +21577,7 @@ async function preloadActivity() {
         var dir=(row.direction||'').toLowerCase();
         var isInbound=dir==='inbound'||type==='sms_received'||type==='email_received';
         if(type==='call') label=isInbound?'📞 Inbound Call':'📞 Outbound Call';
-        return {sender_tag:(type==='sms_sent')?'Human':'', type:type,label:label,time:row.created_at,body:body,rec:!!row.recording_url,recording_url:row.recording_url||null,dur:durStr,duration_seconds:durSec,call_sid:row.call_sid||null,direction:dir,callType:isInbound?'inbound':'outbound',isInbound:isInbound,summary:row.ai_summary||row.summary||null,id:row.id,call_note:row.call_note||null,email_subject:emailSubj,email_body:emailBody,email_id:(row.metadata&&row.metadata.email_id)?String(row.metadata.email_id):''};
+        return {sender_tag:(type==='sms_sent')?'Human':'', type:type,label:label,time:row.created_at,body:body,rec:!!row.recording_url,recording_url:row.recording_url||null,dur:durStr,duration_seconds:durSec,call_sid:row.call_sid||null,direction:dir,callType:isInbound?'inbound':'outbound',isInbound:isInbound,summary:row.ai_summary||row.summary||null,id:row.id,call_note:row.call_note||null,email_subject:emailSubj,email_body:emailBody,email_id:(row.metadata&&row.metadata.email_id)?String(row.metadata.email_id):'',email_from:(row.metadata&&row.metadata.from)?String(row.metadata.from):''};
       });
       // Opens/clicks for this lead: email_opens rows (client emails) + email_event rows (Adviuz emails)
       try{
@@ -21606,9 +21637,12 @@ async function preloadActivity() {
       var existing = leadAct[localId]||[];
       var justNow = existing.filter(function(a){ return a.time==='Just now'; });
       leadAct[localId] = justNow.concat(dbActs);
+     } catch(e1){ console.warn('[preloadActivity] lead '+lidStr+':', e1 && e1.message, e1 && e1.stack); }
     });
     console.log('[preloadActivity] done');
-  } catch(e) { console.warn('[preloadActivity]', e.message); }
+  } catch(e) { console.warn('[preloadActivity]', e.message, e.stack); }
+  // The Inbox may already be on screen (it renders before this finishes) — repaint it with the full set.
+  try{ if(typeof curTab!=='undefined' && curTab==='calls'){ var _c=document.getElementById('content'); if(_c && typeof callsHTML==='function') _c.innerHTML=callsHTML(); } }catch(e){}
 }
 
 async function loadClientCampaigns() {
