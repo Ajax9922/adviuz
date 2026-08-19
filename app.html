@@ -4357,7 +4357,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-19 frozen-fix-1';
+var APP_VERSION = 'v2026-08-19 brain-scope-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -11829,6 +11829,10 @@ async function rejectAiAction(){
 // ═══ BUSINESS BRAIN — everything the AI is allowed to know ═════════════════
 async function openBrainSheet(){
   openSheet('brainSh');
+  (function(){
+    var h=document.querySelector('#brainSh .sh-title');
+    if(h) h.innerHTML='\uD83E\uDDE0 Business Brain'+(window._csCpName?' \u00b7 '+_escTxt(window._csCpName):'');
+  })();
   var _bso=document.getElementById('brainSh'); if(_bso) _bso.style.zIndex='960';
   loadBrain();
 }
@@ -11853,7 +11857,13 @@ async function loadBrain(){
 async function loadBrainEntries(){
   var cid = window._clientId; if(!cid) return;
   try{
-    var r = await sbFetch('/rest/v1/client_brain_entries?client_id=eq.'+encodeURIComponent(cid)+'&status=in.(approved,proposed)&select=id,category,title,content,status,source&order=created_at.asc&limit=100');
+    // Every campaign has its OWN Brain. Without this filter a client sees (and can
+    // delete) another campaign's facts — e.g. Hair Tattoo entries under Hair Loss.
+    var camp = window._csCampId ? String(window._csCampId) : '';
+    var q = '/rest/v1/client_brain_entries?client_id=eq.'+encodeURIComponent(cid)
+          + (camp ? '&campaign_id=eq.'+encodeURIComponent(camp) : '&campaign_id=is.null')
+          + '&status=in.(approved,proposed)&select=id,category,title,content,status,source&order=created_at.asc&limit=100';
+    var r = await sbFetch(q);
     var rows = r.ok ? await r.json() : [];
     window._brainRows = rows||[];
     renderBrainEntries();
@@ -11915,7 +11925,7 @@ async function addBrainEntry(){
   if(!t.trim()||!cnt.trim()){ showToast('Give it a title and the fact itself'); return; }
   try{
     var r = await sbFetch('/rest/v1/client_brain_entries',{ method:'POST', headers:{'Prefer':'return=minimal'},
-      body: JSON.stringify({ client_id: cid, category:'general', title:t.trim(), content:cnt.trim(), status:'approved', source:'manual' }) });
+      body: JSON.stringify({ client_id: cid, campaign_id: (window._csCampId||null), category:'general', title:t.trim(), content:cnt.trim(), status:'approved', source:'manual' }) });
     if(r.ok||r.status===201){
       document.getElementById('brNewTitle').value=''; document.getElementById('brNewContent').value='';
       showToast('\u2705 Added'); loadBrainEntries();
@@ -11937,7 +11947,7 @@ async function brainImportSite(){
   if(btn){ btn.disabled=true; btn.textContent='Reading\u2026'; }
   try{
     var r = await sbFetch('/functions/v1/client-brain',{ method:'POST',
-      body: JSON.stringify({ action:'import-website', client_id: cid, url: u.trim() }) });
+      body: JSON.stringify({ action:'import-website', client_id: cid, campaign_id: (window._csCampId||null), url: u.trim() }) });
     var d = await r.json().catch(function(){ return {}; });
     if(r.ok && d && d.ok){ showToast('\uD83D\uDD0D The AI learned '+d.proposed+' things \u2014 review them above'); loadBrainEntries(); }
     else showToast((d&&d.error)||'Could not read that site');
