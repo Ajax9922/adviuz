@@ -4357,7 +4357,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-20 lead-stability-1';
+var APP_VERSION = 'v2026-08-20 lead-stability-2';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -12667,6 +12667,9 @@ function openLead(id) {
   if(!document.getElementById('leadScreen').classList.contains('open')){
     var _sc = document.getElementById('content'); if(_sc) window._leadsScrollY = _sc.scrollTop;
   }
+  // stability-2: a recording from the lead we're leaving must not keep playing,
+  // and it must not block this screen from repainting onto the new lead.
+  _lsStopAudio();
   curLid = id;
   window._actExpand = false;
   // stability-1: local ids are just positions in the list and get renumbered on
@@ -12930,6 +12933,9 @@ async function loadLeadActivity(localId, dbId) {
     });
 
     var existing   = leadAct[localId] || [];
+    // stability-2: signature of what the screen is showing right now.
+    var _sigOf = function(list){ return (list||[]).map(function(a){ return (a.id||a.call_sid||a.type||'')+'|'+(a._rawTime||a.time||''); }).join(','); };
+    var _sigBefore = _sigOf(existing);
     // call_sids that now exist as real DB rows
     var _dbCallSids = norm1.filter(function(r){ return r.call_sid; }).map(function(r){ return r.call_sid; });
     var justNow    = existing.filter(function(a){
@@ -12940,22 +12946,17 @@ async function loadLeadActivity(localId, dbId) {
       return true;
     });
     leadAct[localId] = justNow.concat(dbActs);
-    // stability-1: a background refresh that found nothing new must not repaint —
-    // the needless repaint is what made the screen blink and cut a recording short.
-    var _actSig = leadAct[localId].map(function(a){ return (a.id||a.call_sid||a.type||'')+'|'+(a._rawTime||a.time||''); }).join(',');
-    if(!window._lsActSig) window._lsActSig = {};
-    var _actChanged = window._lsActSig[localId] !== _actSig;
-    window._lsActSig[localId] = _actSig;
-    if(curLid === localId && _actChanged) renderLeadScreen(localId);
+    // stability-2: repaint ONLY when the database actually brought something the
+    // screen wasn't already showing. This is what stopped the blink on open.
+    if(curLid === localId && _sigOf(leadAct[localId]) !== _sigBefore) renderLeadScreen(localId);
   } catch(e) {
     console.warn('[loadLeadActivity]', e.message);
   }
 }
 
 function closeLead() {
+  _lsStopAudio();
   window._curLeadDb = null;
-  window._lsPendingRender = null;
-  if(window._lsPendingTimer){ clearInterval(window._lsPendingTimer); window._lsPendingTimer = null; }
   document.getElementById('leadScreen').classList.remove('open');
   document.querySelector('.tabbar').style.display = 'flex';
   render();
@@ -13686,17 +13687,35 @@ async function loadLeadCustomFields(l){
   // stability-1: draw the rows straight away from what we already know. Waiting for
   // two lookups on every repaint is why Location and the detail rows blinked out.
   var _cf0 = window._ldCfCache[l.dbId];
+  var _seedSig = null;
   if(_cf0){
     window._ldCfFields     = _cf0.fields;
     window._ldCfFormFields = _cf0.formFields;
     window._ldCfService    = _cf0.service;
     window._ldCfLocation   = _cf0.location;
     try{ renderLeadCustomFields(l, _cf0.fields); }catch(_e){}
+  } else {
+    // stability-2: first time on this lead — the list already carries its location
+    // and service, so draw them NOW instead of leaving a hole (and never leave the
+    // previous lead's values sitting in these globals).
+    window._ldCfFields     = (window._cfByCamp && window._cfByCamp[l.campaign_id]) || [];
+    window._ldCfFormFields = {};
+    window._ldCfService    = l.svc || '';
+    window._ldCfLocation   = l.location || '';
+    _seedSig = JSON.stringify([window._ldCfFields.length, window._ldCfService, window._ldCfLocation, {}]);
+    try{ renderLeadCustomFields(l, window._ldCfFields); }catch(_e){}
   }
   try{
-    var rf = await sbFetch('/rest/v1/custom_fields?campaign_id=eq.'+l.campaign_id+'&order=sort_order.asc,created_at.asc');
-    var fields = rf.ok ? (await rf.json().catch(function(){return [];})) : [];
-    if(!Array.isArray(fields)) fields = [];
+    // stability-2: the field list belongs to the campaign, not the lead — remember it
+    // so every other lead in the same campaign draws instantly.
+    window._cfByCamp = window._cfByCamp || {};
+    var fields = window._cfByCamp[l.campaign_id];
+    if(!Array.isArray(fields)){
+      var rf = await sbFetch('/rest/v1/custom_fields?campaign_id=eq.'+l.campaign_id+'&order=sort_order.asc,created_at.asc');
+      fields = rf.ok ? (await rf.json().catch(function(){return [];})) : [];
+      if(!Array.isArray(fields)) fields = [];
+      window._cfByCamp[l.campaign_id] = fields;
+    }
     // NO early return on an empty list. A campaign on pure auto-detect (Skin
     // Pigmentation) has zero custom_fields rows — bailing here left the Location and
     // Service rows unrendered and a blank gap in the header. The rows are ours to
@@ -13715,7 +13734,10 @@ async function loadLeadCustomFields(l){
     window._ldCfFormFields = row.form_fields || {};
     window._ldCfService    = _svcNow;
     window._ldCfLocation   = _locNow;
-    if(_cf0 && _cf0.sig === _sig) return;   // nothing changed — leave the rows alone
+    // stability-2: if the lookup confirmed exactly what we already drew, don't draw
+    // it a second time — that repeat paint is the flicker on opening a lead.
+    if(_cf0 && _cf0.sig === _sig) return;
+    if(!_cf0 && _seedSig === _sig) return;
     renderLeadCustomFields(l, fields);
   }catch(e){
     if(_cf0) return;
@@ -14002,6 +14024,15 @@ async function toggleHumanOnly(localId){
     showToast(nv?'\ud83d\ude4b A human now handles this lead \u2014 AI paused':'\ud83e\udd16 AI is back on this lead');
     renderLeadScreen(localId);
   }catch(e){ showToast('Could not save \u2014 try again'); }
+}
+// stability-2: leaving a lead, or switching to another one, always stops playback.
+function _lsStopAudio(){
+  try{
+    var els = document.querySelectorAll('#lsBody audio, #lsBody video');
+    for(var i=0;i<els.length;i++){ try{ els[i].pause(); els[i].currentTime = 0; }catch(e){} }
+  }catch(e){}
+  window._lsPendingRender = null;
+  if(window._lsPendingTimer){ clearInterval(window._lsPendingTimer); window._lsPendingTimer = null; }
 }
 // stability-1: true while a call recording is actually playing on this screen.
 function _lsAudioBusy(){
