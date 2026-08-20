@@ -4357,7 +4357,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-19 usage-sheets-1';
+var APP_VERSION = 'v2026-08-20 lead-stability-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -12669,6 +12669,10 @@ function openLead(id) {
   }
   curLid = id;
   window._actExpand = false;
+  // stability-1: local ids are just positions in the list and get renumbered on
+  // every reload. Remember the database id so a background refresh can never
+  // swap this screen onto a different lead.
+  try{ var _ol = leads.find(function(x){ return x.id === id; }); window._curLeadDb = (_ol && _ol.dbId) || null; }catch(e){ window._curLeadDb = null; }
   renderLeadScreen(id);
   document.getElementById('leadScreen').classList.add('open');
   initLeadPullToRefresh();
@@ -12936,13 +12940,22 @@ async function loadLeadActivity(localId, dbId) {
       return true;
     });
     leadAct[localId] = justNow.concat(dbActs);
-    if(curLid === localId) renderLeadScreen(localId);
+    // stability-1: a background refresh that found nothing new must not repaint —
+    // the needless repaint is what made the screen blink and cut a recording short.
+    var _actSig = leadAct[localId].map(function(a){ return (a.id||a.call_sid||a.type||'')+'|'+(a._rawTime||a.time||''); }).join(',');
+    if(!window._lsActSig) window._lsActSig = {};
+    var _actChanged = window._lsActSig[localId] !== _actSig;
+    window._lsActSig[localId] = _actSig;
+    if(curLid === localId && _actChanged) renderLeadScreen(localId);
   } catch(e) {
     console.warn('[loadLeadActivity]', e.message);
   }
 }
 
 function closeLead() {
+  window._curLeadDb = null;
+  window._lsPendingRender = null;
+  if(window._lsPendingTimer){ clearInterval(window._lsPendingTimer); window._lsPendingTimer = null; }
   document.getElementById('leadScreen').classList.remove('open');
   document.querySelector('.tabbar').style.display = 'flex';
   render();
@@ -13664,11 +13677,22 @@ function _ldCfValue(f){
   var ff = window._ldCfFormFields || {};
   return (ff[f.field_key] != null) ? ff[f.field_key] : '';
 }
+window._ldCfCache = window._ldCfCache || {};
 async function loadLeadCustomFields(l){
   var box = document.getElementById('ld-cf-rows');
   if(!box) return;
   // Always render — with no custom fields at all we still owe the Service row.
   if(!l || !l.campaign_id || !l.dbId){ renderLeadCustomFields(l, []); return; }
+  // stability-1: draw the rows straight away from what we already know. Waiting for
+  // two lookups on every repaint is why Location and the detail rows blinked out.
+  var _cf0 = window._ldCfCache[l.dbId];
+  if(_cf0){
+    window._ldCfFields     = _cf0.fields;
+    window._ldCfFormFields = _cf0.formFields;
+    window._ldCfService    = _cf0.service;
+    window._ldCfLocation   = _cf0.location;
+    try{ renderLeadCustomFields(l, _cf0.fields); }catch(_e){}
+  }
   try{
     var rf = await sbFetch('/rest/v1/custom_fields?campaign_id=eq.'+l.campaign_id+'&order=sort_order.asc,created_at.asc');
     var fields = rf.ok ? (await rf.json().catch(function(){return [];})) : [];
@@ -13680,12 +13704,21 @@ async function loadLeadCustomFields(l){
     var rv = await sbFetch('/rest/v1/leads?id=eq.'+l.dbId+'&select=form_fields,service,location');
     var rows = rv.ok ? (await rv.json().catch(function(){return [];})) : [];
     var row = rows[0] || {};
+    // stability-1: a slow answer for a lead that is no longer open must be dropped,
+    // or one lead's details land on another lead's screen.
+    if(window._curLeadDb && l.dbId !== window._curLeadDb) return;
+    var _svcNow = (row.service  != null) ? row.service  : (l.svc || '');
+    var _locNow = (row.location != null) ? row.location : (l.location || '');
+    var _sig = JSON.stringify([fields.length, _svcNow, _locNow, row.form_fields || {}]);
+    window._ldCfCache[l.dbId] = { fields:fields, formFields:(row.form_fields||{}), service:_svcNow, location:_locNow, sig:_sig };
     window._ldCfFields     = fields;
     window._ldCfFormFields = row.form_fields || {};
-    window._ldCfService    = (row.service  != null) ? row.service  : (l.svc || '');
-    window._ldCfLocation   = (row.location != null) ? row.location : (l.location || '');
+    window._ldCfService    = _svcNow;
+    window._ldCfLocation   = _locNow;
+    if(_cf0 && _cf0.sig === _sig) return;   // nothing changed — leave the rows alone
     renderLeadCustomFields(l, fields);
   }catch(e){
+    if(_cf0) return;
     // Even on a failed fetch the header still owes its rows — fall back to the lead.
     window._ldCfFields = [];
     window._ldCfService  = (l.svc || '');
@@ -13970,9 +14003,39 @@ async function toggleHumanOnly(localId){
     renderLeadScreen(localId);
   }catch(e){ showToast('Could not save \u2014 try again'); }
 }
+// stability-1: true while a call recording is actually playing on this screen.
+function _lsAudioBusy(){
+  try{
+    var els = document.querySelectorAll('#lsBody audio, #lsBody video');
+    for(var i=0;i<els.length;i++){ if(!els[i].paused && !els[i].ended) return true; }
+  }catch(e){}
+  return false;
+}
 function renderLeadScreen(id) {
+  // stability-1: the list renumbers itself on every reload, so trust the database
+  // id of the lead that was actually opened — this is what made another lead's
+  // stage and details appear on the screen.
+  if (typeof curLid !== 'undefined' && id === curLid && window._curLeadDb) {
+    var _fix = leads.find(function(x){ return x.dbId === window._curLeadDb; });
+    if (_fix && _fix.id !== id) { id = _fix.id; curLid = _fix.id; }
+  }
   var l = leads.find(function(x){ return x.id === id; });
   if(!l) return;
+  // stability-1: repainting replaces the audio player, which is what stopped a
+  // recording mid-play. Hold the repaint until playback finishes.
+  if(_lsAudioBusy()){
+    window._lsPendingRender = id;
+    if(!window._lsPendingTimer){
+      window._lsPendingTimer = setInterval(function(){
+        if(_lsAudioBusy()) return;
+        clearInterval(window._lsPendingTimer); window._lsPendingTimer = null;
+        var pid = window._lsPendingRender; window._lsPendingRender = null;
+        var scr = document.getElementById('leadScreen');
+        if(pid != null && scr && scr.classList.contains('open')) renderLeadScreen(pid);
+      }, 1200);
+    }
+    return;
+  }
   window._lsFuTouched = false; // fresh follow-up input each render — require a real pick before saving
 
   var init  = (l.name||'?').split(' ').map(function(w){return w[0]}).join('').slice(0,2).toUpperCase();
@@ -16455,10 +16518,16 @@ function ensureInboxEmails(done){
       if(!(typeof authToken!=='undefined' && authToken)) return;
       var leadOpen=document.getElementById('leadScreen') && document.getElementById('leadScreen').classList.contains('open');
       if(curTab==='calls' || leadOpen){
+        // stability-1: count what we have first, so a minute with no new email
+        // leaves the open lead screen completely untouched.
+        var _emBefore = (leadOpen && typeof curLid!=='undefined' && leadAct[curLid]) ? leadAct[curLid].length : -1;
         window._ibEmailsLoaded=false;
         ensureInboxEmails(function(){
           if(curTab==='calls' && !leadOpen){ var c=document.getElementById('content'); if(c) c.innerHTML=callsHTML(); }
-          if(leadOpen && typeof renderLeadScreen==='function' && typeof curLid!=='undefined' && curLid) renderLeadScreen(curLid);
+          if(leadOpen && typeof renderLeadScreen==='function' && typeof curLid!=='undefined' && curLid){
+            var _emAfter = (leadAct[curLid]||[]).length;
+            if(_emAfter !== _emBefore) renderLeadScreen(curLid);
+          }
         });
       }
     }catch(e){}
