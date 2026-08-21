@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -675,7 +674,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-08-12 brain-crm-3</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-08-21 campaign-fix-1</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -1931,11 +1930,18 @@ function renderClientsTable(clients, views, leads) {
   var clientOpts = realClients.map(function(c) {
     return '<option value="' + c.id + '">' + c.business_name + '</option>';
   }).join('');
-  // Populate New Campaign client dropdown
-  var camClientSel = document.getElementById('cam-client-sel2');
-  if (camClientSel) camClientSel.innerHTML = '<option value="">Select client…</option>' + clientOpts;
+  // campaign-fix-1: the 60-second auto-refresh used to rebuild these dropdowns while
+  // the New Campaign modal was open, wiping the selected client and ad mid-entry.
+  // Never touch them while the modal is visible; otherwise rebuild but keep the choice.
+  var _camModalOpen = (function(){ var m=document.getElementById('campaignModal'); return !!(m && (m.classList.contains('active') || (m.style.display && m.style.display!=='none'))); })();
+  var camClientSel = _camModalOpen ? null : document.getElementById('cam-client-sel2');
+  if (camClientSel) {
+    var _keepClient = camClientSel.value;
+    camClientSel.innerHTML = '<option value="">Select client…</option>' + clientOpts;
+    if (_keepClient) camClientSel.value = _keepClient;
+  }
   // Populate the ad dropdown from real ads data
-  var camAdSel = document.getElementById('cam-ad-sel');
+  var camAdSel = _camModalOpen ? null : document.getElementById('cam-ad-sel');
   if (camAdSel && window._allAds && window._allAds.length > 0) {
     camAdSel.innerHTML = '<option value="">Select ad (optional)…</option>' +
       window._allAds.map(function(a) {
@@ -4322,6 +4328,8 @@ function resetCampaignModal() {
   if (info) info.style.display = 'none';
   window._camClientBalance = 0;
   ['cam-name-input','cam-client-sel2','cam-ad-sel','cam-views-input'].forEach(function(id){ _camMark(id,false); });
+  _camBalCache = {};   // campaign-fix-1: fresh numbers every time the modal opens
+  var _cl=document.getElementById('cam-camp-left'); if(_cl) _cl.innerHTML='';
   if (typeof setCamType === 'function') setCamType('views');
 }
 function copyShortUrl(code) {
@@ -7205,12 +7213,16 @@ function onCamClientChange() {
   }
   var client = (window._allClients||[]).find(function(c){ return c.id === sel.value; });
   if (!client) return;
-  var bal = (_camType() === 'leads') ? (client.lead_balance || 0) : (client.view_balance || 0);
-  window._camClientBalance = bal;
+  // campaign-fix-1: the stored client balance drifted because creating a campaign never
+  // deducted from it. The truth is simple arithmetic, so compute it live every time:
+  //   available = confirmed purchases − already assigned to campaigns (never below 0)
+  // and show each campaign's own leftover underneath so nothing looks "lost".
   if (info)   info.style.display = 'block';
-  if (total)  total.textContent  = bal.toLocaleString();
-  if (remain) remain.textContent = bal.toLocaleString();
+  if (total)  total.textContent  = '…';
+  if (remain) remain.textContent = '…';
   if (bar)    bar.style.width    = '0%';
+  window._camClientBalance = 0;
+  _camLoadRealBalance(sel.value);
   // Filter ad dropdown to this client's ads
   var adSel = document.getElementById('cam-ad-sel');
   if (adSel && window._allAds) {
@@ -7228,6 +7240,53 @@ function onCamClientChange() {
     }
   }
   updateCamWalletPreview();
+}
+var _camBalCache = {};
+async function _camLoadRealBalance(clientId){
+  var mode = _camType();
+  try{
+    var cached = _camBalCache[clientId];
+    if (!cached) {
+      var tr = await sbAdmin('/rest/v1/transactions?client_id=eq.'+clientId+'&payment_status=eq.confirmed&select=views_added,leads_purchased');
+      var txs = tr.ok ? await tr.json() : [];
+      var cr = await sbAdmin('/rest/v1/campaigns?client_id=eq.'+clientId+'&select=name,status,billing_model,view_budget,views_used,leads_target');
+      var cams = cr.ok ? await cr.json() : [];
+      cached = { txs: txs||[], cams: cams||[] };
+      _camBalCache[clientId] = cached;
+    }
+    var sel = document.getElementById('cam-client-sel2');
+    if (!sel || sel.value !== clientId) return;   // they picked someone else while we fetched
+
+    var bought = 0, assigned = 0;
+    cached.txs.forEach(function(t){ bought += (mode==='leads') ? (t.leads_purchased||0) : (t.views_added||0); });
+    cached.cams.forEach(function(c){ assigned += (mode==='leads') ? (c.leads_target||0) : (c.view_budget||0); });
+    var bal = Math.max(0, bought - assigned);
+    window._camClientBalance = bal;
+
+    var total  = document.getElementById('cam-wallet-total');
+    var remain = document.getElementById('cam-wallet-remain');
+    if (total)  total.textContent  = bal.toLocaleString();
+    if (remain) remain.textContent = bal.toLocaleString();
+
+    // per-campaign leftovers, so "37 views left on Hair Loss" is visible right here
+    var box = document.getElementById('cam-camp-left');
+    if (!box) {
+      var infoEl = document.getElementById('cam-wallet-info');
+      if (infoEl) { box = document.createElement('div'); box.id='cam-camp-left'; box.style.cssText='margin-top:10px;font-size:11.5px;color:var(--muted);line-height:1.7'; infoEl.appendChild(box); }
+    }
+    if (box) {
+      var lines = cached.cams
+        .filter(function(c){ return (mode==='leads') ? (c.billing_model==='leads') : (c.billing_model!=='leads'); })
+        .map(function(c){
+          var left = (mode==='leads') ? (c.leads_target||0) : Math.max(0,(c.view_budget||0)-(c.views_used||0));
+          return '• ' + (c.name||'Campaign') + (c.status && c.status!=='active' ? ' ('+c.status+')' : '') + ' — <b>' + left.toLocaleString() + '</b> ' + (mode==='leads'?'leads':'views') + ' left';
+        });
+      box.innerHTML = lines.length
+        ? '<div style="font-weight:700;color:var(--text);margin-bottom:2px">Already assigned to campaigns</div>' + lines.join('<br>')
+        : '';
+    }
+    updateCamWalletPreview();
+  }catch(e){ /* leave the dots — better than a wrong number */ }
 }
 function updateCamWalletPreview() {
   var input   = document.getElementById('cam-views-input');
