@@ -4413,7 +4413,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-20 calendar-1';
+var APP_VERSION = 'v2026-08-24 outcome-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -8115,6 +8115,15 @@ function updateSelUI(){
 // FOLLOW-UPS TAB
 // ═══════════════════════════════════════
 
+// outcome-1: one shared rule for who sent an outbound text, read from the
+// guard-ledger purpose. 'AI' = the AI itself spoke (bookings, welcomes,
+// missed-call texts, follow-ups). 'Automated' = pure schedulers (reminders).
+function _smsPurposeTag(p){
+  p=String(p||'').toLowerCase();
+  if(p.indexOf('ai')===0 || p==='welcome' || p==='followup' || p==='missed_call' || p==='callback_missed') return 'AI';
+  if(p.indexOf('remind')>-1) return 'Automated';
+  return '';
+}
 function fuChipCounts(){
   var base=tasks.concat(apptTaskItems()).filter(function(t){
     if(t.done)return false;
@@ -8129,8 +8138,8 @@ function fuChipCounts(){
     var ld=leads.find(function(l){return l.id===t.lid});
     return leadMatchesQ(ld, schQ);
   }).filter(gfTaskInScope);
-  var fu=0, ap=0;
-  base.forEach(function(t){ if(t._appt) ap++; else fu++; });
+  var fu=0, ap=0, ai=0;
+  base.forEach(function(t){ if(t._appt) ap++; else if(t.type==='ai_call') ai++; else fu++; });
   var pend=0;
   (window._apprItems||[]).forEach(function(it){ if(it.status==='pending') pend++; });
   if(window._isAdviuzStaff && window._adminData){
@@ -8138,13 +8147,14 @@ function fuChipCounts(){
   }
   if(window._isAdviuzStaff && Array.isArray(window._annDrafts)) pend += window._annDrafts.length;
   var coachN=(window._coachApprItems||[]).length;
-  return { fu:fu, appt:ap, all:fu+ap, appr:pend+coachN, apprKnown:(window._apprItems!==undefined) };
+  return { fu:fu, ai:ai, appt:ap, all:fu+ap+ai, appr:pend+coachN, apprKnown:(window._apprItems!==undefined) };
 }
 function followupsHTML(){
   var cn=fuChipCounts();
   var chips='<div class="filter-bar">'
     +'<div class="fchip '+(fuTypeFilter===''?'on':'')+'" onclick="fuTypeFilter=\'\';document.getElementById(\'content\').innerHTML=followupsHTML()">All ('+cn.all+')</div>'
     +'<div class="fchip '+(fuTypeFilter==='fu'?'on':'')+'" onclick="fuTypeFilter=\'fu\';document.getElementById(\'content\').innerHTML=followupsHTML()">🗓 Follow-ups ('+cn.fu+')</div>'
+    +(cn.ai>0?'<div class="fchip '+(fuTypeFilter==='ai'?'on':'')+'" onclick="fuTypeFilter=\'ai\';document.getElementById(\'content\').innerHTML=followupsHTML()">\uD83E\uDD16 AI ('+cn.ai+')</div>':'')
     +'<div class="fchip '+(fuTypeFilter==='appt'?'on':'')+'" onclick="fuTypeFilter=\'appt\';document.getElementById(\'content\').innerHTML=followupsHTML()">📅 Appointments ('+cn.appt+')</div>'
     +'</div>';
   if(fuTypeFilter==='approvals'){ fuTypeFilter=''; }
@@ -10246,7 +10256,8 @@ function taskListHTML(){
     return _fuInRange(t.date);
   }).filter(function(t){
     if(fuTypeFilter==='appt') return !!t._appt;
-    if(fuTypeFilter==='fu')   return !t._appt;
+    if(fuTypeFilter==='ai')   return t.type==='ai_call';
+    if(fuTypeFilter==='fu')   return !t._appt && t.type!=='ai_call';
     return true;
   }).filter(function(t){
     if(!schQ) return true;
@@ -10274,8 +10285,9 @@ function taskListHTML(){
       var _MOS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
       var _dpp=String(t.date||'').split('-');
       var _dl=(_dpp.length===3)?(parseInt(_dpp[2],10)+' '+(_MOS[(parseInt(_dpp[1],10)||1)-1]||'')):String(t.date||'');
-      var typeLbl = '<span style="flex-shrink:0;display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:3px 7px;white-space:nowrap">'
-        + (t._appt ? '\uD83D\uDCC5 Appointment' : '\uD83D\uDDD3\uFE0F Follow-up') + '</span>';
+      var _isAiFu = (t.type==='ai_call');
+      var typeLbl = '<span style="flex-shrink:0;display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;color:'+(_isAiFu?'#7c3aed':'var(--text)')+';background:'+(_isAiFu?'#ede9fe':'var(--bg)')+';border:1px solid '+(_isAiFu?'#ddd6fe':'var(--border)')+';border-radius:9px;padding:3px 7px;white-space:nowrap">'
+        + (_isAiFu ? '\uD83E\uDD16 AI call' : t._appt ? '\uD83D\uDCC5 Appointment' : '\uD83D\uDDD3\uFE0F Follow-up') + '</span>';
       var whenLbl = _dl+' '+h12+':'+mm+' '+ap + (fuSeg==='past' ? ' &middot; Overdue' : '');
       // calendar-1: actions moved out of the header into one neutral bar under the card.
       var _abBtn=function(lbl,fn){ return '<button onclick="event.stopPropagation();'+fn+'">'+lbl+'</button>'; };
@@ -10285,7 +10297,10 @@ function taskListHTML(){
             : _abBtn('Cancel','apptCancelDirect('+lead.id+')')
               + _abBtn('Reschedule','openApptSheet('+lead.id+')')
               + _abBtn('Done','openMeetingReview('+lead.id+')'))
-        : _abBtn('\u2713 Mark done','markDone('+t.id+')')) + '</div>';
+        : _isAiFu
+          ? _abBtn('\uD83D\uDD52 Change time','fuAiChange('+t.id+')')
+            + _abBtn('\uD83D\uDEAB Cancel call','fuAiCancel('+t.id+',this)')
+          : _abBtn('\u2713 Mark done','markDone('+t.id+')')) + '</div>';
       return '<div class="fu-card">'
         + '<div style="display:flex;align-items:center;justify-content:space-between;gap:5px;margin-bottom:6px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch">'
         +   typeLbl
@@ -10307,6 +10322,31 @@ function markDone(id){
   if(t.dbId){ sbFetch('/rest/v1/followups?id=eq.'+t.dbId,{method:'PATCH',body:JSON.stringify({done:true})}).catch(function(){}); }
   showToast('Marked done');
   document.getElementById('content').innerHTML=followupsHTML();
+}
+
+// \uD83E\uDD16 AI follow-up cards — these buttons genuinely control the retry engine:
+// the dialer reads the lead's scheduled-call field, and a database trigger keeps
+// the card mirrored to it. So we change THE LEAD, never just the card.
+function fuAiCancel(taskId, btn){
+  var t=tasks.find(function(x){return x.id===taskId;}); if(!t) return;
+  var lead=leads.find(function(l){return l.id===t.lid;});
+  if(!lead||!lead.dbId){ showToast('Lead not loaded \u2014 open it once and retry'); return; }
+  if(btn){ btn.disabled=true; btn.textContent='\u2026'; }
+  sbFetch('/rest/v1/leads?id=eq.'+lead.dbId,{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ ai_callback_at:null }) })
+    .then(function(r){
+      if(!(r.ok||r.status===204)) throw 0;
+      lead.ai_callback_at=null; t.done=true;
+      try{ sbFetch('/rest/v1/lead_activity',{ method:'POST', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ lead_id:lead.dbId, client_id:lead.client_id||window._clientId||null, activity_type:'note', performed_by:(currentUser&&currentUser.email)||'user', description:'\uD83D\uDEAB Scheduled AI call cancelled' }) }); }catch(e){}
+      showToast('AI call cancelled');
+      if(curTab==='followups'){ var c=document.getElementById('content'); if(c) c.innerHTML=followupsHTML(); }
+    })
+    .catch(function(){ showToast('Could not cancel \u2014 try again'); if(btn){ btn.disabled=false; btn.textContent='\uD83D\uDEAB Cancel call'; } });
+}
+function fuAiChange(taskId){
+  var t=tasks.find(function(x){return x.id===taskId;}); if(!t) return;
+  var lead=leads.find(function(l){return l.id===t.lid;});
+  if(!lead){ showToast('Lead not loaded \u2014 open it once and retry'); return; }
+  aiCallReschedule(lead.id);
 }
 
 // ── Follow-up persistence (saved to the `followups` table so reminders can fire) ──
@@ -13237,6 +13277,21 @@ async function loadLeadActivity(localId, dbId) {
       };
     });
 
+    // outcome-1: one physical call = one card. Some AI calls used to gain a
+    // second flagless "Outbound call" shell row (no duration, no recording,
+    // no note) written by another pipeline — it rendered as a phantom
+    // "\uD83D\uDC64 Human" call. Drop the shell when an AI call sits within 10 minutes.
+    norm1 = norm1.filter(function(a){
+      if(a.type!=='call' || a.is_ai) return true;
+      if((a.duration_seconds||0)>0 || a.rec || a.call_note || a.summary) return true;
+      var t0=new Date(a.time).getTime(); if(isNaN(t0)) return true;
+      return !norm1.some(function(b){
+        if(b===a || b.type!=='call' || !b.is_ai) return false;
+        var t1=new Date(b.time).getTime();
+        return !isNaN(t1) && Math.abs(t1-t0)<600000;
+      });
+    });
+
     // Normalize sms_guard_log — body_preview holds the FULL message despite the name.
     var norm3 = rows3.map(function(row) {
       var p = (row.purpose||'').toLowerCase();
@@ -13247,7 +13302,7 @@ async function loadLeadActivity(localId, dbId) {
         // welcome + reminder fire on a schedule with nobody involved. Everything
         // else (appointment confirmations, older manual sends) is indistinguishable
         // in the data today, so it stays untagged rather than wrongly tagged.
-        sender_tag: (p==='welcome' || p==='reminder') ? 'Automated' : ''
+        sender_tag: _smsPurposeTag(p)
       };
     }).filter(function(m){ return m.body; });
 
@@ -13630,7 +13685,7 @@ async function loadSmsThread(l, quiet){
           if(!body) return;
           var p = (r.purpose||'').toLowerCase();
           // welcome + reminder fire on a schedule with nobody involved.
-          var tag = (p==='welcome' || p==='reminder') ? 'Automated' : '';
+          var tag = _smsPurposeTag(p)==='AI' ? '\uD83E\uDD16 AI' : _smsPurposeTag(p);
           msgs.push({ body:body, time:r.created_at, out:true, tag:tag, src:'log' });
         });
       }
@@ -14863,7 +14918,7 @@ function renderLeadScreen(id) {
   var actFilter = window._actFilter || 'all';
   var filterGroups = {
     all:     function(a){ return true; },
-    call:    function(a){ return a.type==='call'; },
+    call:    function(a){ return a.type==='call' && !a.is_ai; },
     aicall:  function(a){ return (a.type==='call' && a.is_ai) || a.type==='ai_analysis'; },
     sms:     function(a){ return a.type==='sms'||a.type==='sms_sent'||a.type==='sms_received'; },
     note:    function(a){ return a.type==='note'; },
@@ -14930,7 +14985,7 @@ function renderLeadScreen(id) {
   var filteredActs = (actFilter==='payment') ? _pmtItems : (actFilter==='sched') ? _schedItems : acts.filter(filterGroups[actFilter]||filterGroups.all);
   var filterTabs = [
     {k:'all',    icon:'🕐', label:'All'},
-    {k:'call',   icon:'📞', label:'Calls'},
+    {k:'call',   icon:'👤', label:'Human Calls'},
     {k:'aicall', icon:'🤖', label:'AI Calls'},
     {k:'sms',    icon:'💬', label:'SMS'},
     {k:'note',   icon:'📝', label:'Notes'},
@@ -15162,10 +15217,11 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
       h += '<div class="ld-act-body" style="width:100%">';
       h += '<span class="ld-act-label">'+item.label+'</span><span class="ld-act-time">'+item.time+'</span>';
       if (item.sender_tag) {
-        var _tagAuto = item.sender_tag === 'Automated';
-        h += '<div style="margin-top:5px"><span style="font-size:10px;font-weight:800;padding:3px 8px;border-radius:20px;background:'
-           + (_tagAuto?'#f3f4f6':'#eff6ff') + ';color:' + (_tagAuto?'#4b5563':'#2563eb')
-           + ';white-space:nowrap">' + (_tagAuto?'\u2699\uFE0F Automated':'\uD83D\uDC64 Human') + '</span></div>';
+        var _tg = item.sender_tag;
+        var _tBg = _tg==='AI' ? '#ede9fe' : _tg==='Automated' ? '#f3f4f6' : '#eff6ff';
+        var _tCo = _tg==='AI' ? '#7c3aed' : _tg==='Automated' ? '#4b5563' : '#2563eb';
+        var _tTx = _tg==='AI' ? '\uD83E\uDD16 AI' : _tg==='Automated' ? '\u2699\uFE0F Automated' : '\uD83D\uDC64 Human';
+        h += '<div style="margin-top:5px"><span style="font-size:10px;font-weight:800;padding:3px 8px;border-radius:20px;background:'+_tBg+';color:'+_tCo+';white-space:nowrap">'+_tTx+'</span></div>';
       }
       var _smsKey='sm_'+String(item.id||(l.id+'_'+i));
       window._emOpen = window._emOpen || {};
@@ -16842,6 +16898,7 @@ function aiCallCancel(localId, btn){
       try{ sbFetch('/rest/v1/lead_activity',{ method:'POST', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ lead_id:l.dbId, client_id:l.client_id||window._clientId||null, activity_type:'note', performed_by:(currentUser&&currentUser.email)||'user', description:'\uD83D\uDEAB Scheduled AI call cancelled' }) }); }catch(e){}
       var c=document.getElementById('content'); if(c && curTab==='calls') c.innerHTML=callsHTML();
       if(document.getElementById('leadScreen') && document.getElementById('leadScreen').classList.contains('open') && typeof renderLeadScreen==='function') renderLeadScreen(l.id);
+      if(curTab==='followups' && typeof loadFollowups==='function'){ loadFollowups().then(function(){ if(curTab==='followups'){ var c9=document.getElementById('content'); if(c9) c9.innerHTML=followupsHTML(); } }).catch(function(){}); }
     })
     .catch(function(){ showToast('Could not cancel \u2014 try again'); if(btn){ btn.disabled=false; btn.textContent='Cancel'; } });
 }
@@ -16874,6 +16931,7 @@ function aiCallRescheduleSave(localId, btn){
       var o=document.querySelector('.sheet-ov'); if(o) o.remove();
       var c=document.getElementById('content'); if(c && curTab==='calls') c.innerHTML=callsHTML();
       if(document.getElementById('leadScreen') && document.getElementById('leadScreen').classList.contains('open') && typeof renderLeadScreen==='function') renderLeadScreen(l.id);
+      if(curTab==='followups' && typeof loadFollowups==='function'){ loadFollowups().then(function(){ if(curTab==='followups'){ var c9=document.getElementById('content'); if(c9) c9.innerHTML=followupsHTML(); } }).catch(function(){}); }
     })
     .catch(function(){ showToast('Could not save \u2014 try again'); if(btn){ btn.disabled=false; btn.textContent='Save time'; } });
 }
@@ -22292,7 +22350,14 @@ async function preloadActivity() {
         var dir=(row.direction||'').toLowerCase();
         var isInbound=dir==='inbound'||type==='sms_received'||type==='email_received';
         if(type==='call') label=isInbound?'📞 Inbound Call':'📞 Outbound Call';
-        return {sender_tag:(type==='sms_sent')?'Human':'', type:type,label:label,time:row.created_at,body:body,rec:!!row.recording_url,recording_url:row.recording_url||null,dur:durStr,duration_seconds:durSec,call_sid:row.call_sid||null,direction:dir,callType:isInbound?'inbound':'outbound',isInbound:isInbound,summary:row.ai_summary||row.summary||null,id:row.id,call_note:row.call_note||null,email_subject:emailSubj,email_body:emailBody,email_id:(row.metadata&&row.metadata.email_id)?String(row.metadata.email_id):'',email_from:(row.metadata&&row.metadata.from)?String(row.metadata.from):''};
+        return {sender_tag:(type==='sms_sent')?'Human':'', is_ai:!!(row.metadata&&(row.metadata.handler==='ai'||row.metadata.ai===true)), transcript:(row.metadata&&row.metadata.transcript)||'', type:type,label:label,time:row.created_at,body:body,rec:!!row.recording_url,recording_url:row.recording_url||null,dur:durStr,duration_seconds:durSec,call_sid:row.call_sid||null,direction:dir,callType:isInbound?'inbound':'outbound',isInbound:isInbound,summary:row.ai_summary||row.summary||null,id:row.id,call_note:row.call_note||null,email_subject:emailSubj,email_body:emailBody,email_id:(row.metadata&&row.metadata.email_id)?String(row.metadata.email_id):'',email_from:(row.metadata&&row.metadata.from)?String(row.metadata.from):''};
+      });
+      // outcome-1: drop the flagless shell row of an AI call (see lead-screen loader).
+      norm1 = norm1.filter(function(a){
+        if(a.type!=='call' || a.is_ai) return true;
+        if((a.duration_seconds||0)>0 || a.rec || a.call_note || a.summary) return true;
+        var t0=new Date(a.time).getTime(); if(isNaN(t0)) return true;
+        return !norm1.some(function(b){ if(b===a||b.type!=='call'||!b.is_ai) return false; var t1=new Date(b.time).getTime(); return !isNaN(t1)&&Math.abs(t1-t0)<600000; });
       });
       // Opens/clicks for this lead: email_opens rows (client emails) + email_event rows (Adviuz emails)
       try{
@@ -22331,7 +22396,7 @@ async function preloadActivity() {
         var p=(row.purpose||'').toLowerCase();
         return {type:'sms_sent',label:'\uD83D\uDCAC SMS Sent',time:row.created_at,body:(row.body_preview||'').trim(),
                 rec:false,direction:'outbound',isInbound:false,
-                sender_tag:(p==='welcome'||p==='reminder')?'Automated':''};
+                sender_tag:_smsPurposeTag(p)};
       }).filter(function(m){ return m.body; });
       var _n=function(t){ return String(t||'').replace(/\s+/g,' ').trim().toLowerCase(); };
       norm3 = norm3.filter(function(m){
@@ -22575,7 +22640,10 @@ async function loadCallLog() {
             var p  = (r.purpose || '').toLowerCase();
             var pLbl = p === 'welcome' ? 'Welcome text'
                      : p === 'reminder' ? 'Appointment reminder'
-                     : p === 'followup' ? 'AI follow-up' : '';
+                     : p === 'followup' ? 'AI follow-up'
+                     : p === 'ai_sms_book' ? 'AI booking text'
+                     : p === 'missed_call' ? 'Missed-call text'
+                     : p === 'callback_missed' ? 'Missed-callback text' : '';
             out.push({
               id:   'sms_' + r.id,
               kind: 'sms',
@@ -22592,7 +22660,7 @@ async function loadCallLog() {
               date: r.created_at || '',
               rec:  '',
               ph:   lead.ph || '',
-              ai:   (p === 'followup' || p === 'ai')
+              ai:   _smsPurposeTag(p) === 'AI'
             });
           });
         }
