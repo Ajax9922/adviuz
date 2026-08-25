@@ -1083,7 +1083,9 @@ body.impersonating .ls-topbar{padding-top:8px}
 .cal-day.sel{background:var(--green);border-color:var(--green);color:#fff}
 .cal-day.booked::before{content:'';position:absolute;top:4px;right:4px;width:6px;height:6px;border-radius:50%;background:var(--blue)}
 /* ── Follow-ups calendar + neutral action bar (calendar-1) ── */
-.fu-fab{position:fixed;right:16px;bottom:calc(84px + env(safe-area-inset-bottom));width:54px;height:54px;border-radius:50%;background:var(--green);color:#fff;border:none;box-shadow:0 6px 18px rgba(0,0,0,.28);font-size:23px;display:flex;align-items:center;justify-content:center;z-index:40;cursor:pointer}
+.fu-fab{position:fixed;right:max(16px, calc(50vw - 199px));bottom:calc(env(safe-area-inset-bottom, 0px) + 72px);width:52px;height:52px;border-radius:50%;background:var(--green);color:#fff;border:none;box-shadow:0 4px 14px rgba(0,168,132,.45),0 2px 6px rgba(0,0,0,.18);display:none;align-items:center;justify-content:center;z-index:600;cursor:pointer;transition:transform .12s ease}
+.fu-fab svg{width:23px;height:23px}
+.fu-fab:active{transform:scale(.92)}
 .fu-day{position:sticky;top:0;z-index:5;background:var(--bg);padding:10px 16px 6px;font-size:12px;font-weight:800;color:var(--sub);letter-spacing:.05em;text-transform:uppercase}
 .fu-actbar{display:flex;margin-top:9px;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--white)}
 .fu-actbar button{flex:1;padding:11px 4px;background:transparent;border:none;border-right:1px solid var(--border);color:var(--sub);font-size:12.5px;font-weight:700;font-family:var(--f);cursor:pointer;white-space:nowrap}
@@ -4415,7 +4417,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-24 futab-1';
+var APP_VERSION = 'v2026-08-24 futab-2';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6634,6 +6636,7 @@ var TAB_CFG={
 
 function goTab(tab,btn){
   curTab=tab;
+  if(tab!=='followups' && typeof fuFabHide==='function') fuFabHide();
   // When the Follow-ups tab opens, refresh from the database so saved
   // follow-ups (incl. ones made on other devices) show, then re-render.
   if(tab==='followups' && typeof loadFollowups==='function'){
@@ -8160,13 +8163,14 @@ function followupsHTML(){
     +'<div class="fchip '+(fuTypeFilter==='appt'?'on':'')+'" onclick="fuTypeFilter=\'appt\';document.getElementById(\'content\').innerHTML=followupsHTML()">📅 Appointments ('+cn.appt+')</div>'
     +'</div>';
   if(fuTypeFilter==='approvals'){ fuTypeFilter=''; }
-  // futab-1: list vs calendar switched by ONE floating button (bottom-right).
+  // futab-2: list vs calendar switched by ONE frozen floating button. The button
+  // is attached to the app shell (body), never to the scrolling page — page
+  // animations cancel 'fixed' positioning for anything inside them, which is
+  // why the first version drifted with the scroll.
   var _main=window._fuMain||'today';
-  var _fab = _main==='cal'
-    ? '<button class="fu-fab" onclick="fuMainSet(\'today\')" title="Back to list">\uD83D\uDCCB</button>'
-    : '<button class="fu-fab" onclick="fuMainSet(\'cal\')" title="Calendar view">\uD83D\uDCC5</button>';
-  if(_main==='cal') return fuCalendarHTML() + _fab;
-  return _fab + '<div class="segment">'
+  fuFabSync(_main);
+  if(_main==='cal') return fuCalendarHTML();
+  return '<div class="segment">'
     +'<button class="seg-btn '+(fuSeg==='past'?'on':'')+'" onclick="fuSeg=\'past\';document.getElementById(\'content\').innerHTML=followupsHTML()">Past</button>'
     +'<button class="seg-btn '+(fuSeg==='today'?'on':'')+'" onclick="fuSeg=\'today\';document.getElementById(\'content\').innerHTML=followupsHTML()">Today</button>'
     +'<button class="seg-btn '+(fuSeg==='future'?'on':'')+'" onclick="if(fuSeg===\'future\'){openFuRange();}else{fuSeg=\'future\';document.getElementById(\'content\').innerHTML=followupsHTML();}">Upcoming'+(fuSeg==='future'?' \u25BE':'')+'</button>'
@@ -9975,6 +9979,20 @@ function fuMainSet(v){
   if(v==='cal' && window._calBlocks===undefined) loadCalBlocks();
   _fuRerender();
 }
+// futab-2: the frozen calendar/list button, attached to the app shell so it
+// never scrolls with the page. Hidden the moment you leave the Follow-ups tab.
+var _fuFabCal='<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>';
+var _fuFabList='<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/></svg>';
+function fuFabSync(main){
+  var b=document.getElementById('fuFab');
+  if(!b){ b=document.createElement('button'); b.id='fuFab'; b.className='fu-fab'; document.body.appendChild(b); }
+  var cal=(main==='cal');
+  b.innerHTML=cal?_fuFabList:_fuFabCal;
+  b.title=cal?'Back to list':'Calendar view';
+  b.onclick=function(){ fuMainSet(cal?'today':'cal'); };
+  b.style.display='flex';
+}
+function fuFabHide(){ var b=document.getElementById('fuFab'); if(b) b.style.display='none'; }
 function openMonthPicker(){
   var b=document.getElementById('monShBody'); if(!b) return;
   var base=TOD.slice(0,7), h='';
