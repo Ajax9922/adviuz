@@ -1083,6 +1083,8 @@ body.impersonating .ls-topbar{padding-top:8px}
 .cal-day.sel{background:var(--green);border-color:var(--green);color:#fff}
 .cal-day.booked::before{content:'';position:absolute;top:4px;right:4px;width:6px;height:6px;border-radius:50%;background:var(--blue)}
 /* ── Follow-ups calendar + neutral action bar (calendar-1) ── */
+.fu-fab{position:fixed;right:16px;bottom:calc(84px + env(safe-area-inset-bottom));width:54px;height:54px;border-radius:50%;background:var(--green);color:#fff;border:none;box-shadow:0 6px 18px rgba(0,0,0,.28);font-size:23px;display:flex;align-items:center;justify-content:center;z-index:40;cursor:pointer}
+.fu-day{position:sticky;top:0;z-index:5;background:var(--bg);padding:10px 16px 6px;font-size:12px;font-weight:800;color:var(--sub);letter-spacing:.05em;text-transform:uppercase}
 .fu-actbar{display:flex;margin-top:9px;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--white)}
 .fu-actbar button{flex:1;padding:11px 4px;background:transparent;border:none;border-right:1px solid var(--border);color:var(--sub);font-size:12.5px;font-weight:700;font-family:var(--f);cursor:pointer;white-space:nowrap}
 .fu-actbar button:last-child{border-right:none}
@@ -4413,7 +4415,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-24 outcome-2';
+var APP_VERSION = 'v2026-08-24 futab-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6735,7 +6737,7 @@ function renderCtrlBar(){
     var calBtn='<button class="cb-btn" onclick="openFuCalendar()" title="Calendar view">'+calSvg+'</button>';
     if(!window._fuView) window._fuView='compact';
     var fuViewBtn='<button class="cb-btn'+(window._fuView==='detailed'?' on':'')+'" onclick="window._fuView=(window._fuView===\'compact\'?\'detailed\':\'compact\');renderCtrlBar();var c=document.getElementById(\'content\');if(c)c.innerHTML=followupsHTML()" title="'+(window._fuView==='compact'?'Expanded view':'Compact view')+'">'+(window._fuView==='compact'?expandSvg:collapseSvg)+'</button>';
-    actions=fuSort+filterBtn+fuViewBtn+calBtn;
+    actions=fuSort+filterBtn+fuViewBtn;
   } else if(curTab==='calls'){
     if(!window._callSort) window._callSort='newest';
     if(!window._callView) window._callView='compact';
@@ -7914,7 +7916,7 @@ function openTempInfo(localId){
   }
   openSheet('tempInfoSh');
 }
-function lRow(l,anySel,forceDetailed){
+function lRow(l,anySel,forceDetailed,slim){
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
   var isSel=selIds.has(l.id);
   var rail=stgColor(l.stage);
@@ -8031,7 +8033,7 @@ function lRow(l,anySel,forceDetailed){
   return '<div class="lead-row simple sl'+(isSel?' sel':'')+'" style="--lr-rail:'+rail+'" '
     +'onclick="'+(anySel?'toggleSel('+l.id+')':'openLead('+l.id+')')+'" '
     +'oncontextmenu="event.preventDefault();startSel('+l.id+')">'
-    +topRow+nameRow+campRow+grid+lastHTML+actBtns
+    +topRow+nameRow+campRow+(slim?'':grid+lastHTML+actBtns)
   +'</div>';
 }
 
@@ -8158,14 +8160,13 @@ function followupsHTML(){
     +'<div class="fchip '+(fuTypeFilter==='appt'?'on':'')+'" onclick="fuTypeFilter=\'appt\';document.getElementById(\'content\').innerHTML=followupsHTML()">📅 Appointments ('+cn.appt+')</div>'
     +'</div>';
   if(fuTypeFilter==='approvals'){ fuTypeFilter=''; }
-  // calendar-1: two views in one tab — Today's work on the left, the calendar on the right.
+  // futab-1: list vs calendar switched by ONE floating button (bottom-right).
   var _main=window._fuMain||'today';
-  var _mseg='<div class="segment" style="margin-bottom:0">'
-    +'<button class="seg-btn '+(_main==='today'?'on':'')+'" onclick="fuMainSet(\'today\')">Today</button>'
-    +'<button class="seg-btn '+(_main==='cal'?'on':'')+'" onclick="fuMainSet(\'cal\')">\uD83D\uDCC5 Calendar</button>'
-    +'</div>';
-  if(_main==='cal') return _mseg + fuCalendarHTML();
-  return _mseg + '<div class="segment">'
+  var _fab = _main==='cal'
+    ? '<button class="fu-fab" onclick="fuMainSet(\'today\')" title="Back to list">\uD83D\uDCCB</button>'
+    : '<button class="fu-fab" onclick="fuMainSet(\'cal\')" title="Calendar view">\uD83D\uDCC5</button>';
+  if(_main==='cal') return fuCalendarHTML() + _fab;
+  return _fab + '<div class="segment">'
     +'<button class="seg-btn '+(fuSeg==='past'?'on':'')+'" onclick="fuSeg=\'past\';document.getElementById(\'content\').innerHTML=followupsHTML()">Past</button>'
     +'<button class="seg-btn '+(fuSeg==='today'?'on':'')+'" onclick="fuSeg=\'today\';document.getElementById(\'content\').innerHTML=followupsHTML()">Today</button>'
     +'<button class="seg-btn '+(fuSeg==='future'?'on':'')+'" onclick="if(fuSeg===\'future\'){openFuRange();}else{fuSeg=\'future\';document.getElementById(\'content\').innerHTML=followupsHTML();}">Upcoming'+(fuSeg==='future'?' \u25BE':'')+'</button>'
@@ -10276,6 +10277,20 @@ function taskListHTML(){
   var dotColors={past:'#cc0000',today:'#d97706',future:'#00a884'};
   var dc=dotColors[fuSeg];
 
+  // futab-1: compact view = grouped by day, slim cards, no buttons (tap the card
+  // or switch to expanded view for actions). Expanded view = exactly as before.
+  var _compactFu = (window._fuView!=='detailed');
+  function fuDayLabel(dstr){
+    if(!dstr) return '';
+    var td=new Date(TOD+'T00:00'), d=new Date(dstr+'T00:00');
+    if(isNaN(d)||isNaN(td)) return String(dstr);
+    var diff=Math.round((d-td)/86400000);
+    if(diff===0) return 'Today';
+    if(diff===1) return 'Tomorrow';
+    if(diff===-1) return 'Yesterday';
+    return d.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'});
+  }
+  var _lastDay='';
   return '<div class="lead-list">'
     +f.map(function(t){
       var lead=leads.find(function(l){return l.id===t.lid;});
@@ -10288,6 +10303,20 @@ function taskListHTML(){
       var _isAiFu = (t.type==='ai_call');
       var typeLbl = '<span style="flex-shrink:0;display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;color:'+(_isAiFu?'#7c3aed':'var(--text)')+';background:'+(_isAiFu?'#ede9fe':'var(--bg)')+';border:1px solid '+(_isAiFu?'#ddd6fe':'var(--border)')+';border-radius:9px;padding:3px 7px;white-space:nowrap">'
         + (_isAiFu ? '\uD83E\uDD16 AI call' : t._appt ? '\uD83D\uDCC5 Appointment' : '\uD83D\uDDD3\uFE0F Follow-up') + '</span>';
+      if(_compactFu){
+        // ── COMPACT: sticky day header once per date, then a slim card ──
+        var head='';
+        if(t.date!==_lastDay){ _lastDay=t.date; head='<div class="fu-day">'+fuDayLabel(t.date)+'</div>'; }
+        var tOnly=h12+':'+mm+' '+ap + (fuSeg==='past' ? ' &middot; Overdue' : '');
+        return head
+          + '<div class="fu-card">'
+          + '<div style="display:flex;align-items:center;justify-content:space-between;gap:5px;margin-bottom:6px">'
+          +   typeLbl
+          +   '<span style="font-size:11px;font-weight:800;color:'+dc+';white-space:nowrap">'+tOnly+'</span>'
+          + '</div>'
+          + lRow(lead,false,false,true)
+          + '</div>';
+      }
       var whenLbl = _dl+' '+h12+':'+mm+' '+ap + (fuSeg==='past' ? ' &middot; Overdue' : '');
       // calendar-1: actions moved out of the header into one neutral bar under the card.
       var _abBtn=function(lbl,fn){ return '<button onclick="event.stopPropagation();'+fn+'">'+lbl+'</button>'; };
@@ -10308,7 +10337,7 @@ function taskListHTML(){
         +     '<span style="font-size:10.5px;font-weight:700;color:'+dc+';white-space:nowrap">'+whenLbl+'</span>'
         +   '</span>'
         + '</div>'
-        + lRow(lead,false,window._fuView==='detailed')
+        + lRow(lead,false,true)
         + actBar
         + '</div>';
     }).join('')
