@@ -674,7 +674,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-08-21 campaign-fix-1</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-08-26 plan-assign-1</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -5515,8 +5515,16 @@ function openEditCampaign(btn) {
     + '<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Pick which product this client is on. This is a client-level setting &mdash; it applies to all of their campaigns.</div>'
     + '<div class="form-group"><label class="fld">Product</label>'
     + '<select class="fld" id="ecam-crm-type" onchange="_ecamCrmTypeChange()">'
-    +   '<option value="normal">Normal CRM</option>'
-    +   '<option value="ai_engine">AI Sales Engine</option>'
+    +   '<option value="normal">Bundle plans with Digital Flyers (Default with Flyers)</option>'
+    +   '<option value="ai:starter:trial">AI Sales Engine &mdash; Starter, Free Trial</option>'
+    +   '<option value="ai:growth:trial">AI Sales Engine &mdash; Growth, Free Trial</option>'
+    +   '<option value="ai:scale:trial">AI Sales Engine &mdash; Scale, Free Trial</option>'
+    +   '<option value="ai:starter:month">AI Sales Engine &mdash; Starter, Monthly</option>'
+    +   '<option value="ai:growth:month">AI Sales Engine &mdash; Growth, Monthly</option>'
+    +   '<option value="ai:scale:month">AI Sales Engine &mdash; Scale, Monthly</option>'
+    +   '<option value="ai:starter:year">AI Sales Engine &mdash; Starter, Yearly</option>'
+    +   '<option value="ai:growth:year">AI Sales Engine &mdash; Growth, Yearly</option>'
+    +   '<option value="ai:scale:year">AI Sales Engine &mdash; Scale, Yearly</option>'
     + '</select></div>'
     + '<div id="ecam-crm-planwrap" style="display:none">'
     + '<div class="form-group"><label class="fld">AI plan</label>'
@@ -6517,9 +6525,14 @@ async function saveCamAi(){
 // calling switches + schedule live in campaigns.settings.ai (per campaign) —
 // the same place the client's own dashboard reads and writes them.
 function _ecamCrmTypeChange(){
+  // plan-assign-1: the compound choice carries plan + billing; the legacy
+  // plan/minutes block stays hidden (fuel lives in the wallet system now).
   var t=document.getElementById('ecam-crm-type');
   var w=document.getElementById('ecam-crm-planwrap');
-  if(w) w.style.display=(t && t.value==='ai_engine')?'block':'none';
+  if(w) w.style.display='none';
+  var raw=(t&&t.value)||'normal';
+  var p=document.getElementById('ecam-crm-plan');
+  if(p && raw.indexOf('ai:')===0){ var pl=raw.split(':')[1]; if(PLAN_MINUTES[pl]!=null) p.value=pl; }
 }
 function _ecamAiSchedChange(){
   var m=document.getElementById('ecam-ai-sched-mode');
@@ -6545,7 +6558,20 @@ async function _ecamLoadCrm(clientId){
     var rows=r.ok?await r.json():[];
     var ci=(rows&&rows[0])||{};
     window._ecamCiId=ci.id||null;
-    var t=document.getElementById('ecam-crm-type'); if(t) t.value=(ci.crm_type==='ai_engine')?'ai_engine':'normal';
+    // plan-assign-1: compute the compound option from client billing fields
+    var cl={};
+    try{
+      var cr2=await sbAdmin('/rest/v1/clients?id=eq.'+clientId+'&select=plan,plan_status,plan_interval,stripe_subscription_id&limit=1');
+      cl=((cr2&&cr2.ok?await cr2.json():[])[0])||{};
+    }catch(_e2){}
+    window._ecamClientBilling=cl;
+    var _val='normal';
+    if(ci.crm_type==='ai_engine'){
+      var _pl=(cl.plan&&PLAN_MINUTES[cl.plan]!=null)?cl.plan:((ci.plan&&PLAN_MINUTES[ci.plan]!=null)?ci.plan:'starter');
+      var _ivk=(cl.plan_status==='trialing')?'trial':((cl.plan_interval==='year')?'year':'month');
+      _val='ai:'+_pl+':'+_ivk;
+    }
+    var t=document.getElementById('ecam-crm-type'); if(t){ t.value='normal'; t.value=_val; }
     var p=document.getElementById('ecam-crm-plan'); if(p && ci.plan && PLAN_MINUTES[ci.plan]!=null) p.value=ci.plan;
     var m=document.getElementById('ecam-crm-minutes');
     if(m) m.textContent=(ci.ai_minutes_balance!=null?Number(ci.ai_minutes_balance).toLocaleString():'0')+' min left'+(ci.ai_minutes_total?' of '+Number(ci.ai_minutes_total).toLocaleString():'');
@@ -6555,9 +6581,22 @@ async function _ecamLoadCrm(clientId){
 async function saveCamCrmType(){
   var clientId=window._editCamClientId;
   if(!clientId){ toast('No client on this campaign'); return; }
-  var type=_ecamVal('ecam-crm-type')||'normal';
-  var plan=_ecamVal('ecam-crm-plan')||'starter';
-  var body={ crm_type:type, plan:plan, ai_enabled:(type==='ai_engine') };
+  // plan-assign-1: one compound choice = product + plan + billing rhythm.
+  var raw=_ecamVal('ecam-crm-type')||'normal';
+  var isAi=raw.indexOf('ai:')===0;
+  var pp=raw.split(':');
+  var plan=isAi?(pp[1]||'starter'):'starter';
+  var ivk=isAi?(pp[2]||'month'):'';
+  // Stripe is the boss: never override a live real subscription from here.
+  try{
+    var gr=await sbAdmin('/rest/v1/clients?id=eq.'+clientId+'&select=stripe_subscription_id,plan_status&limit=1');
+    var grow=((gr&&gr.ok?await gr.json():[])[0])||{};
+    if(grow.stripe_subscription_id && ['active','trialing','past_due'].indexOf(String(grow.plan_status||''))>=0){
+      toast('\u26D4 This client has a real Stripe subscription \u2014 manage their plan in Stripe, not here.');
+      return;
+    }
+  }catch(_e){}
+  var body={ crm_type:(isAi?'ai_engine':'normal'), plan:plan, ai_enabled:isAi };
   try{
     var r;
     if(window._ecamCiId){
@@ -6566,10 +6605,36 @@ async function saveCamCrmType(){
       body.client_id=clientId;
       r=await sbAdmin('/rest/v1/client_integrations',{ method:'POST', headers:{ Prefer:'return=minimal' }, body:JSON.stringify(body) });
     }
-    if(r && (r.ok||r.status===204)){
-      toast(type==='ai_engine' ? '\u2705 Client is on the AI Sales Engine \u00b7 '+plan.charAt(0).toUpperCase()+plan.slice(1)+' plan' : '\u2705 Client is on the Normal CRM');
-      _ecamLoadCrm(clientId);
-    } else { toast('Could not save CRM product'); }
+    if(!(r && (r.ok||r.status===204))){ toast('Could not save CRM product'); return; }
+    // Mirror the choice onto the client's billing fields (manual mode only \u2014
+    // the Stripe guard above already excluded real subscriptions).
+    var nowIso=new Date().toISOString();
+    var renews=new Date(Date.now()+((ivk==='year')?365:30)*24*3600*1000).toISOString();
+    var cbody = isAi
+      ? { plan:plan, plan_status:(ivk==='trial'?'trialing':'active'), plan_interval:(ivk==='year'?'year':'month'), plan_renews_at:renews, plan_started_at:nowIso }
+      : { plan:null, plan_status:null, plan_renews_at:null };
+    try{ await sbAdmin('/rest/v1/clients?id=eq.'+clientId,{ method:'PATCH', headers:{ Prefer:'return=minimal' }, body:JSON.stringify(cbody) }); }catch(_e2){}
+    if(isAi){
+      var IVL={trial:'Free Trial',month:'Monthly',year:'Yearly'};
+      toast('\u2705 '+plan.charAt(0).toUpperCase()+plan.slice(1)+' \u00b7 '+(IVL[ivk]||'')+' saved');
+      // Fuel: the same allowance the plan grants at real checkout. One grant
+      // per month \u2014 pressing twice for the same month is blocked server-side.
+      var FUEL={starter:'500 AI min \u00b7 2,000 texts',growth:'1,000 AI min \u00b7 10,000 texts',scale:'2,000 AI min \u00b7 10,000 texts'};
+      if(confirm('Also add this month\u2019s AI fuel now?\n\n'+plan.charAt(0).toUpperCase()+plan.slice(1)+' = '+FUEL[plan]+'.\nAdding twice for the same month is automatically blocked.')){
+        var ym=new Date().toISOString().slice(0,7).replace('-','');
+        try{
+          var fr=await sbAdmin('/rest/v1/rpc/admin_grant_plan_bundle',{ method:'POST', body:JSON.stringify({ p_client:clientId, p_plan:plan, p_ref:'manual_'+plan+'_'+(ivk||'m')+'_'+ym, p_expires:renews }) });
+          var fj=(fr&&fr.ok)?await fr.json():null;
+          if(fj && fj.ok===false && fj.reason==='not_staff') toast('\u26D4 Only staff logins can add fuel');
+          else if(fj && (fj.ok===true||fj.granted===true)) toast('\u26FD Fuel added \u2014 '+FUEL[plan]);
+          else if(fj) toast('\u26FD '+(fj.reason||fj.note||'Fuel for this month was already added'));
+          else toast('Could not add fuel \u2014 ask Claude to add it');
+        }catch(_e3){ toast('Could not add fuel \u2014 ask Claude to add it'); }
+      }
+    } else {
+      toast('\u2705 Client is on Digital Flyers (bundled CRM)');
+    }
+    _ecamLoadCrm(clientId);
   }catch(e){ toast('Could not save CRM product'); }
 }
 async function _ecamLoadPlanMinutes(){
