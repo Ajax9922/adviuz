@@ -674,7 +674,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-08-26 plan-assign-1</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-08-26 money-1</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -1852,7 +1852,7 @@ let _autoRefreshStarted = false;
 async function loadAdminData() {
   if (!_autoRefreshStarted) { _autoRefreshStarted = true; startAdminAutoRefresh(); }
   try {
-    const [clients, viewEvents, leads, campaigns, transactions, ads, impressions] = await Promise.all([
+    const [clients, viewEvents, leads, campaigns, transactions, ads, impressions, clientStats] = await Promise.all([
       sbAdmin('/rest/v1/clients?order=created_at.desc').then(r => r.ok ? r.json() : []),
       sbAdmin('/rest/v1/view_events?order=viewed_at.desc&limit=500').then(r => r.ok ? r.json() : []),
       sbAdmin('/rest/v1/leads?order=updated_at.desc.nullslast&limit=200').then(r => r.ok ? r.json() : []),
@@ -1860,8 +1860,13 @@ async function loadAdminData() {
       sbAdmin('/rest/v1/transactions?order=created_at.desc').then(r => r.ok ? r.json() : []),
       sbAdmin('/rest/v1/ads?order=created_at.desc').then(r => r.ok ? r.json() : []),
       sbAdmin('/rest/v1/impressions?order=sync_date.desc').then(r => r.ok ? r.json() : []),
+      sbAdmin('/rest/v1/rpc/admin_client_stats', { method:'POST', body:'{}' }).then(r => r.ok ? r.json() : []),
     ]);
     window._allAds = ads;
+    // money-1: authoritative per-client money numbers from admin_client_stats()
+    // (Purchased = confirmed view purchases; Wallet = unallotted pool; Leads = customer leads only)
+    window._clientStats = {};
+    (clientStats||[]).forEach(function(st){ window._clientStats[st.client_id] = st; });
     // Merge impressions into campaigns (sum FB + Google per campaign)
     campaigns.forEach(function(cam) {
       var camImps = impressions.filter(function(i){ return i.campaign_id === cam.id; });
@@ -2009,12 +2014,18 @@ function renderClientRows(clients, leads) {
   }
   var clientHtml = clients.map(function(c) {
     var allCamps   = (window._allCampaigns||[]).filter(function(cam){ return cam.client_id === c.id; });
-    var purchased  = c.view_balance || 0; // total views ever purchased (stored on client)
+    // money-1 (wallet rule): Purchased = confirmed flyer-view purchases from the
+    // transactions ledger; Balance = the wallet, i.e. the UNALLOTTED pool only.
+    var st         = (window._clientStats||{})[c.id] || null;
+    var purchased  = st ? (st.views_purchased||0)
+                        : (window._allTransactions||[]).filter(function(t){ return t.client_id===c.id && t.payment_status==='confirmed'; })
+                            .reduce(function(sm,t){ return sm+(t.views_added||0); }, 0);
     var allotted   = allCamps.reduce(function(s,cam){ return s+(cam.view_budget||0); }, 0);
     var done       = allCamps.reduce(function(s,cam){ return s+(cam.views_used||0); }, 0);
-    var balance    = Math.max(0, purchased - done);
-    var unallotted = Math.max(0, purchased - allotted);
-    var clientLeads= leads.filter(function(l){ return l.client_id === c.id; }).length;
+    var balance    = c.view_balance || 0;            // wallet = unallotted pool
+    var fuelLeft   = Math.max(0, allotted - done);   // views still to deliver inside campaigns
+    var clientLeads= st ? (st.leads_count||0)
+                        : leads.filter(function(l){ return l.client_id===c.id && !l.partner_id && ['digital flyers','ai sales engine','both'].indexOf(String(l.service||'').toLowerCase())===-1; }).length;
     var leadsAllot = allCamps.reduce(function(t,cam){ return t + (cam.billing_model==='leads' ? (cam.leads_target||0) : 0); }, 0);
     var leadsDone  = allCamps.reduce(function(t,cam){ return t + (cam.billing_model==='leads' ? (cam.leads_generated||0) : 0); }, 0);
     var leadBal    = c.lead_balance || 0;
@@ -2030,7 +2041,7 @@ function renderClientRows(clients, leads) {
       ? '<span style="font-size:9px;font-weight:700;background:#fef3c7;color:#b45309;padding:1px 6px;border-radius:10px;margin-left:4px">Leads Pkg</span>'
       : '';
 
-    var balColor = balance < 200 && isViews ? 'color:var(--danger);font-weight:700' : '';
+    var balColor = fuelLeft < 200 && allotted > 0 && isViews ? 'color:var(--danger);font-weight:700' : '';
 
     // Last seen
     var lastSeen = '—';
@@ -2056,7 +2067,7 @@ function renderClientRows(clients, leads) {
       // Done
       '<td class="td-mono" style="text-align:right">' + (isViews ? done.toLocaleString() : leadsDone.toLocaleString()) + '</td>' +
       // Balance
-      '<td class="td-mono" style="text-align:right;' + (isViews ? balColor : ((leadBal<10)?'color:var(--danger);font-weight:700':'')) + '">' + (isViews ? balance.toLocaleString() : leadBal.toLocaleString()) + '</td>' +
+      '<td class="td-mono" style="text-align:right;' + (isViews ? balColor : ((leadBal<10)?'color:var(--danger);font-weight:700':'')) + '" title="' + (isViews ? ('Wallet (unallotted): ' + balance.toLocaleString() + ' \u00b7 Left in campaigns: ' + fuelLeft.toLocaleString()) : '') + '">' + (isViews ? (balance.toLocaleString() + '<div style="font-size:10px;color:var(--muted);font-weight:400">' + fuelLeft.toLocaleString() + ' in campaigns</div>') : leadBal.toLocaleString()) + '</td>' +
       // Leads
       '<td class="td-mono" style="text-align:right">' + clientLeads + '</td>' +
       // Last Seen
@@ -5411,6 +5422,14 @@ function openEditCampaign(btn) {
     + '<option value="paused"' + (btn.dataset.status==='paused' ? ' selected' : '') + '>Paused</option>'
     + '<option value="completed"' + (btn.dataset.status==='completed' ? ' selected' : '') + '>Completed</option>'
     + '</select></div>'
+    // money-1: pick which ad page this campaign shows (only this client's ads)
+    + '<div class="form-group"><label class="fld">Ad page (what this campaign shows)</label>'
+    +   '<div style="display:flex;gap:8px;align-items:center">'
+    +     '<select class="fld" id="ecam-ad-sel" style="flex:1"><option value="">No ad linked</option></select>'
+    +     '<button type="button" class="tbl-btn" onclick="previewCamAd()" title="Open the live ad page">Preview \u2197</button>'
+    +   '</div>'
+    +   '<div style="font-size:11px;color:var(--muted);margin-top:4px">Only this client\u2019s ads are listed. Saved with Save basics.</div>'
+    + '</div>'
     + '<div class="ecam-panesave"><button type="button" class="btn-save" onclick="saveCamBasics()">\uD83D\uDCBE Save basics</button></div>'
     + '</div>'
     + '<div class="ecam-pane" data-pane="preview" style="display:none">'
@@ -5767,6 +5786,7 @@ function openEditCampaign(btn) {
   loadFbLeadForm(window._editCampaignId);
   loadManualImpr(window._editCampaignId);
   loadCustomFields(window._editCampaignId);
+  populateCamAdPicker();
 
   // ── Prefill Ad Preview fields from existing placement_preview ──
   var cam = (window._allCampaigns || []).find(function(c){ return String(c.id) === String(btn.dataset.id); });
@@ -6370,13 +6390,34 @@ async function _ecamPatch(payload, okMsg){
    ───────────────────────────────────────────────────────────────────────────── */
 
 // TAB 1 — Basic. Name, status, views. Touches nothing else.
+// money-1: Edit Campaign ad picker — only this client's ads; Preview opens live URL
+function populateCamAdPicker(){
+  var sel=document.getElementById('ecam-ad-sel'); if(!sel) return;
+  var cam=(window._allCampaigns||[]).find(function(x){ return String(x.id)===String(window._editCampaignId); });
+  var ads=(window._allAds||[]).filter(function(a){ return cam && a.client_id===cam.client_id; });
+  sel.innerHTML='<option value="">No ad linked</option>'+ads.map(function(a){
+    var label=(a.business_name||a.ad_slug||String(a.id).slice(0,8));
+    if(a.headline_1) label+=' \u2014 '+a.headline_1;
+    return '<option value="'+a.id+'"'+((cam&&cam.ad_id===a.id)?' selected':'')+'>'+label+'</option>';
+  }).join('');
+}
+function previewCamAd(){
+  var sel=document.getElementById('ecam-ad-sel');
+  var ad=(window._allAds||[]).find(function(a){ return a.id===(sel&&sel.value); });
+  if(!ad){ toast('Pick an ad first'); return; }
+  var slug=(ad.ad_slug||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  var url=ad.live_url ? ('https://'+ad.live_url) : (slug ? ('https://'+slug+'.latest-promo.com') : '');
+  if(!url){ toast('This ad has no live URL yet'); return; }
+  window.open(url,'_blank');
+}
 async function saveCamBasics(){
   var name=_ecamVal('ecam-name');
   if(!name){ toast('Campaign name cannot be blank'); return; }
   var ok=await _ecamPatch({
     name: name,
     view_budget: parseInt(_ecamVal('ecam-budget')||'0',10)||0,
-    status: _ecamVal('ecam-status')
+    status: _ecamVal('ecam-status'),
+    ad_id: (_ecamVal('ecam-ad-sel')||null)
   }, 'Basics saved');
   if(!ok) return;
   // Views: the entered number is the DESIRED TOTAL (baseline + live tracked), so
@@ -6850,23 +6891,30 @@ function viewCampaignLeads(campaignId, campaignName) {
 function renderBalanceOverview(clients) {
   var barsEl = document.getElementById('balanceOverviewBars');
   var credsEl = document.getElementById('clientCredsList');
+  // money-1: rank by views still to deliver (left in campaigns + wallet)
+  var _fuel = function(c){
+    var st=(window._clientStats||{})[c.id];
+    if(st) return Math.max(0,(st.views_allotted||0)-(st.views_done||0)) + (st.wallet||0);
+    var cams=(window._allCampaigns||[]).filter(function(x){ return x.client_id===c.id; });
+    return Math.max(0, cams.reduce(function(s,x){ return s+(x.view_budget||0); },0) - cams.reduce(function(s,x){ return s+(x.views_used||0); },0)) + (c.view_balance||0);
+  };
   var viewClients = clients.filter(function(c){ return c.role !== 'super_admin'; })
-    .sort(function(a,b){ return (b.view_balance||0) - (a.view_balance||0); })
+    .sort(function(a,b){ return _fuel(b) - _fuel(a); })
     .slice(0, 8);
   if (barsEl) {
     if (viewClients.length === 0) {
       barsEl.innerHTML = '<div style="padding:16px;text-align:center;color:var(--muted);font-size:13px">No clients yet</div>';
     } else {
-      var maxBal = Math.max.apply(null, viewClients.map(function(c){ return c.view_balance||0; })) || 1;
+      var maxBal = Math.max.apply(null, viewClients.map(_fuel)) || 1;
       barsEl.innerHTML = viewClients.map(function(c, i) {
-        var bal = c.view_balance || 0;
+        var bal = _fuel(c);
         var pct = Math.round(bal / maxBal * 100);
         var color = bal < 200 ? 'var(--danger)' : bal < 500 ? 'var(--warning)' : 'var(--brand)';
         var isLast = i === viewClients.length - 1;
         return '<div style="margin-bottom:' + (isLast?'0':'12px') + '">' +
           '<div style="display:flex;justify-content:space-between;margin-bottom:4px">' +
             '<span style="font-size:13px;font-weight:600">' + (c.business_name||c.email) + '</span>' +
-            '<span style="font-family:var(--mono);font-size:12px;color:var(--muted)">' + bal.toLocaleString() + ' views</span>' +
+            '<span style="font-family:var(--mono);font-size:12px;color:var(--muted)">' + bal.toLocaleString() + ' views left</span>' +
           '</div>' +
           '<div class="progress-bar"><div class="progress-fill" style="width:' + pct + '%;background:' + color + '"></div></div>' +
         '</div>';
