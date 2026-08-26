@@ -4433,7 +4433,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-25 billing-2';
+var APP_VERSION = 'v2026-08-25 billing-3';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6837,6 +6837,19 @@ function srcLabel(s){
   var v = String(s||'').trim().toLowerCase();
   return (v==='' || v==='manual' || v==='manual entry' || v==='walk-in' || v==='walkin' || v==='other')
     ? 'Manually Added' : 'Adviuz';
+}
+// web-src-2: source buckets for the Reports pie — honest channel names,
+// independent of the srcLabel branding. Unknown things land in 'Other'.
+function _rptSrcBucket(raw){
+  var k=String(raw||'').trim().toLowerCase();
+  if(k==='website form') return 'Website Form';
+  if(k==='website appointment') return 'Website Appointment';
+  if(/facebook|instagram|fb_|fbclid|meta/.test(k)||k==='fb'||k==='ig') return 'Facebook Ads';
+  if(/google|gclid|youtube|gads/.test(k)) return 'Google Ads';
+  if(k==='landing page'||k==='adviuz') return 'Ad Page';
+  if(/inbound|call/.test(k)) return 'Inbound Calls';
+  if(k===''||/manual|walk/.test(k)) return 'Manually Added';
+  return 'Other';
 }
 // ── Filter value matching (fields-6) ────────────────────────
 // Facebook writes "front_hairline"; the ad page writes "Front Hairline".
@@ -11530,6 +11543,39 @@ function clientReportsHTML(){
     +    '<div style="font-size:11px;color:#1e40af;margin-top:2px">revenue ÷ deals closed</div>'
     +  '</div>';
   h += '</div>';
+
+  // ── LEADS BY SOURCE (web-src-2): donut of where the leads came from.
+  // Uses the SAME filtered set as everything else on this page, so the
+  // campaign/date filters apply to the pie too.
+  var _srcCnt={};
+  ls.forEach(function(l){ var b=_rptSrcBucket(l.src); _srcCnt[b]=(_srcCnt[b]||0)+1; });
+  var _srcArr=Object.keys(_srcCnt).map(function(k){return [k,_srcCnt[k]];}).sort(function(a,b){return b[1]-a[1];});
+  if(tot && _srcArr.length){
+    var _PAL=['#16a34a','#2563eb','#f59e0b','#8b5cf6','#0ea5e9','#ef4444','#0d9488','#64748b'];
+    var _segs='', _off=25, _legend='';
+    _srcArr.forEach(function(sv,i){
+      var p=sv[1]/tot*100, col=_PAL[i%_PAL.length];
+      var o=((_off%100)+100)%100;
+      _segs+='<circle r="15.915" cx="21" cy="21" fill="none" stroke="'+col+'" stroke-width="6.5" stroke-dasharray="'+p.toFixed(2)+' '+(100-p).toFixed(2)+'" stroke-dashoffset="'+o.toFixed(2)+'"></circle>';
+      _off-=p;
+      _legend+='<div style="display:flex;align-items:center;gap:8px;padding:4px 0">'
+        +'<span style="width:10px;height:10px;border-radius:3px;background:'+col+';flex-shrink:0"></span>'
+        +'<span style="flex:1;min-width:0;font-size:12.5px;font-weight:600;color:var(--text)">'+sv[0]+'</span>'  /* bucket names are a fixed list, never user text */
+        +'<span style="font-size:12.5px;font-weight:800;color:var(--text)">'+sv[1]+'</span>'
+        +'<span style="font-size:11px;color:var(--sub);width:38px;text-align:right">'+Math.round(p)+'%</span>'
+        +'</div>';
+    });
+    h+='<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:18px">'
+      +'<div style="font-size:13px;font-weight:800;color:var(--text);margin-bottom:12px">\uD83E\uDDED Where your leads come from</div>'
+      +'<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">'
+      +'<div style="position:relative;width:118px;height:118px;flex-shrink:0;margin:0 auto">'
+      +'<svg viewBox="0 0 42 42" style="width:118px;height:118px">'+_segs+'</svg>'
+      +'<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">'
+      +'<span style="font-size:20px;font-weight:800;color:var(--text);line-height:1.1">'+tot+'</span>'
+      +'<span style="font-size:10px;color:var(--sub)">leads</span></div></div>'
+      +'<div style="flex:1;min-width:180px">'+_legend+'</div>'
+      +'</div></div>';
+  }
 
   // ── PIPELINE STATUS (where every lead currently sits) ──
   h += '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:6px 2px 8px">Pipeline Status</div>';
