@@ -4433,7 +4433,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-26 billing-4';
+var APP_VERSION = 'v2026-08-26 fwdfix-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -8875,6 +8875,8 @@ async function bwAiDraft(){
       business: cd.business_name||cd.name||'',
       campaign:_campNm, campaign_id:_campId })});
     var data=await res.json().catch(function(){return{};});
+    // fuel-msg-1: surface the server's own reason (e.g. out of AI fuel)
+    if(data && data.error && String(data.error).length > 24){ showToast(String(data.error)); if(btn){ btn.disabled=false; btn.textContent='\u2728 Draft with AI'; } return; }
     var text=(data.draft||'').trim();
     if(res.ok && text){
       b.msg=text;
@@ -26293,7 +26295,8 @@ async function csAiDraft(edId, msgType, remIdx){
     else { showToast('Could not draft — please try again'); }
   } catch(e){
     console.warn('[csAiDraft]', e.message);
-    showToast('Could not draft — please try again');
+    // fuel-msg-1: surface the server's own reason (e.g. out of AI fuel)
+    showToast((e && e.message && e.message.length > 24) ? e.message : 'Could not draft — please try again');
   }
   if (btn){ btn.disabled = false; btn.textContent = '\u2728 Draft with AI'; }
 }
@@ -26838,14 +26841,15 @@ async function saveCampSettings(){
       Object.keys(_prev).forEach(function(k){ if(!_owned[k] && s.ai[k] === undefined) s.ai[k] = _prev[k]; });
     })();
     patchBody = { settings: s };
+    // fwdfix-1: the "Send callers to" box lives on THIS page, so save it here.
+    var _fwdAi = v('csAiFwd');
+    if (_fwdAi) patchBody.forward_to_phone = _fwdAi;
+    window._csFwdRefresh = (_fwdAi && _fwdAi !== String(cp.forward_to_phone || '')) ? _fwdAi : null;
   } else if (page === 'booking'){
     var _bk = bkCollect();
     if (!_bk) return;
     s.ai = Object.assign({}, (cp.settings && cp.settings.ai) || {}, { booking: _bk });
     patchBody = { settings: s };
-    var _fwdAi = v('csAiFwd');
-    if (_fwdAi) patchBody.forward_to_phone = _fwdAi;
-    window._csFwdRefresh = (_fwdAi && _fwdAi !== String(cp.forward_to_phone || '')) ? _fwdAi : null;
   } else { return; }
 
   var btn = document.getElementById('campSaveBtn');
