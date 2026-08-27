@@ -4433,7 +4433,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-27 agotime-1';
+var APP_VERSION = 'v2026-08-27 xfer-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -26636,6 +26636,28 @@ function csOpenPage(page){
       + '<div class="cs-note">When a caller asks for a real person \u2014 or you jump into a live call \u2014 the AI hands the caller to this phone number. Changing it here updates your AI instantly.</div>'
       + '<div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Send callers to</div>'
       + '<input id="csAiFwd" type="tel" class="cs-in" placeholder="+1 416 555 0100" value="'+_csEsc(cp.forward_to_phone||'')+'">'
+      + '<div class="cs-h" style="margin-top:20px">\uD83D\uDD52 When the team takes live calls</div>'
+      + '<div class="cs-note">The AI only offers a live transfer inside this window \u2014 outside it, callers are promised a callback instead. Times follow this campaign\u2019s timezone.</div>'
+      + (function(){
+          var _tx = (cp.settings && cp.settings.transfer) || {};
+          var _en = (_tx.enabled !== false);
+          var _ds = (Array.isArray(_tx.days) && _tx.days.length) ? _tx.days : [0,1,2,3,4,5,6];
+          var h2 = '<label style="display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:10px;cursor:pointer">'
+            + '<input id="csXferOn" type="checkbox"'+(_en?' checked':'')+' style="width:18px;height:18px;accent-color:var(--green)">'
+            + '<span style="font-size:13.5px;font-weight:800;color:var(--text)">Live transfers on</span></label>'
+            + '<div style="display:flex;gap:10px;margin-bottom:10px">'
+            + '<div style="flex:1"><div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">From</div><input id="csXferStart" type="time" class="cs-in" style="margin-bottom:0" value="'+_csEsc(_tx.start||'09:00')+'"></div>'
+            + '<div style="flex:1"><div style="font-size:11px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Until</div><input id="csXferEnd" type="time" class="cs-in" style="margin-bottom:0" value="'+_csEsc(_tx.end||'20:00')+'"></div>'
+            + '</div>'
+            + '<div id="csXferDays" style="display:flex;gap:6px;margin-bottom:4px">';
+          var dn = ['S','M','T','W','T','F','S'];
+          for (var di = 0; di < 7; di++){
+            var on = _ds.indexOf(di) !== -1;
+            h2 += '<button type="button" data-d="'+di+'" data-on="'+(on?'1':'0')+'" onclick="csXferDayTap(this)" style="flex:1;padding:9px 0;border-radius:10px;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'var(--greenl,#e7f8f3)':'var(--white)')+';color:'+(on?'var(--green)':'var(--sub)')+';font-size:12px;font-weight:800;cursor:pointer;font-family:var(--f)">'+dn[di]+'</button>';
+          }
+          h2 += '</div><div class="cs-note">Tap days to turn them on or off. Sunday is first.</div>';
+          return h2;
+        })()
       + '<div class="cs-h" style="margin-top:20px">\u2705 Approvals</div>'
       + '<div class="cs-note">When the AI writes a text or email for a lead, should it go out on its own, or wait for you? On \u201cReview first\u201d, drafts appear in your Inbox with Approve, Edit and Reject buttons \u2014 and anything you don\u2019t decide on expires after 24 hours without sending.</div>'
       + _selRow('AI-written texts',
@@ -26951,6 +26973,13 @@ async function gcalPickCal(state, btn){
     showToast((jx && jx.error) || 'Could not connect that calendar \u2014 try another');
   }
 }
+function csXferDayTap(b){
+  var on = (b.dataset.on === '1') ? '0' : '1';
+  b.dataset.on = on;
+  b.style.border = '1.5px solid ' + (on === '1' ? 'var(--green)' : 'var(--border)');
+  b.style.background = (on === '1') ? 'var(--greenl,#e7f8f3)' : 'var(--white)';
+  b.style.color = (on === '1') ? 'var(--green)' : 'var(--sub)';
+}
 // Save merges ONLY the open page into the campaign's saved settings.
 async function saveCampSettings(){
   var id = window._csCampId; if(!id) return;
@@ -27023,6 +27052,17 @@ async function saveCampSettings(){
     var _fwdAi = v('csAiFwd');
     if (_fwdAi) patchBody.forward_to_phone = _fwdAi;
     window._csFwdRefresh = (_fwdAi && _fwdAi !== String(cp.forward_to_phone || '')) ? _fwdAi : null;
+    // xfer-1: live-transfer window \u2014 the transfer engine reads settings.transfer.
+    var _xd = [];
+    var _xb = document.querySelectorAll('#csXferDays button');
+    for (var _xi = 0; _xi < _xb.length; _xi++){ if (_xb[_xi].dataset.on === '1') _xd.push(parseInt(_xb[_xi].dataset.d, 10)); }
+    var _xOn = document.getElementById('csXferOn');
+    s.transfer = {
+      enabled: _xOn ? !!_xOn.checked : true,
+      start: v('csXferStart') || '09:00',
+      end: v('csXferEnd') || '20:00',
+      days: _xd.length ? _xd : [0,1,2,3,4,5,6]
+    };
   } else if (page === 'booking'){
     var _bk = bkCollect();
     if (!_bk) return;
