@@ -4433,7 +4433,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-26 fwdfix-1';
+var APP_VERSION = 'v2026-08-27 gcal-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -26370,7 +26370,7 @@ function _csFooter(page){
   var back = document.getElementById('csBackBtn');
   var save = document.getElementById('campSaveBtn');
   if (back) back.innerHTML = (page==='menu') ? 'Close' : '\u2039 Back';
-  if (save) save.style.display = (page==='menu') ? 'none' : '';
+  if (save) save.style.display = (page==='menu' || page==='gcal') ? 'none' : '';
 }
 function apGoToAiSettings(campId){
   // From the lead screen: jump straight to this campaign's AI Employee page.
@@ -26439,6 +26439,7 @@ function csOpenMenu(){
       + ((window._isAdviuzStaff || window._isAccountOwner) ? _csMenuRow('\uD83D\uDCE7', 'Email Setup', 'Send address, logo &amp; footer for this campaign', 'csOpenEmailSender()') : '')
       + ((window._isAdviuzStaff || window._isAccountOwner) ? _csMenuRow('\uD83E\uDD16', 'AI Employee', 'When the AI answers &amp; calls for this campaign', "csOpenPage('ai')") : '')
       + ((window._isAdviuzStaff || window._isAccountOwner) ? _csMenuRow('\uD83D\uDDD3\uFE0F', 'Booking Settings', 'Hours, appointment length, gaps &amp; team size \u2014 used by the AI and the calendar', "csOpenPage('booking')") : '')
+      + ((window._isAdviuzStaff || window._isAccountOwner) ? _csMenuRow('\uD83D\uDD04', 'Sync your calendar', 'Connect Google Calendar so the AI never offers a taken time', "csOpenPage('gcal')") : '')
       + ((window._isAdviuzStaff || window._isAccountOwner) ? _csMenuRow('\uD83D\uDCD6', 'Automated Follow-ups', 'Your stage-by-stage follow-up messages, written by AI', 'openPlaybook()') : '');
   }
   _csFooter('menu');
@@ -26548,6 +26549,13 @@ function csOpenPage(page){
     if (t) t.textContent = (window._csCpName||'Campaign') + ' \u00b7 Booking Settings';
     body.innerHTML = bkRenderPage(((cp.settings && cp.settings.ai) || {}).booking || null, ((cp.settings && cp.settings.ai) || {}).tz || 'America/Toronto');
     bkRenderDays();
+  }
+  else if (page === 'gcal'){
+    if (t) t.textContent = (window._csCpName||'Campaign') + ' \u00b7 Sync your calendar';
+    body.innerHTML =
+        '<div class="cs-note">Connect the Google Calendar your business already uses. We read its busy times so the AI never offers a slot that\u2019s already taken. We only read your calendar \u2014 we never change or delete anything on it.</div>'
+      + '<div id="csGcalBox" style="background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:16px;font-size:13px;color:var(--sub)">Checking\u2026</div>';
+    gcalRenderStatus();
   }
   else if (page === 'ai'){
     if (t) t.textContent = (window._csCpName||'Campaign') + ' \u00b7 AI Employee';
@@ -26772,6 +26780,92 @@ function csAiSchedChange(){
   var m = document.getElementById('csAiSched');
   var w = document.getElementById('csAiWin');
   if (w) w.style.display = (m && m.value === 'window') ? 'block' : 'none';
+}
+// \u2500\u2500 Google Calendar sync (campaign settings page 'gcal') \u2014 gcal-1 \u2500\u2500
+async function gcalRenderStatus(){
+  var box = document.getElementById('csGcalBox'); if (!box) return;
+  box.innerHTML = 'Checking\u2026';
+  var st = null;
+  try {
+    var r = await sbFetch('/rest/v1/rpc/get_gcal_status', { method:'POST', body: JSON.stringify({ p_campaign: window._csCampId }) });
+    if (r.ok) st = await r.json();
+  } catch(e) {}
+  if (!st){ box.innerHTML = 'Could not check the connection. Please try again in a moment.'; return; }
+  if (st.connected){
+    box.innerHTML =
+        '<div style="display:flex;align-items:center;gap:9px;margin-bottom:10px">'
+      +   '<span style="width:10px;height:10px;border-radius:50%;background:var(--green);flex-shrink:0"></span>'
+      +   '<span style="font-size:14px;font-weight:800;color:var(--text)">Connected</span>'
+      + '</div>'
+      + '<div style="font-size:13px;color:var(--text);margin-bottom:3px;font-weight:800">'+_csEsc(st.calendar_name||'Calendar')+'</div>'
+      + '<div style="font-size:12px;color:var(--sub);margin-bottom:2px">'+_csEsc(st.google_email||'')+'</div>'
+      + (st.last_sync_at
+          ? '<div style="font-size:12px;color:var(--sub)">Last checked: '+_csEsc(new Date(st.last_sync_at).toLocaleString())+'</div>'
+          : '<div style="font-size:12px;color:var(--sub)">First sync runs within a few minutes.</div>')
+      + '<div style="display:flex;gap:10px;margin-top:14px">'
+      +   '<button onclick="gcalConnect()" style="flex:1;padding:11px;border-radius:11px;border:1.5px solid var(--border);background:var(--white);font-size:13px;font-weight:800;color:var(--text);cursor:pointer;font-family:var(--f)">Change calendar</button>'
+      +   '<button id="csGcalDisc" onclick="gcalDisconnect()" style="flex:1;padding:11px;border-radius:11px;border:1.5px solid #f1c0c0;background:var(--white);font-size:13px;font-weight:800;color:#c0392b;cursor:pointer;font-family:var(--f)">Disconnect</button>'
+      + '</div>';
+    return;
+  }
+  var half = (st.status === 'pending' || st.status === 'error');
+  box.innerHTML =
+      '<div style="display:flex;align-items:center;gap:9px;margin-bottom:10px">'
+    +   '<span style="width:10px;height:10px;border-radius:50%;background:'+(half?'#e6a23c':'var(--border)')+';flex-shrink:0"></span>'
+    +   '<span style="font-size:14px;font-weight:800;color:var(--text)">'+(half?'Almost there':'Not connected')+'</span>'
+    + '</div>'
+    + (half && st.last_error ? '<div style="font-size:12px;color:#c0392b;margin-bottom:8px">'+_csEsc(st.last_error)+'</div>' : '')
+    + '<div style="font-size:12.5px;color:var(--sub);line-height:1.5;margin-bottom:14px">'
+    +   (half ? 'The sign-in didn\u2019t finish. Tap below to try again and pick your calendar.'
+             : 'Tap below, sign in with the Google account that holds your business calendar, and pick the calendar to sync.')
+    + '</div>'
+    + '<button onclick="gcalConnect()" style="width:100%;padding:13px;border-radius:12px;border:none;background:var(--green);color:#fff;font-size:14px;font-weight:800;cursor:pointer;font-family:var(--f)">'+(half?'Try again':'Connect with Google')+'</button>';
+}
+async function gcalConnect(){
+  if (!window._csCampId) return;
+  // Open the tab synchronously so mobile browsers do not block it, then point it at Google.
+  var w = null;
+  try { w = window.open('', '_blank'); } catch(e) { w = null; }
+  try {
+    var r = await sbFetch('/functions/v1/gcal-oauth', { method:'POST', body: JSON.stringify({ action:'start', campaign_id: window._csCampId }) });
+    var jx = null; try { jx = await r.json(); } catch(e2) { jx = null; }
+    if (!r.ok || !jx || !jx.url){
+      if (w) try{ w.close(); }catch(e3){}
+      showToast((jx && jx.error) || 'Could not start Google sign-in');
+      return;
+    }
+    if (w) { w.location.href = jx.url; } else { window.location.href = jx.url; return; }
+    var box = document.getElementById('csGcalBox');
+    if (box) box.innerHTML =
+        '<div style="font-size:13px;color:var(--text);line-height:1.55"><b>Finish signing in</b> in the tab that just opened, pick your calendar, then come back here.</div>'
+      + '<button onclick="gcalRenderStatus()" style="width:100%;margin-top:14px;padding:12px;border-radius:12px;border:1.5px solid var(--border);background:var(--white);font-size:13px;font-weight:800;color:var(--text);cursor:pointer;font-family:var(--f)">\u21bb I\u2019m done \u2014 check connection</button>';
+  } catch(e4) {
+    if (w) try{ w.close(); }catch(e5){}
+    showToast('Could not start Google sign-in');
+  }
+}
+function gcalDisconnect(){
+  var b = document.getElementById('csGcalDisc'); if (!b) return;
+  if (b.dataset.arm !== '1'){
+    b.dataset.arm = '1';
+    b.textContent = 'Tap again to disconnect';
+    b.style.background = '#c0392b'; b.style.color = '#fff'; b.style.border = 'none';
+    setTimeout(function(){
+      if (b && b.dataset.arm === '1'){
+        b.dataset.arm = '';
+        b.textContent = 'Disconnect';
+        b.style.background = 'var(--white)'; b.style.color = '#c0392b'; b.style.border = '1.5px solid #f1c0c0';
+      }
+    }, 4000);
+    return;
+  }
+  b.disabled = true; b.textContent = 'Disconnecting\u2026';
+  sbFetch('/functions/v1/gcal-oauth', { method:'POST', body: JSON.stringify({ action:'disconnect', campaign_id: window._csCampId }) })
+    .then(function(r){ return r.json().then(function(x){ return x; }, function(){ return {}; }); })
+    .then(function(jx){
+      showToast((jx && jx.ok) ? 'Calendar disconnected' : ((jx && jx.error) || 'Could not disconnect'));
+      gcalRenderStatus();
+    }, function(){ showToast('Could not disconnect'); gcalRenderStatus(); });
 }
 // Save merges ONLY the open page into the campaign's saved settings.
 async function saveCampSettings(){
