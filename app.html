@@ -4433,7 +4433,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-27 gcal-1';
+var APP_VERSION = 'v2026-08-27 gcal-2';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -22247,6 +22247,7 @@ document.addEventListener('DOMContentLoaded', function(){
   try{ document.title = 'Adviuz Hub · ' + APP_VERSION; }catch(e){}
   ddPopulateSelect('aSrc','src');
   ddPopulateSelect('aSvc','svc');
+  try{ gcalResume(); }catch(e){}
 });
 
 // Splash
@@ -26866,6 +26867,89 @@ function gcalDisconnect(){
       showToast((jx && jx.ok) ? 'Calendar disconnected' : ((jx && jx.error) || 'Could not disconnect'));
       gcalRenderStatus();
     }, function(){ showToast('Could not disconnect'); gcalRenderStatus(); });
+}
+// \u2500\u2500 gcal-2: the calendar picker now lives IN the hub (Supabase blocks HTML on
+// function URLs). Google bounces back to app.html#gcal=<state>; we show a bottom
+// sheet of calendars and finish the connection through JSON calls.
+function gcalEnsureSheet(){
+  if (document.getElementById('gcalPickSh')) return;
+  var html =
+      '<div class="sheet-ov" id="gcalPickSh" onclick="if(event.target===this)closeSheet(\'gcalPickSh\')" style="z-index:900">'
+    +   '<div class="sheet" style="max-height:80dvh">'
+    +     '<div class="sheet-handle"></div>'
+    +     '<div class="sheet-head">'
+    +       '<div class="sheet-title">\uD83D\uDD04 Pick your calendar</div>'
+    +       '<button class="sheet-x" onclick="closeSheet(\'gcalPickSh\')">\u2715</button>'
+    +     '</div>'
+    +     '<div class="sh-body" id="gcalPickBody" style="padding:6px 16px calc(28px + env(safe-area-inset-bottom))"></div>'
+    +   '</div>'
+    + '</div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+function gcalResume(){
+  var h = String(location.hash || '');
+  var mErr = h.match(/#gcalerr=([^&]+)/);
+  var mOk = h.match(/#gcal=([0-9a-fA-F-]{20,})/);
+  if (!mErr && !mOk) return;
+  try { history.replaceState(null, '', location.pathname + location.search); } catch(e) {}
+  if (mErr){
+    var msg = 'Google sign-in failed'; try { msg = decodeURIComponent(mErr[1]); } catch(e2) {}
+    var t0 = 0, iv0 = setInterval(function(){
+      t0++;
+      if (typeof showToast === 'function'){ clearInterval(iv0); showToast(msg); }
+      else if (t0 > 40){ clearInterval(iv0); }
+    }, 300);
+    return;
+  }
+  var state = mOk[1];
+  var tries = 0, iv = setInterval(function(){
+    tries++;
+    if (window.authToken){ clearInterval(iv); gcalShowPicker(state); }
+    else if (tries > 60){ clearInterval(iv); }
+  }, 500);
+}
+async function gcalShowPicker(state){
+  gcalEnsureSheet();
+  var body = document.getElementById('gcalPickBody');
+  if (body) body.innerHTML = '<div style="padding:18px 4px;font-size:13px;color:var(--sub)">Loading your calendars\u2026</div>';
+  openSheet('gcalPickSh');
+  var jx = null;
+  try {
+    var r = await sbFetch('/functions/v1/gcal-oauth', { method:'POST', body: JSON.stringify({ action:'calendars', state: state }) });
+    try { jx = await r.json(); } catch(e) { jx = null; }
+  } catch(e2) {}
+  if (!jx || !jx.ok || !Array.isArray(jx.calendars) || !jx.calendars.length){
+    if (body) body.innerHTML = '<div style="padding:18px 4px;font-size:13px;color:#c0392b">'
+      + _csEsc((jx && jx.error) || 'Could not load your calendars. Close this and start again from Campaign settings \u2192 Sync your calendar.') + '</div>';
+    return;
+  }
+  var out = '<div style="font-size:12.5px;color:var(--sub);line-height:1.5;margin:4px 2px 12px">Signed in \u2713 \u2014 now choose which calendar Adviuz should watch for busy times:</div>';
+  jx.calendars.forEach(function(c){
+    out += '<button onclick="gcalPickCal(\''+ state +'\', this)" data-cid="'+ _csEsc(c.id) +'" data-cname="'+ _csEsc(c.name || '') +'" style="width:100%;display:flex;align-items:center;gap:10px;background:var(--white);border:1px solid var(--border);border-radius:13px;padding:14px 15px;margin-bottom:9px;cursor:pointer;text-align:left;font-family:var(--f)">'
+      +  '<span style="flex:1;min-width:0;font-size:14px;font-weight:800;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+ _csEsc(c.name || c.id) + (c.primary ? ' <span style="font-size:10.5px;font-weight:700;color:var(--sub)">(main)</span>' : '') +'</span>'
+      +  '<span style="font-size:16px;color:var(--sub)">\u203A</span>'
+      + '</button>';
+  });
+  if (body) body.innerHTML = out;
+}
+async function gcalPickCal(state, btn){
+  var cal = (btn && btn.dataset) ? btn.dataset.cid : '';
+  var name = (btn && btn.dataset) ? btn.dataset.cname : '';
+  if (!cal) return;
+  if (btn){ btn.disabled = true; btn.style.opacity = '.6'; }
+  var jx = null;
+  try {
+    var r = await sbFetch('/functions/v1/gcal-oauth', { method:'POST', body: JSON.stringify({ action:'pick', state: state, cal: cal, name: name }) });
+    try { jx = await r.json(); } catch(e) { jx = null; }
+  } catch(e2) {}
+  if (jx && jx.ok){
+    closeSheet('gcalPickSh');
+    showToast('Calendar connected \u2713');
+    try { if (window._csPage === 'gcal') gcalRenderStatus(); } catch(e3) {}
+  } else {
+    if (btn){ btn.disabled = false; btn.style.opacity = ''; }
+    showToast((jx && jx.error) || 'Could not connect that calendar \u2014 try another');
+  }
 }
 // Save merges ONLY the open page into the campaign's saved settings.
 async function saveCampSettings(){
