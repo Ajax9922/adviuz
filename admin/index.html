@@ -674,7 +674,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-08-26 money-1</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-08-28 bundle-1</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -900,6 +900,8 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
           <button onclick="clearCampaignSelection()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:5px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:var(--font)">✕ Clear</button>
         </div>
       </div>
+      <!-- PENDING SETUP (paid but not built yet) — v2026-08-28 bundle-1 -->
+      <div id="pendingSetupBox"></div>
       <!-- CAMPAIGNS TABLE -->
       <div class="table-wrap" style="margin-bottom:24px">
         <table id="campaignsTable">
@@ -2157,7 +2159,39 @@ function renderCampaignsTable(campaigns, clients) {
   if (utmClientSel) utmClientSel.innerHTML = '<option value="">Select client…</option>' + clientOpts;
   // buildURL whenever client changes
   if (utmClientSel) utmClientSel.onchange = buildURL;
+  renderPendingSetup(campaigns, clients);
   filterCampaigns(); // render with current filter state
+}
+// ── PENDING SETUP: campaigns a client paid for from the hub that still need
+// their flyer built. Views + gifts are already credited; nothing serves until
+// the campaign is set Active here. (v2026-08-28 bundle-1)
+function renderPendingSetup(campaigns, clients) {
+  var box = document.getElementById('pendingSetupBox'); if (!box) return;
+  var pend = (campaigns || []).filter(function(c){ return String(c.status||'').toLowerCase() === 'pending_setup'; });
+  if (!pend.length) { box.innerHTML = ''; return; }
+  pend.sort(function(a,b){ return String(b.created_at||'').localeCompare(String(a.created_at||'')); });
+  var rows = pend.map(function(c){
+    var client = (clients || []).find(function(cl){ return cl.id === c.client_id; });
+    var when = c.created_at ? new Date(c.created_at).toLocaleDateString('en-CA', { month:'short', day:'numeric' }) : '';
+    var nm = String(c.name || 'Campaign').replace(/</g,'&lt;');
+    return '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid rgba(180,83,9,0.15)">' +
+      '<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:13.5px">' + nm + '</div>' +
+      '<div style="font-size:12px;color:var(--muted)">' + (client ? String(client.business_name||'').replace(/</g,'&lt;') : '\u2014') + ' \u00b7 ' + Number(c.view_budget||0).toLocaleString() + ' views paid' + (when ? ' \u00b7 ' + when : '') + '</div></div>' +
+      '<button class="tbl-btn primary" onclick="openEditCampaign(this)" data-id="' + c.id + '" data-name="' + String(c.name||'').replace(/"/g,'&quot;') + '" data-budget="' + (c.view_budget||0) + '" data-used="' + (c.views_used||0) + '" data-status="pending_setup">Build flyer</button>' +
+      '<button class="tbl-btn" onclick="activatePendingCampaign(this)" data-id="' + c.id + '" data-name="' + String(c.name||'').replace(/"/g,'&quot;') + '">Set Active</button>' +
+    '</div>';
+  }).join('');
+  box.innerHTML = '<div style="background:#fffbeb;border:1.5px solid #f59e0b;border-radius:12px;padding:12px 16px;margin-bottom:16px">' +
+    '<div style="font-weight:800;font-size:13px;color:#b45309;letter-spacing:.04em;text-transform:uppercase">\uD83C\uDD95 Pending Setup \u00b7 ' + pend.length + '</div>' +
+    '<div style="font-size:12px;color:#92400e;margin:2px 0 6px">Paid from the hub \u2014 views and free extras are already credited. Build the flyer (Edit \u2192 pick the ad), then set it Active.</div>' + rows + '</div>';
+}
+async function activatePendingCampaign(el) {
+  var id = el.dataset.id, nm = el.dataset.name || 'this campaign';
+  if (!confirm('Set "' + nm + '" Active now?\n\nOnly do this once its flyer is built and linked \u2014 it starts serving immediately.')) return;
+  var r = await sbAdmin('/rest/v1/campaigns?id=eq.' + id, { method: 'PATCH', body: JSON.stringify({ status: 'active' }) });
+  if (r && r.ok === false) { toast('Could not activate \u2014 try again'); return; }
+  toast('\u2705 ' + nm + ' is Active');
+  loadAdminData();
 }
 function filterCampaigns() {
   var campaigns = (window._allCampaigns || []).slice();
@@ -2245,6 +2279,7 @@ function renderCampaignRows(campaigns, clients) {
     var statusConfig = {
       active:    { label: 'Active',       cls: 'active' },
       paused:    { label: 'Paused',       cls: 'paused' },
+      pending_setup: { label: 'Pending Setup', cls: 'pending' },
       low:       { label: 'Low balance',  cls: 'pending' },
       completed: { label: 'Finished',     cls: 'danger'  },
       archived:  { label: 'Archived',     cls: 'muted'   }
