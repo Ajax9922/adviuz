@@ -1038,6 +1038,7 @@ body.impersonating .ls-topbar{padding-top:8px}
 .csp-paused{background:#f3f4f6;color:#6b7280}
 .csp-ended{background:#fee2e2;color:#cc0000}
 .csp-scheduled{background:#dbeafe;color:#2563eb}
+.csp-pending_setup{background:#fef3c7;color:#b45309}
 
 /* Metrics row */
 .camp-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border-top:1px solid var(--border)}
@@ -4433,7 +4434,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-27 xfer-2';
+var APP_VERSION = 'v2026-08-28 bundle-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -7778,7 +7779,7 @@ function renderCampaigns(camps) {
   }
 
   camps.forEach(function(camp) {
-    var statusLabel = {active:'Active',paused:'Paused',ended:'Ended',scheduled:'Scheduled'}[camp.status]||camp.status;
+    var statusLabel = {active:'Active',paused:'Paused',ended:'Ended',scheduled:'Scheduled',pending_setup:'Pending Setup'}[camp.status]||camp.status;
     var statusClass = 'csp-'+camp.status;
     var viewBudget = camp.view_budget || 0;
     var viewsUsed  = camp.views_used  || 0;
@@ -27264,19 +27265,50 @@ function clientCampClearFilter(){
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// ADD BALANCE — view bundles → direct Stripe payment links
+// ADD BALANCE — v2026-08-28 bundle-1: campaign-first multi-select flow
 // ═══════════════════════════════════════════════════════════════════
-// Bundles match the existing emailed-quote pricing (see buildPlansHtml).
-// stripe-webhook on the backend credits clients.view_balance and sends
-// invoice + confirmation email on payment success.
-window._viewBundles = [
-  { views:200,    price:1000,  link:'https://buy.stripe.com/4gM6oAbKJ8kmgjB9579EI03' },
-  { views:500,    price:2500,  link:'https://buy.stripe.com/fZudR22a9fMO5EX8139EI0b' },
-  { views:1000,   price:5000,  link:'https://buy.stripe.com/8x2dR2eWVcAC6J11CF9EI0c' },
-  { views:2500,   price:12500, link:'https://buy.stripe.com/6oU00c4ihbwy8R9ftv9EI0d' },
-  { views:5000,   price:25000, link:'https://buy.stripe.com/dRmaEQ9CB0RU3wP2GJ9EI0e' },
-  { views:10000,  price:50000, link:'https://buy.stripe.com/cNieV67ut6ceebt8139EI0f' }
-];
+// Bundles come from the database (my_view_bundles — active rows plus this
+// client's own test-only bundle). $5.00/view is the ONLY rate ever shown; no
+// per-view line, no discounted rates. Every bundle carries free incentives
+// (AI minutes, SMS, emails, IVR minutes, design months) shown as quantities.
+// Flow: pick a bundle per campaign (or the same bundle for all), optionally
+// name a NEW campaign (created as Pending Setup after payment), auto-recharge
+// ON by default with a plain consent sentence, one Stripe payment for all.
+window._viewBundles = [];
+window._ab = { sel:{}, ar:{}, newCamps:[], pickFor:null, loading:false };
+
+async function _abLoadBundles(){
+  try{
+    var r = await sbFetch('/rest/v1/rpc/my_view_bundles',{method:'POST',body:'{}'});
+    if(!r.ok) throw 0;
+    var rows = await r.json();
+    window._viewBundles = (rows||[]).map(function(b){
+      return { id:Number(b.id), views:Number(b.views)||0, price:Number(b.price)||0,
+        ai:Number(b.free_ai_minutes)||0, design:Number(b.free_design_months)||0,
+        sms:Number(b.free_sms)||0, emails:Number(b.free_emails)||0, ivr:Number(b.free_ivr_minutes)||0,
+        test:!!b.test_only_client };
+    });
+  }catch(e){ window._viewBundles = window._viewBundles || []; }
+}
+function _abBundle(id){ return (window._viewBundles||[]).find(function(b){ return b.id===Number(id); }) || null; }
+function _abMoney(v){ return '$'+Number(v||0).toLocaleString('en-CA'); }
+function _abNum(v){ return Number(v||0).toLocaleString('en-CA'); }
+// Compact one-line gift text for cards (mobile); full detail on tap.
+function _abGiftShort(b){
+  var p=[];
+  if(b.ai>0) p.push(_abNum(b.ai)+' AI minutes');
+  if(b.design>0) p.push(b.design+' month'+(b.design>1?'s':'')+' design editing');
+  return p.length ? 'Free: '+p.join(' + ') : '';
+}
+function _abGiftFull(b){
+  var p=[];
+  if(b.ai>0) p.push(_abNum(b.ai)+' AI receptionist minutes');
+  if(b.sms>0) p.push(_abNum(b.sms)+' SMS');
+  if(b.emails>0) p.push(_abNum(b.emails)+' emails');
+  if(b.ivr>0) p.push(_abNum(b.ivr)+' IVR minutes');
+  if(b.design>0) p.push(b.design+' month'+(b.design>1?'s':'')+' of unlimited design editing');
+  return p.join(' \u00B7 ');
+}
 
 function openAddBalanceSheet(){
   var box   = document.getElementById('addBalanceBundles');
@@ -27288,25 +27320,16 @@ function openAddBalanceSheet(){
   if (leadsOnly) {
     if (intro) intro.textContent = 'Here\u2019s your current lead package. To extend it or add more leads, contact your Adviuz manager and we\u2019ll set it up for you.';
     if (box)   box.innerHTML = _leadPkgSheetCard();
-    if (foot)  foot.textContent = 'Lead packages are managed for you — no online checkout needed.';
+    if (foot)  foot.textContent = 'Lead packages are managed for you \u2014 no online checkout needed.';
     openSheet('addBalanceSh');
     return;
   }
-  // v2026-07-08 proposal-plain-1: 2-step flow — bundle → campaign → server-priced Stripe checkout
-  window._abSelViews = null;
-  window._abSelCamp  = null;
-  _abRenderStep1();
+  window._ab = { sel:{}, ar:{}, newCamps:[], pickFor:null, loading:true };
+  if (intro) intro.textContent = 'Choose a bundle for each campaign you want to fuel. One payment covers everything.';
+  if (box) box.innerHTML = '<div style="padding:24px;text-align:center;color:var(--sub);font-size:13px">Loading bundles\u2026</div>';
+  if (foot) foot.textContent = '';
   openSheet('addBalanceSh');
-}
-
-// ── Add Balance · STEP 1: pick a bundle ──────────────────────────────
-function _abRenderStep1(){
-  var box   = document.getElementById('addBalanceBundles');
-  var intro = document.getElementById('addBalanceIntro');
-  var foot  = document.getElementById('addBalanceFootnote');
-  if (intro) intro.textContent = 'Step 1 of 2 — pick a flyer-views bundle. Next you\u2019ll choose which campaign these views go to.';
-  if (box)   box.innerHTML = (window._viewBundles||[]).map(_bundleCard).join('');
-  if (foot)  foot.textContent = 'Powered by Stripe \u00B7 CAD pricing \u00B7 Includes invoice + 25-second view guarantee';
+  _abLoadBundles().then(function(){ window._ab.loading=false; _abRender(); });
 }
 
 function _leadPkgSheetCard(){
@@ -27319,109 +27342,206 @@ function _leadPkgSheetCard(){
     +  '</div>';
 }
 
-function _bundleCard(b){
-  var perView = (b.price / b.views).toFixed(2);
-  return '<div onclick="_abPickBundle('+b.views+')" data-action="_abPickBundle:'+b.views+'" role="button" '
-    +    'style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:16px;margin-bottom:10px;display:flex;align-items:center;gap:12px;cursor:pointer">'
-    +    '<div style="flex:1;min-width:0">'
-    +      '<div style="font-size:18px;font-weight:800;color:var(--text);letter-spacing:-.01em">'+b.views.toLocaleString()+' Flyer Views</div>'
-    +      '<div style="font-size:12px;color:var(--sub);margin-top:2px">CAD $'+perView+' per view \u00B7 25-second guaranteed</div>'
-    +    '</div>'
-    +    '<div style="flex-shrink:0;padding:10px 18px;border-radius:10px;background:var(--green);color:#fff;font-size:14px;font-weight:800">$'+b.price.toLocaleString()+'</div>'
-    +  '</div>';
-}
-
-// ── Add Balance · STEP 2: pick a campaign + pay ──────────────────────
 function _abSortedCamps(){
   var camps = (window._clientCampaigns||[]).slice();
+  var rank = function(s){ s=String(s||'').toLowerCase(); return s==='active'?0:(s==='pending_setup'?1:2); };
   camps.sort(function(a,b){
-    var aa = a.status==='active'?0:1, bb = b.status==='active'?0:1;
-    if (aa!==bb) return aa-bb;
+    var d = rank(a.status)-rank(b.status); if(d) return d;
     return String(a.name||'').localeCompare(String(b.name||''));
   });
   return camps;
 }
-
-function _abPickBundle(views){
-  window._abSelViews = Number(views)||0;
-  var camps = _abSortedCamps();
-  window._abSelCamp = camps.length ? String(camps[0].id) : null;
-  _abRenderStep2();
+function _abStatusHtml(s){
+  s=String(s||'').toLowerCase();
+  if(s==='active') return '<span style="color:var(--green);font-weight:700">Active</span>';
+  if(s==='pending_setup') return '<span style="color:#b45309;font-weight:700">Pending Setup</span>';
+  return '<span style="color:var(--sub)">'+sanitize(s.replace(/_/g,' ').replace(/^\w/,function(m){return m.toUpperCase();}))+'</span>';
 }
+// Every row in the cart: existing campaigns + new-campaign entries.
+function _abEntries(){
+  var out=[];
+  _abSortedCamps().forEach(function(c){ out.push({ key:String(c.id), id:String(c.id), name:c.name||'(unnamed)', status:c.status, isNew:false }); });
+  (window._ab.newCamps||[]).forEach(function(n){ out.push({ key:n.key, id:null, name:n.name, status:'new', isNew:true }); });
+  return out;
+}
+function _abSelectedEntries(){ return _abEntries().filter(function(e){ return !!window._ab.sel[e.key]; }); }
 
-function _abRenderStep2(){
-  var box   = document.getElementById('addBalanceBundles');
-  var intro = document.getElementById('addBalanceIntro');
-  var foot  = document.getElementById('addBalanceFootnote');
-  var b = (window._viewBundles||[]).find(function(x){ return x.views===window._abSelViews; });
-  if (!b) { _abRenderStep1(); return; }
-  if (intro) intro.textContent = 'Step 2 of 2 — choose the campaign these views should be credited to, then pay.';
-  var camps = _abSortedCamps();
-  var h = '';
-  h += '<div style="background:var(--white);border:1.5px solid var(--green);border-radius:13px;padding:14px 16px;margin-bottom:12px;display:flex;align-items:center;gap:12px">'
-    +   '<div style="flex:1;min-width:0">'
-    +     '<div style="font-size:16px;font-weight:800;color:var(--text)">'+b.views.toLocaleString()+' Flyer Views — $'+b.price.toLocaleString()+'</div>'
-    +     '<div style="font-size:12px;color:var(--sub);margin-top:2px">Tax added at checkout based on your province</div>'
-    +   '</div>'
-    +   '<div onclick="_abRenderStep1()" data-action="_abRenderStep1" role="button" style="flex-shrink:0;font-size:12px;font-weight:700;color:var(--green);cursor:pointer;padding:6px 10px">Change</div>'
-    + '</div>';
-  if (!camps.length) {
-    h += '<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:18px;text-align:center;color:var(--sub);font-size:13px">No campaigns found on your account yet. Contact your Adviuz manager and we\u2019ll set one up for you.</div>';
-    if (box)  box.innerHTML = h;
-    if (foot) foot.textContent = 'Powered by Stripe \u00B7 CAD pricing';
+function _abRender(){
+  var box = document.getElementById('addBalanceBundles');
+  var foot = document.getElementById('addBalanceFootnote');
+  if(!box) return;
+  var A = window._ab;
+  var entries = _abEntries();
+  var bundles = window._viewBundles||[];
+  if(!bundles.length){
+    box.innerHTML = '<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:18px;text-align:center;color:var(--sub);font-size:13px">Bundles are not available right now. Contact your Adviuz manager and we\u2019ll send a payment link.</div>';
     return;
   }
-  h += '<div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.06em;text-transform:uppercase;margin:2px 2px 8px">Credit views to</div>';
-  camps.forEach(function(c){
-    var sel = String(c.id)===String(window._abSelCamp);
-    var stat = c.status==='active'
-      ? '<span style="color:var(--green);font-weight:700">Active</span>'
-      : '<span style="color:var(--sub)">'+String(c.status||'').replace(/^\w/,function(m){return m.toUpperCase();})+'</span>';
-    h += '<div onclick="_abPickCamp(\''+c.id+'\')" data-action="_abPickCamp:'+c.id+'" role="button" '
-      +  'style="background:var(--white);border:1.5px solid '+(sel?'var(--green)':'var(--border)')+';border-radius:13px;padding:13px 14px;margin-bottom:8px;display:flex;align-items:center;gap:11px;cursor:pointer">'
-      +  '<div style="width:20px;height:20px;border-radius:50%;flex-shrink:0;border:2px solid '+(sel?'var(--green)':'var(--border)')+';display:flex;align-items:center;justify-content:center">'
-      +    (sel?'<div style="width:10px;height:10px;border-radius:50%;background:var(--green)"></div>':'')
-      +  '</div>'
-      +  '<div style="flex:1;min-width:0">'
-      +    '<div style="font-size:14px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(c.name||'(unnamed)')+'</div>'
-      +    '<div style="font-size:11px;margin-top:1px">'+stat+'</div>'
-      +  '</div>'
-      + '</div>';
+  var h='';
+  // Shortcut: same bundle everywhere (only useful with 2+ campaigns)
+  if(entries.length>1){
+    h += '<div onclick="_abOpenPicker(\'*\')" role="button" style="display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:7px 12px;margin:0 0 12px;font-size:12.5px;font-weight:700;color:var(--text);cursor:pointer">\u26A1 Add the same bundle to all campaigns</div>';
+  }
+  if(!entries.length){
+    h += '<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:16px;text-align:center;color:var(--sub);font-size:13px;margin-bottom:10px">No campaigns yet \u2014 start one below and it\u2019s built for you after payment.</div>';
+  }
+  entries.forEach(function(e){
+    var b = _abBundle(A.sel[e.key]);
+    var kq = e.key.replace(/'/g,'');
+    h += '<div style="background:var(--white);border:1.5px solid '+(b?'var(--green)':'var(--border)')+';border-radius:13px;padding:13px 14px;margin-bottom:10px">'
+      +  '<div style="display:flex;align-items:center;gap:10px">'
+      +    '<div style="flex:1;min-width:0">'
+      +      '<div style="font-size:14.5px;font-weight:800;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+sanitize(e.name)+'</div>'
+      +      '<div style="font-size:11px;margin-top:1px">'+(e.isNew?'<span style="color:#b45309;font-weight:700">New \u2014 built after payment</span>':_abStatusHtml(e.status))+'</div>'
+      +    '</div>'
+      +    (e.isNew ? '<div onclick="_abRemoveNew(\''+kq+'\')" role="button" style="font-size:11.5px;color:var(--sub);cursor:pointer;padding:6px">Remove</div>' : '')
+      +  '</div>';
+    if(b){
+      h += '<div style="display:flex;align-items:center;gap:10px;margin-top:10px">'
+        +    '<div style="flex:1;min-width:0">'
+        +      '<div style="font-size:16px;font-weight:800;color:var(--text)">'+_abNum(b.views)+' Flyer Views \u2014 '+_abMoney(b.price)+'</div>'
+        +      (_abGiftShort(b)?'<div onclick="_abGiftInfo('+b.id+')" role="button" style="display:inline-block;margin-top:5px;background:#dcfce7;color:#15803d;font-size:11.5px;font-weight:700;padding:4px 9px;border-radius:999px;cursor:pointer">\uD83C\uDF81 '+sanitize(_abGiftShort(b))+'</div>':'')
+        +    '</div>'
+        +    '<div onclick="_abOpenPicker(\''+kq+'\')" role="button" style="flex-shrink:0;font-size:12px;font-weight:700;color:var(--green);cursor:pointer;padding:6px 4px">Change bundle</div>'
+        +  '</div>';
+    } else {
+      h += '<button onclick="_abOpenPicker(\''+kq+'\')" style="margin-top:10px;width:100%;padding:11px;border-radius:10px;border:1.5px dashed var(--border);background:var(--bg);color:var(--text);font-family:var(--f);font-size:13px;font-weight:700;cursor:pointer">Tap to choose a bundle</button>';
+    }
+    h += '</div>';
   });
-  h += '<button id="abPayBtn" onclick="_abPay()" data-action="_abPay" style="margin-top:12px;width:100%;padding:14px;border-radius:11px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:15px;font-weight:800;cursor:pointer">Pay $'+b.price.toLocaleString()+' — Continue to Stripe</button>';
-  if (box)  box.innerHTML = h;
-  if (foot) foot.textContent = 'You\u2019ll pay securely on Stripe \u00B7 Views are credited automatically after payment';
+  // New campaign row
+  if(A.newOpen){
+    h += '<div style="background:var(--white);border:1.5px dashed var(--green);border-radius:13px;padding:13px 14px;margin-bottom:10px">'
+      +  '<div style="font-size:12px;font-weight:700;color:var(--sub);margin-bottom:6px">Name your new campaign</div>'
+      +  '<div style="display:flex;gap:8px">'
+      +    '<input id="abNewName" type="text" maxlength="60" placeholder="e.g. Spring Promo" style="flex:1;min-width:0;padding:11px 12px;border:1.5px solid var(--border);border-radius:10px;font-family:var(--f);font-size:14px;color:var(--text);background:var(--white)">'
+      +    '<button onclick="_abAddNew()" style="padding:11px 14px;border-radius:10px;border:none;background:var(--green);color:#fff;font-family:var(--f);font-size:13px;font-weight:800;cursor:pointer">Add</button>'
+      +  '</div>'
+      +  '<div style="font-size:11px;color:var(--sub);margin-top:6px;line-height:1.45">After you pay, our team builds the flyer and switches it live. Views and free extras are credited right away.</div>'
+      + '</div>';
+  } else {
+    h += '<div onclick="_abToggleNew()" role="button" style="border:1.5px dashed var(--border);border-radius:13px;padding:13px 14px;margin-bottom:12px;font-size:13.5px;font-weight:700;color:var(--text);cursor:pointer;text-align:center">+ New campaign <span style="font-weight:600;color:var(--sub)">\u2014 type a name to start one</span></div>';
+  }
+  // Auto-recharge card (only once something is selected)
+  var selected = _abSelectedEntries();
+  if(selected.length){
+    h += '<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:13px 14px;margin-bottom:12px">'
+      +  '<div style="font-size:13.5px;font-weight:800;color:var(--text)">\uD83D\uDD01 Auto-recharge</div>'
+      +  '<div style="font-size:12.5px;color:var(--sub);line-height:1.5;margin-top:4px">Auto-recharge is on \u2014 when a campaign uses 80% of these views, we top it up with the same bundle automatically and email you the invoice. Never more than once a day per campaign. Switch off anytime.</div>';
+    selected.forEach(function(e){
+      var on = A.ar[e.key]!==false;
+      var kq = e.key.replace(/'/g,'');
+      h += '<label style="display:flex;align-items:center;gap:10px;margin-top:10px;cursor:pointer">'
+        +   '<span style="flex:1;min-width:0;font-size:13px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+sanitize(e.name)+'</span>'
+        +   '<span style="font-size:11.5px;color:'+(on?'var(--green)':'var(--sub)')+';font-weight:700">'+(on?'ON':'Off')+'</span>'
+        +   '<input type="checkbox" '+(on?'checked':'')+' onchange="_abSetAR(\''+kq+'\',this.checked)" style="width:20px;height:20px;accent-color:var(--green)">'
+        + '</label>';
+    });
+    h += '</div>';
+  }
+  // Sticky total
+  var total=0, n=0;
+  selected.forEach(function(e){ var b=_abBundle(A.sel[e.key]); if(b){ total+=b.price; n++; } });
+  h += '<div style="position:sticky;bottom:0;background:var(--bg);padding:10px 0 2px;margin-top:4px">'
+    +  '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">'
+    +    '<span style="font-size:13px;font-weight:700;color:var(--sub)">Total ('+n+' campaign'+(n===1?'':'s')+')</span>'
+    +    '<span style="font-size:20px;font-weight:800;color:var(--text);letter-spacing:-.01em">'+_abMoney(total)+'</span>'
+    +  '</div>'
+    +  '<button id="abPayBtn" onclick="_abPay()" '+(n?'':'disabled')+' style="width:100%;padding:14px;border-radius:11px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:15px;font-weight:800;cursor:pointer;opacity:'+(n?'1':'.5')+'">'+(n?'Pay '+_abMoney(total)+' \u2014 Continue to Stripe':'Choose a bundle to continue')+'</button>'
+    +  '<div style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center;line-height:1.5">Tax added at checkout \u00B7 Views credited automatically \u00B7 Invoice emailed</div>'
+    + '</div>';
+  box.innerHTML = h;
+  if(foot) foot.textContent = 'Flyer views are $5.00 each on every bundle \u00B7 Free minutes, SMS, emails and IVR expire in 90 days';
+  if(A.newOpen){ var inp=document.getElementById('abNewName'); if(inp) setTimeout(function(){ inp.focus(); },50); }
 }
 
-function _abPickCamp(id){
-  window._abSelCamp = String(id);
-  _abRenderStep2();
+function _abToggleNew(){ window._ab.newOpen = !window._ab.newOpen; _abRender(); }
+function _abAddNew(){
+  var inp=document.getElementById('abNewName'); var nm=(inp&&inp.value||'').replace(/\s+/g,' ').trim();
+  if(nm.length<2){ showToast('Type a name for the campaign'); return; }
+  var dupe=_abEntries().some(function(e){ return String(e.name).toLowerCase()===nm.toLowerCase(); });
+  if(dupe){ showToast('You already have a campaign with that name'); return; }
+  var key='new:'+Date.now();
+  window._ab.newCamps.push({ key:key, name:nm });
+  window._ab.newOpen=false;
+  _abRender();
+  _abOpenPicker(key);
+}
+function _abRemoveNew(key){
+  window._ab.newCamps = (window._ab.newCamps||[]).filter(function(n){ return n.key!==key; });
+  delete window._ab.sel[key]; delete window._ab.ar[key];
+  _abRender();
+}
+function _abSetAR(key,on){ window._ab.ar[key]=!!on; _abRender(); }
+
+// Bundle picker — its own bottom sheet on top of Add Balance
+function _abOpenPicker(forKey){
+  window._ab.pickFor = forKey;
+  var old=document.getElementById('abPickSh'); if(old) old.remove();
+  var ov=document.createElement('div'); ov.className='sheet-ov'; ov.id='abPickSh'; ov.style.display='flex'; ov.style.zIndex='790';
+  ov.onclick=function(ev){ if(ev.target===ov) ov.remove(); };
+  var title = forKey==='*' ? 'Same bundle for every campaign' : 'Choose a bundle';
+  var cur = forKey==='*' ? null : window._ab.sel[forKey];
+  var rows='';
+  (window._viewBundles||[]).forEach(function(b){
+    var sel = cur===b.id;
+    rows += '<div onclick="_abPick('+b.id+')" role="button" style="background:var(--white);border:1.5px solid '+(sel?'var(--green)':'var(--border)')+';border-radius:13px;padding:14px;margin-bottom:10px;cursor:pointer">'
+      +  '<div style="display:flex;align-items:center;gap:12px">'
+      +    '<div style="flex:1;min-width:0">'
+      +      '<div style="font-size:17px;font-weight:800;color:var(--text);letter-spacing:-.01em">'+_abNum(b.views)+' Flyer Views'+(b.test?' <span style="font-size:10px;color:#b45309;font-weight:700">TEST</span>':'')+'</div>'
+      +      (_abGiftShort(b)?'<div style="font-size:12px;color:#15803d;font-weight:700;margin-top:3px">\uD83C\uDF81 '+sanitize(_abGiftShort(b))+'</div>':'')
+      +    '</div>'
+      +    '<div style="flex-shrink:0;padding:10px 16px;border-radius:10px;background:'+(sel?'var(--green)':'var(--text)')+';color:#fff;font-size:14px;font-weight:800">'+_abMoney(b.price)+'</div>'
+      +  '</div>'
+      +  (_abGiftFull(b)?'<div style="font-size:11px;color:var(--sub);margin-top:7px;line-height:1.45">Included free: '+sanitize(_abGiftFull(b))+'</div>':'')
+      + '</div>';
+  });
+  ov.innerHTML='<div class="sheet" style="max-height:88dvh"><div class="sheet-handle"></div>'
+    +'<div class="sheet-head"><div class="sheet-title">'+title+'</div><button class="sheet-x" onclick="document.getElementById(\'abPickSh\').remove()">\u2715</button></div>'
+    +'<div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom))">'
+    +'<div style="font-size:12px;color:var(--sub);margin-bottom:12px;line-height:1.5">Every bundle is $5.00 per flyer view. Free extras are a gift on top \u2014 usage gifts expire 90 days after purchase; design editing runs for the months shown.</div>'
+    + rows
+    +'</div></div>';
+  document.body.appendChild(ov);
+}
+function _abPick(bundleId){
+  var A=window._ab; var f=A.pickFor;
+  if(f==='*'){
+    _abEntries().forEach(function(e){ A.sel[e.key]=bundleId; if(A.ar[e.key]===undefined) A.ar[e.key]=true; });
+  } else if(f){
+    A.sel[f]=bundleId; if(A.ar[f]===undefined) A.ar[f]=true;
+  }
+  var ov=document.getElementById('abPickSh'); if(ov) ov.remove();
+  _abRender();
+}
+function _abGiftInfo(bundleId){
+  var b=_abBundle(bundleId); if(!b) return;
+  showToast('Included free: '+_abGiftFull(b));
 }
 
 async function _abPay(){
-  if (!window._abSelViews) { _abRenderStep1(); return; }
-  if (!window._abSelCamp)  { showToast('Pick a campaign first'); return; }
-  var btn = document.getElementById('abPayBtn');
-  var oldLabel = btn ? btn.textContent : '';
-  if (btn) { btn.disabled = true; btn.style.opacity = '.6'; btn.textContent = 'Opening secure checkout\u2026'; }
-  try {
-    var res = await sbFetch('/functions/v1/stripe-checkout', {
-      method: 'POST',
-      body: JSON.stringify({
-        topup:       true,
-        client_id:   window._clientId,
-        campaign_id: window._abSelCamp,
-        views:       window._abSelViews
-      })
-    });
-    var data = null;
-    try { data = await res.json(); } catch(_j) {}
-    if (res.ok && data && data.checkout_url) { location.href = data.checkout_url; return; }
-    showToast((data && data.error) || 'Could not start checkout — please try again');
-  } catch(e) {
-    showToast('Network error — please try again');
-  }
-  if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.textContent = oldLabel; }
+  var A=window._ab; var cid=window._clientId||'';
+  if(!cid){ showToast('Open this from your business login'); return; }
+  var items=[];
+  _abSelectedEntries().forEach(function(e){
+    var b=_abBundle(A.sel[e.key]); if(!b) return;
+    var it={ bundle_id:b.id, autorecharge:A.ar[e.key]!==false };
+    if(e.isNew) it.new_campaign_name=e.name; else it.campaign_id=e.id;
+    items.push(it);
+  });
+  if(!items.length){ showToast('Choose a bundle first'); return; }
+  if(items.length>8){ showToast('Up to 8 campaigns per payment \u2014 split into two'); return; }
+  var btn=document.getElementById('abPayBtn'); var oldLabel=btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.style.opacity='.6'; btn.textContent='Opening secure checkout\u2026'; }
+  try{
+    var r=await fetch(SB_URL+'/functions/v1/multi-topup-checkout',{method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken,'apikey':SB_ANON},
+      body:JSON.stringify({ client_id:cid, items:items })});
+    var j=await r.json().catch(function(){return {};});
+    if(r.ok && j.url){ location.href=j.url; return; }
+    showToast(j.error||'Could not start checkout \u2014 please try again');
+  }catch(e){ showToast('Network error \u2014 please try again'); }
+  if(btn){ btn.disabled=false; btn.style.opacity='1'; btn.textContent=oldLabel; }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -35010,9 +35130,9 @@ document.addEventListener('click', function(ev){
       <div class="sheet-title">+ Add Balance</div>
       <button class="sheet-x" onclick="closeSheet('addBalanceSh')">&#x2715;</button>
     </div>
-    <div class="sh-body" style="padding:16px">
+    <div class="sh-body" style="padding:16px 16px calc(28px + env(safe-area-inset-bottom))">
       <div id="addBalanceIntro" style="font-size:13px;color:var(--sub);margin-bottom:14px;line-height:1.5">
-        Pick a flyer-views bundle. You'll be taken to Stripe to pay securely. Once payment succeeds, your balance is credited automatically and you'll receive an invoice + confirmation email — then you can allocate the views to any campaign.
+        Choose a bundle for each campaign you want to fuel. One payment covers everything.
       </div>
       <div id="addBalanceBundles"></div>
       <div id="addBalanceFootnote" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center;line-height:1.5">
