@@ -4434,7 +4434,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-28 bundle-2';
+var APP_VERSION = 'v2026-08-30 bundle-3';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -27265,7 +27265,7 @@ function clientCampClearFilter(){
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// ADD BALANCE — v2026-08-28 bundle-2: campaign-first multi-select flow
+// ADD BALANCE — v2026-08-30 bundle-3: campaign-first multi-select flow
 // ═══════════════════════════════════════════════════════════════════
 // Bundles come from the database (my_view_bundles — active rows plus this
 // client's own test-only bundle). $5.00/view is the ONLY rate ever shown; no
@@ -27475,6 +27475,68 @@ function _abRemoveNew(key){
   delete window._ab.sel[key]; delete window._ab.ar[key];
   _abRender();
 }
+// ── "Funds added" page — shown when Stripe sends the client back with ?topup=success&cart=<id> ──
+window.openTopupDoneSheet = function(cartId){
+  if(!/^[0-9a-f-]{36}$/i.test(String(cartId||''))) return;
+  var esc = function(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(ch){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]; }); };
+  var old = document.getElementById('topupDoneSheet'); if(old) old.remove();
+  var ov = document.createElement('div'); ov.className='sheet-ov'; ov.style.display='flex'; ov.id='topupDoneSheet';
+  ov.innerHTML = '<div class="sheet" style="max-height:88vh"><div class="sheet-handle"></div>'
+    + '<div class="sh-head"><div class="sh-title" id="tdTitle">Confirming your payment\u2026</div></div>'
+    + '<div class="sh-body" id="tdBody" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom));overflow-y:auto">'
+    + '<div style="text-align:center;padding:26px 0;color:var(--sub);font-size:13.5px">\u23f3 Stripe has taken your payment. We are crediting your campaign now \u2014 this usually takes a few seconds.</div>'
+    + '</div></div>';
+  document.body.appendChild(ov);
+  window._tdCampId = null;
+  var tries = 0;
+  function goDash(){
+    var ovx = document.getElementById('topupDoneSheet'); if(ovx) ovx.remove();
+    var id = window._tdCampId;
+    if (id && typeof window.openCampaignByDbId==='function') window.openCampaignByDbId(id);
+    else { try{ goTab('dashboard', null); }catch(e){} }
+  }
+  window._tdGoDash = goDash;
+  function finish(cart){
+    var items = (cart && cart.items) || [];
+    var existing = items.filter(function(i){ return i.campaign_id && !i.is_new; });
+    window._tdCampId = (items.length===1 && existing.length===1) ? existing[0].campaign_id : null;
+    var h = '<div style="text-align:center;padding:6px 0 14px"><div style="font-size:44px;line-height:1">\u2705</div>'
+      + '<div style="font-size:18px;font-weight:900;color:var(--text);margin-top:8px">Funds added</div>'
+      + '<div style="font-size:13px;color:var(--sub);margin-top:4px">Your payment went through and your views are live.</div></div>';
+    items.forEach(function(i){
+      var nm = esc(i.name||'Campaign');
+      h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:10px">'
+        + '<div style="font-size:15px;font-weight:800;color:var(--text)">'+nm+'</div>'
+        + '<div style="font-size:13px;color:var(--green);font-weight:700;margin-top:4px">+'+Number(i.views||0).toLocaleString('en-CA')+' flyer views added</div>';
+      if (i.is_new || i.status==='pending_setup') {
+        h += '<div style="font-size:12.5px;color:var(--sub);margin-top:4px">New balance: <b style="color:var(--text)">'+Number(i.balance||0).toLocaleString('en-CA')+' views</b> \u00b7 <span style="color:#b45309;font-weight:700">Pending Setup</span> \u2014 we will build your flyer and switch it on.</div>';
+      } else {
+        h += '<div style="font-size:12.5px;color:var(--sub);margin-top:4px">New balance: <b style="color:var(--text)">'+Number(i.balance||0).toLocaleString('en-CA')+' views</b></div>';
+      }
+      if (i.autorecharge) h += '<div style="font-size:12px;color:var(--sub);margin-top:4px">\ud83d\udd01 Auto-recharge is on for this campaign</div>';
+      h += '</div>';
+    });
+    h += '<div style="font-size:12px;color:var(--sub);margin:4px 0 12px;text-align:center">Your invoice has been emailed to you.</div>'
+      + '<button class="btn" style="width:100%;justify-content:center;background:var(--green);color:#fff;font-weight:800;padding:14px;font-size:15px" onclick="window._tdGoDash()">Go to dashboard \u203a</button>';
+    var t = document.getElementById('tdTitle'); if(t) t.textContent = 'Payment received';
+    var b = document.getElementById('tdBody'); if(b) b.innerHTML = h;
+    try{ if (typeof loadClientCampaigns==='function') loadClientCampaigns(); }catch(e){}
+  }
+  function timeout(){
+    var t = document.getElementById('tdTitle'); if(t) t.textContent = 'Payment received';
+    var b = document.getElementById('tdBody'); if(b) b.innerHTML = '<div style="text-align:center;padding:10px 0 16px;color:var(--sub);font-size:13.5px">\u2705 Stripe confirmed your payment. Your views will show on the campaign within a minute \u2014 your invoice is on its way by email.</div>'
+      + '<button class="btn" style="width:100%;justify-content:center;background:var(--green);color:#fff;font-weight:800;padding:14px;font-size:15px" onclick="window._tdGoDash()">Go to dashboard \u203a</button>';
+  }
+  (async function poll(){
+    if (!document.getElementById('topupDoneSheet')) return;
+    if (!window._clientId || typeof sbFetch!=='function') { if(++tries<60) return setTimeout(poll,500); return timeout(); }
+    try{
+      var r = await sbFetch('/rest/v1/rpc/my_topup_cart',{method:'POST',body:JSON.stringify({p_cart_id:cartId})});
+      if (r.ok){ var cart = await r.json(); if (cart && cart.status==='paid') return finish(cart); }
+    }catch(e){}
+    if (++tries < 40) setTimeout(poll, 1500); else timeout();
+  })();
+};
 function _abClear(key){
   // Take the bundle off this campaign (campaign stays in the list; new campaigns keep their name)
   delete window._ab.sel[key]; delete window._ab.ar[key];
@@ -36433,7 +36495,9 @@ document.addEventListener('click', function(ev){
     else if (ld) window.openLeadByDbId(ld);
     if (cr && typeof window.openCaReviewByPushId === 'function') window.openCaReviewByPushId(cr);
     if (cg && typeof window.openCampaignByDbId === 'function') window.openCampaignByDbId(cg);
-    if (tp === 'success') { setTimeout(function(){ try{ showToast('Payment received — your views are being added'); }catch(_t){} }, 900); }
+    var tcart = sp.get('cart');
+    if (tp === 'success' && tcart && typeof window.openTopupDoneSheet === 'function') { window.openTopupDoneSheet(tcart); }
+    else if (tp === 'success') { setTimeout(function(){ try{ showToast('Payment received — your views are being added'); }catch(_t){} }, 900); }
     if (ld || rv || sm || tp || cr || cg) history.replaceState(null, '', window.location.pathname);
   } catch (e) {}
 
