@@ -4434,7 +4434,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-30 bundle-4';
+var APP_VERSION = 'v2026-08-30 bundle-5';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -15487,6 +15487,28 @@ function _billingDashCard(){
     +'<span style="font-size:18px;color:var(--sub)">\u203a</span></div>';
 }
 
+function _bilARSectionHTML(){
+
+  var arReady = !!(window._clientARConsent && window._clientARCard);
+
+  return arReady
+
+    ? '<div id="bilCard" style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:10px;font-size:12.5px;color:var(--sub)">\ud83d\udcb3 Checking your saved card\u2026</div>'
+
+      +'<div style="display:flex;gap:8px;margin-bottom:12px">'
+
+      +'<button class="btn" style="flex:1;justify-content:center;padding:10px;font-size:13px;font-weight:800" onclick="arSaveCard(null)">Update card</button>'
+
+      +'<button class="btn" style="flex:1;justify-content:center;padding:10px;font-size:13px;font-weight:800;color:#b91c1c" onclick="arRemoveCard(this)">Remove card</button>'
+
+      +'</div><div id="bilAR"></div>'
+
+    : '<div style="font-size:12.5px;color:var(--sub);margin-bottom:8px">Never let a campaign run dry: when only 20% of your last bundle is left, we recharge the same bundle automatically.</div>'
+
+      +'<button class="btn" style="width:100%;justify-content:center;padding:11px;font-weight:800" onclick="openARConsent()">Set up auto-recharge</button><div id="bilAR"></div>';
+
+}
+
 function openBillingSheet(){
   var pk=(window._clientSubPlan||'').toLowerCase();
   var st=window._clientPlanStatus||'';
@@ -15519,15 +15541,7 @@ function openBillingSheet(){
       +'<span style="display:block;font-size:12px;color:var(--sub)">'+p.d+' \u00b7 never expires</span></span>'
       +'<span style="font-size:14px;font-weight:900;color:var(--green)">'+_bilMoney(p.pr)+'</span></button>';
   }).join('');
-  var arReady = !!(window._clientARConsent && window._clientARCard);
-  var arHtml = arReady
-    ? '<div id="bilCard" style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:10px;font-size:12.5px;color:var(--sub)">\ud83d\udcb3 Checking your saved card\u2026</div>'
-      +'<div style="display:flex;gap:8px;margin-bottom:12px">'
-      +'<button class="btn" style="flex:1;justify-content:center;padding:10px;font-size:13px;font-weight:800" onclick="arSaveCard(null)">Update card</button>'
-      +'<button class="btn" style="flex:1;justify-content:center;padding:10px;font-size:13px;font-weight:800;color:#b91c1c" onclick="arRemoveCard(this)">Remove card</button>'
-      +'</div><div id="bilAR"></div>'
-    : '<div style="font-size:12.5px;color:var(--sub);margin-bottom:8px">Never let a campaign run dry: when only 20% of your last bundle is left, we recharge the same bundle automatically.</div>'
-      +'<button class="btn" style="width:100%;justify-content:center;padding:11px;font-weight:800" onclick="openARConsent()">Set up auto-recharge</button><div id="bilAR"></div>';
+  var arHtml = _bilARSectionHTML();
   var ov=document.createElement('div'); ov.className='sheet-ov'; ov.style.display='flex'; ov.id='bilSheet';
   ov.onclick=function(ev){ if(ev.target===ov) ov.remove(); };
   ov.innerHTML='<div class="sheet" style="max-height:88vh"><div class="sheet-handle"></div><div class="sh-head"><div class="sh-title">\u26fd Plan &amp; AI Fuel</div>'+_bilCloseBtn()+'</div>'
@@ -15542,9 +15556,9 @@ function openBillingSheet(){
     +'</div></div>';
   document.body.appendChild(ov);
   _bilLoadFuel();
-  _bilPaintAR();
-  _bilLoadCard();
+  _bilARInit();
 }
+function _bilARInit(){ _bilPaintAR(); _bilLoadCard(); }
 
 // ── Saved card details (fetched live from Stripe — we never store card numbers) ──
 async function _bilLoadCard(){
@@ -15583,8 +15597,9 @@ async function arRemoveCard(btn){
       window._clientARCard=null;
       (window._clientCampaigns||[]).forEach(function(c){ c.autorecharge=false; });
       showToast('Card removed \u2014 auto-recharge is off');
-      var sh=document.getElementById('bilSheet'); if(sh) sh.remove();
-      openBillingSheet();
+      var sh=document.getElementById('bilSheet');
+      if(sh){ sh.remove(); openBillingSheet(); }
+      else { var ib=document.getElementById('invMgrBody'); if(ib){ ib.innerHTML=clientBillingHTML(); _bilARInit(); } }
       return;
     }
     showToast(j.error||'Could not remove the card \u2014 ask us and we\u2019ll help');
@@ -23194,13 +23209,13 @@ async function openClientBilling() {
     }
     window._clientInvoices = Array.isArray(arr) ? arr : [];
   } catch(e) { window._clientInvoices = []; }
-  if (body) body.innerHTML = clientBillingHTML();
+  if (body) { body.innerHTML = clientBillingHTML(); _bilARInit(); }
 }
 
 function clientBillSetFilter(f) {
   window._clientBillFilter = f;
   var body = document.getElementById('invMgrBody');
-  if (body) body.innerHTML = clientBillingHTML();
+  if (body) { body.innerHTML = clientBillingHTML(); _bilARInit(); }
 }
 
 // Pay an outstanding/partial invoice → opens Stripe checkout for the balance due.
@@ -23449,6 +23464,10 @@ function clientBillingHTML() {
       +   '</div>'
       + '</div>';
   }
+
+  // Card on file + auto-recharge (same block as Plan & AI Fuel)
+  h += '<div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:4px 2px 10px">Saved card &amp; auto-recharge</div>'
+    + _bilARSectionHTML();
 
   // Filter pills
   function pill(key, label){
@@ -27317,7 +27336,7 @@ function clientCampClearFilter(){
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// ADD BALANCE — v2026-08-30 bundle-4: campaign-first multi-select flow
+// ADD BALANCE — v2026-08-30 bundle-5: campaign-first multi-select flow
 // ═══════════════════════════════════════════════════════════════════
 // Bundles come from the database (my_view_bundles — active rows plus this
 // client's own test-only bundle). $5.00/view is the ONLY rate ever shown; no
