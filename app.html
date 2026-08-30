@@ -4434,7 +4434,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-08-30 bundle-3';
+var APP_VERSION = 'v2026-08-30 bundle-4';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -15521,8 +15521,12 @@ function openBillingSheet(){
   }).join('');
   var arReady = !!(window._clientARConsent && window._clientARCard);
   var arHtml = arReady
-    ? '<div style="font-size:12.5px;color:var(--sub);margin-bottom:8px">\ud83d\udcb3 Card on file \u00b7 automatic charging approved. <a href="#" onclick="event.preventDefault();arSaveCard(null)" style="color:var(--green);font-weight:700">Update card</a></div><div id="bilAR"></div>'
-    : '<div style="font-size:12.5px;color:var(--sub);margin-bottom:8px">Never let a campaign run dry: when 80% of your last top-up is used, we recharge the same bundle automatically.</div>'
+    ? '<div id="bilCard" style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:10px;font-size:12.5px;color:var(--sub)">\ud83d\udcb3 Checking your saved card\u2026</div>'
+      +'<div style="display:flex;gap:8px;margin-bottom:12px">'
+      +'<button class="btn" style="flex:1;justify-content:center;padding:10px;font-size:13px;font-weight:800" onclick="arSaveCard(null)">Update card</button>'
+      +'<button class="btn" style="flex:1;justify-content:center;padding:10px;font-size:13px;font-weight:800;color:#b91c1c" onclick="arRemoveCard(this)">Remove card</button>'
+      +'</div><div id="bilAR"></div>'
+    : '<div style="font-size:12.5px;color:var(--sub);margin-bottom:8px">Never let a campaign run dry: when only 20% of your last bundle is left, we recharge the same bundle automatically.</div>'
       +'<button class="btn" style="width:100%;justify-content:center;padding:11px;font-weight:800" onclick="openARConsent()">Set up auto-recharge</button><div id="bilAR"></div>';
   var ov=document.createElement('div'); ov.className='sheet-ov'; ov.style.display='flex'; ov.id='bilSheet';
   ov.onclick=function(ev){ if(ev.target===ov) ov.remove(); };
@@ -15539,6 +15543,53 @@ function openBillingSheet(){
   document.body.appendChild(ov);
   _bilLoadFuel();
   _bilPaintAR();
+  _bilLoadCard();
+}
+
+// ── Saved card details (fetched live from Stripe — we never store card numbers) ──
+async function _bilLoadCard(){
+  var el=document.getElementById('bilCard'); if(!el) return;
+  var cid=window._clientId||''; if(!cid){ el.textContent='Open this from your business login.'; return; }
+  var fmtD=function(iso){ try{ return new Date(iso).toLocaleDateString('en-CA',{day:'numeric',month:'short',year:'numeric'}); }catch(e){ return ''; } };
+  try{
+    var r=await fetch(SB_URL+'/functions/v1/my-card',{method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken,'apikey':SB_ANON},
+      body:JSON.stringify({client_id:cid,action:'info'})});
+    var j=await r.json().catch(function(){return{};});
+    if(!r.ok||!j.ok) throw 0;
+    if(!j.has_card){
+      el.innerHTML='<div style="font-weight:800;color:var(--text)">No card on file</div><div style="margin-top:3px">Auto-recharge is paused until a card is saved.</div>';
+      window._clientARCard=null; _bilPaintAR(); return;
+    }
+    var brand=String(j.brand||'Card'); brand=brand.charAt(0).toUpperCase()+brand.slice(1);
+    var exp=(j.exp_month&&j.exp_year)?(' \u00b7 expires '+String(j.exp_month).padStart(2,'0')+'/'+String(j.exp_year).slice(-2)):'';
+    var wal=j.wallet?(' <span style="display:inline-block;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:1px 7px;font-size:11px;font-weight:700;color:var(--text)">'+sanitize(j.wallet.replace(/\b\w/g,function(m){return m.toUpperCase();}))+'</span>'):'';
+    el.innerHTML='<div style="font-size:14px;font-weight:800;color:var(--text)">'+sanitize(brand)+' \u2022\u2022\u2022\u2022 '+sanitize(j.last4||'')+wal+'</div>'
+      +'<div style="margin-top:4px">Card saved '+(j.saved_at?fmtD(j.saved_at):'\u2014')+exp+'</div>'
+      +'<div style="margin-top:2px">Automatic charging approved '+(j.consent_at?fmtD(j.consent_at):'\u2014')+' \u00b7 max one recharge per campaign per day</div>';
+  }catch(e){ el.textContent='Could not load your card details right now.'; }
+}
+
+async function arRemoveCard(btn){
+  var cid=window._clientId||''; if(!cid) return;
+  if(!confirm('Remove your saved card?\n\nThis switches auto-recharge OFF on every campaign. Your ads keep running on the views you already have; you can still top up manually any time.')) return;
+  if(btn){ btn.disabled=true; btn.textContent='Removing\u2026'; }
+  try{
+    var r=await fetch(SB_URL+'/functions/v1/my-card',{method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken,'apikey':SB_ANON},
+      body:JSON.stringify({client_id:cid,action:'remove'})});
+    var j=await r.json().catch(function(){return{};});
+    if(r.ok&&j.ok){
+      window._clientARCard=null;
+      (window._clientCampaigns||[]).forEach(function(c){ c.autorecharge=false; });
+      showToast('Card removed \u2014 auto-recharge is off');
+      var sh=document.getElementById('bilSheet'); if(sh) sh.remove();
+      openBillingSheet();
+      return;
+    }
+    showToast(j.error||'Could not remove the card \u2014 ask us and we\u2019ll help');
+  }catch(e){ showToast('Could not remove the card \u2014 ask us and we\u2019ll help'); }
+  if(btn){ btn.disabled=false; btn.textContent='Remove card'; }
 }
 
 async function _bilLoadFuel(){
@@ -15565,10 +15616,11 @@ function _bilPaintAR(){
   if(!camps.length){ el.innerHTML='<div style="font-size:12.5px;color:var(--sub)">No live campaigns right now.</div>'; return; }
   el.innerHTML=camps.map(function(c){
     var on=!!c.autorecharge;
-    var last=c.last_topup_views?(' \u00b7 refills '+Number(c.last_topup_views).toLocaleString('en-CA')+' views'):'';
+    var lt=Number(c.last_topup_views)||0;
+    var last=lt?('Refills '+lt.toLocaleString('en-CA')+' views when '+Math.max(1,Math.round(lt*0.2)).toLocaleString('en-CA')+' are left'):'Refills your last bundle when it runs low';
     return '<label style="display:flex;align-items:center;gap:10px;background:var(--white);border:1px solid var(--border);border-radius:12px;padding:11px 14px;margin-bottom:8px;cursor:pointer">'
       +'<span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:800;color:var(--text)">'+sanitize(c.name||'Campaign')+'</span>'
-      +'<span style="display:block;font-size:11.5px;color:var(--sub)">Auto-recharge at 80% used'+last+'</span></span>'
+      +'<span style="display:block;font-size:11.5px;color:var(--sub)">'+last+'</span></span>'
       +'<input type="checkbox" '+(on?'checked':'')+' onchange="arToggle(\''+c.id+'\',this)" style="width:20px;height:20px;accent-color:var(--green)">'
       +'</label>';
   }).join('');
@@ -15581,7 +15633,7 @@ async function arToggle(campId, box){
     var j=await r.json().catch(function(){return null;});
     if(j&&j.ok){
       (window._clientCampaigns||[]).forEach(function(c){ if(String(c.id)===String(campId)) c.autorecharge=want; });
-      showToast(want?'Auto-recharge ON \u2014 refills at 80% used':'Auto-recharge off');
+      showToast(want?'Auto-recharge ON \u2014 refills when this campaign runs low':'Auto-recharge off');
     } else {
       box.checked=!want;
       if(j&&j.reason==='needs_card_setup'){ showToast('Save a card first'); openARConsent(); }
@@ -15598,7 +15650,7 @@ function openARConsent(){
     +'<div class="sh-body" style="padding:12px 16px calc(28px + env(safe-area-inset-bottom))">'
     +'<div style="font-size:13.5px;color:var(--text);line-height:1.55;margin-bottom:12px">Here\u2019s exactly what you\u2019re agreeing to:</div>'
     +'<ul style="margin:0 0 14px;padding-left:18px;font-size:13px;color:var(--sub);line-height:1.6">'
-    +'<li>When a campaign you switch ON has used <b>80%</b> of its latest top-up, Adviuz (Instad Web Services Ltd.) charges your saved card for the <b>same bundle size</b>, plus sales tax.</li>'
+    +'<li>When a campaign you switch ON is down to its <b>last 20%</b> of its latest bundle, Adviuz (Instad Web Services Ltd.) charges your saved card for the <b>same bundle size</b>, plus sales tax.</li>'
     +'<li>You get the invoice by email <b>every time</b>, instantly.</li>'
     +'<li>Auto-recharge only runs on campaigns you switch ON \u2014 each has its own switch.</li>'
     +'<li>If a charge fails, your ads keep running on the remaining balance and we simply email you \u2014 we never retry the card without you.</li>'
@@ -27265,7 +27317,7 @@ function clientCampClearFilter(){
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// ADD BALANCE — v2026-08-30 bundle-3: campaign-first multi-select flow
+// ADD BALANCE — v2026-08-30 bundle-4: campaign-first multi-select flow
 // ═══════════════════════════════════════════════════════════════════
 // Bundles come from the database (my_view_bundles — active rows plus this
 // client's own test-only bundle). $5.00/view is the ONLY rate ever shown; no
@@ -27430,7 +27482,7 @@ function _abRender(){
   if(selected.length){
     h += '<div style="background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:13px 14px;margin-bottom:12px">'
       +  '<div style="font-size:13.5px;font-weight:800;color:var(--text)">\uD83D\uDD01 Auto-recharge</div>'
-      +  '<div style="font-size:12.5px;color:var(--sub);line-height:1.5;margin-top:4px">Auto-recharge is on \u2014 when a campaign uses 80% of these views, we top it up with the same bundle automatically and email you the invoice. Never more than once a day per campaign. Switch off anytime.</div>';
+      +  '<div style="font-size:12.5px;color:var(--sub);line-height:1.5;margin-top:4px">Auto-recharge is on \u2014 when a campaign is down to the last 20% of these views, we top it up with the same bundle automatically and email you the invoice. Never more than once a day per campaign. Switch off anytime.</div>';
     selected.forEach(function(e){
       var on = A.ar[e.key]!==false;
       var kq = e.key.replace(/'/g,'');
