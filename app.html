@@ -4434,7 +4434,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-03 follow-2';
+var APP_VERSION = 'v2026-09-03 follow-3';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -7895,11 +7895,11 @@ function cleanActLabel(a){
 function callMetaHTML(a){
   if(!a || (a.type||'').toLowerCase()!=='call') return '';
   var sec=a.duration_seconds||0;
-  if(sec>0){
-    var m=Math.floor(sec/60), s=sec%60;
-    var d=m>0?(m+'m '+s+'s'):(s+'s');
-    return '<span class="sl-act-t"> · &#x2705; Answered &middot; '+d+'</span>';
-  }
+  var m=Math.floor(sec/60), s=sec%60;
+  var d=m>0?(m+'m '+s+'s'):(s+'s');
+  // follow-3: a voicemail pickup is NOT an answer \u2014 label it honestly.
+  if(a.voicemail) return '<span class="sl-act-t"> · &#x1F399;&#xFE0F; Voicemail'+(sec>0?' &middot; '+d:'')+'</span>';
+  if(sec>0) return '<span class="sl-act-t"> · &#x2705; Answered &middot; '+d+'</span>';
   return '<span class="sl-act-t"> · &#x1F4F5; Missed</span>';
 }
 
@@ -13563,6 +13563,10 @@ async function loadLeadActivity(localId, dbId) {
         id:           row.id,
         call_note:    row.call_note || null,
         is_ai:        !!(row.metadata && (row.metadata.handler === 'ai' || row.metadata.ai === true)),
+        // follow-3: the phone network counts a voicemail pickup as "answered",
+        // so raw duration lies. Truth order (same as the Inbox): manual
+        // correction \u2192 voicemail flag \u2192 the word in the description.
+        voicemail:    (function(){ var o=(row.metadata&&row.metadata.outcome_override)||''; if(o==='voicemail') return true; if(o==='answered'||o==='missed') return false; if(row.metadata&&row.metadata.voicemail===true) return true; return /voicemail/i.test(row.description||''); })(),
         transcript:   (row.metadata && row.metadata.transcript) || '',
         coach:        (row.metadata && row.metadata.coach) || null,
         email_subject: emailSubj,
@@ -15386,10 +15390,13 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
       var durTxt = (item.dur && item.dur !== '—' && item.dur !== '0s') ? item.dur
                  : (durSec2>0 ? Math.floor(durSec2/60)+'m '+(durSec2%60)+'s' : '');
       var channel   = isIVR ? 'IVR ' : '';
-      var statusTxt = answered ? 'Answered' : 'Missed';
+      // follow-3: voicemail is its own state \u2014 amber, never the green "Answered".
+      var isVm = !!item.voicemail || /voicemail/.test(oc);
+      if (isVm) answered = false;
+      var statusTxt = isVm ? 'Voicemail' : answered ? 'Answered' : 'Missed';
       var dirArrow  = isIn ? '\u2193' : '\u2191';
-      var stColBg = answered ? '#dcfce7' : '#fee2e2';
-      var stCol   = answered ? '#15803d' : '#dc2626';
+      var stColBg = isVm ? '#fef3c7' : answered ? '#dcfce7' : '#fee2e2';
+      var stCol   = isVm ? '#b45309' : answered ? '#15803d' : '#dc2626';
 
       // Colored directional phone dot (green = answered, red = missed)
       h += '<div style="width:36px;height:36px;border-radius:50%;background:'+stColBg+';display:flex;align-items:center;justify-content:center;flex-shrink:0">'
@@ -17901,7 +17908,13 @@ function showEmailOpens(localId, emailId, subject){
 function emTgl(key, lid){
   window._emOpen = window._emOpen || {};
   window._emOpen[key] = !window._emOpen[key];
+  // follow-3: repainting the lead screen replaces #content's HTML, which throws
+  // the scroll back to the top. Hold the position and put it back (double rAF
+  // \u2014 same trick the lead list uses).
+  var _sc=document.getElementById('content');
+  var _y=_sc?_sc.scrollTop:0;
   if(typeof renderLeadScreen==='function') renderLeadScreen(lid);
+  if(_sc){ _sc.scrollTop=_y; requestAnimationFrame(function(){ _sc.scrollTop=_y; }); }
 }
 
 // ═══ EMAIL DESIGN — header logo, structured footer, full preview ═══
@@ -23011,7 +23024,7 @@ async function preloadActivity() {
         var dir=(row.direction||'').toLowerCase();
         var isInbound=dir==='inbound'||type==='sms_received'||type==='email_received';
         if(type==='call') label=isInbound?'📞 Inbound Call':'📞 Outbound Call';
-        return {sender_tag:(type==='sms_sent')?'Human':'', is_ai:!!(row.metadata&&(row.metadata.handler==='ai'||row.metadata.ai===true)), transcript:(row.metadata&&row.metadata.transcript)||'', type:type,label:label,time:row.created_at,body:body,rec:!!row.recording_url,recording_url:row.recording_url||null,dur:durStr,duration_seconds:durSec,call_sid:row.call_sid||null,direction:dir,callType:isInbound?'inbound':'outbound',isInbound:isInbound,summary:row.ai_summary||row.summary||null,id:row.id,call_note:row.call_note||null,email_subject:emailSubj,email_body:emailBody,email_id:(row.metadata&&row.metadata.email_id)?String(row.metadata.email_id):'',email_from:(row.metadata&&row.metadata.from)?String(row.metadata.from):''};
+        return {sender_tag:(type==='sms_sent')?'Human':'', is_ai:!!(row.metadata&&(row.metadata.handler==='ai'||row.metadata.ai===true)), voicemail:(function(){ var o=(row.metadata&&row.metadata.outcome_override)||''; if(o==='voicemail') return true; if(o==='answered'||o==='missed') return false; if(row.metadata&&row.metadata.voicemail===true) return true; return /voicemail/i.test(row.description||''); })(), transcript:(row.metadata&&row.metadata.transcript)||'', type:type,label:label,time:row.created_at,body:body,rec:!!row.recording_url,recording_url:row.recording_url||null,dur:durStr,duration_seconds:durSec,call_sid:row.call_sid||null,direction:dir,callType:isInbound?'inbound':'outbound',isInbound:isInbound,summary:row.ai_summary||row.summary||null,id:row.id,call_note:row.call_note||null,email_subject:emailSubj,email_body:emailBody,email_id:(row.metadata&&row.metadata.email_id)?String(row.metadata.email_id):'',email_from:(row.metadata&&row.metadata.from)?String(row.metadata.from):''};
       });
       // outcome-1: drop the flagless shell row of an AI call (see lead-screen loader).
       norm1 = norm1.filter(function(a){
