@@ -649,6 +649,10 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <span>Leads</span>
       <span class="nav-badge" id="admin-leads-badge">0</span>
     </div>
+    <div class="nav-item" onclick="showPanel('ladders');ladderPanelOpen()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="1.6"/><circle cx="14" cy="12" r="1.6"/><circle cx="10" cy="18" r="1.6"/></svg>
+      <span>Follow-up Ladders</span>
+    </div>
     <div class="nav-item" onclick="showPanel('adbuilder')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
       <span>Ad Builder</span>
@@ -674,7 +678,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-08-28 bundle-1</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-09-03 ladder-1</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -987,6 +991,20 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
         </div>
       </div>
       <!-- ═══════════ AD BUILDER ═══════════ -->
+    <div class="panel" id="panel-ladders">
+      <div class="sec-header" style="flex-wrap:wrap;gap:10px">
+        <div class="sec-title">Follow-up ladders</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;padding:12px 16px;background:var(--surface);border-radius:12px;border:1px solid var(--border)">
+        <select id="ld-camp" onchange="ladderLoad()"
+          style="flex:1;min-width:220px;padding:7px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:var(--font);background:#fff">
+          <option value="">Pick a campaign…</option>
+        </select>
+        <button onclick="ladderLoad()"
+          style="padding:7px 14px;border:1px solid var(--border);border-radius:8px;font-size:12px;font-family:var(--font);background:#fff;cursor:pointer">Refresh</button>
+      </div>
+      <div id="ld-body" style="font-size:13px;color:var(--muted)">Pick a campaign to see its ladder, live counts, and per-step booking stats.</div>
+    </div>
     <div class="panel" id="panel-adbuilder">
       <!-- TOP BAR -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
@@ -4313,7 +4331,7 @@ function startAdminAutoRefresh() {
     if (ADMIN_JWT) loadAdminData();
   }, 60000);
 }
-const panels={dashboard:'Dashboard',clients:'Clients',campaigns:'Campaigns',leads:'Leads',adbuilder:'Ad Builder',billing:'Billing',settings:'Settings'};
+const panels={dashboard:'Dashboard',clients:'Clients',campaigns:'Campaigns',leads:'Leads',ladders:'Follow-up Ladders',adbuilder:'Ad Builder',billing:'Billing',settings:'Settings'};
 function showPanel(id){
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
@@ -4336,6 +4354,100 @@ function toast(msg){
   t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer=setTimeout(()=>t.classList.remove('show'),2800);
+}
+// ── FOLLOW-UP LADDERS (admin-only, ladder-1) ────────────────────────
+// One RPC (admin_ladder_stats) returns the whole ladder for a campaign with
+// real per-step numbers: waiting = leads whose NEXT step is this one · sent =
+// times the engine fired it (counted since 3 Sep 2026, engine v8) · booked =
+// booked leads whose LAST ladder touch was this step. Stage rails (incl. the
+// master switch) flip through admin_playbook_stage_set. Clients never see this.
+var LD_NAMES={'_master':'⚡ Master switch','1':'Fresh Lead (the main sequence)','2':'Call Not Connected','3':'Callback Requested','6':'Meeting Done','7':'Proposal Sent','9':'Deal Closed','10':'Not Interested','11':'Future Prospect'};
+var LD_CH={'sms':'Text','email':'Email','call':'AI Call','task':'Team task'};
+function ladderPanelOpen(){
+  var sel=document.getElementById('ld-camp'); if(!sel) return;
+  var keep=sel.value;
+  var cls={}; (window._allClients||[]).forEach(function(c){ cls[c.id]=c.business_name||c.name||''; });
+  var opts='<option value="">Pick a campaign…</option>';
+  (window._allCampaigns||[]).slice().sort(function(a,b){ return String(cls[a.client_id]||'').localeCompare(String(cls[b.client_id]||'')) || String(a.name||'').localeCompare(String(b.name||'')); })
+    .forEach(function(c){ opts+='<option value="'+c.id+'">'+sanitize((cls[c.client_id]?cls[c.client_id]+' — ':'')+(c.name||'Campaign'))+'</option>'; });
+  sel.innerHTML=opts;
+  if(keep) sel.value=keep;
+  if(sel.value) ladderLoad();
+}
+function _ldDelay(h,pin){ h=Number(h)||0; var t=(h===0)?'Right away':(h<24)?(h+'h in'):('Day '+Math.round(h/24)); return t+(pin?(' · '+String(pin).slice(0,5)):''); }
+async function ladderLoad(){
+  var sel=document.getElementById('ld-camp'), box=document.getElementById('ld-body');
+  if(!sel||!box) return;
+  var cid=sel.value; if(!cid){ box.innerHTML='Pick a campaign to see its ladder.'; return; }
+  box.innerHTML='<div style="padding:26px;text-align:center;color:var(--muted)">Loading ladder…</div>';
+  try{
+    var r=await sbAdmin('/rest/v1/rpc/admin_ladder_stats',{ method:'POST', body: JSON.stringify({ p_campaign: cid }) });
+    var d=r.ok?await r.json():null;
+    if(!d||!d.ok) throw new Error('rpc');
+    ladderRender(cid, d);
+  }catch(e){ box.innerHTML='<div style="padding:20px;color:#b91c1c">Could not load this ladder — refresh and try again.</div>'; }
+}
+function ladderRender(cid, d){
+  var box=document.getElementById('ld-body'); if(!box) return;
+  var sum=d.summary||{}, steps=Array.isArray(d.steps)?d.steps:[];
+  var stg=sum.stages||{}; var masterOn=(stg._master!==false);
+  var ap=sum.approvals||{}; var review=!(ap.sms==='auto'&&ap.email==='auto');
+  var t7=sum.touches_7d||{}; var t7s=['sms','email','call','task'].filter(function(k){return t7[k];}).map(function(k){return t7[k]+' '+(LD_CH[k]||k).toLowerCase();}).join(' · ')||'none yet';
+  function card(n,l){ return '<div style="flex:1;min-width:110px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px 12px"><div style="font-size:19px;font-weight:800">'+n+'</div><div style="font-size:11px;color:var(--muted)">'+l+'</div></div>'; }
+  var h='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">'
+    + card(sum.active||0,'in the sequence')
+    + card(sum.paused||0,'paused (talking / manual)')
+    + card(sum.finished||0,'finished the ladder')
+    + card(sum.booked_total||0,'booked after a ladder touch')
+    + '</div>';
+  h+='<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px 14px">'
+    +'<label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;cursor:pointer">'
+    +'<input type="checkbox" '+(masterOn?'checked':'')+' onchange="ladderStage(\''+cid+'\',\'_master\',this)" style="width:16px;height:16px">⚡ Master switch '+(masterOn?'ON':'OFF')+'</label>'
+    +'<span style="font-size:12px;padding:3px 10px;border-radius:99px;background:'+(review?'#fef3c7':'#dcfce7')+';color:'+(review?'#92400e':'#166534')+';font-weight:700">'+(review?'✋ Review mode — texts & emails wait for approval':'⚡ Automatic sending')+'</span>'
+    +'<span style="font-size:12px;color:var(--muted)">Last 7 days: '+t7s+((sum.nudges_7d||0)?(' · '+sum.nudges_7d+' wake-up nudge'+(sum.nudges_7d===1?'':'s')):'')+'</span>'
+    +'</div>';
+  var order=['1','2','3','6','7','9','10','11'];
+  var seen={}; steps.forEach(function(s){ seen[String(s.stage_key)]=1; });
+  var keys=order.filter(function(k){ return seen[k]; }).concat(Object.keys(seen).filter(function(k){ return order.indexOf(k)===-1; }).sort());
+  keys.forEach(function(key){
+    var rows=steps.filter(function(s){ return String(s.stage_key)===String(key); });
+    var on=(stg[key]===true);
+    h+='<div style="background:#fff;border:1px solid var(--border);border-radius:12px;margin-bottom:14px;overflow:hidden">'
+      +'<div style="display:flex;align-items:center;gap:10px;padding:11px 14px;background:'+(on?'#f0fdf4':'#f8fafc')+';border-bottom:1px solid var(--border)">'
+      +'<div style="flex:1;font-size:13px;font-weight:800">'+(LD_NAMES[key]||('Stage '+key))+' <span style="color:var(--muted);font-weight:600">· '+rows.length+' step'+(rows.length===1?'':'s')+'</span></div>'
+      +'<label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:'+(on?'#166534':'var(--muted)')+';cursor:pointer">'+(on?'ON':'OFF')
+      +'<input type="checkbox" '+(on?'checked':'')+' onchange="ladderStage(\''+cid+'\',\''+key+'\',this)" style="width:15px;height:15px"></label>'
+      +'</div>'
+      +'<table style="width:100%;border-collapse:collapse;font-size:12px">'
+      +'<tr style="color:var(--muted);text-align:left"><th style="padding:8px 14px;font-weight:700">When</th><th style="padding:8px 6px;font-weight:700">Type</th><th style="padding:8px 6px;font-weight:700">Message</th><th style="padding:8px 6px;text-align:right;font-weight:700">Waiting</th><th style="padding:8px 6px;text-align:right;font-weight:700">Sent</th><th style="padding:8px 6px;text-align:right;font-weight:700">Booked</th><th style="padding:8px 14px 8px 6px;text-align:right;font-weight:700">Books %</th></tr>';
+    rows.forEach(function(s){
+      var pct=(s.sent>0)?(Math.round((s.booked/s.sent)*100)+'%'):'—';
+      var msg=sanitize(s.label||s.subject||String(s.body_preview||'').slice(0,90));
+      h+='<tr style="border-top:1px solid var(--border);'+(s.active===false?'opacity:.45':'')+'">'
+        +'<td style="padding:8px 14px;white-space:nowrap;font-weight:700;color:#166534">'+_ldDelay(s.delay_hours,s.send_at_local)+'</td>'
+        +'<td style="padding:8px 6px;white-space:nowrap">'+(LD_CH[s.channel]||sanitize(s.channel||''))+'</td>'
+        +'<td style="padding:8px 6px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+sanitize(s.body_preview||'')+'">'+msg+(s.active===false?' <span style="color:#b91c1c;font-weight:700">(off)</span>':'')+'</td>'
+        +'<td style="padding:8px 6px;text-align:right">'+(s.waiting||0)+'</td>'
+        +'<td style="padding:8px 6px;text-align:right">'+(s.sent||0)+'</td>'
+        +'<td style="padding:8px 6px;text-align:right;font-weight:700">'+(s.booked||0)+'</td>'
+        +'<td style="padding:8px 14px 8px 6px;text-align:right;font-weight:800;color:'+((s.booked||0)>0?'#166534':'var(--muted)')+'">'+pct+'</td>'
+        +'</tr>';
+    });
+    h+='</table></div>';
+  });
+  h+='<div style="font-size:11px;color:var(--muted);line-height:1.6;padding:0 2px">How to read this: <b>Waiting</b> = leads whose next step is this one · <b>Sent</b> = how many times the engine fired it · <b>Booked</b> = booked leads whose last ladder touch was this step. Step counting began 3 Sep 2026 (engine v8), so older sends are not included. Wording is edited in the hub sheet; timing changes go through Claude.</div>';
+  box.innerHTML=h;
+}
+async function ladderStage(cid, stage, el){
+  var on=!!(el&&el.checked);
+  try{
+    var r=await sbAdmin('/rest/v1/rpc/admin_playbook_stage_set',{ method:'POST', body: JSON.stringify({ p_campaign: cid, p_stage: stage, p_active: on }) });
+    var d=r.ok?await r.json():null;
+    if(!d||!d.ok) throw new Error('rpc');
+    toast((stage==='_master'?'Master switch':'Stage '+stage)+' '+(on?'ON':'OFF'));
+    _auditAdminLog('playbook_stage_set','campaign',cid,{stage:stage,active:on});
+  }catch(e){ toast('Could not change — try again'); if(el) el.checked=!on; }
+  ladderLoad();
 }
 // saveClient() — defined above with live Supabase integration
 // saveCampaign() — defined above with live Supabase integration
