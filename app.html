@@ -4434,7 +4434,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-03 sort-1';
+var APP_VERSION = 'v2026-09-03 follow-2';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -8166,6 +8166,10 @@ function _smsPurposeTag(p){
   if(p.indexOf('remind')>-1) return 'Automated';
   return '';
 }
+// follow-1: 📌 team cards — the AI heard a preferred appointment time on a call;
+// the team approves it, picks another time, or dismisses. Detected by the pin
+// emoji the analyzer stamps at the start of the note.
+function _fuIsTeam(t){ return !t._appt && t.type!=='ai_call' && /^\uD83D\uDCCC/.test(String(t.note||'')); }
 function fuChipCounts(){
   var base=tasks.concat(apptTaskItems()).filter(function(t){
     if(t.done)return false;
@@ -8180,8 +8184,8 @@ function fuChipCounts(){
     var ld=leads.find(function(l){return l.id===t.lid});
     return leadMatchesQ(ld, schQ);
   }).filter(gfTaskInScope);
-  var fu=0, ap=0, ai=0;
-  base.forEach(function(t){ if(t._appt) ap++; else if(t.type==='ai_call') ai++; else fu++; });
+  var fu=0, ap=0, ai=0, team=0;
+  base.forEach(function(t){ if(t._appt) ap++; else if(t.type==='ai_call') ai++; else if(_fuIsTeam(t)) team++; else fu++; });
   var pend=0;
   (window._apprItems||[]).forEach(function(it){ if(it.status==='pending') pend++; });
   if(window._isAdviuzStaff && window._adminData){
@@ -8189,7 +8193,7 @@ function fuChipCounts(){
   }
   if(window._isAdviuzStaff && Array.isArray(window._annDrafts)) pend += window._annDrafts.length;
   var coachN=(window._coachApprItems||[]).length;
-  return { fu:fu, ai:ai, appt:ap, all:fu+ap+ai, appr:pend+coachN, apprKnown:(window._apprItems!==undefined) };
+  return { fu:fu, ai:ai, appt:ap, team:team, all:fu+ap+ai+team, appr:pend+coachN, apprKnown:(window._apprItems!==undefined) };
 }
 function followupsHTML(){
   var cn=fuChipCounts();
@@ -8197,7 +8201,9 @@ function followupsHTML(){
     +'<div class="fchip '+(fuTypeFilter===''?'on':'')+'" onclick="fuTypeFilter=\'\';document.getElementById(\'content\').innerHTML=followupsHTML()">All ('+cn.all+')</div>'
     +'<div class="fchip '+(fuTypeFilter==='fu'?'on':'')+'" onclick="fuTypeFilter=\'fu\';document.getElementById(\'content\').innerHTML=followupsHTML()">🗓 Follow-ups ('+cn.fu+')</div>'
     +(cn.ai>0?'<div class="fchip '+(fuTypeFilter==='ai'?'on':'')+'" onclick="fuTypeFilter=\'ai\';document.getElementById(\'content\').innerHTML=followupsHTML()">\uD83E\uDD16 AI ('+cn.ai+')</div>':'')
+    +(cn.team>0?'<div class="fchip '+(fuTypeFilter==='team'?'on':'')+'" onclick="fuTypeFilter=\'team\';document.getElementById(\'content\').innerHTML=followupsHTML()">\uD83D\uDCCC To approve ('+cn.team+')</div>':'')
     +'<div class="fchip '+(fuTypeFilter==='appt'?'on':'')+'" onclick="fuTypeFilter=\'appt\';document.getElementById(\'content\').innerHTML=followupsHTML()">📅 Appointments ('+cn.appt+')</div>'
+    +'<div class="fchip '+(fuTypeFilter==='done'?'on':'')+'" onclick="fuTypeFilter=\'done\';window._fuDone=undefined;document.getElementById(\'content\').innerHTML=followupsHTML()">\u2705 Done</div>'
     +'</div>';
   if(fuTypeFilter==='approvals'){ fuTypeFilter=''; }
   // futab-2: list vs calendar switched by ONE frozen floating button. The button
@@ -8207,6 +8213,7 @@ function followupsHTML(){
   var _main=window._fuMain||'today';
   fuFabSync(_main);
   if(_main==='cal') return fuCalendarHTML();
+  if(fuTypeFilter==='done') return chips + fuDoneHTML();
   return '<div class="segment">'
     +'<button class="seg-btn '+(fuSeg==='past'?'on':'')+'" onclick="fuSeg=\'past\';document.getElementById(\'content\').innerHTML=followupsHTML()">Past</button>'
     +'<button class="seg-btn '+(fuSeg==='today'?'on':'')+'" onclick="fuSeg=\'today\';document.getElementById(\'content\').innerHTML=followupsHTML()">Today</button>'
@@ -10300,7 +10307,8 @@ function taskListHTML(){
   }).filter(function(t){
     if(fuTypeFilter==='appt') return !!t._appt;
     if(fuTypeFilter==='ai')   return t.type==='ai_call';
-    if(fuTypeFilter==='fu')   return !t._appt && t.type!=='ai_call';
+    if(fuTypeFilter==='team') return _fuIsTeam(t);
+    if(fuTypeFilter==='fu')   return !t._appt && t.type!=='ai_call' && !_fuIsTeam(t);
     return true;
   }).filter(function(t){
     if(!schQ) return true;
@@ -10343,8 +10351,11 @@ function taskListHTML(){
       var _dpp=String(t.date||'').split('-');
       var _dl=(_dpp.length===3)?(parseInt(_dpp[2],10)+' '+(_MOS[(parseInt(_dpp[1],10)||1)-1]||'')):String(t.date||'');
       var _isAiFu = (t.type==='ai_call');
-      var typeLbl = '<span style="flex-shrink:0;display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;color:'+(_isAiFu?'#7c3aed':'var(--text)')+';background:'+(_isAiFu?'#ede9fe':'var(--bg)')+';border:1px solid '+(_isAiFu?'#ddd6fe':'var(--border)')+';border-radius:9px;padding:3px 7px;white-space:nowrap">'
-        + (_isAiFu ? '\uD83E\uDD16 AI call' : t._appt ? '\uD83D\uDCC5 Appointment' : '\uD83D\uDDD3\uFE0F Follow-up') + '</span>';
+      var _isTeam = _fuIsTeam(t);
+      var _teamLock = _isTeam && String(t.note||'').indexOf('Approve & lock')!==-1;
+      var _teamNote = _isTeam ? String(t.note||'').replace(/^\uD83D\uDCCC\s*/,'').replace(/^\u2705\s*Approve & lock:\s*/,'') : '';
+      var typeLbl = '<span style="flex-shrink:0;display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;color:'+(_isTeam?'#b45309':_isAiFu?'#7c3aed':'var(--text)')+';background:'+(_isTeam?'#fef3c7':_isAiFu?'#ede9fe':'var(--bg)')+';border:1px solid '+(_isTeam?'#fde68a':_isAiFu?'#ddd6fe':'var(--border)')+';border-radius:9px;padding:3px 7px;white-space:nowrap">'
+        + (_isTeam ? (_teamLock ? '\u2705 Approve & lock' : '\uD83D\uDCCC Approve time') : _isAiFu ? '\uD83E\uDD16 AI call' : t._appt ? '\uD83D\uDCC5 Appointment' : '\uD83D\uDDD3\uFE0F Follow-up') + '</span>';
       if(_compactFu){
         // ── COMPACT: sticky day header once per date, then a slim card ──
         var head='';
@@ -10362,7 +10373,11 @@ function taskListHTML(){
       var whenLbl = _dl+' '+h12+':'+mm+' '+ap + (fuSeg==='past' ? ' &middot; Overdue' : '');
       // calendar-1: actions moved out of the header into one neutral bar under the card.
       var _abBtn=function(lbl,fn){ return '<button onclick="event.stopPropagation();'+fn+'">'+lbl+'</button>'; };
-      var actBar = '<div class="fu-actbar">' + (t._appt
+      var actBar = '<div class="fu-actbar">' + (_isTeam
+        ? _abBtn('\u2705 Approve & book','fuTeamApprove('+t.id+',this)')
+          + _abBtn('\uD83D\uDD52 Pick another time','fuTeamPick('+t.id+')')
+          + _abBtn('\u2715 Dismiss','markDone('+t.id+')')
+        : t._appt
         ? (fuSeg==='past'
             ? _abBtn('Review outcome','openMeetingReview('+lead.id+')')
             : _abBtn('Cancel','apptCancelDirect('+lead.id+')')
@@ -10380,19 +10395,113 @@ function taskListHTML(){
         +   '</span>'
         + '</div>'
         + lRow(lead,false,true)
+        + (_isTeam && _teamNote ? '<div style="font-size:12px;color:var(--sub);line-height:1.5;margin:6px 2px 0;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:8px 10px">\uD83E\uDD16 Heard on the call: '+_teamNote.replace(/</g,'&lt;')+'</div>' : '')
         + actBar
         + '</div>';
     }).join('')
     +'</div><div style="height:8px"></div>';
 }
 
+// \u2705 DONE HISTORY \u2014 completed tasks stay visible with a checkmark, so the
+// team can literally see "the AI finished N tasks today". Data = followups
+// rows with done=true from the last 30 days (due_at is the working date).
+function fuDoneHTML(){
+  if(window._fuDone===undefined){ loadFuDone(); return '<div style="padding:44px 16px;text-align:center;color:var(--sub)">Loading history\u2026</div>'; }
+  var rows=window._fuDone||[];
+  var q=(schQ||'').toLowerCase();
+  if(q) rows=rows.filter(function(r){ return String(r.note||'').toLowerCase().indexOf(q)!==-1 || String(r.lead_name||'').toLowerCase().indexOf(q)!==-1; });
+  var today=0; rows.forEach(function(r){ if(String(r.due_at||'').slice(0,10)===TOD) today++; });
+  var h='<div style="margin:4px 16px 10px;display:flex;gap:8px;align-items:center;border:1.5px solid var(--green);background:#e7f8f3;border-radius:12px;padding:11px 13px">'
+    +'<span style="font-size:17px">\u2705</span>'
+    +'<div style="font-size:12.5px;color:var(--text);line-height:1.45"><b>'+today+'</b> task'+(today===1?'':'s')+' completed today \u00b7 <b>'+rows.length+'</b> in the last 30 days</div>'
+    +'</div>';
+  if(!rows.length) return h+'<div class="empty"><div class="empty-icon">\uD83C\uDF31</div><div class="empty-t">No finished tasks yet</div><div class="empty-s">Completed follow-ups will appear here with a checkmark.</div></div>';
+  var _MOS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var lastDay='';
+  h+='<div class="lead-list">';
+  rows.forEach(function(r){
+    var day=String(r.due_at||'').slice(0,10);
+    if(day!==lastDay){
+      lastDay=day;
+      var dp=day.split('-');
+      var lbl=(day===TOD)?'Today':((dp.length===3)?(parseInt(dp[2],10)+' '+(_MOS[(parseInt(dp[1],10)||1)-1]||'')):day);
+      h+='<div class="fu-day">'+lbl+'</div>';
+    }
+    var d=new Date(r.due_at);
+    var tl=isNaN(d.getTime())?'':d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'});
+    var note=String(r.note||'');
+    var kind=(r.type==='ai_call')?'\uD83E\uDD16 AI call':(note.indexOf('📌')===0)?'📌 Approve card':(note.indexOf('📖')===0)?'📖 Sequence step':'\uD83D\uDDD3\uFE0F Follow-up';
+    h+='<div class="fu-card" style="opacity:.78">'
+      +'<div style="display:flex;align-items:center;justify-content:space-between;gap:5px;margin-bottom:4px">'
+      +'<span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;color:var(--green);background:#e7f8f3;border:1px solid var(--green);border-radius:9px;padding:3px 7px;white-space:nowrap">\u2713 Done \u00b7 '+kind+'</span>'
+      +'<span style="font-size:11px;font-weight:700;color:var(--sub);white-space:nowrap">'+tl+'</span>'
+      +'</div>'
+      +'<div style="font-size:13px;font-weight:700;color:var(--text)">'+_escTxt(r.lead_name||'Lead')+'</div>'
+      +(note?'<div style="font-size:12px;color:var(--sub);line-height:1.45;margin-top:3px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'+_escTxt(note)+'</div>':'')
+      +'</div>';
+  });
+  return h+'</div><div style="height:8px"></div>';
+}
+async function loadFuDone(){
+  try{
+    var since=new Date(Date.now()-30*86400000).toISOString();
+    var r=await sbFetch('/rest/v1/followups?done=eq.true&due_at=gt.'+encodeURIComponent(since)+'&order=due_at.desc&limit=300&select=id,lead_id,lead_name,type,note,due_at');
+    window._fuDone=r.ok?await r.json():[];
+  }catch(e){ window._fuDone=[]; }
+  if(curTab==='followups'&&fuTypeFilter==='done'){ var c=document.getElementById('content'); if(c) c.innerHTML=followupsHTML(); }
+}
 function markDone(id){
   var t=tasks.find(function(x){return x.id===id});
   if(!t) return;
   t.done=true;
   if(t.dbId){ sbFetch('/rest/v1/followups?id=eq.'+t.dbId,{method:'PATCH',body:JSON.stringify({done:true})}).catch(function(){}); }
   showToast('Marked done');
+  window._fuDone=undefined;
   document.getElementById('content').innerHTML=followupsHTML();
+}
+
+// ═══ 📌 TEAM CARDS — approve / re-pick the AI-detected appointment time ═══
+// Approving books the appointment EXACTLY like the appointment sheet does:
+// same field patch (incl. clearing meeting_outcome / visit_locked_at /
+// meeting_prompt_sent_at — the hub hides the appointment card otherwise),
+// same confirmation text, same timeline note. One booking path, no drift.
+function fuTeamApprove(taskId, btn){
+  var t=tasks.find(function(x){return x.id===taskId;}); if(!t) return;
+  var lead=leads.find(function(l){return l.id===t.lid;});
+  if(!lead||!lead.dbId){ showToast('Lead not loaded \u2014 open it once and retry'); return; }
+  var iso = t.dueIso ? new Date(t.dueIso).toISOString() : '';
+  if(!iso || isNaN(new Date(iso).getTime())){ showToast('Could not read the time \u2014 use Pick another time'); return; }
+  var tz = lead.timezone || tzFromPhone(lead.ph) || 'America/Toronto';
+  var pretty = fmtApptLocal(iso, tz);
+  if(!confirm('Book '+(lead.name||'this lead')+' for '+pretty+'?\n\nThis locks the appointment, moves the stage to Meeting Booked, and sends them a confirmation text.')) return;
+  if(btn){ btn.disabled=true; btn.textContent='Booking\u2026'; }
+  var _sn = parseInt((String(lead.stage||'').match(/^(\d+)/)||[])[1]||'0',10);
+  var _bump = (isNaN(_sn) || _sn < 5);
+  var _patch = { appointment_at: iso, appointment_duration_min: 60, sms_consent: true, updated_at:new Date().toISOString(), meeting_outcome:null, visit_locked_at:null, meeting_prompt_sent_at:null };
+  if(_bump){ _patch.stage='5. Meeting Booked'; _patch.stage_code='meeting_booked'; _patch.stage_changed_at=new Date().toISOString(); }
+  sbFetch('/rest/v1/leads?id=eq.'+lead.dbId, { method:'PATCH', body: JSON.stringify(_patch) })
+    .then(function(r){
+      if(!(r.ok||r.status===204)) throw 0;
+      lead.appointment_at=iso; lead.appointment_duration_min=60; lead.ok=true;
+      lead.meeting_outcome=null; lead.visit_locked_at=null;
+      if(_bump){ lead.stage='5. Meeting Booked'; lead.stage_code='meeting_booked'; }
+      t.done=true;
+      if(t.dbId){ sbFetch('/rest/v1/followups?id=eq.'+t.dbId,{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({done:true}) }).catch(function(){}); }
+      try{ sbFetch('/functions/v1/appt-confirm', { method:'POST', body: JSON.stringify({ lead_id: lead.dbId }) }); }catch(_e){}
+      try{ sbFetch('/rest/v1/activity_log',{ method:'POST', body: JSON.stringify({ lead_id: lead.dbId||null, client_id: window._clientId||null, type:'note', label:'Appointment approved', body:'Booked for '+pretty+' \u2014 approved from the AI-detected time card.', meta:{ to: iso }, created_at:new Date().toISOString() }) }); }catch(_e){}
+      showToast('&#x2705; Appointment booked for '+pretty);
+      if(curTab==='followups'){ var c=document.getElementById('content'); if(c) c.innerHTML=followupsHTML(); }
+    })
+    .catch(function(){ if(btn){ btn.disabled=false; btn.textContent='\u2705 Approve & book'; } showToast('Could not book \u2014 try again'); });
+}
+function fuTeamPick(taskId){
+  var t=tasks.find(function(x){return x.id===taskId;}); if(!t) return;
+  var lead=leads.find(function(l){return l.id===t.lid;});
+  if(!lead){ showToast('Lead not loaded \u2014 open it once and retry'); return; }
+  // Remember which card sent us: when the appointment sheet books THIS lead,
+  // the card closes itself (see apptSave).
+  window._fuTeamPending = { fid: t.dbId||null, lead: lead.dbId||null, tid: t.id };
+  openApptSheet(lead.id);
 }
 
 // \uD83E\uDD16 AI follow-up cards — these buttons genuinely control the retry engine:
@@ -10474,7 +10583,7 @@ async function loadFollowups(){
       var d=new Date(r.due_at);
       var date=isNaN(d.getTime())?'':(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'));
       var time=isNaN(d.getTime())?'':(String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'));
-      tasks.push({ id:nxtTid++, dbId:r.id, lid:L?L.id:null, lead_name:r.lead_name||'', type:r.type||'call', date:date, time:time, note:r.note||'', done:!!r.done });
+      tasks.push({ id:nxtTid++, dbId:r.id, lid:L?L.id:null, lead_name:r.lead_name||'', type:r.type||'call', date:date, time:time, note:r.note||'', dueIso:r.due_at||'', done:!!r.done });
     });
   }catch(e){ console.warn('[followup] load error',e&&e.message); }
 }
@@ -12529,6 +12638,21 @@ async function pbMaster(el){
   }catch(e){ showToast('Could not change'); }
   renderPlaybook();
 }
+async function pbReviewToggle(el){
+  var on=!!(el&&el.checked);
+  try{
+    var r=await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(_pbCid)+'&select=settings');
+    var rows=r.ok?await r.json():[];
+    var s=(rows[0]&&rows[0].settings)||{}; if(typeof s==='string'){ try{ s=JSON.parse(s); }catch(_e){ s={}; } }
+    s.ai=s.ai||{};
+    s.ai.approvals={ sms:(on?'review':'auto'), email:(on?'review':'auto') };
+    var pr=await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(_pbCid),{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ settings:s }) });
+    if(!(pr.ok||pr.status===204)) throw new Error('save failed');
+    window._pbReview=on;
+    showToast(on?'\u270B Review mode ON \u2014 every AI text and email waits for your tap in the Inbox':'\u26A1 Automatic \u2014 AI messages now send on their own');
+  }catch(e){ showToast('Could not change \u2014 try again'); if(el) el.checked=!on; }
+  renderPlaybook();
+}
 async function _pbLoadDesign(){
   // Pull the account design + this campaign's overrides so the step preview
   // is always the REAL email design, even when the Email Setup sheet was
@@ -12737,6 +12861,21 @@ async function loadPlaybook(){
     var r2=await sbFetch('/rest/v1/playbook_stages?campaign_id=eq.'+encodeURIComponent(_pbCid)+'&select=stage_key,active');
     var st=r2.ok?await r2.json():[];
     _pbStages={}; (st||[]).forEach(function(x){ _pbStages[x.stage_key]=x.active===true; });
+    // follow-2: live status strip + Review mode read from the campaign itself.
+    try{
+      var r3=await sbFetch('/rest/v1/playbook_enrollments?campaign_id=eq.'+encodeURIComponent(_pbCid)+'&status=in.(active,paused)&select=status,pause_reason');
+      var en=r3.ok?await r3.json():[];
+      var a=0,p=0,talking=0;
+      (en||[]).forEach(function(x){ if(x.status==='paused'){ p++; if(x.pause_reason==='lead_replied'||x.pause_reason==='nudged'||x.pause_reason==='ai_drafted') talking++; } else a++; });
+      window._pbEnr={active:a,paused:p,talking:talking};
+    }catch(e){ window._pbEnr=null; }
+    try{
+      var r4=await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(_pbCid)+'&select=settings');
+      var cr=r4.ok?await r4.json():[];
+      var stg=(cr[0]&&cr[0].settings)||{}; if(typeof stg==='string'){ try{ stg=JSON.parse(stg); }catch(_e){ stg={}; } }
+      var ap=(stg.ai&&stg.ai.approvals)||{};
+      window._pbReview=!(ap.sms==='auto'&&ap.email==='auto');
+    }catch(e){ window._pbReview=true; }
   }catch(e){ _pbSteps=[]; _pbStages={}; }
   renderPlaybook();
 }
@@ -12746,44 +12885,85 @@ function renderPlaybook(){
     el.innerHTML='<div style="text-align:center;padding:26px 6px 10px">'
       +'<div style="font-size:44px;margin-bottom:12px">\u2728</div>'
       +'<div style="font-size:16px;font-weight:800;color:var(--text);margin-bottom:8px">No automated follow-ups yet</div>'
-      +'<div style="font-size:13px;color:var(--sub);line-height:1.6;margin-bottom:18px">The AI reads your Business Brain, your preferences, and this campaign\u2019s landing page \u2014 then writes your complete follow-up plan: every message, every stage, perfectly timed. You review, edit, and switch each stage on when you\u2019re happy.</div>'
+      +'<div style="font-size:13px;color:var(--sub);line-height:1.6;margin-bottom:18px">The AI reads your Business Brain, your preferences, and this campaign\u2019s landing page \u2014 then writes your complete follow-up plan: every message, every step, perfectly timed. You review the wording and switch it on when you\u2019re happy.</div>'
       +'<button class="btn btn-primary" id="pbGenBtn" onclick="pbGen(false)" style="width:100%;justify-content:center">\u2728 Write my follow-ups</button>'
       +'</div>';
     return;
   }
-  var h='<div class="cs-note" style="margin-top:0">Timing counts from when a lead <b>enters</b> each stage. Every stage stays OFF until you switch it on \u2014 nothing sends before that. Tap any message to edit it.</div>';
+  // follow-2: ONE smart sequence. Stage handling is automatic (booked stops it,
+  // a clear no kills it, any reply pauses it) \u2014 the client keeps exactly two
+  // decisions: the Master switch and Review mode. Timing is platform law.
+  var seqKey=_pbSteps.some(function(s){ return String(s.stage_key)==='1'; }) ? '1' : null;
+  var seq=(seqKey?_pbSteps.filter(function(s){ return String(s.stage_key)===seqKey; }):_pbSteps.slice())
+    .sort(function(a,b){ return (Number(a.delay_hours)||0)-(Number(b.delay_hours)||0) || (Number(a.step_no)||0)-(Number(b.step_no)||0); });
+  var h='<div class="cs-note" style="margin-top:0">One smart sequence. It pauses the instant a lead responds anywhere \u2014 text, call, or email \u2014 and the AI takes that conversation toward a booking. Tap any message to edit the wording; the timing is locked in as a safety rule.</div>';
   var mOn=(_pbStages['_master']!==false);
   h+='<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;margin-top:12px;border:1.5px solid '+(mOn?'var(--green)':'var(--border)')+';border-radius:12px;background:'+(mOn?'#e7f8f3':'var(--bg)')+'">'
-    +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:800;color:var(--text)">\u26A1 Master switch</div>'
-    +'<div style="font-size:11px;color:'+(mOn?'var(--green)':'#b45309')+';font-weight:600">'+(mOn?'Follow-ups are live \u2014 the stage switches below decide what sends':'Everything is PAUSED \u2014 nothing sends until this is back on')+'</div></div>'
+    +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:800;color:var(--text)">\u26A1 Follow-ups on</div>'
+    +'<div style="font-size:11px;color:'+(mOn?'var(--green)':'#b45309')+';font-weight:600">'+(mOn?'The sequence is live':'Everything is PAUSED \u2014 nothing sends until this is back on')+'</div></div>'
     +'<label style="display:flex;align-items:center;cursor:pointer"><input type="checkbox" '+(mOn?'checked':'')+' onchange="pbMaster(this)" style="width:19px;height:19px;accent-color:var(--green)"></label>'
     +'</div>';
-  h+='<button onclick="pbTrackerToggle()" style="width:100%;margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:11px;background:var(--white);color:var(--text);font-size:12.5px;font-weight:700;cursor:pointer;font-family:var(--f)">\uD83D\uDC65 Who\u2019s in the sequences right now?</button>'
+  var rv=(window._pbReview!==false);
+  h+='<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;margin-top:8px;border:1px solid var(--border);border-radius:12px;background:var(--white)">'
+    +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:800;color:var(--text)">\u270B Review mode</div>'
+    +'<div style="font-size:11px;color:var(--sub)">'+(rv?'AI drafts each text and email \u2014 you tap Approve in the Inbox before anything sends':'AI messages send on their own, no tap needed')+'</div></div>'
+    +'<label style="display:flex;align-items:center;cursor:pointer"><input type="checkbox" '+(rv?'checked':'')+' onchange="pbReviewToggle(this)" style="width:19px;height:19px;accent-color:var(--green)"></label>'
+    +'</div>';
+  var en=window._pbEnr;
+  if(en){
+    h+='<div style="display:flex;gap:8px;align-items:center;margin-top:10px;padding:9px 12px;border:1px solid var(--border);border-radius:11px;background:var(--bg);font-size:12px;color:var(--text)">'
+      +'<span style="font-size:14px">\uD83D\uDC65</span>'
+      +'<span style="flex:1"><b>'+en.active+'</b> in the sequence right now'
+      +(en.talking?' \u00b7 <b>'+en.talking+'</b> paused \u2014 talking with the AI':'')
+      +((en.paused-en.talking)>0?' \u00b7 <b>'+(en.paused-en.talking)+'</b> paused':'')
+      +'</span></div>';
+  }
+  h+='<button onclick="pbTrackerToggle()" style="width:100%;margin-top:8px;padding:10px;border:1px solid var(--border);border-radius:11px;background:var(--white);color:var(--text);font-size:12.5px;font-weight:700;cursor:pointer;font-family:var(--f)">\uD83D\uDC65 Who\u2019s in the sequence right now?</button>'
     +'<div id="pbTrackBox" style="display:none"></div>';
-  PB_ORDER.forEach(function(key){
-    var steps=_pbSteps.filter(function(s){ return String(s.stage_key)===key; });
-    if(!steps.length) return;
-    var on=_pbStages[key]===true;
-    h+='<div style="margin-top:16px;border:1px solid var(--border);border-radius:14px;overflow:hidden">'
-      +'<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:'+(on?'#e7f8f3':'var(--bg)')+'">'
-      +'<div style="flex:1;font-size:13px;font-weight:800;color:var(--text)">'+(PB_NAMES[key]||('Stage '+key))+'</div>'
-      +'<label style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:'+(on?'var(--green)':'var(--sub)')+';cursor:pointer">'
-      +(on?'ON':'OFF')+'<input type="checkbox" '+(on?'checked':'')+' onchange="pbToggleStage(\''+key+'\',this)" style="width:17px;height:17px;accent-color:var(--green)"></label>'
-      +'</div>';
-    steps.forEach(function(s){ h+=_pbStepHtml(s); });
-    h+='<div style="padding:8px 12px 12px"><button onclick="pbAddStep(\''+key+'\')" style="width:100%;padding:9px;border:1px dashed var(--border);border-radius:9px;background:var(--white);color:var(--sub);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">\u2795 Add a step</button></div>';
-    h+='</div>';
-  });
-  h+='<button onclick="pbGen(true)" style="width:100%;margin-top:18px;padding:11px;border:1px solid var(--border);border-radius:10px;background:var(--white);color:var(--sub);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">\u267B\uFE0F Rewrite the whole follow-up plan with AI</button>'
-    +'<div style="font-size:11px;color:var(--sub);margin-top:6px;text-align:center">Rewriting replaces every message, including your edits. It asks first.</div>';
+  h+='<div style="margin-top:14px;font-size:11px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;padding:0 2px">The sequence</div>'
+    +'<div style="margin-top:6px;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--white)">';
+  seq.forEach(function(s){ h+=_pbStepHtml(s); });
+  h+='</div>';
+  h+='<div style="margin-top:12px;border:1.5px solid #93c5fd;border-radius:12px;background:#eff6ff;padding:11px 13px">'
+    +'<div style="font-size:12.5px;font-weight:800;color:#1d4ed8;margin-bottom:4px">\uD83D\uDCAC While a lead is talking</div>'
+    +'<div style="font-size:12px;color:#1e40af;line-height:1.55">The moment a lead responds on any channel, this sequence freezes for them. The AI works that live conversation toward a booking \u2014 with one gentle wake-up if they go quiet \u2014 and the sequence only resumes after a full day of silence.</div>'
+    +'</div>';
+  h+='<div style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;padding:0 2px">'
+    +'<span style="font-size:15px;color:var(--green)">\uD83D\uDEE1</span>'
+    +'<div style="font-size:11.5px;color:var(--sub);line-height:1.6">Safety built in: max 2 touches a day \u00b7 only 9 AM\u20137 PM in the lead\u2019s own timezone \u00b7 any reply pauses everything \u00b7 a clear \u201cno\u201d stops it permanently \u00b7 ends politely at the last step and parks the lead as a Future Prospect.</div>'
+    +'</div>';
+  if(window._isAdviuzStaff){
+    h+='<div style="margin-top:18px;border-top:1px dashed var(--border);padding-top:12px">'
+      +'<button onclick="var b=document.getElementById(\'pbAdvBox\');b.style.display=(b.style.display===\'none\'?\'block\':\'none\')" style="width:100%;padding:9px;border:1px dashed var(--border);border-radius:10px;background:var(--white);color:var(--sub);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">\uD83D\uDD27 Advanced \u2014 Adviuz only</button>'
+      +'<div id="pbAdvBox" style="display:none">'
+      +'<div class="cs-note" style="margin-top:10px">Stage rails, timing and channels live here and in the admin panel\u2019s ladder view \u2014 clients never see this section.</div>';
+    PB_ORDER.forEach(function(key){
+      var steps=_pbSteps.filter(function(s){ return String(s.stage_key)===key; });
+      var on=_pbStages[key]===true;
+      h+='<div style="margin-top:10px;border:1px solid var(--border);border-radius:12px;overflow:hidden">'
+        +'<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:'+(on?'#e7f8f3':'var(--bg)')+'">'
+        +'<div style="flex:1;font-size:12.5px;font-weight:800;color:var(--text)">'+(PB_NAMES[key]||('Stage '+key))+' \u00b7 '+steps.length+' step'+(steps.length===1?'':'s')+'</div>'
+        +'<label style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:'+(on?'var(--green)':'var(--sub)')+';cursor:pointer">'
+        +(on?'ON':'OFF')+'<input type="checkbox" '+(on?'checked':'')+' onchange="pbToggleStage(\''+key+'\',this)" style="width:17px;height:17px;accent-color:var(--green)"></label>'
+        +'</div>';
+      if(seqKey && key!==seqKey){ steps.forEach(function(s){ h+=_pbStepHtml(s); }); }
+      h+='<div style="padding:6px 12px 10px"><button onclick="pbAddStep(\''+key+'\')" style="width:100%;padding:8px;border:1px dashed var(--border);border-radius:9px;background:var(--white);color:var(--sub);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">\u2795 Add a step</button></div>'
+        +'</div>';
+    });
+    h+='<button onclick="pbGen(true)" style="width:100%;margin-top:12px;padding:11px;border:1px solid var(--border);border-radius:10px;background:var(--white);color:var(--sub);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">\u267B\uFE0F Rewrite the whole follow-up plan with AI</button>'
+      +'<div style="font-size:11px;color:var(--sub);margin-top:6px;text-align:center">Rewriting replaces every message, including edits. It asks first.</div>'
+      +'</div></div>';
+  }
   el.innerHTML=h;
 }
 function _pbStepHtml(s){
   var editing=(String(_pbEditId)===String(s.id));
   var chip=PB_CHIP[s.channel]||s.channel;
+  var pin=(s.send_at_local?(' \u00b7 '+String(s.send_at_local).slice(0,5)):'');
   var head='<div style="display:flex;gap:8px;align-items:center">'
-    +'<span style="font-size:11px;font-weight:800;color:var(--green);white-space:nowrap">'+_pbDelayLbl(s.delay_hours)+'</span>'
+    +'<span style="font-size:11px;font-weight:800;color:var(--green);white-space:nowrap">'+_pbDelayLbl(s.delay_hours)+pin+'</span>'
     +'<span style="font-size:11px;font-weight:700;color:var(--sub);white-space:nowrap">'+chip+'</span>'
+    +(s.label?'<span style="font-size:11px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_escTxt(s.label)+'</span>':'')
     +'</div>';
   if(!editing){
     var prev=String((s.channel==='email'&&s.subject)?(s.subject+' \u2014 '):'')+String(s.body||'');
@@ -12791,17 +12971,21 @@ function _pbStepHtml(s){
       +head+'<div style="font-size:12px;color:var(--text);margin-top:4px;line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'+_escTxt(prev)+'</div>'
       +'<div onclick="event.stopPropagation();pbPreview(\''+s.id+'\')" style="display:inline-block;font-size:11px;font-weight:800;color:var(--green);margin-top:6px;text-decoration:underline;text-underline-offset:2px">\uD83D\uDC41 Preview</div></div>';
   }
-  var h=Number(s.delay_hours)||0;
-  var unit=(h>0&&h%24===0)?'days':'hours';
-  var num=(unit==='days')?Math.round(h/24):h;
+  var staff=!!window._isAdviuzStaff;
+  var hh=Number(s.delay_hours)||0;
+  var unit=(hh>0&&hh%24===0)?'days':'hours';
+  var num=(unit==='days')?Math.round(hh/24):hh;
+  var top=staff
+    ? '<div style="display:flex;gap:8px;margin-top:10px">'
+      +'<input type="number" min="0" id="pbEdNum" value="'+num+'" class="cs-in" style="flex:1;margin-bottom:0">'
+      +'<select id="pbEdUnit" class="cs-in" style="flex:1.4;margin-bottom:0"><option value="hours"'+(unit==='hours'?' selected':'')+'>hours after entering</option><option value="days"'+(unit==='days'?' selected':'')+'>days after entering</option></select>'
+      +'<select id="pbEdCh" class="cs-in" style="flex:1.1;margin-bottom:0">'
+      +  ['sms','email','call','task'].map(function(c){ return '<option value="'+c+'"'+(s.channel===c?' selected':'')+'>'+PB_CHIP[c]+'</option>'; }).join('')
+      +'</select></div>'
+    : '<div style="font-size:11px;color:var(--sub);margin-top:8px">\uD83D\uDD12 Sends '+_pbDelayLbl(s.delay_hours).toLowerCase()+pin+' \u2014 the timing is a platform safety rule. Every word below is yours to change.</div>';
   return '<div style="padding:12px 14px;border-top:1px solid var(--border);background:var(--bg)">'
     +head
-    +'<div style="display:flex;gap:8px;margin-top:10px">'
-    +'<input type="number" min="0" id="pbEdNum" value="'+num+'" class="cs-in" style="flex:1;margin-bottom:0">'
-    +'<select id="pbEdUnit" class="cs-in" style="flex:1.4;margin-bottom:0"><option value="hours"'+(unit==='hours'?' selected':'')+'>hours after entering</option><option value="days"'+(unit==='days'?' selected':'')+'>days after entering</option></select>'
-    +'<select id="pbEdCh" class="cs-in" style="flex:1.1;margin-bottom:0">'
-    +  ['sms','email','call','task'].map(function(c){ return '<option value="'+c+'"'+(s.channel===c?' selected':'')+'>'+PB_CHIP[c]+'</option>'; }).join('')
-    +'</select></div>'
+    +top
     +'<input class="cs-in" id="pbEdSubj" placeholder="Email subject" value="'+_escTxt(s.subject||'').replace(/"/g,'&quot;')+'" style="margin-top:8px;display:'+(s.channel==='email'?'block':'none')+'">'
     +'<textarea class="cs-in" id="pbEdBody" style="min-height:110px;margin-top:8px">'+_escTxt(s.body||'')+'</textarea>'
     +'<div style="display:flex;gap:8px;margin-top:8px">'
@@ -12813,7 +12997,7 @@ function _pbStepHtml(s){
     +'<button id="pbAiImpBtn" onclick="pbAiImprove(\''+s.id+'\')" style="flex-shrink:0;padding:9px 14px;border:none;border-radius:9px;background:#6d28d9;color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">Improve</button>'
     +'</div>'
     +'<div style="display:flex;gap:8px;margin-top:8px">'
-    +'<button onclick="pbDelStep(\''+s.id+'\')" style="padding:9px 12px;border:1px solid var(--border);border-radius:9px;background:var(--white);color:var(--red);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">Delete</button>'
+    +(staff?'<button onclick="pbDelStep(\''+s.id+'\')" style="padding:9px 12px;border:1px solid var(--border);border-radius:9px;background:var(--white);color:var(--red);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">Delete</button>':'')
     +'<button onclick="_pbEditId=null;renderPlaybook()" style="flex:1;padding:9px;border:1px solid var(--border);border-radius:9px;background:var(--white);color:var(--sub);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">Cancel</button>'
     +'<button onclick="pbSaveStep(\''+s.id+'\')" style="flex:2;padding:9px;border:none;border-radius:9px;background:var(--green);color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">\uD83D\uDCBE Save</button>'
     +'</div></div>';
@@ -12823,13 +13007,20 @@ function pbEdit(id){ _pbEditId=id; renderPlaybook();
   if(ch) ch.onchange=function(){ var sj=document.getElementById('pbEdSubj'); if(sj) sj.style.display=(ch.value==='email')?'block':'none'; };
 }
 async function pbSaveStep(id){
-  var num=Number((document.getElementById('pbEdNum')||{}).value)||0;
-  var unit=(document.getElementById('pbEdUnit')||{}).value||'hours';
-  var ch=(document.getElementById('pbEdCh')||{}).value||'sms';
+  var s=(_pbSteps||[]).find(function(x){return String(x.id)===String(id);})||{};
+  var elNum=document.getElementById('pbEdNum'), elCh=document.getElementById('pbEdCh');
+  var ch=elCh?(elCh.value||s.channel||'sms'):(s.channel||'sms');
   var subj=(document.getElementById('pbEdSubj')||{}).value||'';
   var bod=(document.getElementById('pbEdBody')||{}).value||'';
   if(!bod.trim()){ showToast('The message is empty'); return; }
-  var hours=(unit==='days')?num*24:num;
+  var hours;
+  if(elNum){
+    var num=Number(elNum.value)||0;
+    var unit=(document.getElementById('pbEdUnit')||{}).value||'hours';
+    hours=(unit==='days')?num*24:num;
+  } else {
+    hours=Number(s.delay_hours)||0;   // client form: timing is locked \u2014 keep it
+  }
   try{
     var r=await sbFetch('/rest/v1/playbook_steps?id=eq.'+encodeURIComponent(id),{ method:'PATCH', headers:{'Prefer':'return=minimal'},
       body: JSON.stringify({ delay_hours:hours, channel:ch, subject:(ch==='email'?subj:null), body:bod, updated_at:new Date().toISOString() }) });
@@ -25289,6 +25480,12 @@ async function saveAppt(){
     }catch(_e){}
     showToast('&#x2705; Appointment set'+(_bump?' &middot; stage \u2192 Meeting Booked':'')+' for '+fmtApptLocal(iso,tz));
     closeSheet('apptSh');
+    // follow-1: booked from a 📌 team card → close that card too.
+    if(window._fuTeamPending && String(window._fuTeamPending.lead||'')===String(l.dbId||'')){
+      var _ftp=window._fuTeamPending; window._fuTeamPending=null;
+      if(_ftp.fid){ try{ sbFetch('/rest/v1/followups?id=eq.'+_ftp.fid,{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({done:true}) }); }catch(_e){} }
+      var _ftt=tasks.find(function(x){return x.id===_ftp.tid;}); if(_ftt) _ftt.done=true;
+    }
     if(curLid===l.id) renderLeadScreen(l.id);
   }catch(e){ showToast('Could not save — try again'); }
   if(btn){ btn.textContent='Save appointment'; btn.disabled=false; }
