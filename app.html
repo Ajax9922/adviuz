@@ -4434,7 +4434,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-03 follow-3';
+var APP_VERSION = 'v2026-09-03 follow-4';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -8171,59 +8171,60 @@ function _smsPurposeTag(p){
 // emoji the analyzer stamps at the start of the note.
 function _fuIsTeam(t){ return !t._appt && t.type!=='ai_call' && /^\uD83D\uDCCC/.test(String(t.note||'')); }
 function fuChipCounts(){
-  var base=tasks.concat(apptTaskItems()).filter(function(t){
+  // follow-4: the chips became Pending / Done / Appointments segments, so the
+  // only numbers the header needs are the two live counts.
+  var tf=function(t){
     if(t.done)return false;
     if(fuSeg==='today')return t.date===TOD;
     if(fuSeg==='past')return t.date<TOD;
     if(t.date<=TOD)return false;
     return _fuInRange(t.date);
-  }).filter(function(t){
+  };
+  var sf=function(t){
     if(!schQ) return true;
     var q=schQ.toLowerCase();
     if(((t.note||'').toLowerCase().indexOf(q)!==-1)) return true;
     var ld=leads.find(function(l){return l.id===t.lid});
     return leadMatchesQ(ld, schQ);
-  }).filter(gfTaskInScope);
-  var fu=0, ap=0, ai=0, team=0;
-  base.forEach(function(t){ if(t._appt) ap++; else if(t.type==='ai_call') ai++; else if(_fuIsTeam(t)) team++; else fu++; });
-  var pend=0;
-  (window._apprItems||[]).forEach(function(it){ if(it.status==='pending') pend++; });
-  if(window._isAdviuzStaff && window._adminData){
-    pend += ((_adminData.reportReviews||[]).length) + ((_adminData.caReports||[]).length);
-  }
-  if(window._isAdviuzStaff && Array.isArray(window._annDrafts)) pend += window._annDrafts.length;
-  var coachN=(window._coachApprItems||[]).length;
-  return { fu:fu, ai:ai, appt:ap, team:team, all:fu+ap+ai+team, appr:pend+coachN, apprKnown:(window._apprItems!==undefined) };
+  };
+  var pending=tasks.concat(_seqTasks()).filter(function(t){return !t._appt;}).filter(tf).filter(sf).filter(gfTaskInScope).length;
+  var appt=apptTaskItems().filter(tf).filter(sf).filter(gfTaskInScope).length;
+  return { pending:pending, appt:appt };
 }
 function followupsHTML(){
+  // follow-4 (Ajax redesign): three views — Tasks Pending, Tasks Done,
+  // Appointments — with Human/AI and Text/Call/Email filters underneath.
+  var mode=window._fuMode||'pending';
+  if(window._seqUp===undefined || (window._seqUpAt && Date.now()-window._seqUpAt>300000)){ try{ loadSeqUpcoming(); }catch(_e){} }
   var cn=fuChipCounts();
-  var chips='<div class="filter-bar">'
-    +'<div class="fchip '+(fuTypeFilter===''?'on':'')+'" onclick="fuTypeFilter=\'\';document.getElementById(\'content\').innerHTML=followupsHTML()">All ('+cn.all+')</div>'
-    +'<div class="fchip '+(fuTypeFilter==='fu'?'on':'')+'" onclick="fuTypeFilter=\'fu\';document.getElementById(\'content\').innerHTML=followupsHTML()">🗓 Follow-ups ('+cn.fu+')</div>'
-    +(cn.ai>0?'<div class="fchip '+(fuTypeFilter==='ai'?'on':'')+'" onclick="fuTypeFilter=\'ai\';document.getElementById(\'content\').innerHTML=followupsHTML()">\uD83E\uDD16 AI ('+cn.ai+')</div>':'')
-    +(cn.team>0?'<div class="fchip '+(fuTypeFilter==='team'?'on':'')+'" onclick="fuTypeFilter=\'team\';document.getElementById(\'content\').innerHTML=followupsHTML()">\uD83D\uDCCC To approve ('+cn.team+')</div>':'')
-    +'<div class="fchip '+(fuTypeFilter==='appt'?'on':'')+'" onclick="fuTypeFilter=\'appt\';document.getElementById(\'content\').innerHTML=followupsHTML()">📅 Appointments ('+cn.appt+')</div>'
-    +'<div class="fchip '+(fuTypeFilter==='done'?'on':'')+'" onclick="fuTypeFilter=\'done\';window._fuDone=undefined;document.getElementById(\'content\').innerHTML=followupsHTML()">\u2705 Done</div>'
+  var _re="document.getElementById('content').innerHTML=followupsHTML()";
+  var seg='<div class="segment">'
+    +'<button class="seg-btn '+(mode==='pending'?'on':'')+'" onclick="window._fuMode=\'pending\';'+_re+'">Tasks Pending'+(cn.pending?' ('+cn.pending+')':'')+'</button>'
+    +'<button class="seg-btn '+(mode==='done'?'on':'')+'" onclick="window._fuMode=\'done\';window._fuDone=undefined;'+_re+'">Tasks Done</button>'
+    +'<button class="seg-btn '+(mode==='appt'?'on':'')+'" onclick="window._fuMode=\'appt\';'+_re+'">Appointments'+(cn.appt?' ('+cn.appt+')':'')+'</button>'
     +'</div>';
-  if(fuTypeFilter==='approvals'){ fuTypeFilter=''; }
-  // futab-2: list vs calendar switched by ONE frozen floating button. The button
-  // is attached to the app shell (body), never to the scrolling page — page
-  // animations cancel 'fixed' positioning for anything inside them, which is
-  // why the first version drifted with the scroll.
-  var _main=window._fuMain||'today';
-  fuFabSync(_main);
-  if(_main==='cal') return fuCalendarHTML();
-  if(fuTypeFilter==='done') return chips + fuDoneHTML();
-  return '<div class="segment">'
-    +'<button class="seg-btn '+(fuSeg==='past'?'on':'')+'" onclick="fuSeg=\'past\';document.getElementById(\'content\').innerHTML=followupsHTML()">Past</button>'
-    +'<button class="seg-btn '+(fuSeg==='today'?'on':'')+'" onclick="fuSeg=\'today\';document.getElementById(\'content\').innerHTML=followupsHTML()">Today</button>'
-    +'<button class="seg-btn '+(fuSeg==='future'?'on':'')+'" onclick="if(fuSeg===\'future\'){openFuRange();}else{fuSeg=\'future\';document.getElementById(\'content\').innerHTML=followupsHTML();}">Upcoming'+(fuSeg==='future'?' \u25BE':'')+'</button>'
+  var timeSeg='<div class="segment" style="margin-top:2px">'
+    +'<button class="seg-btn '+(fuSeg==='past'?'on':'')+'" onclick="fuSeg=\'past\';'+_re+'">Past</button>'
+    +'<button class="seg-btn '+(fuSeg==='today'?'on':'')+'" onclick="fuSeg=\'today\';'+_re+'">Today</button>'
+    +'<button class="seg-btn '+(fuSeg==='future'?'on':'')+'" onclick="if(fuSeg===\'future\'){openFuRange();}else{fuSeg=\'future\';'+_re+';}">Upcoming'+(fuSeg==='future'?' \u25BE':'')+'</button>'
     +'</div>'
     +((fuSeg==='future' && window._fuRange)
       ? '<div style="padding:0 16px 6px;display:flex"><span style="display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--green);background:var(--greenl,#e7f8f3);border:1.5px solid var(--green);border-radius:20px;padding:5px 12px">\uD83D\uDCC5 '+window._fuRange.label+'<span onclick="fuRangeClear()" style="cursor:pointer;font-weight:800;padding:0 2px">\u2715</span></span></div>'
-      : '')
-    +chips
-    +taskListHTML();
+      : '');
+  var who=window._fuWho||'', chan=window._fuChan||'';
+  var chips='<div class="filter-bar">'
+    +'<div class="fchip '+((!who&&!chan)?'on':'')+'" onclick="window._fuWho=\'\';window._fuChan=\'\';'+_re+'">All</div>'
+    +'<div class="fchip '+(who==='human'?'on':'')+'" onclick="window._fuWho=(window._fuWho===\'human\'?\'\':\'human\');'+_re+'">\uD83D\uDC64 Human</div>'
+    +'<div class="fchip '+(who==='ai'?'on':'')+'" onclick="window._fuWho=(window._fuWho===\'ai\'?\'\':\'ai\');'+_re+'">\uD83E\uDD16 AI</div>'
+    +'<div class="fchip '+(chan==='sms'?'on':'')+'" onclick="window._fuChan=(window._fuChan===\'sms\'?\'\':\'sms\');'+_re+'">\uD83D\uDCAC Text</div>'
+    +'<div class="fchip '+(chan==='call'?'on':'')+'" onclick="window._fuChan=(window._fuChan===\'call\'?\'\':\'call\');'+_re+'">\uD83D\uDCDE Call</div>'
+    +'<div class="fchip '+(chan==='email'?'on':'')+'" onclick="window._fuChan=(window._fuChan===\'email\'?\'\':\'email\');'+_re+'">\uD83D\uDCE7 Email</div>'
+    +'</div>';
+  var _main=window._fuMain||'today';
+  fuFabSync(_main);
+  if(_main==='cal') return fuCalendarHTML();
+  if(mode==='done') return seg + chips + fuDoneHTML();
+  return seg + timeSeg + (mode==='appt' ? '' : chips) + taskListHTML(mode==='appt');
 }
 
 // ═══ APPROVALS — everything the AI wants a human yes/no on ═══
@@ -10297,18 +10298,29 @@ async function blkDelete(id, btn){
   }catch(e){ showToast('Could not remove that'); }
 }
 
-function taskListHTML(){
-  var f=tasks.concat(apptTaskItems()).filter(function(t){
+function taskListHTML(apptOnly){
+  // follow-4: Pending = human tasks + AI tasks + upcoming automated sequence
+  // steps (virtual cards, read from live enrollments). Appointments moved to
+  // their own view. Filters: window._fuWho ('human'|'ai') and window._fuChan
+  // ('sms'|'call'|'email').
+  var pool = apptOnly ? apptTaskItems() : tasks.concat(_seqTasks());
+  var f=pool.filter(function(t){
     if(t.done)return false;
+    if(!apptOnly && t._appt) return false;
     if(fuSeg==='today')return t.date===TOD;
     if(fuSeg==='past')return t.date<TOD;
     if(t.date<=TOD)return false;
     return _fuInRange(t.date);
   }).filter(function(t){
-    if(fuTypeFilter==='appt') return !!t._appt;
-    if(fuTypeFilter==='ai')   return t.type==='ai_call';
-    if(fuTypeFilter==='team') return _fuIsTeam(t);
-    if(fuTypeFilter==='fu')   return !t._appt && t.type!=='ai_call' && !_fuIsTeam(t);
+    if(apptOnly) return true;
+    var who=window._fuWho||'', chan=window._fuChan||'';
+    var isAi = !!t._seq || t.type==='ai_call';
+    if(who==='ai' && !isAi) return false;
+    if(who==='human' && isAi) return false;
+    if(chan){
+      var c = t._seq ? t.channel : (t.type==='ai_call' ? 'call' : '');
+      if(c!==chan) return false;
+    }
     return true;
   }).filter(function(t){
     if(!schQ) return true;
@@ -10319,16 +10331,16 @@ function taskListHTML(){
   }).filter(gfTaskInScope).sort(function(a,b){var ka=(a.date||'')+' '+(a.time||''),kb=(b.date||'')+' '+(b.time||'');return (window._fuSort==='latest')?kb.localeCompare(ka):ka.localeCompare(kb);});
 
   if(!f.length){
-    var icons={past:'🎉',today:'✅',future:'📅'};
-    var msgs={past:'No overdue tasks',today:'Nothing scheduled for today',future:'No upcoming tasks'};
+    var icons={past:'\ud83c\udf89',today:'\u2705',future:'\ud83d\udcc5'};
+    var msgs=apptOnly
+      ? {past:'No past appointments waiting on an outcome',today:'No appointments today',future:'No upcoming appointments'}
+      : {past:'No overdue tasks',today:'Nothing scheduled for today',future:'No upcoming tasks'};
     return'<div class="empty"><div class="empty-icon">'+icons[fuSeg]+'</div><div class="empty-t">'+(fuSeg==='today'?'All clear!':'Nothing here')+'</div><div class="empty-s">'+msgs[fuSeg]+'</div></div>';
   }
 
   var dotColors={past:'#cc0000',today:'#d97706',future:'#00a884'};
   var dc=dotColors[fuSeg];
 
-  // futab-1: compact view = grouped by day, slim cards, no buttons (tap the card
-  // or switch to expanded view for actions). Expanded view = exactly as before.
   var _compactFu = (window._fuView!=='detailed');
   function fuDayLabel(dstr){
     if(!dstr) return '';
@@ -10340,6 +10352,7 @@ function taskListHTML(){
     if(diff===-1) return 'Yesterday';
     return d.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'});
   }
+  var _seqCh={sms:'\uD83D\uDCAC Text',email:'\uD83D\uDCE7 Email',call:'\uD83D\uDCDE AI Call',task:'\uD83D\uDC64 Task'};
   var _lastDay='';
   return '<div class="lead-list">'
     +f.map(function(t){
@@ -10351,29 +10364,30 @@ function taskListHTML(){
       var _dpp=String(t.date||'').split('-');
       var _dl=(_dpp.length===3)?(parseInt(_dpp[2],10)+' '+(_MOS[(parseInt(_dpp[1],10)||1)-1]||'')):String(t.date||'');
       var _isAiFu = (t.type==='ai_call');
+      var _isSeq = !!t._seq;
       var _isTeam = _fuIsTeam(t);
       var _teamLock = _isTeam && String(t.note||'').indexOf('Approve & lock')!==-1;
       var _teamNote = _isTeam ? String(t.note||'').replace(/^\uD83D\uDCCC\s*/,'').replace(/^\u2705\s*Approve & lock:\s*/,'') : '';
-      var typeLbl = '<span style="flex-shrink:0;display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;color:'+(_isTeam?'#b45309':_isAiFu?'#7c3aed':'var(--text)')+';background:'+(_isTeam?'#fef3c7':_isAiFu?'#ede9fe':'var(--bg)')+';border:1px solid '+(_isTeam?'#fde68a':_isAiFu?'#ddd6fe':'var(--border)')+';border-radius:9px;padding:3px 7px;white-space:nowrap">'
-        + (_isTeam ? (_teamLock ? '\u2705 Approve & lock' : '\uD83D\uDCCC Approve time') : _isAiFu ? '\uD83E\uDD16 AI call' : t._appt ? '\uD83D\uDCC5 Appointment' : '\uD83D\uDDD3\uFE0F Follow-up') + '</span>';
+      var typeLbl = '<span style="flex-shrink:0;display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;color:'+(_isTeam?'#b45309':(_isAiFu||_isSeq)?'#7c3aed':'var(--text)')+';background:'+(_isTeam?'#fef3c7':(_isAiFu||_isSeq)?'#ede9fe':'var(--bg)')+';border:1px solid '+(_isTeam?'#fde68a':(_isAiFu||_isSeq)?'#ddd6fe':'var(--border)')+';border-radius:9px;padding:3px 7px;white-space:nowrap">'
+        + (_isTeam ? (_teamLock ? '\u2705 Approve & lock' : '\uD83D\uDCCC Approve time') : _isSeq ? ('\uD83E\uDD16 Sequence \u00b7 '+(_seqCh[t.channel]||t.channel)) : _isAiFu ? '\uD83E\uDD16 AI call' : t._appt ? '\uD83D\uDCC5 Appointment' : '\uD83D\uDDD3\uFE0F Follow-up') + '</span>';
       if(_compactFu){
-        // ── COMPACT: sticky day header once per date, then a slim card ──
         var head='';
         if(t.date!==_lastDay){ _lastDay=t.date; head='<div class="fu-day">'+fuDayLabel(t.date)+'</div>'; }
-        var tOnly=h12+':'+mm+' '+ap + (fuSeg==='past' ? ' &middot; Overdue' : '');
+        var tOnly=h12+':'+mm+' '+ap + (fuSeg==='past' ? (_isSeq ? ' &middot; Catching up' : ' &middot; Overdue') : '');
         return head
           + '<div class="fu-card">'
           + '<div style="display:flex;align-items:center;justify-content:space-between;gap:5px;margin-bottom:6px">'
           +   typeLbl
-          +   '<span style="font-size:11px;font-weight:800;color:'+dc+';white-space:nowrap">'+tOnly+'</span>'
+          +   '<span style="font-size:11px;font-weight:800;color:'+(_isSeq?'#7c3aed':dc)+';white-space:nowrap">'+tOnly+'</span>'
           + '</div>'
           + lRow(lead,false,false,true)
           + '</div>';
       }
-      var whenLbl = _dl+' '+h12+':'+mm+' '+ap + (fuSeg==='past' ? ' &middot; Overdue' : '');
-      // calendar-1: actions moved out of the header into one neutral bar under the card.
+      var whenLbl = _dl+' '+h12+':'+mm+' '+ap + (fuSeg==='past' ? (_isSeq ? ' &middot; Catching up' : ' &middot; Overdue') : '');
       var _abBtn=function(lbl,fn){ return '<button onclick="event.stopPropagation();'+fn+'">'+lbl+'</button>'; };
-      var actBar = '<div class="fu-actbar">' + (_isTeam
+      var actBar = _isSeq
+        ? '<div style="font-size:11.5px;color:#7c3aed;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:9px;padding:7px 10px;margin-top:6px">\u26A1 Sends by itself \u2014 it pauses the moment the lead replies anywhere.</div>'
+        : '<div class="fu-actbar">' + (_isTeam
         ? _abBtn('\u2705 Approve & book','fuTeamApprove('+t.id+',this)')
           + _abBtn('\uD83D\uDD52 Pick another time','fuTeamPick('+t.id+')')
           + _abBtn('\u2715 Dismiss','markDone('+t.id+')')
@@ -10391,15 +10405,73 @@ function taskListHTML(){
         + '<div style="display:flex;align-items:center;justify-content:space-between;gap:5px;margin-bottom:6px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch">'
         +   typeLbl
         +   '<span style="display:inline-flex;align-items:center;gap:5px;flex-wrap:nowrap;flex-shrink:0">'
-        +     '<span style="font-size:10.5px;font-weight:700;color:'+dc+';white-space:nowrap">'+whenLbl+'</span>'
+        +     '<span style="font-size:10.5px;font-weight:700;color:'+(_isSeq?'#7c3aed':dc)+';white-space:nowrap">'+whenLbl+'</span>'
         +   '</span>'
         + '</div>'
         + lRow(lead,false,true)
         + (_isTeam && _teamNote ? '<div style="font-size:12px;color:var(--sub);line-height:1.5;margin:6px 2px 0;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:8px 10px">\uD83E\uDD16 Heard on the call: '+_teamNote.replace(/</g,'&lt;')+'</div>' : '')
+        + (_isSeq && t.note ? '<div style="font-size:12px;color:var(--sub);line-height:1.5;margin:6px 2px 0;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:8px 10px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'+_escTxt(t.note)+'</div>' : '')
         + actBar
         + '</div>';
     }).join('')
     +'</div><div style="height:8px"></div>';
+}
+
+// \uD83E\uDD16 UPCOMING SEQUENCE STEPS \u2014 what the follow-up engine will do next,
+// read straight from live enrollments so the tab is never blind to an
+// automated text/email/call that is already on the clock.
+async function loadSeqUpcoming(){
+  if(window._seqUpLoading) return;
+  window._seqUpLoading=true;
+  try{
+    var cid=window._clientId;
+    if(!cid){ window._seqUp=[]; }
+    else{
+      var r=await sbFetch('/rest/v1/playbook_enrollments?client_id=eq.'+encodeURIComponent(cid)+'&status=eq.active&next_at=not.is.null&select=lead_id,campaign_id,stage_key,next_step_no,next_at&limit=400');
+      var en=r.ok?await r.json():[];
+      var cids={}; (en||[]).forEach(function(e){ if(e.campaign_id) cids[e.campaign_id]=1; });
+      var stepMap={}; var keys=Object.keys(cids);
+      if(keys.length){
+        var r2=await sbFetch('/rest/v1/playbook_steps?campaign_id=in.('+keys.join(',')+')&select=campaign_id,stage_key,step_no,channel,subject,body&limit=600');
+        var st=r2.ok?await r2.json():[];
+        (st||[]).forEach(function(s){ stepMap[s.campaign_id+'|'+s.stage_key+'|'+s.step_no]=s; });
+      }
+      // Only show steps that will genuinely send: the campaign master AND the
+      // step's stage rail must both be ON (the engine checks the same rails).
+      var rails={};
+      if(keys.length){
+        var r3=await sbFetch('/rest/v1/playbook_stages?campaign_id=in.('+keys.join(',')+')&select=campaign_id,stage_key,active&limit=300');
+        var rl=r3.ok?await r3.json():[];
+        (rl||[]).forEach(function(x){ rails[x.campaign_id+'|'+x.stage_key]=(x.active===true); });
+      }
+      window._seqUp=(en||[]).map(function(e){
+        if(rails[e.campaign_id+'|_master']===false) return null;
+        if(rails[e.campaign_id+'|'+e.stage_key]!==true) return null;
+        var s=stepMap[e.campaign_id+'|'+e.stage_key+'|'+e.next_step_no]||{};
+        var prev=String((s.channel==='email'&&s.subject)?s.subject:(s.body||'')).slice(0,120);
+        return { lead_db:e.lead_id, next_at:e.next_at, channel:s.channel||'sms', preview:prev };
+      }).filter(function(x){ return !!x; });
+    }
+  }catch(e){ window._seqUp=[]; }
+  window._seqUpLoading=false; window._seqUpAt=Date.now();
+  try{
+    if(curTab==='followups'){ var c=document.getElementById('content'); if(c) c.innerHTML=followupsHTML(); }
+    var _lsc=document.getElementById('leadScreen');
+    if(_lsc && _lsc.classList.contains('open') && curLid!=null && typeof renderLeadScreen==='function') renderLeadScreen(curLid);
+  }catch(_e){}
+}
+function _seqTasks(){
+  var out=[];
+  (window._seqUp||[]).forEach(function(s,i){
+    var lead=(window.leads||[]).find(function(l){ return String(l.dbId)===String(s.lead_db); });
+    if(!lead) return;
+    var d=new Date(s.next_at); if(isNaN(d.getTime())) return;
+    var p=function(n){ return (n<10?'0':'')+n; };
+    out.push({ _seq:true, id:'sq'+i, lid:lead.id, type:'seq', channel:s.channel,
+      date:d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()),
+      time:p(d.getHours())+':'+p(d.getMinutes()), note:s.preview||'', done:false });
+  });
+  return out;
 }
 
 // \u2705 DONE HISTORY \u2014 completed tasks stay visible with a checkmark, so the
@@ -10410,10 +10482,23 @@ function fuDoneHTML(){
   var rows=window._fuDone||[];
   var q=(schQ||'').toLowerCase();
   if(q) rows=rows.filter(function(r){ return String(r.note||'').toLowerCase().indexOf(q)!==-1 || String(r.lead_name||'').toLowerCase().indexOf(q)!==-1; });
-  var today=0; rows.forEach(function(r){ if(String(r.due_at||'').slice(0,10)===TOD) today++; });
+  // follow-4: one classifier for every finished task — icon, label, colours,
+  // who did it and on which channel, so the filter chips work here too.
+  function _dk(r){
+    var note=String(r.note||'');
+    if(r.type==='ai_call') return {ic:'\uD83E\uDD16',lbl:'AI call',bg:'#ede9fe',fg:'#6d28d9',who:'ai',chan:'call'};
+    if(note.indexOf('\uD83D\uDCCC')===0) return {ic:'\uD83D\uDCCC',lbl:'Approved time',bg:'#fef3c7',fg:'#b45309',who:'human',chan:''};
+    if(note.indexOf('\uD83D\uDCD6')===0) return {ic:'\uD83D\uDCD6',lbl:'Sequence step',bg:'#f5f3ff',fg:'#6d28d9',who:'ai',chan:''};
+    if(r.type==='meeting') return {ic:'\uD83D\uDCC5',lbl:'Appointment',bg:'#e7f8f3',fg:'var(--green)',who:'human',chan:''};
+    return {ic:'\uD83D\uDDD3\uFE0F',lbl:'Follow-up',bg:'var(--bg)',fg:'var(--text)',who:'human',chan:''};
+  }
+  var who=window._fuWho||'', chan=window._fuChan||'';
+  rows=rows.filter(function(r){ var k=_dk(r); if(who&&k.who!==who) return false; if(chan&&k.chan!==chan) return false; return true; });
+  var today=0, nAi=0;
+  rows.forEach(function(r){ if(String(r.due_at||'').slice(0,10)===TOD) today++; if(_dk(r).who==='ai') nAi++; });
   var h='<div style="margin:4px 16px 10px;display:flex;gap:8px;align-items:center;border:1.5px solid var(--green);background:#e7f8f3;border-radius:12px;padding:11px 13px">'
     +'<span style="font-size:17px">\u2705</span>'
-    +'<div style="font-size:12.5px;color:var(--text);line-height:1.45"><b>'+today+'</b> task'+(today===1?'':'s')+' completed today \u00b7 <b>'+rows.length+'</b> in the last 30 days</div>'
+    +'<div style="font-size:12.5px;color:var(--text);line-height:1.45"><b>'+today+'</b> completed today \u00b7 <b>'+rows.length+'</b> in the last 30 days'+(nAi?' \u00b7 <b>'+nAi+'</b> by the AI':'')+'</div>'
     +'</div>';
   if(!rows.length) return h+'<div class="empty"><div class="empty-icon">\uD83C\uDF31</div><div class="empty-t">No finished tasks yet</div><div class="empty-s">Completed follow-ups will appear here with a checkmark.</div></div>';
   var _MOS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -10429,16 +10514,21 @@ function fuDoneHTML(){
     }
     var d=new Date(r.due_at);
     var tl=isNaN(d.getTime())?'':d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'});
-    var note=String(r.note||'');
-    var kind=(r.type==='ai_call')?'\uD83E\uDD16 AI call':(note.indexOf('📌')===0)?'📌 Approve card':(note.indexOf('📖')===0)?'📖 Sequence step':'\uD83D\uDDD3\uFE0F Follow-up';
-    h+='<div class="fu-card" style="opacity:.78">'
-      +'<div style="display:flex;align-items:center;justify-content:space-between;gap:5px;margin-bottom:4px">'
-      +'<span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;color:var(--green);background:#e7f8f3;border:1px solid var(--green);border-radius:9px;padding:3px 7px;white-space:nowrap">\u2713 Done \u00b7 '+kind+'</span>'
+    var note=String(r.note||'').replace(/^\uD83D\uDCCC\s*/,'').replace(/^\uD83D\uDCD6\s*/,'');
+    var k=_dk(r);
+    h+='<div class="fu-card" style="display:flex;gap:10px;align-items:flex-start">'
+      +'<div style="width:36px;height:36px;border-radius:10px;background:'+k.bg+';display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0">'+k.ic+'</div>'
+      +'<div style="flex:1;min-width:0">'
+      +'<div style="display:flex;align-items:center;justify-content:space-between;gap:6px">'
+      +'<span style="display:inline-flex;align-items:center;gap:6px;min-width:0">'
+      +'<span style="font-size:10.5px;font-weight:800;color:var(--green);background:#e7f8f3;border:1px solid var(--green);border-radius:8px;padding:2px 6px;white-space:nowrap">\u2713 Done</span>'
+      +'<span style="font-size:11px;font-weight:800;color:'+k.fg+';white-space:nowrap">'+k.lbl+'</span>'
+      +'</span>'
       +'<span style="font-size:11px;font-weight:700;color:var(--sub);white-space:nowrap">'+tl+'</span>'
       +'</div>'
-      +'<div style="font-size:13px;font-weight:700;color:var(--text)">'+_escTxt(r.lead_name||'Lead')+'</div>'
-      +(note?'<div style="font-size:12px;color:var(--sub);line-height:1.45;margin-top:3px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'+_escTxt(note)+'</div>':'')
-      +'</div>';
+      +'<div style="font-size:13px;font-weight:700;color:var(--text);margin-top:3px">'+_escTxt(r.lead_name||'Lead')+'</div>'
+      +(note?'<div style="font-size:12px;color:var(--sub);line-height:1.45;margin-top:2px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'+_escTxt(note)+'</div>':'')
+      +'</div></div>';
   });
   return h+'</div><div style="height:8px"></div>';
 }
@@ -10448,7 +10538,7 @@ async function loadFuDone(){
     var r=await sbFetch('/rest/v1/followups?done=eq.true&due_at=gt.'+encodeURIComponent(since)+'&order=due_at.desc&limit=300&select=id,lead_id,lead_name,type,note,due_at');
     window._fuDone=r.ok?await r.json():[];
   }catch(e){ window._fuDone=[]; }
-  if(curTab==='followups'&&fuTypeFilter==='done'){ var c=document.getElementById('content'); if(c) c.innerHTML=followupsHTML(); }
+  if(curTab==='followups'&&(window._fuMode==='done')){ var c=document.getElementById('content'); if(c) c.innerHTML=followupsHTML(); }
 }
 function markDone(id){
   var t=tasks.find(function(x){return x.id===id});
@@ -10457,7 +10547,8 @@ function markDone(id){
   if(t.dbId){ sbFetch('/rest/v1/followups?id=eq.'+t.dbId,{method:'PATCH',body:JSON.stringify({done:true})}).catch(function(){}); }
   showToast('Marked done');
   window._fuDone=undefined;
-  document.getElementById('content').innerHTML=followupsHTML();
+  if(curTab==='followups'){ var c=document.getElementById('content'); if(c) c.innerHTML=followupsHTML(); }
+  try{ var _lsc=document.getElementById('leadScreen'); if(_lsc && _lsc.classList.contains('open') && curLid!=null) renderLeadScreen(curLid); }catch(_e){}
 }
 
 // ═══ 📌 TEAM CARDS — approve / re-pick the AI-detected appointment time ═══
@@ -10491,6 +10582,7 @@ function fuTeamApprove(taskId, btn){
       try{ sbFetch('/rest/v1/activity_log',{ method:'POST', body: JSON.stringify({ lead_id: lead.dbId||null, client_id: window._clientId||null, type:'note', label:'Appointment approved', body:'Booked for '+pretty+' \u2014 approved from the AI-detected time card.', meta:{ to: iso }, created_at:new Date().toISOString() }) }); }catch(_e){}
       showToast('&#x2705; Appointment booked for '+pretty);
       if(curTab==='followups'){ var c=document.getElementById('content'); if(c) c.innerHTML=followupsHTML(); }
+      try{ var _lsc=document.getElementById('leadScreen'); if(_lsc && _lsc.classList.contains('open') && curLid!=null) renderLeadScreen(curLid); }catch(_e){}
     })
     .catch(function(){ if(btn){ btn.disabled=false; btn.textContent='\u2705 Approve & book'; } showToast('Could not book \u2014 try again'); });
 }
@@ -12890,69 +12982,64 @@ function renderPlaybook(){
       +'</div>';
     return;
   }
-  // follow-2: ONE smart sequence. Stage handling is automatic (booked stops it,
-  // a clear no kills it, any reply pauses it) \u2014 the client keeps exactly two
-  // decisions: the Master switch and Review mode. Timing is platform law.
-  var seqKey=_pbSteps.some(function(s){ return String(s.stage_key)==='1'; }) ? '1' : null;
-  var seq=(seqKey?_pbSteps.filter(function(s){ return String(s.stage_key)===seqKey; }):_pbSteps.slice())
-    .sort(function(a,b){ return (Number(a.delay_hours)||0)-(Number(b.delay_hours)||0) || (Number(a.step_no)||0)-(Number(b.step_no)||0); });
-  var h='<div class="cs-note" style="margin-top:0">One smart sequence. It pauses the instant a lead responds anywhere \u2014 text, call, or email \u2014 and the AI takes that conversation toward a booking. Tap any message to edit the wording; the timing is locked in as a safety rule.</div>';
+  // follow-4: the staged plan is back for everyone — Ajax wants clients to
+  // SEE which message goes out at which stage. Clients can flip stage rails
+  // and edit wording; timing, channels, add and delete stay Adviuz-only
+  // (locked in _pbStepHtml / pbSaveStep — a client save can never move a
+  // step's clock).
+  var staff=!!window._isAdviuzStaff;
+  var h='<div class="cs-note" style="margin-top:0">Your follow-up plan runs in stages that mirror the lead\u2019s journey. When a lead reaches a stage, that stage\u2019s messages go out on their built-in timers. Tap any message to change the wording'+(staff?'':' — the timing is locked in as a safety rule')+'. Everything pauses the instant a lead replies anywhere.</div>';
   var mOn=(_pbStages['_master']!==false);
   h+='<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;margin-top:12px;border:1.5px solid '+(mOn?'var(--green)':'var(--border)')+';border-radius:12px;background:'+(mOn?'#e7f8f3':'var(--bg)')+'">'
     +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:800;color:var(--text)">\u26A1 Follow-ups on</div>'
-    +'<div style="font-size:11px;color:'+(mOn?'var(--green)':'#b45309')+';font-weight:600">'+(mOn?'The sequence is live':'Everything is PAUSED \u2014 nothing sends until this is back on')+'</div></div>'
+    +'<div style="font-size:11px;color:'+(mOn?'var(--green)':'#b45309')+';font-weight:600">'+(mOn?'The plan is live':'Everything is PAUSED — nothing sends until this is back on')+'</div></div>'
     +'<label style="display:flex;align-items:center;cursor:pointer"><input type="checkbox" '+(mOn?'checked':'')+' onchange="pbMaster(this)" style="width:19px;height:19px;accent-color:var(--green)"></label>'
     +'</div>';
   var rv=(window._pbReview!==false);
   h+='<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;margin-top:8px;border:1px solid var(--border);border-radius:12px;background:var(--white)">'
     +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:800;color:var(--text)">\u270B Review mode</div>'
-    +'<div style="font-size:11px;color:var(--sub)">'+(rv?'AI drafts each text and email \u2014 you tap Approve in the Inbox before anything sends':'AI messages send on their own, no tap needed')+'</div></div>'
+    +'<div style="font-size:11px;color:var(--sub)">'+(rv?'AI drafts each text and email — you tap Approve in the Inbox before anything sends':'AI messages send on their own, no tap needed')+'</div></div>'
     +'<label style="display:flex;align-items:center;cursor:pointer"><input type="checkbox" '+(rv?'checked':'')+' onchange="pbReviewToggle(this)" style="width:19px;height:19px;accent-color:var(--green)"></label>'
     +'</div>';
   var en=window._pbEnr;
   if(en){
     h+='<div style="display:flex;gap:8px;align-items:center;margin-top:10px;padding:9px 12px;border:1px solid var(--border);border-radius:11px;background:var(--bg);font-size:12px;color:var(--text)">'
       +'<span style="font-size:14px">\uD83D\uDC65</span>'
-      +'<span style="flex:1"><b>'+en.active+'</b> in the sequence right now'
-      +(en.talking?' \u00b7 <b>'+en.talking+'</b> paused \u2014 talking with the AI':'')
+      +'<span style="flex:1"><b>'+en.active+'</b> in the plan right now'
+      +(en.talking?' \u00b7 <b>'+en.talking+'</b> paused — talking with the AI':'')
       +((en.paused-en.talking)>0?' \u00b7 <b>'+(en.paused-en.talking)+'</b> paused':'')
       +'</span></div>';
   }
   h+='<button onclick="pbTrackerToggle()" style="width:100%;margin-top:8px;padding:10px;border:1px solid var(--border);border-radius:11px;background:var(--white);color:var(--text);font-size:12.5px;font-weight:700;cursor:pointer;font-family:var(--f)">\uD83D\uDC65 Who\u2019s in the sequence right now?</button>'
     +'<div id="pbTrackBox" style="display:none"></div>';
-  h+='<div style="margin-top:14px;font-size:11px;font-weight:800;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;padding:0 2px">The sequence</div>'
-    +'<div style="margin-top:6px;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--white)">';
-  seq.forEach(function(s){ h+=_pbStepHtml(s); });
-  h+='</div>';
+  // — the staged plan, one rail per pipeline stage —
+  PB_ORDER.forEach(function(key){
+    var steps=_pbSteps.filter(function(s){ return String(s.stage_key)===key; })
+      .sort(function(a,b){ return (Number(a.delay_hours)||0)-(Number(b.delay_hours)||0) || (Number(a.step_no)||0)-(Number(b.step_no)||0); });
+    if(!steps.length && !staff) return;
+    var on=_pbStages[key]===true;
+    h+='<div style="margin-top:12px;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--white)'+(on?'':';opacity:.8')+'">'
+      +'<div style="display:flex;align-items:center;gap:10px;padding:11px 13px;background:'+(on?'#e7f8f3':'var(--bg)')+'">'
+      +'<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:800;color:var(--text)">'+(PB_NAMES[key]||('Stage '+key))+'</div>'
+      +'<div style="font-size:10.5px;color:'+(on?'var(--green)':'var(--sub)')+';font-weight:600">'+steps.length+' step'+(steps.length===1?'':'s')+' \u00b7 '+(on?'running':'switched off')+'</div></div>'
+      +'<label style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:'+(on?'var(--green)':'var(--sub)')+';cursor:pointer">'
+      +(on?'ON':'OFF')+'<input type="checkbox" '+(on?'checked':'')+' onchange="pbToggleStage(\''+key+'\',this)" style="width:17px;height:17px;accent-color:var(--green)"></label>'
+      +'</div>';
+    steps.forEach(function(s){ h+=_pbStepHtml(s); });
+    if(staff) h+='<div style="padding:6px 12px 10px;border-top:1px solid var(--border)"><button onclick="pbAddStep(\''+key+'\')" style="width:100%;padding:8px;border:1px dashed var(--border);border-radius:9px;background:var(--white);color:var(--sub);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">\u2795 Add a step (Adviuz)</button></div>';
+    h+='</div>';
+  });
   h+='<div style="margin-top:12px;border:1.5px solid #93c5fd;border-radius:12px;background:#eff6ff;padding:11px 13px">'
     +'<div style="font-size:12.5px;font-weight:800;color:#1d4ed8;margin-bottom:4px">\uD83D\uDCAC While a lead is talking</div>'
-    +'<div style="font-size:12px;color:#1e40af;line-height:1.55">The moment a lead responds on any channel, this sequence freezes for them. The AI works that live conversation toward a booking \u2014 with one gentle wake-up if they go quiet \u2014 and the sequence only resumes after a full day of silence.</div>'
+    +'<div style="font-size:12px;color:#1e40af;line-height:1.55">The moment a lead responds on any channel, their sequence freezes. The AI works that live conversation toward a booking — with one gentle wake-up if they go quiet — and the sequence only resumes after a full day of silence.</div>'
     +'</div>';
   h+='<div style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;padding:0 2px">'
     +'<span style="font-size:15px;color:var(--green)">\uD83D\uDEE1</span>'
-    +'<div style="font-size:11.5px;color:var(--sub);line-height:1.6">Safety built in: max 2 touches a day \u00b7 only 9 AM\u20137 PM in the lead\u2019s own timezone \u00b7 any reply pauses everything \u00b7 a clear \u201cno\u201d stops it permanently \u00b7 ends politely at the last step and parks the lead as a Future Prospect.</div>'
+    +'<div style="font-size:11.5px;color:var(--sub);line-height:1.6">Safety built in: max 2 touches a day \u00b7 only 9 AM\u20137 PM in the lead\u2019s own timezone \u00b7 any reply pauses everything \u00b7 a clear \u201Cno\u201D stops it permanently \u00b7 ends politely at the last step and parks the lead as a Future Prospect.</div>'
     +'</div>';
-  if(window._isAdviuzStaff){
-    h+='<div style="margin-top:18px;border-top:1px dashed var(--border);padding-top:12px">'
-      +'<button onclick="var b=document.getElementById(\'pbAdvBox\');b.style.display=(b.style.display===\'none\'?\'block\':\'none\')" style="width:100%;padding:9px;border:1px dashed var(--border);border-radius:10px;background:var(--white);color:var(--sub);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">\uD83D\uDD27 Advanced \u2014 Adviuz only</button>'
-      +'<div id="pbAdvBox" style="display:none">'
-      +'<div class="cs-note" style="margin-top:10px">Stage rails, timing and channels live here and in the admin panel\u2019s ladder view \u2014 clients never see this section.</div>';
-    PB_ORDER.forEach(function(key){
-      var steps=_pbSteps.filter(function(s){ return String(s.stage_key)===key; });
-      var on=_pbStages[key]===true;
-      h+='<div style="margin-top:10px;border:1px solid var(--border);border-radius:12px;overflow:hidden">'
-        +'<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:'+(on?'#e7f8f3':'var(--bg)')+'">'
-        +'<div style="flex:1;font-size:12.5px;font-weight:800;color:var(--text)">'+(PB_NAMES[key]||('Stage '+key))+' \u00b7 '+steps.length+' step'+(steps.length===1?'':'s')+'</div>'
-        +'<label style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:'+(on?'var(--green)':'var(--sub)')+';cursor:pointer">'
-        +(on?'ON':'OFF')+'<input type="checkbox" '+(on?'checked':'')+' onchange="pbToggleStage(\''+key+'\',this)" style="width:17px;height:17px;accent-color:var(--green)"></label>'
-        +'</div>';
-      if(seqKey && key!==seqKey){ steps.forEach(function(s){ h+=_pbStepHtml(s); }); }
-      h+='<div style="padding:6px 12px 10px"><button onclick="pbAddStep(\''+key+'\')" style="width:100%;padding:8px;border:1px dashed var(--border);border-radius:9px;background:var(--white);color:var(--sub);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">\u2795 Add a step</button></div>'
-        +'</div>';
-    });
-    h+='<button onclick="pbGen(true)" style="width:100%;margin-top:12px;padding:11px;border:1px solid var(--border);border-radius:10px;background:var(--white);color:var(--sub);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">\u267B\uFE0F Rewrite the whole follow-up plan with AI</button>'
-      +'<div style="font-size:11px;color:var(--sub);margin-top:6px;text-align:center">Rewriting replaces every message, including edits. It asks first.</div>'
-      +'</div></div>';
+  if(staff){
+    h+='<button onclick="pbGen(true)" style="width:100%;margin-top:14px;padding:11px;border:1px solid var(--border);border-radius:10px;background:var(--white);color:var(--sub);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">\u267B\uFE0F Rewrite the whole follow-up plan with AI (Adviuz)</button>'
+      +'<div style="font-size:11px;color:var(--sub);margin-top:6px;text-align:center">Rewriting replaces every message, including edits. It asks first.</div>';
   }
   el.innerHTML=h;
 }
@@ -14953,6 +15040,46 @@ function renderLeadScreen(id) {
 
   h += '</div>'; // end info card
   h += '<div style="height:4px;background:var(--bg)"></div>';
+
+  // ── \uD83D\uDCCC Approve / Reschedule / Cancel — the AI heard a preferred time
+  //    on a call. Same approval path as the Follow-ups tab (fuTeamApprove /
+  //    fuTeamPick / markDone — one booking path, no drift); shown here too so
+  //    a team member landing on the lead sees it at once.
+  var _tmTask=(typeof tasks!=='undefined'&&typeof _fuIsTeam==='function')?tasks.find(function(t){ return !t.done && t.lid===l.id && _fuIsTeam(t); }):null;
+  if(_tmTask){
+    var _tmTz=l.timezone||tzFromPhone(l.ph)||'America/Toronto';
+    var _tmWhen='';
+    try{ _tmWhen=_tmTask.dueIso?fmtApptLocal(new Date(_tmTask.dueIso).toISOString(),_tmTz):''; }catch(_e){}
+    var _tmNote=String(_tmTask.note||'').replace(/^\uD83D\uDCCC\s*/,'').replace(/^\u2705\s*Approve & lock:\s*/,'');
+    var _tmBtn=function(lbl,fn,color){ return '<button onclick="'+fn+'" style="flex:1;padding:9px 6px;border-radius:11px;border:1.5px solid '+color+';background:var(--white);color:'+color+';font-size:12.5px;font-weight:700;cursor:pointer;font-family:var(--f);white-space:nowrap">'+lbl+'</button>'; };
+    h += '<div style="background:var(--white);padding:12px 16px 2px">'
+      + '<div style="background:#fffbeb;border:1.5px solid #f59e0b;border-radius:14px;padding:13px 15px">'
+      +   '<div style="font-size:11px;font-weight:800;color:#b45309;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">\uD83D\uDCCC AI heard a time on the call</div>'
+      +   (_tmWhen?'<div style="font-size:15px;font-weight:700;color:var(--text);line-height:1.4">'+_tmWhen+' <span style="font-size:12px;color:var(--sub);font-weight:600">('+tzShortLabel(_tmTz)+')</span></div>':'')
+      +   (_tmNote?'<div style="font-size:12px;color:#92400e;margin-top:4px;line-height:1.5">'+_tmNote.replace(/</g,'&lt;')+'</div>':'')
+      +   '<div style="display:flex;gap:8px;margin-top:11px">'
+      +     _tmBtn('\u2705 Approve','fuTeamApprove('+_tmTask.id+',this)','var(--green)')
+      +     _tmBtn('\uD83D\uDD52 Reschedule','fuTeamPick('+_tmTask.id+')','var(--blue,#2563eb)')
+      +     _tmBtn('\u2715 Cancel','markDone('+_tmTask.id+')','var(--red,#dc2626)')
+      +   '</div>'
+      + '</div></div>';
+  }
+
+  // \uD83E\uDD16 Next automated step — read from the live sequence enrollment, so the
+  //    team can always answer "what happens to this lead next?"
+  var _sqIt=(window._seqUp||[]).find(function(s){ return String(s.lead_db)===String(l.dbId); });
+  if(_sqIt && _sqIt.next_at){
+    var _sqD=new Date(_sqIt.next_at);
+    var _sqWhen=isNaN(_sqD.getTime())?'':_sqD.toLocaleString('en-CA',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+    var _sqCh=({sms:'\uD83D\uDCAC Text',email:'\uD83D\uDCE7 Email',call:'\uD83D\uDCDE AI Call',task:'\uD83D\uDC64 Task for the team'})[_sqIt.channel]||_sqIt.channel;
+    h += '<div style="background:var(--white);padding:12px 16px 2px">'
+      + '<div style="border:1.5px solid #ddd6fe;background:#f5f3ff;border-radius:14px;padding:11px 14px">'
+      + '<div style="font-size:11px;font-weight:800;color:#6d28d9;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">\uD83E\uDD16 Automated follow-up \u00b7 next step</div>'
+      + '<div style="font-size:13px;font-weight:700;color:var(--text)">'+_sqCh+(_sqWhen?' \u00b7 '+_sqWhen:'')+'</div>'
+      + (_sqIt.preview?'<div style="font-size:12px;color:var(--sub);margin-top:3px;line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'+_escTxt(_sqIt.preview)+'</div>':'')
+      + '<div style="font-size:11px;color:#7c3aed;margin-top:4px">Sends by itself — it pauses the moment the lead replies.</div>'
+      + '</div></div>';
+  } else if(window._seqUp===undefined && l.dbId){ try{ loadSeqUpcoming(); }catch(_e){} }
 
   // ── Appointment card — shown until an outcome is recorded. Upcoming =
   //    green with Reschedule/Cancel; time passed = amber with Done/No-show,
