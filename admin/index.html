@@ -678,7 +678,7 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       <div style="flex:1;min-width:0">
         <div class="admin-name" id="adminDisplayName">Super Admin</div>
         <div class="admin-role">Adviuz Admin</div>
-        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-09-03 ladder-1</div>
+        <div id="adminVersionStamp" style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;font-family:monospace">v2026-09-03 ladder-2</div>
       </div>
       <button onclick="doAdminLogout()" title="Sign out"
         style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.35);padding:4px;border-radius:6px;transition:color 0.15s;flex-shrink:0"
@@ -5742,6 +5742,14 @@ function openEditCampaign(btn) {
     +   '<option value="auto">Automatically call every new lead</option>'
     + '</select>'
     + '<div style="font-size:10px;color:var(--muted);margin-top:4px">Automatic calls only go out between 8 AM and 9 PM, and never to leads who opted out.</div></div>'
+    // ladder-2: Booking mode — the source of truth for whether this campaign's
+    // AI books straight into a calendar or hands the caller to a person.
+    + '<div class="form-group"><label class="fld">Booking mode &mdash; how appointments get booked</label>'
+    + '<select class="fld" id="ecam-ai-bookmode">'
+    +   '<option value="ai_books">AI books straight into the calendar</option>'
+    +   '<option value="transfer">No calendar &mdash; AI transfers to a person to book</option>'
+    + '</select>'
+    + '<div style="font-size:10px;color:var(--muted);margin-top:4px">Clients with a live calendar let the AI pick a slot and book it on the call. Clients without one get a warm transfer to a person instead, and the team confirms times from the hub&apos;s \uD83D\uDCCC approve card.</div></div>'
     + '<button type="button" class="btn-save" style="width:100%" onclick="saveCamAiCalling()">\uD83D\uDCBE Save AI calling settings</button>'
     + '</div>'
     // ── Card 3: Retell AI connection & this number's agents ──
@@ -6733,6 +6741,7 @@ function _ecamFillAiCalling(ai){
   var inb=document.getElementById('ecam-ai-inbound-on'); if(inb) inb.checked=(ai.inbound_on===true);
   var out=document.getElementById('ecam-ai-outbound-on'); if(out) out.checked=(ai.outbound_on===true);
   var om=document.getElementById('ecam-ai-outmode'); if(om) om.value=(ai.outbound_mode==='auto')?'auto':'manual';
+  var bm=document.getElementById('ecam-ai-bookmode'); if(bm) bm.value=(ai.booking_mode==='transfer')?'transfer':'ai_books';
   var sm=document.getElementById('ecam-ai-sched-mode'); if(sm) sm.value=(sch.mode==='window')?'window':'always';
   var st=document.getElementById('ecam-ai-start'); if(st && sch.start) st.value=sch.start;
   var en=document.getElementById('ecam-ai-end'); if(en && sch.end) en.value=sch.end;
@@ -6850,7 +6859,8 @@ async function saveCamAiCalling(){
     },
     tz: _ecamVal('ecam-ai-tz')||'America/Toronto',
     outbound_on: chk('ecam-ai-outbound-on'),
-    outbound_mode: _ecamVal('ecam-ai-outmode')==='auto'?'auto':'manual'
+    outbound_mode: _ecamVal('ecam-ai-outmode')==='auto'?'auto':'manual',
+    booking_mode: _ecamVal('ecam-ai-bookmode')==='transfer'?'transfer':'ai_books'
   };
   try{
     // Merge into settings fresh, so we never clobber welcome/appt/email keys.
@@ -6858,7 +6868,10 @@ async function saveCamAiCalling(){
     var grows=gr.ok?await gr.json():[];
     var st=(grows&&grows[0]&&grows[0].settings)||{};
     if(typeof st==='string'){ try{ st=JSON.parse(st); }catch(e){ st={}; } }
-    st.ai=ai;
+    // ladder-2: MERGE into settings.ai instead of replacing it \u2014 a straight
+    // replace was silently wiping keys this form doesn't own (the client's
+    // Review-mode approvals, transfer windows, etc.) on every admin save.
+    st.ai=Object.assign({}, (st.ai&&typeof st.ai==='object')?st.ai:{}, ai);
     var ok=await _ecamPatch({ settings: st }, '\u2705 AI calling settings saved');
     if(ok){
       var cam=(window._allCampaigns||[]).find(function(c){ return String(c.id)===String(id); });
