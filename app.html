@@ -4434,7 +4434,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-06 aipay-1';
+var APP_VERSION = 'v2026-09-07 aibuy-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -23882,11 +23882,32 @@ function clientCampaignListHTML() {
       +    '<button onclick="openAddBalanceSheet()" data-action="openAddBalanceSheet" style="margin-top:14px;width:100%;padding:13px;border-radius:11px;background:#fff;color:#001f3f;border:none;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer">+ Add Balance</button>'
       +  '</div>';
   } else {
+  // aibuy-1: the blue card is split \u2014 Flyer Views left, AI Minutes right.
+  // The AI half only appears when the client has at least one active AI tank
+  // (any business type); until fuel data loads it stays hidden and
+  // updateWalletAiHalf() reveals it without re-rendering the dashboard.
+  var _wcai = (typeof _wcAiInfo==='function') ? _wcAiInfo() : {total:0,count:0};
+  var _wcaiShow = _wcai.count>0;
   h += '<div style="background:linear-gradient(135deg,#001f3f,#0c2d4f);border-radius:16px;padding:18px;margin-bottom:14px;color:#fff">'
-    +    '<div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.7);letter-spacing:.07em;text-transform:uppercase">Wallet Balance</div>'
-    +    '<div style="font-size:34px;font-weight:800;margin-top:6px;letter-spacing:-.02em;line-height:1">'+bal+' <span style="font-size:14px;font-weight:600;color:rgba(255,255,255,.75)">Flyer Views</span></div>'
-    +    '<div style="font-size:11px;color:rgba(255,255,255,.6);margin-top:5px">'+inCampaigns+' in campaigns \u00B7 '+unallotted+' unallotted</div>'
-    +    '<button onclick="openAddBalanceSheet()" data-action="openAddBalanceSheet" style="margin-top:14px;width:100%;padding:13px;border-radius:11px;background:#fff;color:#001f3f;border:none;font-family:var(--f);font-size:14px;font-weight:800;cursor:pointer">+ Add Balance</button>'
+    +    '<div style="display:flex;gap:14px;align-items:stretch">'
+    +      '<div style="flex:1;min-width:0">'
+    +        '<div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.7);letter-spacing:.07em;text-transform:uppercase">Wallet Balance</div>'
+    +        '<div style="font-size:27px;font-weight:800;margin-top:6px;letter-spacing:-.02em;line-height:1">'+bal+'</div>'
+    +        '<div style="font-size:11.5px;font-weight:700;color:rgba(255,255,255,.78);margin-top:3px">Flyer Views</div>'
+    +        '<div style="font-size:10.5px;color:rgba(255,255,255,.6);margin-top:4px">'+inCampaigns+' in campaigns \u00B7 '+unallotted+' unallotted</div>'
+    +      '</div>'
+    +      '<div id="wcAiDiv" style="width:1px;background:rgba(255,255,255,.16);'+(_wcaiShow?'':'display:none')+'"></div>'
+    +      '<div id="wcAiWrap" style="flex:1;min-width:0;'+(_wcaiShow?'':'display:none')+'">'
+    +        '<div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.7);letter-spacing:.07em;text-transform:uppercase">AI Minutes</div>'
+    +        '<div id="wcAiTotal" style="font-size:27px;font-weight:800;margin-top:6px;letter-spacing:-.02em;line-height:1">'+((typeof _fuelNum==='function')?_fuelNum(_wcai.total):_wcai.total)+'</div>'
+    +        '<div style="font-size:11.5px;font-weight:700;color:rgba(255,255,255,.78);margin-top:3px">left to call</div>'
+    +        '<div id="wcAiSub" style="font-size:10.5px;color:rgba(255,255,255,.6);margin-top:4px">'+(_wcaiShow?('across '+_wcai.count+' campaign'+(_wcai.count>1?'s':'')):'')+'</div>'
+    +      '</div>'
+    +    '</div>'
+    +    '<div style="display:flex;gap:10px;margin-top:14px">'
+    +      '<button onclick="openAddBalanceSheet()" data-action="openAddBalanceSheet" style="flex:1;min-width:0;padding:13px 8px;border-radius:11px;background:#fff;color:#001f3f;border:none;font-family:var(--f);font-size:13.5px;font-weight:800;cursor:pointer;white-space:nowrap">+ Add Balance</button>'
+    +      '<button id="wcAiBtn" onclick="openAddMinutesSheet()" style="flex:1;min-width:0;padding:13px 8px;border-radius:11px;background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.38);font-family:var(--f);font-size:13.5px;font-weight:800;cursor:pointer;white-space:nowrap;'+(_wcaiShow?'':'display:none')+'">+ Add Minutes</button>'
+    +    '</div>'
     +  '</div>';
   }
 
@@ -25718,6 +25739,7 @@ async function loadAiFuel(){
       }
     }catch(_e){}
     paintAiFuel();
+    try{ updateWalletAiHalf(); }catch(_uw){}
   }catch(e){}
 }
 // ══ USAGE SHEETS (AI minutes · Texts · Emails · IVR minutes) ══
@@ -26033,6 +26055,151 @@ function _campFuelCardHTML(cp){
   try{ setTimeout(function(){ maybeShowAiEnrollSheet(String(cp.id)); }, 700); }catch(e){}
   return h + '</div>';
 }
+/* == Manual AI-minutes purchase (aibuy-1) ======================== */
+// The blue card's right half + "Add Minutes" button. Data comes from the
+// fuel loader (window._aiWallets / _aiTotals). Only campaigns with an ACTIVE,
+// non-frozen tank can buy (the checkout builder enforces the same rule
+// server-side). Payment happens on Stripe; minutes are granted by the
+// payment engine the moment the charge lands.
+function _wcAiInfo(){
+  var ws=window._aiWallets||[], tot=0, n=0, seen={};
+  for(var i=0;i<ws.length;i++){ var w=ws[i];
+    if(!w || w.kind!=='campaign' || w.status!=='active') continue;
+    if(typeof _fuelIsFrozen==='function' && _fuelIsFrozen(w)) continue;
+    var cid=String(w.campaign_id||''); if(!cid || seen[cid]) continue; seen[cid]=1;
+    tot += Math.max(0, Number(w.ai_minutes)||0); n++;
+  }
+  return {total:tot, count:n};
+}
+function updateWalletAiHalf(){
+  var wrap=document.getElementById('wcAiWrap'); if(!wrap) return;
+  var info=_wcAiInfo(), show=info.count>0;
+  var div=document.getElementById('wcAiDiv'), btn=document.getElementById('wcAiBtn');
+  wrap.style.display=show?'':'none';
+  if(div) div.style.display=show?'':'none';
+  if(btn) btn.style.display=show?'':'none';
+  var el=document.getElementById('wcAiTotal'); if(el) el.textContent=(typeof _fuelNum==='function')?_fuelNum(info.total):String(info.total);
+  var sub=document.getElementById('wcAiSub'); if(sub) sub.textContent=show?('across '+info.count+' campaign'+(info.count>1?'s':'')):'';
+}
+function _buyableAiCamps(){
+  var ws=window._aiWallets||[], out=[], seen={};
+  for(var i=0;i<ws.length;i++){ var w=ws[i];
+    if(!w || w.kind!=='campaign' || w.status!=='active') continue;
+    if(typeof _fuelIsFrozen==='function' && _fuelIsFrozen(w)) continue;
+    var cid=String(w.campaign_id||''); if(!cid || seen[cid]) continue; seen[cid]=1;
+    var cp=(window._clientCampaigns||[]).find(function(c){return String(c.id)===cid;});
+    out.push({id:cid, name:(cp&&cp.name)||'Campaign', left:Math.max(0,Number(w.ai_minutes)||0)});
+  }
+  return out;
+}
+function openAddMinutesSheet(){
+  var camps=_buyableAiCamps();
+  if(!camps.length){ try{ showToast('No campaign with an AI tank yet \u2014 contact support'); }catch(e){ alert('No campaign with an AI tank yet \u2014 contact support.'); } return; }
+  if(camps.length===1){ showAiBuySheet(camps[0].id); return; }
+  aiBuyClose();
+  var esc=function(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(ch){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]; }); };
+  var rows='';
+  camps.forEach(function(c){
+    rows += '<div onclick="showAiBuySheet(\''+String(c.id)+'\')" style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:14px 16px;margin-bottom:10px;cursor:pointer">'
+      + '<div style="min-width:0"><div style="font-size:14.5px;font-weight:800;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name)+'</div>'
+      + '<div style="font-size:12px;color:var(--sub);margin-top:2px">'+((typeof _fuelNum==='function')?_fuelNum(c.left):c.left)+' AI minutes left</div></div>'
+      + '<div style="font-size:18px;color:var(--sub)">\u203a</div></div>';
+  });
+  var ov=document.createElement('div');
+  ov.className='sheet-ov'; ov.style.display='flex'; ov.id='aiBuyOv';
+  ov.innerHTML='<div class="sheet" style="max-height:88vh"><div class="sheet-handle"></div>'
+    +'<div class="sh-head"><div class="sh-title">Add AI minutes</div></div>'
+    +'<div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom));overflow-y:auto">'
+    +'<div style="font-size:12.5px;color:var(--sub);margin-bottom:12px">Which campaign should get the minutes?</div>'
+    +rows
+    +'</div></div>';
+  ov.addEventListener('click',function(e){ if(e.target===ov) aiBuyClose(); });
+  document.body.appendChild(ov);
+}
+async function showAiBuySheet(cid){
+  aiBuyClose();
+  var plans=await _aiPlansLoad();
+  if(!plans.length){ try{ showToast('Plans are unavailable right now \u2014 try again in a minute'); }catch(e){} return; }
+  var camps=_buyableAiCamps();
+  var camp=null; for(var i=0;i<camps.length;i++){ if(String(camps[i].id)===String(cid)){ camp=camps[i]; break; } }
+  if(!camp) return;
+  var esc=function(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(ch){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]; }); };
+  window._aiBuyPick = 2;
+  var cards='';
+  plans.forEach(function(p){
+    var sel=(Number(p.id)===2);
+    var perMin=(Number(p.price_cad)/Number(p.ai_minutes)).toFixed(2);
+    cards += '<div id="aiBuyCard_'+p.id+'" onclick="aiBuyPickPlan('+Number(p.id)+')" style="position:relative;border:'+(sel?'2px solid #6d28d9':'1.5px solid var(--border)')+';border-radius:13px;padding:12px;cursor:pointer;background:var(--white)">'
+      +(sel?'<span id="aiBuyPop" style="position:absolute;top:-9px;right:10px;background:#f5f3ff;color:#6d28d9;font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;border:1px solid #ddd6fe">Popular</span>':'')
+      +'<div style="font-size:19px;font-weight:800;color:var(--text)">'+_fuelNum(p.ai_minutes)+' <span style="font-size:11px;font-weight:700;color:var(--sub)">min</span></div>'
+      +'<div style="font-size:13px;font-weight:800;color:var(--text);margin-top:2px">$'+_fuelNum(p.price_cad)+'</div>'
+      +'<div style="font-size:10.5px;color:var(--sub);margin-top:2px">$'+perMin+'/min \u00b7 '+p.validity_days+' days</div>'
+      +'</div>';
+  });
+  var ov=document.createElement('div');
+  ov.className='sheet-ov'; ov.style.display='flex'; ov.id='aiBuyOv';
+  ov.innerHTML='<div class="sheet" style="max-height:88vh"><div class="sheet-handle"></div>'
+    +'<div class="sh-head"><div class="sh-title">Add AI minutes</div></div>'
+    +'<div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom));overflow-y:auto">'
+    +'<div style="font-size:13px;color:var(--sub)">Minutes go to <b style="color:var(--text)">'+esc(camp.name)+'</b> \u00b7 '+((typeof _fuelNum==='function')?_fuelNum(camp.left):camp.left)+' left now</div>'
+    +'<div style="font-size:12.5px;font-weight:800;color:var(--text);margin-top:14px">Choose a plan</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">'+cards+'</div>'
+    +'<div style="font-size:11.5px;color:var(--sub);margin-top:10px">Every plan also includes matching texts, emails and IVR minutes.</div>'
+    +'<div id="aiBuyErr" style="display:none;font-size:12px;color:#dc2626;margin-top:10px;line-height:1.5"></div>'
+    +'<button id="aiBuyBtn" onclick="aiBuyGo(\''+String(cid)+'\')" style="width:100%;margin-top:14px;padding:13px;border-radius:11px;border:none;background:#001f3f;color:#fff;font-size:14px;font-weight:800;cursor:pointer;font-family:var(--f)">Buy 300 min \u00b7 $500 + tax</button>'
+    +'<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:9px;line-height:1.5">Secure payment via Stripe. Tax added by province. Minutes land on the campaign the moment the payment goes through.</div>'
+    +'</div></div>';
+  ov.addEventListener('click',function(e){ if(e.target===ov) aiBuyClose(); });
+  document.body.appendChild(ov);
+  aiBuyPickPlan(2);
+}
+function aiBuyPickPlan(pid){
+  window._aiBuyPick = pid;
+  var plans=window._aiPlans||[];
+  plans.forEach(function(p){
+    var el=document.getElementById('aiBuyCard_'+p.id);
+    if(el) el.style.border=(Number(p.id)===Number(pid))?'2px solid #6d28d9':'1.5px solid var(--border)';
+  });
+  var pop=document.getElementById('aiBuyPop'); if(pop) pop.style.display=(Number(pid)===2)?'':'none';
+  var pl=null; plans.forEach(function(p){ if(Number(p.id)===Number(pid)) pl=p; });
+  var btn=document.getElementById('aiBuyBtn');
+  if(btn && pl) btn.textContent='Buy '+_fuelNum(pl.ai_minutes)+' min \u00b7 $'+_fuelNum(pl.price_cad)+' + tax';
+}
+async function aiBuyGo(cid){
+  var btn=document.getElementById('aiBuyBtn'); if(!btn || btn.disabled) return;
+  var orig=btn.textContent;
+  btn.disabled=true; btn.style.opacity='.7'; btn.textContent='Connecting to Stripe\u2026';
+  var err=document.getElementById('aiBuyErr'); if(err) err.style.display='none';
+  try{
+    var r=await sbFetch('/functions/v1/ai-plan-checkout',{method:'POST',
+      body:JSON.stringify({client_id:window._clientId, campaign_id:String(cid), plan_id:Number(window._aiBuyPick)||2})});
+    var j=await r.json().catch(function(){return{};});
+    if(r.ok && j && j.checkout_url){ window.location.href=j.checkout_url; return; }
+    throw new Error((j&&j.error)||'Could not start the payment');
+  }catch(e){
+    btn.disabled=false; btn.style.opacity='1'; btn.textContent=orig;
+    if(err){ err.textContent=(e&&e.message)||'Could not start the payment \u2014 please try again.'; err.style.display=''; }
+  }
+}
+function aiBuyClose(){ var ov=document.getElementById('aiBuyOv'); if(ov) ov.remove(); }
+window.openAiTopupDoneSheet = function(){
+  aiBuyClose();
+  var old=document.getElementById('aiTopupDoneSheet'); if(old) old.remove();
+  var ov=document.createElement('div');
+  ov.className='sheet-ov'; ov.style.display='flex'; ov.id='aiTopupDoneSheet';
+  ov.innerHTML='<div class="sheet" style="max-height:88vh"><div class="sheet-handle"></div>'
+    +'<div class="sh-head"><div class="sh-title">Payment received</div></div>'
+    +'<div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom));overflow-y:auto">'
+    +'<div style="text-align:center;padding:6px 0 14px"><div style="font-size:44px;line-height:1">\u2705</div>'
+    +'<div style="font-size:18px;font-weight:900;color:var(--text);margin-top:8px">AI minutes on the way</div>'
+    +'<div style="font-size:13px;color:var(--sub);margin-top:6px;line-height:1.55">Stripe confirmed your payment. Your minutes land on the campaign within a minute \u2014 your invoice is on its way by email.</div></div>'
+    +'<button class="btn" style="width:100%;justify-content:center;background:var(--green);color:#fff;font-weight:800;padding:14px;font-size:15px" onclick="var o=document.getElementById(\'aiTopupDoneSheet\');if(o)o.remove();try{goTab(\'dashboard\',null);}catch(e){}">Go to dashboard \u203a</button>'
+    +'</div></div>';
+  ov.addEventListener('click',function(e){ if(e.target===ov) ov.remove(); });
+  document.body.appendChild(ov);
+  setTimeout(function(){ try{ loadAiFuel(); }catch(e){} }, 4000);
+  setTimeout(function(){ try{ loadAiFuel(); }catch(e){} }, 14000);
+};
 /* == AI minutes auto-pay enrollment (aipay-1) ==================== */
 window._aiPlans = null;
 async function _aiPlansLoad(){
@@ -37001,7 +37168,10 @@ document.addEventListener('click', function(ev){
     var tcart = sp.get('cart');
     if (tp === 'success' && tcart && typeof window.openTopupDoneSheet === 'function') { window.openTopupDoneSheet(tcart); }
     else if (tp === 'success') { setTimeout(function(){ try{ showToast('Payment received — your views are being added'); }catch(_t){} }, 900); }
-    if (ld || rv || sm || tp || cr || cg) history.replaceState(null, '', window.location.pathname);
+    var tai = sp.get('aitopup');
+    if (tai === 'success') { setTimeout(function(){ try{ window.openAiTopupDoneSheet(); }catch(_t){ try{ showToast('Payment received \u2014 your AI minutes are being added'); }catch(_t2){} } }, 600); }
+    else if (tai === 'cancel') { setTimeout(function(){ try{ showToast('Payment cancelled \u2014 nothing was charged'); }catch(_t){} }, 900); }
+    if (ld || rv || sm || tp || cr || cg || tai) history.replaceState(null, '', window.location.pathname);
   } catch (e) {}
 
   // When the app is ALREADY open and a notification is tapped, the service worker
