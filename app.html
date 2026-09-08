@@ -4434,7 +4434,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-07 aibuy-9';
+var APP_VERSION = 'v2026-09-07 aibuy-10';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -15516,7 +15516,7 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
       }
       var durTxt = (item.dur && item.dur !== '—' && item.dur !== '0s') ? item.dur
                  : (durSec2>0 ? Math.floor(durSec2/60)+'m '+(durSec2%60)+'s' : '');
-      var channel   = isIVR ? 'IVR ' : '';
+      var channel   = isIVR ? 'Call ' : '';
       // follow-3: voicemail is its own state \u2014 amber, never the green "Answered".
       var isVm = !!item.voicemail || /voicemail/.test(oc);
       if (isVm) answered = false;
@@ -23496,7 +23496,9 @@ function clientDashHTML() {
     return clientCampaignDetailHTML(window._clientDashCampId);
   }
   var promo='';
-  if (!window._clientAiEnabled) {
+  var _hasAiTanks = false;
+  try { _hasAiTanks = (typeof _wcAiInfo==='function') && _wcAiInfo().count>0; } catch(e){}
+  if (!window._clientAiEnabled && !_hasAiTanks) {
     promo='<div onclick="openPlansSheet()" style="margin:12px 12px 0;padding:13px 15px;border-radius:13px;background:linear-gradient(135deg,#001f3f,#0b3a6b);cursor:pointer;display:flex;align-items:center;gap:11px">'
       +'<span style="font-size:20px;flex-shrink:0">\uD83E\uDD16</span>'
       +'<div style="flex:1;min-width:0">'
@@ -23887,6 +23889,12 @@ function clientCampaignListHTML() {
   // (any business type); until fuel data loads it stays hidden and
   // updateWalletAiHalf() reveals it without re-rendering the dashboard.
   var _wcai = (typeof _wcAiInfo==='function') ? _wcAiInfo() : {total:0,count:0};
+  if (!_wcai.count && window._aiWallets === null) {
+    try {
+      var _wcaiCache = JSON.parse(localStorage.getItem('advz_wcai_'+(window._clientId||'')) || 'null');
+      if (_wcaiCache && Number(_wcaiCache.count) > 0) _wcai = _wcaiCache;
+    } catch(e){}
+  }
   var _wcaiShow = _wcai.count>0;
   // aibuy-9: icon-row layout (Ajax's Option 4). Each balance is a full-width
   // row: icon chip, name + "across N campaigns", number on the right. Spare
@@ -25770,7 +25778,7 @@ var USG_META = {
   ai_minutes: { icon:'\uD83E\uDD16', title:'AI minutes', word:'minute', thing:'call', col:'#6d28d9', bg:'#f5f3ff', bd:'#ddd6fe',
     note:'Each AI call is rounded up to the next full minute \u2014 industry standard, because the phone network bills us the same way. Voicemail drops count as calls. Transferred calls count from start to hang-up \u2014 the AI part and the team conversation together.',
     empty:'No AI calls yet \u2014 minutes appear here the moment the AI makes or answers a call.' },
-  ivr_calls:  { icon:'\uD83D\uDCDE', title:'IVR minutes', word:'minute', thing:'call', col:'#0f766e', bg:'#f0fdfa', bd:'#99f6e4',
+  ivr_calls:  { icon:'\uD83D\uDCDE', title:'Call minutes', word:'minute', thing:'call', col:'#0f766e', bg:'#f0fdfa', bd:'#99f6e4',
     note:'Your own calls \u2014 the ones forwarded to your phone and the ones your team makes through Adviuz. Rounded up to the next full minute. Missed calls are free.',
     empty:'No calls yet \u2014 your own and forwarded calls appear here.' },
   sms:        { icon:'\uD83D\uDCAC', title:'Texts', word:'text', thing:'text', col:'#1d4ed8', bg:'#eff6ff', bd:'#bfdbfe',
@@ -25975,7 +25983,7 @@ async function openFuelHistory(campId){
       if(Number(g.ai_minutes)>0) bits.push(_fuelNum(g.ai_minutes)+' AI min');
       if(Number(g.sms)>0) bits.push(_fuelNum(g.sms)+' texts');
       if(Number(g.emails)>0) bits.push(_fuelNum(g.emails)+' emails');
-      if(Number(g.ivr_calls)>0) bits.push(_fuelNum(g.ivr_calls)+' IVR min');
+      if(Number(g.ivr_calls)>0) bits.push(_fuelNum(g.ivr_calls)+' call min');
       h+='<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:8px'+(expired?';opacity:.55':'')+'">'
         + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'
         +   '<span style="font-size:13px;font-weight:800;color:var(--text)">'+_fhSrcLabel(g.source||g.kind)+'</span>'
@@ -26055,7 +26063,7 @@ function _campFuelCardHTML(cp){
     + meter('\uD83E\uDD16','AI minutes', w.ai_minutes, 'ai_minutes', 'openAiMinutesSheet(\''+String(cp.id)+'\')')
     + meter('\uD83D\uDCAC','Texts',    w.sms,        'sms',        "openUsageSheet('sms','"+String(cp.id)+"')")
     + meter('\uD83D\uDCE7','Emails',   w.emails,     'emails',     "openUsageSheet('emails','"+String(cp.id)+"')")
-    + meter('\uD83D\uDCDE','IVR minutes', w.ivr_calls,  'ivr_calls',  "openUsageSheet('ivr_calls','"+String(cp.id)+"')")
+    + meter('\uD83D\uDCDE','Call minutes', w.ivr_calls,  'ivr_calls',  "openUsageSheet('ivr_calls','"+String(cp.id)+"')")
     + '<div onclick="event.stopPropagation();openFuelHistory(\''+String(cp.id)+'\')" style="text-align:right;font-size:11.5px;font-weight:800;color:#6d28d9;margin-top:10px;cursor:pointer">\uD83D\uDCDC Balance history \u203A</div>';
   if(w.expires_at) h += '<div style="font-size:11px;color:var(--sub);margin-top:8px">Valid until '+new Date(w.expires_at).toLocaleDateString('en-CA',{year:'numeric',month:'short',day:'numeric'})+'</div>';
   if(exhausted){
@@ -26103,6 +26111,7 @@ function _wcAiInfo(){
 function updateWalletAiHalf(){
   var wrap=document.getElementById('wcAiWrap'); if(!wrap) return;
   var info=_wcAiInfo(), show=info.count>0;
+  try { localStorage.setItem('advz_wcai_'+(window._clientId||''), JSON.stringify({total:info.total,count:info.count})); } catch(e){}
   var div=document.getElementById('wcAiDiv'), btn=document.getElementById('wcAiBtn');
   wrap.style.display=show?'':'none';
   if(div) div.style.display=show?'':'none';
@@ -26342,7 +26351,7 @@ async function showAiEnrollSheet(cid, left, t){
     +'<div style="height:7px;border-radius:999px;background:var(--border);overflow:hidden;margin-top:10px"><div style="height:100%;width:'+pct+'%;background:#f59e0b;border-radius:999px"></div></div>'
     +'<div style="font-size:12.5px;font-weight:800;color:var(--text);margin-top:16px">Choose your refill plan</div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">'+cards+'</div>'
-    +'<div style="font-size:11.5px;color:var(--sub);margin-top:10px">Every plan also includes matching texts, emails and IVR minutes.</div>'
+    +'<div style="font-size:11.5px;color:var(--sub);margin-top:10px">Every plan also includes matching texts, emails and call minutes.</div>'
     +'<button id="aiEnrollBtn" onclick="aiEnrollGo(\''+String(cid)+'\')" style="width:100%;margin-top:14px;padding:13px;border-radius:11px;border:none;background:#001f3f;color:#fff;font-size:14px;font-weight:800;cursor:pointer;font-family:var(--f)">Turn on auto-pay \u00b7 300 min for $500</button>'
     +'<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:9px;line-height:1.5">Charged only when your minutes run low. Tax added by province. Switch off anytime.</div>'
     +'<button onclick="aiEnrollClose()" style="width:100%;margin-top:6px;padding:10px;border-radius:11px;border:none;background:transparent;color:var(--sub);font-size:12.5px;font-weight:700;cursor:pointer;font-family:var(--f)">Maybe later</button>'
@@ -26407,7 +26416,7 @@ function openAiFuel(cid){
                :'<span style="flex-shrink:0;font-size:10.5px;font-weight:800;color:var(--green);background:#ecfdf5;border:1px solid #a7f3d0;border-radius:20px;padding:3px 9px">Active</span>')
       + '</div>'
       + '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">'
-      + meter('AI calls',w.ai_minutes)+meter('Texts',w.sms)+meter('Emails',w.emails)+meter('IVR minutes',w.ivr_calls)
+      + meter('AI calls',w.ai_minutes)+meter('Texts',w.sms)+meter('Emails',w.emails)+meter('Call minutes',w.ivr_calls)
       + '</div>'+exp
       + (frozen?'<div style="font-size:11.5px;color:var(--sub);margin-top:9px;line-height:1.5">Your leftover fuel is safe. Recharge this campaign to unfreeze it and get a fresh free bundle on top \u2014 or upgrade to an AI Sales Engine plan so your AI never pauses.</div>':'')
       + '</div>';
@@ -28063,7 +28072,7 @@ function _abGiftFull(b){
   if(b.ai>0) p.push(_abNum(b.ai)+' AI receptionist minutes');
   if(b.sms>0) p.push(_abNum(b.sms)+' SMS');
   if(b.emails>0) p.push(_abNum(b.emails)+' emails');
-  if(b.ivr>0) p.push(_abNum(b.ivr)+' IVR minutes');
+  if(b.ivr>0) p.push(_abNum(b.ivr)+' call minutes');
   if(b.design>0) p.push(b.design+' month'+(b.design>1?'s':'')+' of unlimited design editing');
   return p.join(' \u00B7 ');
 }
@@ -28228,7 +28237,7 @@ function _abRender(){
     +  '<div style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center;line-height:1.5">Tax added at checkout \u00B7 Views credited automatically \u00B7 Invoice emailed</div>'
     + '</div>';
   box.innerHTML = h;
-  if(foot) foot.textContent = 'Flyer views are $5.00 each on every bundle \u00B7 Free minutes, SMS, emails and IVR expire in 90 days';
+  if(foot) foot.textContent = 'Flyer views are $5.00 each on every bundle \u00B7 Free minutes, SMS, emails and call minutes expire in 90 days';
   if(A.newOpen){ var inp=document.getElementById('abNewName'); if(inp) setTimeout(function(){ inp.focus(); },50); }
 }
 
