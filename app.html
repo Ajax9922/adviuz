@@ -4434,7 +4434,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-07 aibuy-5';
+var APP_VERSION = 'v2026-09-07 aibuy-6';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -26119,7 +26119,7 @@ function openAddMinutesSheet(){
   if(!camps.length){ try{ showToast('No campaign with an AI tank yet \u2014 contact support'); }catch(e){ alert('No campaign with an AI tank yet \u2014 contact support.'); } return; }
   aiBuyClose();
   window._aiCart={};
-  camps.forEach(function(c){ window._aiCart[String(c.id)]={plan:0, ap:false}; });
+  camps.forEach(function(c){ window._aiCart[String(c.id)]={plan:0, ap:true}; });
   _aiPlansLoad().then(function(plans){
     if(!plans || !plans.length){ try{ showToast('Plans are unavailable right now \u2014 try again in a minute'); }catch(e){} return; }
     var ov=document.createElement('div');
@@ -26133,9 +26133,13 @@ function openAddMinutesSheet(){
     _aiCartPaint();
   });
 }
+// aibuy-6: full numbers with commas (2,000 not 2k), plan text says "call
+// minutes" (never IVR), no per-minute price, auto-refill ON by default, and
+// "low" is spelled out: refills when only the last 20% of the plan is left.
+function _aiCartNum(n){ n=Number(n)||0; return (n<0?0:Math.round(n)).toLocaleString('en-CA'); }
 function _aiCartEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(ch){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]; }); }
 function _aiCartIncl(p){
-  return _fuelNum(p.sms)+' SMS \u00b7 '+_fuelNum(p.emails)+' emails \u00b7 '+_fuelNum(p.ivr_calls)+' IVR min';
+  return _aiCartNum(p.sms)+' SMS \u00b7 '+_aiCartNum(p.emails)+' emails \u00b7 '+_aiCartNum(p.ivr_calls)+' call min';
 }
 function _aiCartPaint(){
   var body=document.getElementById('aiCartBody'); if(!body) return;
@@ -26151,20 +26155,20 @@ function _aiCartPaint(){
     var pl=null; if(e.plan) plans.forEach(function(p){ if(Number(p.id)===Number(e.plan)) pl=p; });
     h+='<div style="background:var(--white);border:'+(pl?'2px solid var(--green)':'1.5px solid var(--border)')+';border-radius:15px;padding:15px 15px 13px;margin-bottom:12px">'
       +'<div style="font-size:16px;font-weight:800;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_aiCartEsc(c.name)+'</div>'
-      +'<div style="font-size:12.5px;font-weight:700;color:'+((Number(c.left)>0)?'var(--green)':'#b45309')+';margin-top:2px">'+((typeof _fuelNum==='function')?_fuelNum(c.left):c.left)+' AI minutes left</div>';
+      +'<div style="font-size:12.5px;font-weight:700;color:'+((Number(c.left)>0)?'var(--green)':'#b45309')+';margin-top:2px">'+_aiCartNum(c.left)+' AI minutes left</div>';
     if(!pl){
       h+='<div onclick="aiCartChoose(\''+cid+'\')" style="margin-top:12px;border:1.5px dashed var(--border);border-radius:12px;background:var(--bg);padding:14px;text-align:center;font-size:14px;font-weight:800;color:var(--text);cursor:pointer">+ Add minutes</div>';
     }else{
       picked++; preTax+=Number(pl.price_cad)||0;
       h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px">'
-        +'<div style="font-size:15.5px;font-weight:800;color:var(--text);min-width:0">'+_fuelNum(pl.ai_minutes)+' AI Minutes \u2014 $'+_fuelNum(pl.price_cad)+'</div>'
+        +'<div style="font-size:15.5px;font-weight:800;color:var(--text);min-width:0">'+_aiCartNum(pl.ai_minutes)+' AI Minutes \u2014 $'+_aiCartNum(pl.price_cad)+'</div>'
         +'<div onclick="aiCartChoose(\''+cid+'\')" style="flex:0 0 auto;font-size:13.5px;font-weight:800;color:var(--green);cursor:pointer">Change plan</div></div>'
         +'<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px">'
         +'<div style="min-width:0;background:#ecfdf5;border:1px solid #d1fae5;color:#047857;font-size:11.5px;font-weight:800;border-radius:20px;padding:5px 11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Includes: '+_aiCartIncl(pl)+'</div>'
         +'<div onclick="aiCartRemove(\''+cid+'\')" style="flex:0 0 auto;font-size:13px;font-weight:700;color:var(--sub);cursor:pointer">Remove</div></div>'
         +'<div onclick="aiCartAp(\''+cid+'\')" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;cursor:pointer;border-top:1px solid var(--border);padding-top:11px">'
         +'<div style="min-width:0;font-size:12.5px;font-weight:800;color:var(--text)">Auto-refill when low'
-        +'<span style="display:block;font-size:11px;font-weight:400;color:var(--sub);margin-top:1px;line-height:1.4">Re-buys this same plan ('+_fuelNum(pl.ai_minutes)+' min) automatically when the tank runs low \u00b7 switch off anytime</span></div>'
+        +'<span style="display:block;font-size:11px;font-weight:400;color:var(--sub);margin-top:1px;line-height:1.4">Re-buys this same plan ('+_aiCartNum(pl.ai_minutes)+' min) automatically when only 20% is left (under '+_aiCartNum(Math.ceil(Number(pl.ai_minutes)*0.2))+' min) \u00b7 switch off anytime</span></div>'
         +'<div style="flex:0 0 auto;width:44px;height:26px;border-radius:20px;background:'+(e.ap?'var(--green)':'#cfd8e3')+';position:relative">'
         +'<div style="position:absolute;top:3px;'+(e.ap?'right:3px':'left:3px')+';width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)"></div></div></div>';
     }
@@ -26173,12 +26177,12 @@ function _aiCartPaint(){
   h+='<div style="border:1.5px dashed var(--border);border-radius:15px;background:var(--bg);padding:14px 15px;margin-top:2px">'
     +'<div style="display:flex;align-items:center;justify-content:space-between">'
     +'<div style="font-size:14.5px;font-weight:800;color:var(--text)">Total ('+picked+' campaign'+(picked!==1?'s':'')+')</div>'
-    +'<div style="font-size:22px;font-weight:900;color:var(--text)">$'+_fuelNum(preTax)+'</div></div>'
+    +'<div style="font-size:22px;font-weight:900;color:var(--text)">$'+_aiCartNum(preTax)+'</div></div>'
     +'<div id="aiBuyErr" style="display:none;font-size:12px;color:#dc2626;margin-top:8px;line-height:1.5"></div>'
-    +'<button id="aiBuyBtn" onclick="aiBuyGo()" '+(picked?'':'disabled ')+'style="width:100%;margin-top:11px;padding:14px;border-radius:12px;border:none;background:'+(picked?'var(--green)':'#9fd9c6')+';color:#fff;font-size:15px;font-weight:800;cursor:'+(picked?'pointer':'default')+';font-family:var(--f)">'+(picked?('Pay $'+_fuelNum(preTax)+' \u2014 Continue to Stripe'):'Choose a plan to continue')+'</button>'
+    +'<button id="aiBuyBtn" onclick="aiBuyGo()" '+(picked?'':'disabled ')+'style="width:100%;margin-top:11px;padding:14px;border-radius:12px;border:none;background:'+(picked?'var(--green)':'#9fd9c6')+';color:#fff;font-size:15px;font-weight:800;cursor:'+(picked?'pointer':'default')+';font-family:var(--f)">'+(picked?('Pay $'+_aiCartNum(preTax)+' \u2014 Continue to Stripe'):'Choose a plan to continue')+'</button>'
     +'<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:9px;line-height:1.5">Tax added at checkout \u00b7 Minutes credited automatically \u00b7 Invoice emailed</div>'
     +'</div>'
-    +'<div style="font-size:11.5px;color:var(--sub);line-height:1.55;margin-top:12px">Every plan also includes matching texts, emails and IVR minutes. With auto-refill on, when a campaign runs low we top it up with the same plan automatically and email you the invoice. Never more than once a day per campaign. Switch off anytime.</div>';
+    +'<div style="font-size:11.5px;color:var(--sub);line-height:1.55;margin-top:12px">Every plan also includes free texts, emails and call minutes. With auto-refill on, when a campaign is down to the last 20% of its minutes we top it up with the same plan automatically and email you the invoice. Never more than once a day per campaign. Switch off anytime.</div>';
   body.innerHTML=h;
   body.scrollTop=keep;
 }
@@ -26187,13 +26191,12 @@ function aiCartChoose(target){
   var plans=window._aiPlans||[];
   var rows='';
   plans.forEach(function(p){
-    var perMin=(Number(p.price_cad)/Number(p.ai_minutes)).toFixed(2);
     rows+='<div onclick="aiCartSetPlan(\''+String(target)+'\','+Number(p.id)+')" style="background:var(--white);border:1.5px solid var(--border);border-radius:14px;padding:14px 15px;margin-bottom:11px;cursor:pointer">'
       +'<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">'
-      +'<div style="font-size:16.5px;font-weight:800;color:var(--text)">'+_fuelNum(p.ai_minutes)+' AI Minutes</div>'
-      +'<div style="flex:0 0 auto;background:#0b1526;color:#fff;font-size:14.5px;font-weight:800;border-radius:13px;padding:8px 15px">$'+_fuelNum(p.price_cad)+'</div></div>'
+      +'<div style="font-size:16.5px;font-weight:800;color:var(--text)">'+_aiCartNum(p.ai_minutes)+' AI Minutes</div>'
+      +'<div style="flex:0 0 auto;background:#0b1526;color:#fff;font-size:14.5px;font-weight:800;border-radius:13px;padding:8px 15px">$'+_aiCartNum(p.price_cad)+'</div></div>'
       +'<div style="font-size:12px;font-weight:800;color:#047857;margin-top:5px">Includes free: '+_aiCartIncl(p)+'</div>'
-      +'<div style="font-size:11.5px;color:var(--sub);margin-top:3px">$'+perMin+' per minute \u00b7 valid '+p.validity_days+' days \u00b7 '+_aiCartEsc(p.name)+' plan</div>'
+      +'<div style="font-size:11.5px;color:var(--sub);margin-top:3px">'+_aiCartEsc(p.name)+' plan \u00b7 valid '+p.validity_days+' days</div>'
       +'</div>';
   });
   var ov=document.createElement('div');
@@ -26201,7 +26204,7 @@ function aiCartChoose(target){
   ov.innerHTML='<div class="sheet" style="max-height:86vh"><div class="sheet-handle"></div>'
     +'<div class="sh-head"><div class="sh-title">Choose a plan</div><button class="sh-x" onclick="var o=document.getElementById(\'aiPlanOv\');if(o)o.remove()">\u2715</button></div>'
     +'<div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom));overflow-y:auto">'
-    +'<div style="font-size:13px;color:var(--sub);line-height:1.5;margin-bottom:12px">'+(target==='all'?'This plan will be added to every campaign in the cart.':'Every plan includes matching texts, emails and IVR minutes on top.')+'</div>'
+    +'<div style="font-size:13px;color:var(--sub);line-height:1.5;margin-bottom:12px">'+(target==='all'?'This plan will be added to every campaign in the cart.':'Every plan includes free texts, emails and call minutes on top.')+'</div>'
     +rows
     +'</div></div>';
   ov.addEventListener('click',function(e){ if(e.target===ov) ov.remove(); });
@@ -26216,7 +26219,7 @@ function aiCartSetPlan(target,pid){
 }
 function aiCartRemove(cid){
   var e=(window._aiCart||{})[String(cid)]; if(!e) return;
-  e.plan=0; e.ap=false;
+  e.plan=0; e.ap=true;
   _aiCartPaint();
 }
 function aiCartAp(cid){
