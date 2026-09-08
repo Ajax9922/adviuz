@@ -4435,7 +4435,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-08 brand-6';
+var APP_VERSION = 'v2026-09-08 brand-7';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -15949,21 +15949,82 @@ async function _bilLoadFuel(){
   }catch(e){ el.textContent='Could not load fuel right now.'; }
 }
 
+// brand-7: auto-refill organized PER CAMPAIGN, two switches each - Flyer views
+// (existing autorecharge flag) and AI minutes (ai_autopay + its saved plan).
+// AI switch only appears for campaigns that have an AI tank; without a plan
+// yet it explains itself and leads into the Add Minutes sheet.
+function _bilSwitch(on, click, dis){
+  return '<div onclick="'+(dis?'':click)+'" style="flex:0 0 auto;width:42px;height:25px;border-radius:20px;background:'+(on?'var(--green)':'#cfd8e3')+';position:relative;cursor:'+(dis?'default':'pointer')+';opacity:'+(dis?'.55':'1')+'">'
+    +'<div style="position:absolute;top:3px;'+(on?'right:3px':'left:3px')+';width:19px;height:19px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)"></div></div>';
+}
+function _bilAiPlanFor(c){
+  var pid=Number(c.ai_autopay_plan_id)||0; if(!pid) return null;
+  var pl=null; (window._aiPlans||[]).forEach(function(p){ if(Number(p.id)===pid) pl=p; });
+  return pl;
+}
+function _bilCampHasTank(cid){
+  var ws=window._aiWallets||[];
+  for(var i=0;i<ws.length;i++){ if(ws[i] && ws[i].kind==='campaign' && String(ws[i].campaign_id)===String(cid)) return true; }
+  return false;
+}
 function _bilPaintAR(){
   var el=document.getElementById('bilAR'); if(!el) return;
   if(!(window._clientARConsent && window._clientARCard)){ el.innerHTML=''; return; }
   var camps=(window._clientCampaigns||[]).filter(function(c){ return ['active','live','running'].indexOf(String(c.status||'').toLowerCase())>=0; });
   if(!camps.length){ el.innerHTML='<div style="font-size:12.5px;color:var(--sub)">No live campaigns right now.</div>'; return; }
+  if(typeof _aiPlansLoad==='function' && !(window._aiPlans||[]).length){ try{ _aiPlansLoad().then(function(){ _bilPaintAR(); }); }catch(e){} }
   el.innerHTML=camps.map(function(c){
-    var on=!!c.autorecharge;
+    var cid=String(c.id);
+    var fOn=!!c.autorecharge;
     var lt=Number(c.last_topup_views)||0;
-    var last=lt?('Refills '+lt.toLocaleString('en-CA')+' views when '+Math.max(1,Math.round(lt*0.2)).toLocaleString('en-CA')+' are left'):'Refills your last bundle when it runs low';
-    return '<label style="display:flex;align-items:center;gap:10px;background:var(--white);border:1px solid var(--border);border-radius:12px;padding:11px 14px;margin-bottom:8px;cursor:pointer">'
-      +'<span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:600;color:var(--text)">'+sanitize(c.name||'Campaign')+'</span>'
-      +'<span style="display:block;font-size:11.5px;color:var(--sub)">'+last+'</span></span>'
-      +'<input type="checkbox" '+(on?'checked':'')+' onchange="arToggle(\''+c.id+'\',this)" style="width:20px;height:20px;accent-color:var(--green)">'
-      +'</label>';
+    var fTxt=lt?('Refills '+lt.toLocaleString('en-CA')+' views when only 20% is left ('+Math.max(1,Math.round(lt*0.2)).toLocaleString('en-CA')+' views)'):'Refills your last bundle when only 20% of it is left';
+    var h='<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:9px">'
+      +'<div style="font-size:14.5px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+sanitize(c.name||'Campaign')+'</div>'
+      +'<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0 10px;border-bottom:1px solid #f1f3f7">'
+      +'<div style="min-width:0"><div style="font-size:13px;font-weight:600;color:var(--text)">Flyer views</div>'
+      +'<div style="font-size:11px;color:var(--sub);margin-top:2px;line-height:1.45">'+fTxt+'</div></div>'
+      +_bilSwitch(fOn, "bilArFlip('"+cid+"',"+(fOn?'false':'true')+")", false)
+      +'</div>';
+    if(_bilCampHasTank(cid)){
+      var pl=_bilAiPlanFor(c);
+      var aOn=!!c.ai_autopay && !!pl;
+      var aTxt = pl
+        ? ('Refills the '+sanitize(pl.name)+' plan ('+Number(pl.ai_minutes).toLocaleString('en-CA')+' min) when only 20% is left')
+        : 'No plan yet \u2014 buy minutes once and refills use that same plan';
+      h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0 2px">'
+        +'<div style="min-width:0"><div style="font-size:13px;font-weight:600;color:var(--text)">AI minutes</div>'
+        +'<div style="font-size:11px;color:var(--sub);margin-top:2px;line-height:1.45">'+aTxt+(pl?'':' \u00b7 <span onclick="var s=document.getElementById(\'bilSheet\');if(s)s.remove();openAddMinutesSheet()" style="color:var(--green);font-weight:600;cursor:pointer">Buy minutes</span>')+'</div></div>'
+        +_bilSwitch(aOn, "bilAiFlip('"+cid+"',"+(aOn?'false':'true')+")", !pl)
+        +'</div>';
+    }
+    h+='</div>';
+    return h;
   }).join('');
+}
+async function bilArFlip(campId, want){
+  try{
+    var r=await sbFetch('/rest/v1/rpc/my_set_autorecharge',{method:'POST',body:JSON.stringify({p_campaign:campId,p_on:want})});
+    var j=await r.json().catch(function(){return null;});
+    if(j&&j.ok){
+      (window._clientCampaigns||[]).forEach(function(c){ if(String(c.id)===String(campId)) c.autorecharge=want; });
+      showToast(want?'Flyer auto-refill ON':'Flyer auto-refill off');
+    } else if(j&&j.reason==='needs_card_setup'){ showToast('Save a card first'); openARConsent(); }
+    else showToast('Could not change that \u2014 try again');
+  }catch(e){ showToast('Could not change that \u2014 try again'); }
+  _bilPaintAR();
+}
+async function bilAiFlip(campId, want){
+  try{
+    var r=await sbFetch('/rest/v1/rpc/my_set_ai_autopay',{method:'POST',body:JSON.stringify({p_campaign:campId,p_on:want})});
+    var j=await r.json().catch(function(){return null;});
+    if(j&&j.ok){
+      (window._clientCampaigns||[]).forEach(function(c){ if(String(c.id)===String(campId)) c.ai_autopay=want; });
+      showToast(want?'AI auto-refill ON':'AI auto-refill off');
+    } else if(j&&j.reason==='needs_card_setup'){ showToast('Save a card first'); openARConsent(); }
+    else if(j&&j.reason==='no_plan'){ showToast('Buy an AI plan once \u2014 refills then re-buy that same plan'); }
+    else showToast('Could not change that \u2014 try again');
+  }catch(e){ showToast('Could not change that \u2014 try again'); }
+  _bilPaintAR();
 }
 
 async function arToggle(campId, box){
