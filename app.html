@@ -4434,7 +4434,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-07 aibuy-1';
+var APP_VERSION = 'v2026-09-07 aibuy-2';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -26061,10 +26061,22 @@ function _campFuelCardHTML(cp){
 // non-frozen tank can buy (the checkout builder enforces the same rule
 // server-side). Payment happens on Stripe; minutes are granted by the
 // payment engine the moment the charge lands.
+// aibuy-2 TEST GATE: only the Instad Web house account sees the AI half and
+// Add Minutes button until Ajax approves the flow. Empty this string to open
+// the feature to every client.
+var _AIBUY_ONLY_CLIENT = '7d315d20-00af-4e7f-8d79-c89b3f2b5cf7';
+function _aiBuyAllowed(){
+  if(!_AIBUY_ONLY_CLIENT) return true;
+  return String(window._clientId||'') === _AIBUY_ONLY_CLIENT;
+}
 function _wcAiInfo(){
+  if(!_aiBuyAllowed()) return {total:0, count:0};
+  // aibuy-2 fix: my_ai_wallets rows carry NO per-tank status column (active +
+  // held packs arrive pre-summed per campaign); frozen-ness is judged by the
+  // campaign's own status via _fuelIsFrozen. The old status check hid the card.
   var ws=window._aiWallets||[], tot=0, n=0, seen={};
   for(var i=0;i<ws.length;i++){ var w=ws[i];
-    if(!w || w.kind!=='campaign' || w.status!=='active') continue;
+    if(!w || w.kind!=='campaign') continue;
     if(typeof _fuelIsFrozen==='function' && _fuelIsFrozen(w)) continue;
     var cid=String(w.campaign_id||''); if(!cid || seen[cid]) continue; seen[cid]=1;
     tot += Math.max(0, Number(w.ai_minutes)||0); n++;
@@ -26082,13 +26094,14 @@ function updateWalletAiHalf(){
   var sub=document.getElementById('wcAiSub'); if(sub) sub.textContent=show?('across '+info.count+' campaign'+(info.count>1?'s':'')):'';
 }
 function _buyableAiCamps(){
+  if(!_aiBuyAllowed()) return [];
   var ws=window._aiWallets||[], out=[], seen={};
   for(var i=0;i<ws.length;i++){ var w=ws[i];
-    if(!w || w.kind!=='campaign' || w.status!=='active') continue;
+    if(!w || w.kind!=='campaign') continue;
     if(typeof _fuelIsFrozen==='function' && _fuelIsFrozen(w)) continue;
     var cid=String(w.campaign_id||''); if(!cid || seen[cid]) continue; seen[cid]=1;
     var cp=(window._clientCampaigns||[]).find(function(c){return String(c.id)===cid;});
-    out.push({id:cid, name:(cp&&cp.name)||'Campaign', left:Math.max(0,Number(w.ai_minutes)||0)});
+    out.push({id:cid, name:w.campaign_name||(cp&&cp.name)||'Campaign', left:Math.max(0,Number(w.ai_minutes)||0)});
   }
   return out;
 }
