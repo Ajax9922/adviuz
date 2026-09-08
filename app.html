@@ -4434,7 +4434,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-07 aibuy-3';
+var APP_VERSION = 'v2026-09-07 aibuy-4';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -26107,87 +26107,99 @@ function _buyableAiCamps(){
   }
   return out;
 }
+// aibuy-4: CART. One sheet, every buyable campaign, a plan per campaign,
+// one payment. Mirrors the flyer-views Add Balance cart. Each campaign row
+// shows the four plans as tappable chips (tap again to remove) and, once a
+// plan is chosen, an "Auto-refill when low" switch. Auto-refill re-buys THE
+// SAME plan that campaign purchased (125 refills 125, 300 refills 300) and
+// only turns on after the payment safely saves the card. Default OFF.
 function openAddMinutesSheet(){
   var camps=_buyableAiCamps();
   if(!camps.length){ try{ showToast('No campaign with an AI tank yet \u2014 contact support'); }catch(e){ alert('No campaign with an AI tank yet \u2014 contact support.'); } return; }
-  if(camps.length===1){ showAiBuySheet(camps[0].id); return; }
   aiBuyClose();
-  var esc=function(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(ch){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]; }); };
-  var rows='';
-  camps.forEach(function(c){
-    rows += '<div onclick="showAiBuySheet(\''+String(c.id)+'\')" style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:14px 16px;margin-bottom:10px;cursor:pointer">'
-      + '<div style="min-width:0"><div style="font-size:14.5px;font-weight:800;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name)+'</div>'
-      + '<div style="font-size:12px;color:var(--sub);margin-top:2px">'+((typeof _fuelNum==='function')?_fuelNum(c.left):c.left)+' AI minutes left</div></div>'
-      + '<div style="font-size:18px;color:var(--sub)">\u203a</div></div>';
-  });
-  var ov=document.createElement('div');
-  ov.className='sheet-ov'; ov.style.display='flex'; ov.id='aiBuyOv';
-  ov.innerHTML='<div class="sheet" style="max-height:88vh"><div class="sheet-handle"></div>'
-    +'<div class="sh-head"><div class="sh-title">Add AI minutes</div></div>'
-    +'<div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom));overflow-y:auto">'
-    +'<div style="font-size:12.5px;color:var(--sub);margin-bottom:12px">Which campaign should get the minutes?</div>'
-    +rows
-    +'</div></div>';
-  ov.addEventListener('click',function(e){ if(e.target===ov) aiBuyClose(); });
-  document.body.appendChild(ov);
-}
-async function showAiBuySheet(cid){
-  aiBuyClose();
-  var plans=await _aiPlansLoad();
-  if(!plans.length){ try{ showToast('Plans are unavailable right now \u2014 try again in a minute'); }catch(e){} return; }
-  var camps=_buyableAiCamps();
-  var camp=null; for(var i=0;i<camps.length;i++){ if(String(camps[i].id)===String(cid)){ camp=camps[i]; break; } }
-  if(!camp) return;
-  var esc=function(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(ch){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]; }); };
-  window._aiBuyPick = 2;
-  var cards='';
-  plans.forEach(function(p){
-    var sel=(Number(p.id)===2);
-    var perMin=(Number(p.price_cad)/Number(p.ai_minutes)).toFixed(2);
-    cards += '<div id="aiBuyCard_'+p.id+'" onclick="aiBuyPickPlan('+Number(p.id)+')" style="position:relative;border:'+(sel?'2px solid #6d28d9':'1.5px solid var(--border)')+';border-radius:13px;padding:12px;cursor:pointer;background:var(--white)">'
-      +(sel?'<span id="aiBuyPop" style="position:absolute;top:-9px;right:10px;background:#f5f3ff;color:#6d28d9;font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;border:1px solid #ddd6fe">Popular</span>':'')
-      +'<div style="font-size:19px;font-weight:800;color:var(--text)">'+_fuelNum(p.ai_minutes)+' <span style="font-size:11px;font-weight:700;color:var(--sub)">min</span></div>'
-      +'<div style="font-size:13px;font-weight:800;color:var(--text);margin-top:2px">$'+_fuelNum(p.price_cad)+'</div>'
-      +'<div style="font-size:10.5px;color:var(--sub);margin-top:2px">$'+perMin+'/min \u00b7 '+p.validity_days+' days</div>'
+  window._aiCart={};
+  camps.forEach(function(c){ window._aiCart[String(c.id)]={plan:0, ap:false}; });
+  _aiPlansLoad().then(function(plans){
+    if(!plans || !plans.length){ try{ showToast('Plans are unavailable right now \u2014 try again in a minute'); }catch(e){} return; }
+    var ov=document.createElement('div');
+    ov.className='sheet-ov'; ov.style.display='flex'; ov.id='aiBuyOv';
+    ov.innerHTML='<div class="sheet" style="max-height:90vh"><div class="sheet-handle"></div>'
+      +'<div class="sh-head"><div class="sh-title">+ Add AI Minutes</div></div>'
+      +'<div class="sh-body" id="aiCartBody" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom));overflow-y:auto"></div>'
       +'</div>';
+    ov.addEventListener('click',function(e){ if(e.target===ov) aiBuyClose(); });
+    document.body.appendChild(ov);
+    _aiCartPaint();
   });
-  var ov=document.createElement('div');
-  ov.className='sheet-ov'; ov.style.display='flex'; ov.id='aiBuyOv';
-  ov.innerHTML='<div class="sheet" style="max-height:88vh"><div class="sheet-handle"></div>'
-    +'<div class="sh-head"><div class="sh-title">Add AI minutes</div></div>'
-    +'<div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom));overflow-y:auto">'
-    +'<div style="font-size:13px;color:var(--sub)">Minutes go to <b style="color:var(--text)">'+esc(camp.name)+'</b> \u00b7 '+((typeof _fuelNum==='function')?_fuelNum(camp.left):camp.left)+' left now</div>'
-    +'<div style="font-size:12.5px;font-weight:800;color:var(--text);margin-top:14px">Choose a plan</div>'
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">'+cards+'</div>'
-    +'<div style="font-size:11.5px;color:var(--sub);margin-top:10px">Every plan also includes matching texts, emails and IVR minutes.</div>'
-    +'<div id="aiBuyErr" style="display:none;font-size:12px;color:#dc2626;margin-top:10px;line-height:1.5"></div>'
-    +'<button id="aiBuyBtn" onclick="aiBuyGo(\''+String(cid)+'\')" style="width:100%;margin-top:14px;padding:13px;border-radius:11px;border:none;background:#001f3f;color:#fff;font-size:14px;font-weight:800;cursor:pointer;font-family:var(--f)">Buy 300 min \u00b7 $500 + tax</button>'
-    +'<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:9px;line-height:1.5">Secure payment via Stripe. Tax added by province. Minutes land on the campaign the moment the payment goes through.</div>'
-    +'</div></div>';
-  ov.addEventListener('click',function(e){ if(e.target===ov) aiBuyClose(); });
-  document.body.appendChild(ov);
-  aiBuyPickPlan(2);
 }
-function aiBuyPickPlan(pid){
-  window._aiBuyPick = pid;
-  var plans=window._aiPlans||[];
-  plans.forEach(function(p){
-    var el=document.getElementById('aiBuyCard_'+p.id);
-    if(el) el.style.border=(Number(p.id)===Number(pid))?'2px solid #6d28d9':'1.5px solid var(--border)';
+function _aiCartPaint(){
+  var body=document.getElementById('aiCartBody'); if(!body) return;
+  var keep=body.scrollTop;
+  var esc=function(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(ch){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]; }); };
+  var plans=window._aiPlans||[], camps=_buyableAiCamps(), cart=window._aiCart||{};
+  var h='<div style="font-size:13px;color:var(--sub);line-height:1.5;margin-bottom:12px">Choose a plan for each campaign you want to top up. One payment covers everything.</div>';
+  var picked=0, preTax=0;
+  camps.forEach(function(c){
+    var cid=String(c.id), e=cart[cid]||{plan:0,ap:false};
+    h+='<div style="background:var(--white);border:1.5px solid var(--border);border-radius:14px;padding:14px 14px 12px;margin-bottom:12px">'
+      +'<div style="font-size:14.5px;font-weight:800;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(c.name)+'</div>'
+      +'<div style="font-size:12px;color:var(--sub);margin-top:2px">'+((typeof _fuelNum==='function')?_fuelNum(c.left):c.left)+' AI minutes left</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">';
+    plans.forEach(function(p){
+      var sel=(Number(e.plan)===Number(p.id));
+      var perMin=(Number(p.price_cad)/Number(p.ai_minutes)).toFixed(2);
+      h+='<div onclick="aiCartPick(\''+cid+'\','+Number(p.id)+')" style="border:'+(sel?'2px solid #6d28d9':'1.5px solid var(--border)')+';border-radius:12px;padding:10px;cursor:pointer;background:'+(sel?'#f5f3ff':'var(--white)')+'">'
+        +'<div style="font-size:16px;font-weight:800;color:var(--text)">'+_fuelNum(p.ai_minutes)+' <span style="font-size:10.5px;font-weight:700;color:var(--sub)">min</span></div>'
+        +'<div style="font-size:12.5px;font-weight:800;color:var(--text);margin-top:1px">$'+_fuelNum(p.price_cad)+'</div>'
+        +'<div style="font-size:10px;color:var(--sub);margin-top:1px">$'+perMin+'/min \u00b7 '+p.validity_days+' days</div>'
+        +'</div>';
+    });
+    h+='</div>';
+    if(e.plan){
+      var pl=null; plans.forEach(function(p){ if(Number(p.id)===Number(e.plan)) pl=p; });
+      picked++; preTax+=pl?Number(pl.price_cad)||0:0;
+      h+='<div onclick="aiCartAp(\''+cid+'\')" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:11px;cursor:pointer">'
+        +'<div style="min-width:0;font-size:12.5px;font-weight:700;color:var(--text)">Auto-refill when low'
+        +'<span style="display:block;font-size:11px;font-weight:400;color:var(--sub);margin-top:1px;line-height:1.4">Re-buys this same plan ('+(pl?_fuelNum(pl.ai_minutes):'')+' min) automatically when the tank runs low \u00b7 switch off anytime</span></div>'
+        +'<div style="flex:0 0 auto;width:44px;height:26px;border-radius:20px;background:'+(e.ap?'var(--green)':'#cfd8e3')+';position:relative">'
+        +'<div style="position:absolute;top:3px;'+(e.ap?'right:3px':'left:3px')+';width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)"></div></div></div>';
+    }
+    h+='</div>';
   });
-  var pop=document.getElementById('aiBuyPop'); if(pop) pop.style.display=(Number(pid)===2)?'':'none';
-  var pl=null; plans.forEach(function(p){ if(Number(p.id)===Number(pid)) pl=p; });
-  var btn=document.getElementById('aiBuyBtn');
-  if(btn && pl) btn.textContent='Buy '+_fuelNum(pl.ai_minutes)+' min \u00b7 $'+_fuelNum(pl.price_cad)+' + tax';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-top:2px;padding:0 2px">'
+    +'<div style="font-size:13.5px;font-weight:800;color:var(--text)">Total ('+picked+' campaign'+(picked!==1?'s':'')+')</div>'
+    +'<div style="font-size:20px;font-weight:900;color:var(--text)">$'+_fuelNum(preTax)+'</div></div>'
+    +'<div id="aiBuyErr" style="display:none;font-size:12px;color:#dc2626;margin-top:8px;line-height:1.5"></div>'
+    +'<button id="aiBuyBtn" onclick="aiBuyGo()" '+(picked?'':'disabled ')+'style="width:100%;margin-top:10px;padding:14px;border-radius:11px;border:none;background:'+(picked?'#001f3f':'#a7b7c7')+';color:#fff;font-size:14.5px;font-weight:800;cursor:'+(picked?'pointer':'default')+';font-family:var(--f)">'+(picked?('Pay $'+_fuelNum(preTax)+' + tax'):'Choose a plan to continue')+'</button>'
+    +'<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:9px;line-height:1.5">Tax added at checkout \u00b7 Minutes credited automatically \u00b7 Invoice emailed \u00b7 Every plan also includes matching texts, emails and IVR minutes.</div>';
+  body.innerHTML=h;
+  body.scrollTop=keep;
 }
-async function aiBuyGo(cid){
+function aiCartPick(cid,pid){
+  var e=(window._aiCart||{})[String(cid)]; if(!e) return;
+  e.plan=(Number(e.plan)===Number(pid))?0:Number(pid);
+  if(!e.plan) e.ap=false;
+  _aiCartPaint();
+}
+function aiCartAp(cid){
+  var e=(window._aiCart||{})[String(cid)]; if(!e||!e.plan) return;
+  e.ap=!e.ap;
+  _aiCartPaint();
+}
+async function aiBuyGo(){
   var btn=document.getElementById('aiBuyBtn'); if(!btn || btn.disabled) return;
+  var cart=window._aiCart||{}, items=[];
+  Object.keys(cart).forEach(function(cid){
+    var e=cart[cid];
+    if(e && e.plan) items.push({campaign_id:cid, plan_id:Number(e.plan), autopay:e.ap?1:0});
+  });
+  if(!items.length) return;
   var orig=btn.textContent;
   btn.disabled=true; btn.style.opacity='.7'; btn.textContent='Connecting to Stripe\u2026';
   var err=document.getElementById('aiBuyErr'); if(err) err.style.display='none';
   try{
     var r=await sbFetch('/functions/v1/ai-plan-checkout',{method:'POST',
-      body:JSON.stringify({client_id:window._clientId, campaign_id:String(cid), plan_id:Number(window._aiBuyPick)||2})});
+      body:JSON.stringify({client_id:window._clientId, items:items})});
     var j=await r.json().catch(function(){return{};});
     if(r.ok && j && j.checkout_url){ window.location.href=j.checkout_url; return; }
     throw new Error((j&&j.error)||'Could not start the payment');
