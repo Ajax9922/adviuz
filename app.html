@@ -4427,7 +4427,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-08 inboxfix-1';
+var APP_VERSION = 'v2026-09-09 aifuel-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -26118,14 +26118,56 @@ function paintAiFuel(){
     var el = document.getElementById('fuel_'+w.campaign_id);
     if(!el) return;
     var frozen = _fuelIsFrozen(w);
-    // Dashboard shows the NUMBERS only; the full used-of-total bars live on
-    // the campaign detail page (tap-through).
-    var chips = _fuelNum(w.ai_minutes)+' AI min \u00b7 '+_fuelNum(w.sms)+' texts \u00b7 '+_fuelNum(w.emails)+' emails \u00b7 '+_fuelNum(w.ivr_calls)+' call min';
     el.style.display='block';
-    el.innerHTML = '<div style="display:flex;align-items:center;gap:8px;background:#f6f7f9;border:1px solid var(--border);border-radius:11px;padding:9px 13px;cursor:pointer">'
-      + '<span style="font-size:12px;font-weight:500;color:'+(frozen?'#1d4ed8':'#4b5563')+';flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
-      + (frozen?'Frozen \u2014 safe: ':'')+chips+'</span>'
-      + '<span style="font-size:11px;font-weight:500;color:var(--sub);flex-shrink:0">\u203A</span></div>';
+    if (frozen) {
+      // Frozen keeps the original compact pill — the campaign is paused, so no
+      // low/empty urgency applies; the balance is simply on ice.
+      var chips = _fuelNum(w.ai_minutes)+' AI min \u00b7 '+_fuelNum(w.sms)+' texts \u00b7 '+_fuelNum(w.emails)+' emails \u00b7 '+_fuelNum(w.ivr_calls)+' call min';
+      el.innerHTML = '<div style="display:flex;align-items:center;gap:8px;background:#f6f7f9;border:1px solid var(--border);border-radius:11px;padding:9px 13px;cursor:pointer">'
+        + '<span style="font-size:12px;font-weight:500;color:#1d4ed8;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
+        + 'Frozen \u2014 safe: '+chips+'</span>'
+        + '<span style="font-size:11px;font-weight:500;color:var(--sub);flex-shrink:0">\u203A</span></div>';
+      return;
+    }
+    // aifuel-1: split panel — comms balances left, AI minutes right with a
+    // used-of-total bar. Amber under 20% of the granted total, red at 0.
+    // Amber/red AI block taps straight into the Add-AI-Minutes sheet; the
+    // rest of the panel bubbles to the card's campaign-detail tap.
+    var tot = (window._aiTotals||{})[String(w.campaign_id)] || {};
+    var remM = Math.max(0, Number(w.ai_minutes)||0);
+    var totM = Math.max(0, Number(tot.ai_minutes)||0);
+    var usedM = Math.max(0, totM - remM);
+    var state = remM<=0 ? 'dead' : (totM>0 && remM/totM<=0.2 ? 'warn' : 'ok');
+    var C = state==='dead' ? {tx:'#c22f2f',bg:'#fdecec',bd:'#f3c6c6',bar:'#c22f2f',tr:'#f0d4d4'}
+          : state==='warn' ? {tx:'#b26a00',bg:'#fdf3e2',bd:'#f0d9a6',bar:'#e09a1a',tr:'#eadfc4'}
+          : {tx:'var(--text)',bg:'var(--bg)',bd:'var(--border)',bar:'var(--green)',tr:'#e4e6ec'};
+    var pct = totM>0 ? Math.max(0, Math.min(100, Math.round(remM/totM*100))) : 0;
+    var leftRow = function(label, n){
+      var v = Math.max(0, Number(n)||0);
+      var red = v<=0;
+      var c = red ? '#c22f2f' : 'var(--text)';
+      var ck = red ? '#c22f2f' : 'var(--sub)';
+      return '<div style="display:flex;align-items:baseline;justify-content:space-between;padding:2.5px 0">'
+        + '<span style="font-size:11.5px;color:'+ck+'">'+label+'</span>'
+        + '<span style="font-size:12.5px;font-weight:600;color:'+c+'">'+_fuelNum(v)+'<span style="font-size:10px;font-weight:500;color:'+ck+';margin-left:3px">left</span></span></div>';
+    };
+    var usedLine = state==='dead' ? 'AI calls stopped \u00b7 tap to top up'
+                 : state==='warn' ? _fuelNum(usedM)+' used \u00b7 tap to top up'
+                 : (totM>0 ? _fuelNum(usedM)+' used of '+_fuelNum(totM) : '');
+    var rightTap = (state==='ok') ? '' : ' onclick="event.stopPropagation();openAddMinutesSheet()"';
+    el.innerHTML = '<div style="display:flex;align-items:stretch;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--white);cursor:pointer">'
+      + '<div style="flex:1.1;min-width:0;padding:8px 12px 9px;display:flex;flex-direction:column;justify-content:center">'
+      +   '<div style="font-size:9px;font-weight:600;letter-spacing:.05em;color:var(--sub);text-transform:uppercase;margin-bottom:2px">Left to use</div>'
+      +   leftRow('Texts', w.sms)
+      +   leftRow('Emails', w.emails)
+      +   leftRow('Call minutes', w.ivr_calls)
+      + '</div>'
+      + '<div'+rightTap+' style="flex:1;min-width:0;padding:9px 12px;display:flex;flex-direction:column;justify-content:center;border-left:1px solid '+C.bd+';background:'+C.bg+'">'
+      +   '<div style="font-size:9px;font-weight:600;letter-spacing:.05em;color:'+(state==='ok'?'var(--sub)':C.tx)+';text-transform:uppercase">AI minutes</div>'
+      +   '<div style="font-size:20px;font-weight:700;letter-spacing:-.02em;color:'+C.tx+';margin:1px 0 2px">'+_fuelNum(remM)+' <span style="font-size:11px;font-weight:600;color:'+(state==='ok'?'var(--sub)':C.tx)+'">left</span></div>'
+      +   (totM>0 ? '<div style="height:4px;border-radius:3px;background:'+C.tr+';overflow:hidden;margin:2px 0 3px"><div style="height:100%;width:'+pct+'%;background:'+C.bar+';border-radius:3px"></div></div>' : '')
+      +   (usedLine ? '<div style="font-size:10px;color:'+(state==='ok'?'var(--sub)':C.tx)+'">'+usedLine+'</div>' : '')
+      + '</div></div>';
   });
 }
 function _campFuelCardHTML(cp){
