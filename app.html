@@ -4427,7 +4427,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-08 aiemp-1';
+var APP_VERSION = 'v2026-09-08 inboxfix-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -5495,6 +5495,17 @@ function onLoginSuccess() {
       leads = dbLeads.filter(_notBlockRow).map(mapLead);
       nxtId = leads.length + 1;
     }
+    // inboxfix-1: load follow-ups at start-up so the “AI heard a time —
+    // Approve” card is on the lead page from the very first open. If a lead
+    // screen is already open when they arrive, repaint it once.
+    if (typeof loadFollowups === 'function') {
+      loadFollowups().then(function(){
+        try{
+          var _ls=document.getElementById('leadScreen');
+          if(_ls && _ls.classList.contains('open') && typeof curLid!=='undefined' && curLid && typeof renderLeadScreen==='function') renderLeadScreen(curLid);
+        }catch(_e2){}
+      }).catch(function(){});
+    }
     render();
   }).catch(function() {
     render();
@@ -5626,6 +5637,14 @@ async function refreshLeads() {
       await loadClientCampaigns();
       await loadClientLeads();   // client_id-scoped → feeds Leads / Follow-ups / Reports
       await loadCallLog();       // client_id-scoped → feeds Calls
+      // inboxfix-1: reloading leads re-assigns every lead's local number, so the
+      // cached activity/emails (keyed by those numbers) must be rebuilt in the
+      // same breath — otherwise the Inbox pairs one lead's email with another
+      // lead's name until the next background re-fetch.
+      await preloadActivity();
+      // inboxfix-1: re-map open follow-ups onto the fresh lead list too, so the
+      // “AI heard a time — Approve” card stays on the right lead after a refresh.
+      if (typeof loadFollowups === 'function') { try { await loadFollowups(); } catch(_e) {} }
     } catch(e) { console.warn('[client refresh]', e && e.message); }
     if (rb0) { rb0.style.opacity='1'; rb0.style.pointerEvents='auto'; }
     if (curTab === 'dashboard') {
@@ -5669,6 +5688,11 @@ async function refreshLeads() {
     nxtId = leads.length + 1;
   }
   await loadCallLog();
+  // inboxfix-1: local lead numbers were just re-assigned — rebuild the cached
+  // activity/email map and re-map follow-ups so nothing renders under the
+  // wrong lead's name. (preloadActivity clears the stale cache either way.)
+  try { await preloadActivity(); } catch(_e) {}
+  if (typeof loadFollowups === 'function') { try { await loadFollowups(); } catch(_e) {} }
   if(refBtn) { refBtn.style.opacity='1'; refBtn.style.pointerEvents='auto'; }
   render();
   showToast('&#x2705; Leads refreshed');
@@ -23130,6 +23154,10 @@ async function showClientUI() {
   window._leadsLoading = false;
   await loadCallLog();
   await preloadActivity();
+  // inboxfix-1: load open follow-ups at start-up — the “AI heard a time —
+  // Approve” card on the lead page reads this list, so without it the card
+  // only appeared after visiting the Follow-ups tab.
+  if (typeof loadFollowups === 'function') { try { await loadFollowups(); } catch(_e) {} }
   render();
 }
 
