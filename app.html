@@ -4427,7 +4427,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-09 aifuel-2';
+var APP_VERSION = 'v2026-09-10 aifuel-4';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -22100,6 +22100,7 @@ async function sendEmail(){
   if(btn){ btn.textContent='Sending...'; btn.disabled=true; }
   try {
     var finalHtml;
+    window._usedGenericShell = false; // aifuel-4
     // Link mode: upload each file to storage first, build the download section.
     var _linkSection='', _linkText='';
     if((window._emAttMode||'link')==='link' && window._emAtt && window._emAtt.length){
@@ -22169,14 +22170,48 @@ async function sendEmail(){
     } else {
       var dUrlS = window._brandedDesignKey ? ((document.getElementById('designUrlInput')||{}).value||'').trim() : '';
       finalHtml = buildBrandedHtml(bodyHtml||body, fromEmail, dUrlS, !!bodyHtml);
+      window._usedGenericShell = true;
     }
     if(_linkSection) finalHtml = String(finalHtml).replace('</body>', _linkSection+'</body>');
+    // aifuel-4: an email to a CLIENT's lead must wear the CLIENT's identity,
+    // never Adviuz's. When the lead belongs to a real client with verified
+    // email sending (client_integrations), switch the sender and rebuild the
+    // generic shell as a neutral clinic shell. Anything missing -> fail open
+    // to the old Adviuz identity so no send is ever blocked.
+    var _sendFrom=fromEmail, _sendName=(FROM_NAMES[fromEmail]||'Adviuz Team'), _sendReply=fromEmail;
+    try{
+      var _HOUSE=['7d315d20-00af-4e7f-8d79-c89b3f2b5cf7','9686a0a7-75b0-4232-b5a4-20fb11296db3'];
+      if(_emClientDb && _HOUSE.indexOf(String(_emClientDb))<0){
+        var _cir=await sbFetch('/rest/v1/client_integrations?client_id=eq.'+_emClientDb+'&select=email_enabled,from_email,from_name,reply_to_email,email_footer_text,email_website_url,email_logo_url&limit=1');
+        var _ciArr=_cir.ok?await _cir.json():[];
+        var _ci=(_ciArr&&_ciArr[0])||null;
+        if(_ci && _ci.email_enabled===true && _ci.from_email){
+          _sendFrom=String(_ci.from_email);
+          _sendName=String(_ci.from_name||_sendName);
+          _sendReply=String(_ci.reply_to_email||_ci.from_email);
+          if(window._usedGenericShell){
+            var _cb=String((body||'')+(_linkText||'')).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            finalHtml='<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f0f2f5;font-family:Arial,sans-serif">'
+              +'<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f2f5;padding:24px 12px"><tr><td align="center">'
+              +'<table width="100%" style="max-width:600px;background:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #e5e7eb">'
+              +'<tr><td style="padding:22px 28px 6px 28px;text-align:center">'
+              +(_ci.email_logo_url?('<img src="'+_ci.email_logo_url+'" alt="" style="max-height:44px;max-width:200px;display:inline-block">'):('<div style="font-size:20px;font-weight:800;color:#111b21">'+_sendName.replace(/</g,'&lt;')+'</div>'))
+              +'</td></tr>'
+              +'<tr><td style="padding:18px 28px;font-size:15px;color:#111b21;line-height:1.7;white-space:pre-wrap">'+_cb+'</td></tr>'
+              +'<tr><td style="background:#f8f9fa;padding:16px 28px;border-top:1px solid #e9edef;text-align:center;font-size:12px;color:#667781;line-height:1.6">'
+              +(_ci.email_footer_text?String(_ci.email_footer_text).replace(/</g,'&lt;'):_sendName.replace(/</g,'&lt;'))
+              +(_ci.email_website_url?('<div style="margin-top:6px"><a href="'+String(_ci.email_website_url)+'" style="color:#00a884;text-decoration:none">'+String(_ci.email_website_url).replace(/</g,'&lt;')+'</a></div>'):'')
+              +'</td></tr></table></td></tr></table></body></html>';
+          }
+        }
+      }
+    }catch(_ie){ /* fail-open: Adviuz identity */ }
     if(_scheduleAt){
       // Store the finished email; process-scheduled-emails sends it through send-email at that time.
       var _sr = await sbFetch('/rest/v1/scheduled_emails', { method:'POST', headers:{ 'Prefer':'return=minimal' }, body: JSON.stringify({
         client_id: _emClientDb, lead_id: _emLeadDb, to_email: to, subject: fullSubj,
         message: body+_linkText, send_at: _scheduleAt, status:'scheduled', kind:'adviuz',
-        from_email: fromEmail, html: finalHtml, cc: (cc||null), created_by: (currentUser&&currentUser.id)||null
+        from_email: _sendFrom, html: finalHtml, cc: (cc||null), created_by: (currentUser&&currentUser.id)||null
       }) });
       if(!(_sr.ok||_sr.status===201)) throw new Error('Could not schedule (HTTP '+_sr.status+')');
       window._ibSchedEmails = undefined;
@@ -22192,8 +22227,8 @@ async function sendEmail(){
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken,'apikey':SB_ANON},
       body: JSON.stringify({
         to:to, cc:(cc||undefined), subject:fullSubj, html:finalHtml, text:body+_linkText,
-        type:'transactional', from_email:fromEmail, from_name:FROM_NAMES[fromEmail]||'Adviuz Team',
-        reply_to:fromEmail, lead_id:_emLeadDb, client_id:_emClientDb,
+        type:'transactional', from_email:_sendFrom, from_name:_sendName,
+        reply_to:_sendReply, lead_id:_emLeadDb, client_id:_emClientDb,
         headers:Object.assign({'X-Priority':'1','Importance':'high','X-Mailer':'Adviuz CRM'}, _replyHeaders||{}),
         attachments:((window._emAttMode||'link')==='attach'&&window._emAtt&&window._emAtt.length)?window._emAtt.map(function(a){return {filename:a.filename, content:a.content};}):undefined
       })
@@ -22209,8 +22244,8 @@ async function sendEmail(){
       client_id: window._clientId||null,
       type:      'email_sent',
       label:     'Email Sent',
-      body:      '📧 From: '+fromEmail+' → To: '+to+'\n'+subj,
-      meta:      { from:fromEmail, to:to, subject:fullSubj, body:String(body||'').slice(0,4000), email_id:(data&&data.id)||null, cc:(cc||null) }
+      body:      '📧 From: '+_sendFrom+' → To: '+to+'\n'+subj,
+      meta:      { from:_sendFrom, to:to, subject:fullSubj, body:String(body||'').slice(0,4000), email_id:(data&&data.id)||null, cc:(cc||null) }
     });
 
     window._emAtt=[]; if(typeof emPaintAtts==='function') emPaintAtts();
@@ -26481,15 +26516,20 @@ async function showAiEnrollSheet(cid, left, t){
   if(document.getElementById('aiEnrollOv')) return;
   var used=t>0?Math.max(0,t-left):0;
   var pct=t>0?Math.min(100,Math.round(used/t*100)):100;
-  window._aiEnrollPick = 2;
+  // aifuel-3: the old default (plan id 2) was deleted from ai_topup_plans.
+  // Default = the second live plan (falls back to the first) and remember it.
+  var dp = plans[1]||plans[0];
+  var defId = Number(dp.id);
+  window._aiEnrollPick = defId;
+  window._aiEnrollDef = defId;
   var cards='';
   plans.forEach(function(p){
-    var sel=(Number(p.id)===2);
+    var sel=(Number(p.id)===defId);
     var perMin=(Number(p.price_cad)/Number(p.ai_minutes)).toFixed(2);
     cards += '<div id="aiPlanCard_'+p.id+'" onclick="aiEnrollPick('+Number(p.id)+')" style="position:relative;border:'+(sel?'2px solid #6d28d9':'1.5px solid var(--border)')+';border-radius:13px;padding:12px;cursor:pointer;background:var(--white)">'
       +(sel?'<span id="aiPlanPop" style="position:absolute;top:-9px;right:10px;background:#f5f3ff;color:#6d28d9;font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;border:1px solid #ddd6fe">Popular</span>':'')
-      +'<div style="font-size:19px;font-weight:600;color:var(--text)">'+_fuelNum(p.ai_minutes)+' <span style="font-size:11px;font-weight:500;color:var(--sub)">min</span></div>'
-      +'<div style="font-size:13px;font-weight:600;color:var(--text);margin-top:2px">$'+_fuelNum(p.price_cad)+'</div>'
+      +'<div style="font-size:19px;font-weight:600;color:var(--text)">'+_aiCartNum(p.ai_minutes)+' <span style="font-size:11px;font-weight:500;color:var(--sub)">min</span></div>'
+      +'<div style="font-size:13px;font-weight:600;color:var(--text);margin-top:2px">$'+_aiCartNum(p.price_cad)+'</div>'
       +'<div style="font-size:10.5px;color:var(--sub);margin-top:2px">$'+perMin+'/min \u00b7 '+p.validity_days+' days</div>'
       +'</div>';
   });
@@ -26500,12 +26540,12 @@ async function showAiEnrollSheet(cid, left, t){
     +'<div style="padding:10px 0 0;text-align:center"><div style="width:36px;height:4px;border-radius:2px;background:var(--border);margin:0 auto"></div></div>'
     +'<div class="sh-body" style="overflow-y:auto;padding:14px 18px calc(28px + env(safe-area-inset-bottom))">'
     +'<div style="font-size:16.5px;font-weight:600;color:var(--text)">Keep your AI calling your leads</div>'
-    +'<div style="font-size:12.5px;color:var(--sub);margin-top:4px;line-height:1.5">Your AI assistant has used '+_fuelNum(used)+' of '+_fuelNum(t)+' AI minutes working your leads \u2014 only <b>'+_fuelNum(left)+' left</b>.</div>'
+    +'<div style="font-size:12.5px;color:var(--sub);margin-top:4px;line-height:1.5">Your AI assistant has used '+_aiCartNum(used)+' of '+_aiCartNum(t)+' AI minutes working your leads \u2014 only <b>'+_aiCartNum(left)+' left</b>.</div>'
     +'<div style="height:7px;border-radius:999px;background:var(--border);overflow:hidden;margin-top:10px"><div style="height:100%;width:'+pct+'%;background:#f59e0b;border-radius:999px"></div></div>'
     +'<div style="font-size:12.5px;font-weight:600;color:var(--text);margin-top:16px">Choose your refill plan</div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">'+cards+'</div>'
     +'<div style="font-size:11.5px;color:var(--sub);margin-top:10px">Every plan also includes matching texts, emails and call minutes.</div>'
-    +'<button id="aiEnrollBtn" onclick="aiEnrollGo(\''+String(cid)+'\')" style="width:100%;margin-top:14px;padding:13px;border-radius:11px;border:none;background:#001f3f;color:#fff;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--f)">Turn on auto-pay \u00b7 300 min for $500</button>'
+    +'<button id="aiEnrollBtn" onclick="aiEnrollGo(\''+String(cid)+'\')" style="width:100%;margin-top:14px;padding:13px;border-radius:11px;border:none;background:#001f3f;color:#fff;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--f)">Turn on auto-pay \u00b7 '+_aiCartNum(dp.ai_minutes)+' min for $'+_aiCartNum(dp.price_cad)+'</button>'
     +'<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:9px;line-height:1.5">Charged only when your minutes run low. Tax added by province. Switch off anytime.</div>'
     +'<button onclick="aiEnrollClose()" style="width:100%;margin-top:6px;padding:10px;border-radius:11px;border:none;background:transparent;color:var(--sub);font-size:12.5px;font-weight:500;cursor:pointer;font-family:var(--f)">Maybe later</button>'
     +'</div></div>';
@@ -26519,14 +26559,15 @@ function aiEnrollPick(pid){
     var el=document.getElementById('aiPlanCard_'+p.id);
     if(el) el.style.border=(Number(p.id)===Number(pid))?'2px solid #6d28d9':'1.5px solid var(--border)';
   });
-  var pop=document.getElementById('aiPlanPop'); if(pop) pop.style.display=(Number(pid)===2)?'':'none';
+  var pop=document.getElementById('aiPlanPop'); if(pop) pop.style.display=(Number(pid)===Number(window._aiEnrollDef))?'':'none';
   var p=plans.find(function(x){return Number(x.id)===Number(pid);});
   var b=document.getElementById('aiEnrollBtn');
-  if(b&&p) b.textContent='Turn on auto-pay \u00b7 '+_fuelNum(p.ai_minutes)+' min for $'+_fuelNum(p.price_cad);
+  if(b&&p) b.textContent='Turn on auto-pay \u00b7 '+_aiCartNum(p.ai_minutes)+' min for $'+_aiCartNum(p.price_cad);
 }
 function aiEnrollClose(){ var ov=document.getElementById('aiEnrollOv'); if(ov) ov.remove(); }
 async function aiEnrollGo(cid){
-  var pid=Number(window._aiEnrollPick)||2;
+  var pid=Number(window._aiEnrollPick)||Number(window._aiEnrollDef)||0;
+  if(!pid){ showToast('Pick a plan first'); return; }
   var b=document.getElementById('aiEnrollBtn');
   if(b){ b.disabled=true; b.textContent='Saving\u2026'; }
   try{
