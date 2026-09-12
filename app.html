@@ -4427,7 +4427,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-10 aifuel-4';
+var APP_VERSION = 'v2026-09-12 aifuel-7';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -11851,6 +11851,19 @@ function ibCampaignFor(l){
   }
   return null;
 }
+// One clock rule for DISPLAY — mirrors the sending engine exactly: when the
+// campaign says "speak clinic time", every reminder time, appointment card and
+// message preview shows the CLINIC's clock; otherwise the lead's own clock.
+function effLeadTz(l){
+  try{
+    var cp=ibCampaignFor(l);
+    var st=cp&&cp.settings; if(typeof st==='string'){ try{ st=JSON.parse(st); }catch(e){ st=null; } }
+    var bk=st&&st.ai&&st.ai.booking;
+    if(bk&&bk.speak_clinic_time===true&&bk.tz) return {tz:String(bk.tz),clinic:true};
+  }catch(e){}
+  var lt=(l&&l.timezone)||((typeof tzFromPhone==='function'&&l)?tzFromPhone(l.ph):'')||'America/Toronto';
+  return {tz:lt,clinic:false};
+}
 function ibScheduleFor(l){
   var cp=ibCampaignFor(l);
   var s=cp&&cp.settings;
@@ -11910,7 +11923,7 @@ function ibScheduledRows(){
     var noConsent = (l.ok === false);               // engine will skip these — show with a warning
     var apptMs=new Date(l.appointment_at).getTime();
     if(isNaN(apptMs) || apptMs<=now) return;
-    var tz=l.timezone||'America/Toronto';
+    var _eff=effLeadTz(l); var tz=_eff.tz;
     // Already sent or cancelled reminders (the engine's own tracker)
     var _trk=l.appt_reminders_sent||{};
     var _done=(_trk.appt===l.appointment_at && Array.isArray(_trk.sent)) ? _trk.sent : [];
@@ -11932,7 +11945,7 @@ function ibScheduledRows(){
       if(t==null || t<=now || t>=apptMs) return;    // already sent or invalid
       var msg=ibResolveMsg((it.msg&&it.msg.trim())?it.msg:ibDefaultMsg(it), l, apptMs, tz);
       out.push({lid:l.id,dbId:l.dbId,campId:(cp&&cp.id)||'',rkey:it.id,msg:msg,
-                name:l.name||'Lead',ph:l.ph||'',col:l.col||'#667781',when:t,lbl:lbl,appt:apptMs,noConsent:noConsent});
+                name:l.name||'Lead',ph:l.ph||'',col:l.col||'#667781',when:t,lbl:lbl,appt:apptMs,noConsent:noConsent,tz:tz,clinic:_eff.clinic});
     });
   });
   out.sort(function(a,b){return a.when-b.when});
@@ -11977,14 +11990,25 @@ async function ibCancelReminder(dbId, rkey, btnId){
     if(btn){ btn.disabled=false; btn.dataset.armed='0'; btn.textContent='Cancel this reminder'; btn.style.background='#fef2f2'; btn.style.color='#dc2626'; btn.style.borderColor='#fecaca'; }
   }
 }
-function ibWhenLabel(ms){
+function ibWhenLabel(ms, tz, clinic){
   var d=new Date(ms), now=new Date();
-  var dk=locDayKey(d), tk=locDayKey(now);
-  var tomorrow=locDayKey(new Date(Date.now()+86400000));
-  var t=d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'});
-  if(dk===tk) return 'Today \u00b7 '+t;
-  if(dk===tomorrow) return 'Tomorrow \u00b7 '+t;
-  return d.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})+' \u00b7 '+t;
+  if(!tz){
+    var dk=locDayKey(d), tk=locDayKey(now);
+    var tomorrow=locDayKey(new Date(Date.now()+86400000));
+    var t=d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'});
+    if(dk===tk) return 'Today \u00b7 '+t;
+    if(dk===tomorrow) return 'Tomorrow \u00b7 '+t;
+    return d.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})+' \u00b7 '+t;
+  }
+  // One clock: format day AND time in the given timezone, and say which clock it is.
+  var dayKey=function(x){ try{ return new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}).format(x); }catch(e){ return locDayKey(x); } };
+  var t2; try{ t2=d.toLocaleTimeString('en-CA',{timeZone:tz,hour:'numeric',minute:'2-digit'}); }catch(e){ t2=d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}); }
+  var suf=' ('+(clinic?'clinic time':((typeof tzShortLabel==='function')?tzShortLabel(tz):tz))+')';
+  var dk2=dayKey(d), tk2=dayKey(now), tm2=dayKey(new Date(Date.now()+86400000));
+  if(dk2===tk2) return 'Today \u00b7 '+t2+suf;
+  if(dk2===tm2) return 'Tomorrow \u00b7 '+t2+suf;
+  var ds; try{ ds=d.toLocaleDateString('en-CA',{timeZone:tz,weekday:'short',month:'short',day:'numeric'}); }catch(e){ ds=d.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'}); }
+  return ds+' \u00b7 '+t2+suf;
 }
 
 function callsHTML(){
@@ -12325,7 +12349,9 @@ function callsHTML(){
           sHtml+='<div style="padding:12px 16px 7px;font-size:11.5px;font-weight:600;letter-spacing:.06em;color:var(--sub);text-transform:uppercase;background:var(--bg)">'+dayLabel(k)+' <span style="color:var(--green)">('+cnts[k]+')</span></div><div style="background:var(--white)">';
         }
         var apptD=new Date(r.appt);
-        var apptLbl=apptD.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})+' \u00b7 '+apptD.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'});
+        var apptLbl;
+        try{ apptLbl=apptD.toLocaleDateString('en-CA',{timeZone:r.tz,weekday:'short',month:'short',day:'numeric'})+' \u00b7 '+apptD.toLocaleTimeString('en-CA',{timeZone:r.tz,hour:'numeric',minute:'2-digit'})+(r.tz?(' ('+(r.clinic?'clinic time':((typeof tzShortLabel==='function')?tzShortLabel(r.tz):r.tz))+')'):''); }
+        catch(_ae){ apptLbl=apptD.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})+' \u00b7 '+apptD.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}); }
         var sKey=String(r.dbId)+'_'+r.rkey;
         var sOpen=!!(window._ibsOpen&&window._ibsOpen[sKey]);
         sHtml+='<div style="border-bottom:1px solid var(--border)">'
@@ -12333,7 +12359,7 @@ function callsHTML(){
           + '<div class="call-av" style="background:#fef3c7;color:#b45309">\u23F3</div>'
           + '<div style="flex:1;min-width:0">'
           +   '<div onclick="openLead('+r.lid+')" style="cursor:pointer;font-size:15px;font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+r.name+'</div>'
-          +   '<div style="font-size:12.5px;color:var(--sub);margin-top:1px">Appointment reminder \u00b7 sends '+ibWhenLabel(r.when)+'</div>'
+          +   '<div style="font-size:12.5px;color:var(--sub);margin-top:1px">Appointment reminder \u00b7 sends '+ibWhenLabel(r.when,r.tz,r.clinic)+'</div>'
           +   '<div style="font-size:11.5px;color:var(--sub);margin-top:2px">Appt: '+apptLbl+'</div>'
           +   (r.noConsent?'<div style="font-size:11.5px;color:#b45309;margin-top:3px;font-weight:500">\u26A0\uFE0F Won\u2019t send — texting is off for this lead. Re-save the appointment to turn it on.</div>':'')
           + '</div>'
@@ -15102,14 +15128,16 @@ function renderLeadScreen(id) {
   //    green with Reschedule/Cancel; time passed = amber with Done/No-show,
   //    which record the outcome and then the card retires itself.
   if (l.appointment_at && !l.meeting_outcome) {
-    var _apTz = l.timezone || tzFromPhone(l.ph) || 'America/Toronto';
+    var _apEff = (typeof effLeadTz==='function') ? effLeadTz(l) : null;
+    var _apTz = (_apEff&&_apEff.tz) || l.timezone || tzFromPhone(l.ph) || 'America/Toronto';
+    var _apClin = !!(_apEff&&_apEff.clinic);
     var _apPast = new Date(l.appointment_at).getTime() < Date.now();
     var _apBtn=function(lbl,fn,color){ return '<button onclick="'+fn+'" style="flex:1;padding:9px 6px;border-radius:11px;border:1.5px solid '+color+';background:var(--white);color:'+color+';font-size:12.5px;font-weight:500;cursor:pointer;font-family:var(--f);white-space:nowrap">'+lbl+'</button>'; };
     if(!_apPast){
       h += '<div style="background:var(--white);padding:12px 16px 2px">'
         + '<div style="background:var(--greenl,#e7f8f3);border:1.5px solid var(--green);border-radius:14px;padding:13px 15px">'
         +   '<div style="font-size:11px;font-weight:600;color:var(--green);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">\uD83D\uDCC5 Upcoming appointment</div>'
-        +   '<div style="font-size:15px;font-weight:500;color:var(--text);line-height:1.4">'+fmtApptLocal(l.appointment_at,_apTz)+' <span style="font-size:12px;color:var(--sub);font-weight:600">('+tzShortLabel(_apTz)+')</span></div>'
+        +   '<div style="font-size:15px;font-weight:500;color:var(--text);line-height:1.4">'+fmtApptLocal(l.appointment_at,_apTz)+' <span style="font-size:12px;color:var(--sub);font-weight:600">('+(_apClin?'clinic time':'their local time')+')</span></div>'
         +   '<div style="display:flex;gap:8px;margin-top:11px">'
         +     _apBtn('Reschedule','openApptSheet('+l.id+')','var(--green)')
         +     _apBtn('Cancel','apptCancelDirect('+l.id+')','var(--red,#dc2626)')
@@ -15119,7 +15147,7 @@ function renderLeadScreen(id) {
       h += '<div style="background:var(--white);padding:12px 16px 2px">'
         + '<div style="background:#fffbeb;border:1.5px solid #f59e0b;border-radius:14px;padding:13px 15px">'
         +   '<div style="font-size:11px;font-weight:600;color:#b45309;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">\uD83D\uDCC5 Appointment \u00b7 time passed</div>'
-        +   '<div style="font-size:15px;font-weight:500;color:var(--text);line-height:1.4">'+fmtApptLocal(l.appointment_at,_apTz)+' <span style="font-size:12px;color:var(--sub);font-weight:600">('+tzShortLabel(_apTz)+')</span></div>'
+        +   '<div style="font-size:15px;font-weight:500;color:var(--text);line-height:1.4">'+fmtApptLocal(l.appointment_at,_apTz)+' <span style="font-size:12px;color:var(--sub);font-weight:600">('+(_apClin?'clinic time':'their local time')+')</span></div>'
         +   '<div style="font-size:12px;color:#92400e;margin-top:4px">How did it go? Recording it keeps your numbers honest.</div>'
         +   '<div style="display:flex;gap:8px;margin-top:11px">'
         +     _apBtn('\u2713 Done','apptOutcomeDirect('+l.id+',\'done\')','var(--green)')
@@ -15386,9 +15414,12 @@ function renderLeadScreen(id) {
     (typeof ibScheduledRows==='function'?ibScheduledRows():[]).forEach(function(r){
       if(r.lid!==l.id) return;
       var d=new Date(r.when);
+      var _stz=r.tz||''; var _sT='';
+      try{ _sT=isNaN(d)?'':(d.toLocaleDateString('en-CA',(_stz?{timeZone:_stz,month:'short',day:'numeric'}:{month:'short',day:'numeric'}))+' '+d.toLocaleTimeString('en-CA',(_stz?{timeZone:_stz,hour:'numeric',minute:'2-digit'}:{hour:'numeric',minute:'2-digit'}))+(_stz?(' ('+(r.clinic?'clinic time':((typeof tzShortLabel==='function')?tzShortLabel(_stz):_stz))+')'):'')); }
+      catch(_te){ _sT=isNaN(d)?'':(d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'})); }
       _schedItems.push({ type:'sched_sms', _when:r.when,
         label:'💬 Scheduled SMS · '+r.lbl,
-        time:isNaN(d)?'':d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}),
+        time:_sT,
         body:r.msg||'' });
     });
     if(window._ibSchedEmails===undefined && window._clientId){
@@ -18121,10 +18152,10 @@ function emTgl(key, lid){
   // follow-3: repainting the lead screen replaces #content's HTML, which throws
   // the scroll back to the top. Hold the position and put it back (double rAF
   // \u2014 same trick the lead list uses).
-  var _sc=document.getElementById('content');
+  var _sc=document.getElementById('lsBody')||document.getElementById('content');
   var _y=_sc?_sc.scrollTop:0;
   if(typeof renderLeadScreen==='function') renderLeadScreen(lid);
-  if(_sc){ _sc.scrollTop=_y; requestAnimationFrame(function(){ _sc.scrollTop=_y; }); }
+  if(_sc){ _sc.scrollTop=_y; requestAnimationFrame(function(){ _sc.scrollTop=_y; requestAnimationFrame(function(){ _sc.scrollTop=_y; }); }); }
 }
 
 // ═══ EMAIL DESIGN — header logo, structured footer, full preview ═══
