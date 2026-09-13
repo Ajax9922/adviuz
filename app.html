@@ -4427,7 +4427,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-12 aifuel-7';
+var APP_VERSION = 'v2026-09-12 aifuel-8';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -13585,19 +13585,44 @@ async function loadLeadActivity(localId, dbId) {
     // \uD83D\uDCC5 Remaining automated follow-ups for this lead -> Scheduled section
     try{
       window._pbSched = [];
-      var _en = await sbFetch('/rest/v1/playbook_enrollments?lead_id=eq.'+dbId+'&status=eq.active&select=id,campaign_id,stage_key,next_step_no,entered_at,skipped_steps&limit=1');
+      var _en = await sbFetch('/rest/v1/playbook_enrollments?lead_id=eq.'+dbId+'&status=eq.active&select=id,campaign_id,stage_key,next_step_no,next_at,entered_at,skipped_steps&limit=1');
       var _enr = _en.ok ? await _en.json() : [];
       var en = _enr[0] || null;
       if (en){
-        var _st = await sbFetch('/rest/v1/playbook_steps?campaign_id=eq.'+en.campaign_id+'&stage_key=eq.'+encodeURIComponent(en.stage_key)+'&active=eq.true&select=step_no,delay_hours,channel,subject,body&order=delay_hours.asc,step_no.asc');
+        var _st = await sbFetch('/rest/v1/playbook_steps?campaign_id=eq.'+en.campaign_id+'&stage_key=eq.'+encodeURIComponent(en.stage_key)+'&active=eq.true&select=step_no,delay_hours,channel,subject,body,send_at_local&order=delay_hours.asc,step_no.asc');
         var _steps = _st.ok ? await _st.json() : [];
         var _i0 = _steps.findIndex(function(s){ return Number(s.step_no)===Number(en.next_step_no); });
         if (_i0 >= 0){
           var _skips = Array.isArray(en.skipped_steps) ? en.skipped_steps.map(Number) : [];
-          window._pbSched = _steps.slice(_i0).map(function(s){
+          // Honest timing: the engine has fixed ONLY the next step's exact
+          // moment (next_at, already shifted past quiet hours). Later steps
+          // are ESTIMATES: raw offset, then the step's pinned local time,
+          // then clamped into the 9 AM\u20137 PM window on the lead's clock.
+          var _tzL = (typeof leads!=='undefined'?leads:[]).find(function(x){ return x.id === localId; });
+          var _pbEff = (typeof effLeadTz==='function' && _tzL) ? effLeadTz(_tzL) : {tz:'America/Toronto',clinic:false};
+          var _proj = function(rawMs, pin, minMs){
+            var t=rawMs;
+            try{
+              if(t<Date.now()) t=Date.now()+120000;
+              if(minMs && t<minMs+3600000) t=minMs+3600000;
+              var p=isoToZonedParts(new Date(t).toISOString(), _pbEff.tz);
+              var hm=String(p.time||'09:30').split(':'); var lm=(parseInt(hm[0],10)||0)*60+(parseInt(hm[1],10)||0);
+              var pp=String(pin||'').match(/^(\d{1,2}):(\d{2})/);
+              if(pp){ var pm=((parseInt(pp[1],10)||0)%24)*60+(parseInt(pp[2],10)||0); if(lm<pm){ t=new Date(zonedToUtcISO(p.date,('0'+pp[1]).slice(-2)+':'+pp[2],_pbEff.tz)).getTime(); lm=pm; } }
+              if(lm<9*60){ t=new Date(zonedToUtcISO(p.date,'09:30',_pbEff.tz)).getTime(); }
+              else if(lm>=19*60){ var p2=isoToZonedParts(new Date(t+86400000).toISOString(),_pbEff.tz); t=new Date(zonedToUtcISO(p2.date,'09:30',_pbEff.tz)).getTime(); }
+            }catch(e){}
+            return t;
+          };
+          var _prevT=0;
+          window._pbSched = _steps.slice(_i0).map(function(s,si){
+            var raw = new Date(en.entered_at).getTime() + Number(s.delay_hours)*3600000;
+            var exact = (si===0 && en.next_at) ? true : false;
+            var due = exact ? new Date(en.next_at).getTime() : _proj(raw, s.send_at_local, _prevT);
+            _prevT = due;
             return { enr: en.id, step_no: Number(s.step_no), channel: s.channel,
                      subject: s.subject||'', body: s.body||'',
-                     due: new Date(en.entered_at).getTime() + Number(s.delay_hours)*3600000,
+                     due: due, exact: exact, tz: _pbEff.tz, clinic: _pbEff.clinic,
                      day: Math.round(Number(s.delay_hours)/24),
                      skipped: _skips.indexOf(Number(s.step_no)) > -1 };
           });
@@ -15445,22 +15470,29 @@ function renderLeadScreen(id) {
     // \uD83E\uDD16 Next automatic AI phone call for this lead
     if(l.ai_callback_at){
       var _cbD=new Date(l.ai_callback_at);
+      var _cbEff=(typeof effLeadTz==='function')?effLeadTz(l):null;
       if(!isNaN(_cbD) && _cbD.getTime() > Date.now()-3600000){
         _schedItems.push({ type:'sched_aicall', _when:_cbD.getTime(),
           label:'\uD83E\uDD16 AI phone call'+(l.ai_call_attempts?' \u00b7 try '+(l.ai_call_attempts+1):''),
-          time:_cbD.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})+' '+_cbD.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}),
+          time:(function(){ try{ var _z=_cbEff&&_cbEff.tz; return _cbD.toLocaleDateString('en-CA',(_z?{timeZone:_z,weekday:'short',month:'short',day:'numeric'}:{weekday:'short',month:'short',day:'numeric'}))+' '+_cbD.toLocaleTimeString('en-CA',(_z?{timeZone:_z,hour:'numeric',minute:'2-digit'}:{hour:'numeric',minute:'2-digit'}))+(_z?(' ('+(_cbEff.clinic?'clinic time':((typeof tzShortLabel==='function')?tzShortLabel(_z):_z))+')'):''); }catch(_ce){ return _cbD.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})+' '+_cbD.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}); } })(),
           body:'Selina will call automatically. Held if the person is texting with us; moved if it lands outside 9 AM\u20138 PM their time.' });
       }
     }
+    var _pbHint=true;
     ((window._pbSched)||[]).forEach(function(p){
       if(p.skipped) return;
       var d=new Date(p.due);
       var icon=p.channel==='email'?'\uD83D\uDCE7':p.channel==='sms'?'\uD83D\uDCAC':p.channel==='call'?'\uD83D\uDCDE':'\uD83D\uDC64';
       var kind=p.channel==='email'?'Email':p.channel==='sms'?'Text':p.channel==='call'?'AI call':'Task';
+      var _pT='';
+      try{ _pT=isNaN(d)?'':((p.exact?'':'\u2248 ')+d.toLocaleDateString('en-CA',(p.tz?{timeZone:p.tz,month:'short',day:'numeric'}:{month:'short',day:'numeric'}))+' '+d.toLocaleTimeString('en-CA',(p.tz?{timeZone:p.tz,hour:'numeric',minute:'2-digit'}:{hour:'numeric',minute:'2-digit'}))+(p.tz?(' ('+(p.clinic?'clinic time':((typeof tzShortLabel==='function')?tzShortLabel(p.tz):p.tz))+')'):'')); }
+      catch(_pe){ _pT=isNaN(d)?'':d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}); }
+      var _pH=_pbHint?('\n\u23F1 The engine spaces these out by itself \u2014 daily limits and quiet hours (9 AM\u20137 PM on the lead\u2019s clock) can move a step; \u2248 means estimated.'):'';
+      _pbHint=false;
       _schedItems.push({ type:'sched_pb', _when:p.due, _pbEnr:p.enr, _pbStep:p.step_no,
         label: icon+' Automated follow-up \u00b7 '+kind+(p.day?' \u00b7 Day '+p.day:''),
-        time: isNaN(d)?'':d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}),
-        body: (p.channel==='email'&&p.subject?(p.subject+'\n'):'')+String(p.body||'').slice(0,180) });
+        time: _pT,
+        body: (p.channel==='email'&&p.subject?(p.subject+'\n'):'')+String(p.body||'').slice(0,180)+_pH });
     });
     _schedItems.sort(function(x,y){ return x._when-y._when; });
   }catch(e){}
@@ -15662,7 +15694,9 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
       h += '<div class="ld-act-dot">'+(isEmailIn?'📥':'📧')+'</div>';
       h += '<div class="ld-act-body" style="width:100%">';
       h += '<span class="ld-act-label">'+item.label+'</span><span class="ld-act-time">'+item.time+'</span>';
-      var _emTag = isEmailIn ? '' : '👤 '+((_clientNm())||'You');
+      var _emBrand='';
+      try{ var _ecp=(typeof ibCampaignFor==='function')?ibCampaignFor(l):null; var _est=_ecp&&_ecp.settings; if(typeof _est==='string'){ try{ _est=JSON.parse(_est); }catch(_je){ _est=null; } } _emBrand=(_est&&_est.email&&_est.email.from_name)?String(_est.email.from_name):''; }catch(_be){}
+      var _emTag = isEmailIn ? '' : '👤 '+(_emBrand||(_clientNm())||'You');
       var _emStat = (item.type === 'email_sent') ? emOpensFor(l.id, item.email_id, item._rawTime||null) : null;
       var _emHasStat = !!(_emStat && (_emStat.opens.length || _emStat.clicks.length));
       if(_emTag || _emHasStat){
