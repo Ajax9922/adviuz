@@ -2235,6 +2235,15 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
     </div>
   </div>
 </div>
+<div class="sheet-ov" id="pbD1Sh" onclick="if(event.target===this)closeSheet('pbD1Sh')">
+  <div class="sheet"><div class="sheet-handle"></div>
+    <div class="sh-head">
+      <div class="sh-title">&#x1F306; Day-1 second call</div>
+      <button class="sh-x" onclick="closeSheet('pbD1Sh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" id="pbD1SheetBody" style="padding-bottom:calc(28px + env(safe-area-inset-bottom))"></div>
+  </div>
+</div>
 <div class="sheet-ov" id="aiMinSh" onclick="if(event.target===this)closeSheet('aiMinSh')">
   <div class="sheet" style="max-height:92vh"><div class="sheet-handle"></div>
     <div class="sh-head">
@@ -4427,7 +4436,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-12 aifuel-8';
+var APP_VERSION = 'v2026-09-13 aifuel-9';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -12979,6 +12988,44 @@ async function pbEnr(id, act){
   var box=document.getElementById('pbTrackBox'); if(box) box.style.display='none';
   pbTrackerToggle();
 }
+function _pbHM12(hm){ var m=String(hm||'').match(/^(\d{1,2}):(\d{2})/); if(!m) return String(hm||''); var hh=parseInt(m[1],10), ap=hh>=12?'PM':'AM'; var h12=hh%12; if(h12===0) h12=12; return h12+':'+m[2]+' '+ap; }
+async function _pbD1Save(patch){
+  try{
+    var r=await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(_pbCid)+'&select=settings');
+    var rows=r.ok?await r.json():[]; var st=(rows[0]&&rows[0].settings)||{}; if(typeof st==='string'){ try{ st=JSON.parse(st); }catch(_e){ st={}; } }
+    st.ai=st.ai||{}; var cur=st.ai.day1_retry||{enabled:false,time:'16:45',cutoff:'15:00'};
+    st.ai.day1_retry=Object.assign({},cur,patch);
+    var w=await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(_pbCid),{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ settings: st }) });
+    if(!w.ok) return false;
+    window._pbDay1=st.ai.day1_retry;
+    return true;
+  }catch(e){ return false; }
+}
+async function pbD1Toggle(cb){
+  var on=cb.checked;
+  var ok=await _pbD1Save({enabled:on});
+  showToast(ok?(on?'\uD83C\uDF06 Day-1 second call is ON':'Day-1 second call is OFF'):'Could not save \u2014 try again');
+  renderPlaybook();
+}
+function pbD1Time(which){
+  var opts=which==='time'
+    ? ['15:30','16:00','16:30','16:45','17:00','17:30','18:00','18:30']
+    : ['13:00','13:30','14:00','14:30','15:00','15:30','16:00'];
+  var cur=(window._pbDay1&&window._pbDay1[which])||(which==='time'?'16:45':'15:00');
+  var ttl=which==='time'?'One more AI try at\u2026 (lead\u2019s clock)':'Only when the missed call was before\u2026 (lead\u2019s clock)';
+  var h='<div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px">'+ttl+'</div>';
+  opts.forEach(function(o){
+    h+='<button onclick="pbD1SetTime(\''+which+'\',\''+o+'\')" style="width:100%;padding:11px;margin-bottom:6px;border:1.5px solid '+(o===cur?'var(--green)':'var(--border)')+';border-radius:10px;background:'+(o===cur?'#e7f8f3':'var(--white)')+';color:var(--text);font-size:13px;font-weight:'+(o===cur?'600':'400')+';cursor:pointer;font-family:var(--f)">'+_pbHM12(o)+(o===cur?' \u2713':'')+'</button>';
+  });
+  var box=document.getElementById('pbD1SheetBody'); if(box){ box.innerHTML=h; openSheet('pbD1Sh'); }
+}
+async function pbD1SetTime(which,val){
+  closeSheet('pbD1Sh');
+  var patch={}; patch[which]=val;
+  var ok=await _pbD1Save(patch);
+  showToast(ok?('Saved \u2014 '+_pbHM12(val)):'Could not save \u2014 try again');
+  renderPlaybook();
+}
 function openPlaybook(){
   var cp=(typeof _csCp==='function')?_csCp():null;
   if(!cp||!cp.id){ showToast('Open a campaign first'); return; }
@@ -13010,7 +13057,8 @@ async function loadPlaybook(){
       var stg=(cr[0]&&cr[0].settings)||{}; if(typeof stg==='string'){ try{ stg=JSON.parse(stg); }catch(_e){ stg={}; } }
       var ap=(stg.ai&&stg.ai.approvals)||{};
       window._pbReview=!(ap.sms==='auto'&&ap.email==='auto');
-    }catch(e){ window._pbReview=true; }
+      window._pbDay1=(stg.ai&&stg.ai.day1_retry)||null;
+    }catch(e){ window._pbReview=true; window._pbDay1=null; }
   }catch(e){ _pbSteps=[]; _pbStages={}; }
   renderPlaybook();
 }
@@ -13068,6 +13116,23 @@ function renderPlaybook(){
       +'<label style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:'+(on?'var(--green)':'var(--sub)')+';cursor:pointer">'
       +(on?'ON':'OFF')+'<input type="checkbox" '+(on?'checked':'')+' onchange="pbToggleStage(\''+key+'\',this)" style="width:17px;height:17px;accent-color:var(--green)"></label>'
       +'</div>';
+    if(key==='2'){
+      // Day-1 second call \u2014 the same-evening voicemail retry rule lives on
+      // this card because this stage is where a missed first call lands.
+      var d1=window._pbDay1||{};
+      var d1on=d1.enabled===true;
+      var d1t=_pbHM12(d1.time||'16:45'), d1c=_pbHM12(d1.cutoff||'15:00');
+      h+='<div style="display:flex;align-items:center;gap:10px;padding:10px 13px;border-top:1px solid var(--border);background:'+(d1on?'#f0fdf9':'var(--bg)')+'">'
+        +'<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:600;color:var(--text)">\uD83C\uDF06 Day-1 second call</div>'
+        +'<div style="font-size:10.5px;color:var(--sub);line-height:1.55">'
+        +(d1on
+          ? 'First call hits voicemail before <b onclick="pbD1Time(\'cutoff\')" style="color:var(--green);cursor:pointer;text-decoration:underline">'+d1c+'</b> \u2192 one more AI try at <b onclick="pbD1Time(\'time\')" style="color:var(--green);cursor:pointer;text-decoration:underline">'+d1t+'</b> the same day (lead\u2019s clock). Tap a time to change it.'
+          : 'One extra AI call the same evening when a new lead\u2019s first call hits voicemail')
+        +'</div></div>'
+        +'<label style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:'+(d1on?'var(--green)':'var(--sub)')+';cursor:pointer">'+(d1on?'ON':'OFF')
+        +'<input type="checkbox" '+(d1on?'checked':'')+' onchange="pbD1Toggle(this)" style="width:17px;height:17px;accent-color:var(--green)"></label>'
+        +'</div>';
+    }
     steps.forEach(function(s){ h+=_pbStepHtml(s); });
     if(staff) h+='<div style="padding:6px 12px 10px;border-top:1px solid var(--border)"><button onclick="pbAddStep(\''+key+'\')" style="width:100%;padding:8px;border:1px dashed var(--border);border-radius:9px;background:var(--white);color:var(--sub);font-size:12px;font-weight:500;cursor:pointer;font-family:var(--f)">\u2795 Add a step (Adviuz)</button></div>';
     h+='</div>';
