@@ -3512,9 +3512,13 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
         <span><span style="display:block;font-size:14px;font-weight:600;color:var(--text)">&#x1F4AC; Bulk SMS</span><span style="display:block;font-size:12px;color:var(--sub);margin-top:1px">Allow bulk text campaigns from this account</span></span>
         <input type="checkbox" id="bsetSms" checked style="width:20px;height:20px;accent-color:var(--green)">
       </label>
-      <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 15px;border:1.5px solid var(--border);border-radius:13px;margin-bottom:14px;cursor:pointer">
+      <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 15px;border:1.5px solid var(--border);border-radius:13px;margin-bottom:9px;cursor:pointer">
         <span><span style="display:block;font-size:14px;font-weight:600;color:var(--text)">&#x1F4E7; Bulk Email</span><span style="display:block;font-size:12px;color:var(--sub);margin-top:1px">Allow bulk email campaigns from this account</span></span>
         <input type="checkbox" id="bsetEmail" checked style="width:20px;height:20px;accent-color:var(--green)">
+      </label>
+      <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 15px;border:1.5px solid var(--border);border-radius:13px;margin-bottom:14px;cursor:pointer">
+        <span><span style="display:block;font-size:14px;font-weight:600;color:var(--text)">&#x26A1; Conversion Engine</span><span style="display:block;font-size:12px;color:var(--sub);margin-top:1px">Allow automated follow-up plans from this account</span></span>
+        <input type="checkbox" id="bsetEngine" style="width:20px;height:20px;accent-color:var(--green)">
       </label>
       <div style="font-size:11.5px;color:var(--sub);line-height:1.55;margin-bottom:16px">&#x1F319; Bulk texts only go out between <b>8&nbsp;AM and 9&nbsp;PM</b> in each lead&#39;s own timezone &mdash; anything due outside that waits for the morning. The 200-per-day limit always applies.</div>
       <button class="btn btn-primary" onclick="saveBulkSettings()" style="width:100%;justify-content:center">Save settings</button>
@@ -4451,7 +4455,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-14 aifuel-11';
+var APP_VERSION = 'v2026-09-14 aifuel-12';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -7655,11 +7659,13 @@ function leadsHTML(){
   var _bp=window._bulkPrefs||null;
   var _showBSms = window._isAdviuzStaff || (_bp && _bp.sms_enabled===true);
   var _showBEm  = window._isAdviuzStaff || (_bp && _bp.email_enabled===true);
+  var _showBCE = window._isAdviuzStaff || (_bp && _bp.engine_enabled===true);
   var _bTileCss = 'flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px;border-radius:12px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-size:13px;font-weight:500;cursor:pointer;font-family:var(--f)';
-  var bulkTiles = (window._isPartnerMode || anySel || (!_showBSms && !_showBEm)) ? '' :
+  var bulkTiles = (window._isPartnerMode || anySel || (!_showBSms && !_showBEm && !_showBCE)) ? '' :
     '<div style="display:flex;gap:8px;padding:10px 16px 2px">'
     + (_showBSms ? '<button onclick="openBulkWiz(\'sms\')" style="'+_bTileCss+'">\uD83D\uDCAC Bulk SMS</button>' : '')
     + (_showBEm ? '<button onclick="openBulkWiz(\'email\')" style="'+_bTileCss+'">\uD83D\uDCE7 Bulk Email</button>' : '')
+    + (_showBCE ? '<button onclick="openConvEngine()" style="'+_bTileCss+';font-size:12.5px">\u26A1 Conversion Engine</button>' : '')
     + '</div>';
   // ops-1: one-tap stage chips. Counts respect the partner scope (and search)
   // but NOT the stage filter itself, so the numbers stay stable while you tap.
@@ -8603,14 +8609,15 @@ async function loadBulkPrefs(force){
 async function openBulkSettings(){
   var pf=await loadBulkPrefs(true)||{};
   var t=function(id,on){ var el=document.getElementById(id); if(el) el.checked=(on===true); };
-  t('bsetSms', pf.sms_enabled); t('bsetEmail', pf.email_enabled);
+  t('bsetSms', pf.sms_enabled); t('bsetEmail', pf.email_enabled); t('bsetEngine', pf.engine_enabled);
   openSheet('bulkSetSh');
 }
 async function saveBulkSettings(){
   if(!window._clientId){ showToast('Only client accounts have these settings'); return; }
   var pf={
     sms_enabled: !!(document.getElementById('bsetSms')||{}).checked,
-    email_enabled: !!(document.getElementById('bsetEmail')||{}).checked
+    email_enabled: !!(document.getElementById('bsetEmail')||{}).checked,
+    engine_enabled: !!(document.getElementById('bsetEngine')||{}).checked
   };
   try{
     var r=await sbFetch('/rest/v1/client_prefs',{ method:'POST',
@@ -8745,7 +8752,11 @@ var CE_SKIP = { opted_out:'\u26D4 texted STOP', casl_expired:'inquiry > 6 months
 var CE_CHIPS = [ ['all','All'], ['1','Fresh'], ['2','Call not connected'], ['4','Follow-up'], ['noshow','No Show'], ['6','Meeting Done'] ];
 function ceRailName(k){ return CE_RAILS[k] || ('Stage ' + k); }
 function openConvEngine(){
+  if(window._isPartnerMode){ showToast('Not available for partner accounts'); return; }
   window._ce = { camp:'', campLbl:'', tab:'active', data:null, busy:false, sel:{}, chip:'all', q:'', confirmExit:'' };
+  if(isClientMode()){
+    loadBulkPrefs().then(function(pf){ pf=pf||{}; if(pf.engine_enabled!==true && !window._isAdviuzStaff){ closeSheet('convEngSh'); showToast('Turn on Conversion Engine in Bulk Actions settings first'); } });
+  }
   ceRender();
   openSheet('convEngSh');
 }
