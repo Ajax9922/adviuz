@@ -4455,7 +4455,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-14 aifuel-12';
+var APP_VERSION = 'v2026-09-15 aifuel-14';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -8748,7 +8748,7 @@ async function saveLeadAddSettings(){
 // ═══ CONVERSION ENGINE (aifuel-11): bulk playbook activation + pause/resume/exit ═══
 var CE_FN = '/functions/v1/conversion-engine?secret=ce_9f27c4a8e1';
 var CE_RAILS = { '1':'Fresh Lead', '2':'Call Not Connected', '3':'Callback Requested', '4':'Follow-up Scheduled', '6':'Meeting Done', 'noshow':'\uD83D\uDEAA No-Show Rescue' };
-var CE_SKIP = { opted_out:'\u26D4 texted STOP', casl_expired:'inquiry > 6 months', human_only:'human-only lead', has_appointment:'has an appointment', no_phone:'no phone number', no_plan:'no plan for this stage', plan_off:'plan is off \u2014 turn on in Playbook', master_off:'Playbook is off for this campaign' };
+var CE_SKIP = { opted_out:'\u26D4 texted STOP', casl_expired:'inquiry > 6 months', human_only:'human-only lead', has_appointment:'has an appointment', no_phone:'no phone number', excluded_stage:'never gets automated follow-ups', no_plan:'no plan for this stage', plan_off:'plan is off \u2014 turn on in Playbook', master_off:'Playbook is off for this campaign' };
 var CE_CHIPS = [ ['all','All'], ['1','Fresh'], ['2','Call not connected'], ['4','Follow-up'], ['noshow','No Show'], ['6','Meeting Done'] ];
 function ceRailName(k){ return CE_RAILS[k] || ('Stage ' + k); }
 function openConvEngine(){
@@ -8784,23 +8784,38 @@ function ceRender(){
     return '<button onclick="window._ce.tab=\''+key+'\';window._ce.confirmExit=\'\';ceRender()" style="flex:1;padding:8px;border-radius:10px;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'var(--greenl,#e7f8f3)':'var(--white)')+';color:'+(on?'var(--green)':'var(--sub)')+';font-size:12.5px;font-weight:600;cursor:pointer;font-family:var(--f)">'+lbl+' ('+n+')</button>'; };
   h += '<div style="display:flex;gap:7px;margin-bottom:11px">' + tabBtn('active','Active',act.length) + tabBtn('inactive','Inactive',inact.length) + '</div>';
   if(!d.master_on) h += '<div style="font-size:12px;color:#b45309;background:#fef3c7;border-radius:10px;padding:9px 11px;margin-bottom:10px">Playbook master switch is OFF for this campaign \u2014 nothing sends until it\u2019s on.</div>';
+  if(!Object.keys(d.rails||{}).length) h += '<div style="font-size:12px;color:#b45309;background:#fef3c7;border-radius:10px;padding:9px 11px;margin-bottom:10px">This campaign has no follow-up plans built yet \u2014 create them on the Playbook screen first, then come back to activate leads.</div>';
   if(c.tab==='active'){
-    h += '<input class="finp" placeholder="Search leads\u2026" value="'+String(c.q||'').replace(/"/g,'&quot;')+'" oninput="window._ce.q=this.value;ceRender();var el=document.getElementById(\'ceBody\').querySelector(\'input\');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length)}" style="margin-bottom:10px">';
+    var selA = c.selA || (c.selA = {});
+    h += '<input class="finp" placeholder="Search leads\u2026" value="'+String(c.q||'').replace(/"/g,'&quot;')+'" oninput="window._ce.q=this.value;ceRender();var el=document.getElementById(\'ceBody\').querySelector(\'input\');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length)}" style="margin-bottom:9px">';
     var q = String(c.q||'').toLowerCase();
     var list = act.filter(function(a){ return !q || String(a.name).toLowerCase().indexOf(q) !== -1; });
+    var nSel = list.filter(function(a){ return selA[a.enrollment_id]; }).length;
+    var allOn = list.length>0 && nSel===list.length;
+    var _bb=function(lbl,fn,color,en){ return '<button '+(en?'':'disabled ')+'onclick="'+fn+'" style="flex:1;padding:7px 4px;border-radius:9px;border:1.5px solid '+(en?color:'var(--border)')+';background:var(--white);color:'+(en?color:'var(--sub)')+';font-size:11.5px;font-weight:600;cursor:pointer;font-family:var(--f);white-space:nowrap">'+lbl+'</button>'; };
+    h += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:10px">'
+      + '<span onclick="ceSelAll()" style="font-size:11.5px;padding:6px 11px;border-radius:10px;border:1.5px solid '+(allOn?'var(--green)':'var(--border)')+';color:'+(allOn?'var(--green)':'var(--sub)')+';cursor:pointer;font-weight:600;white-space:nowrap">'+(allOn?'\u2713 All':'Select all')+'</span>'
+      + _bb('\u23F8 Pause ('+nSel+')','ceBulk(\'pause\')','var(--text)',nSel>0)
+      + _bb('\u25B6 Resume ('+nSel+')','ceBulk(\'resume\')','var(--green)',nSel>0)
+      + _bb(c.confirmBulkExit?'Tap again':'\u23F9 Exit ('+nSel+')','ceBulk(\'exit\')','#dc2626',nSel>0)
+      + '</div>';
     if(!list.length) h += '<div style="font-size:13px;color:var(--sub);padding:14px 4px;text-align:center">' + (act.length? 'No matches.' : 'No leads on follow-up yet \u2014 check the Inactive tab.') + '</div>';
     list.forEach(function(a){
       var paused = a.status==='paused';
       var manual = paused && a.pause_reason==='manual';
       var waiting = paused && !manual;
+      var on = !!selA[a.enrollment_id];
       var nx = a.next_at ? new Date(a.next_at).toLocaleString([], {weekday:'short', hour:'numeric', minute:'2-digit'}) : '';
       var badge = manual ? '<span style="font-size:10px;background:#fef3c7;color:#b45309;border-radius:6px;padding:1px 6px;margin-left:6px">paused by you</span>'
                 : waiting ? '<span style="font-size:10px;background:var(--greenl,#e7f8f3);color:var(--green);border-radius:6px;padding:1px 6px;margin-left:6px">waiting \u2014 replied</span>' : '';
       var sub = ceRailName(a.rail) + (a.step? ' \u00b7 step '+a.step+' of '+(a.steps_total||'?') : '') + (paused? ' \u00b7 holding' : (nx? ' \u00b7 next '+nx : ''));
       var exitLbl = c.confirmExit===a.enrollment_id ? 'Tap again to end' : '\u23F9 Exit';
-      h += '<div style="border:1.5px solid var(--border);border-radius:12px;padding:11px 13px;margin-bottom:8px;background:var(--white)">'
-        + '<div style="font-size:13.5px;font-weight:600;color:var(--text)">'+sanitize(a.name)+badge+'</div>'
-        + '<div style="font-size:11.5px;color:var(--sub);margin:2px 0 9px">'+sanitize(sub)+'</div>'
+      h += '<div style="border:1.5px solid '+(on?'var(--green)':'var(--border)')+';border-radius:12px;padding:11px 13px;margin-bottom:8px;background:var(--white)">'
+        + '<div style="display:flex;align-items:center;gap:9px">'
+        +   '<span onclick="ceSelOne(\''+a.enrollment_id+'\')" style="width:19px;height:19px;border-radius:5px;border:2px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'var(--green)':'var(--white)')+';display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;color:#fff;font-size:12px;font-weight:700;cursor:pointer">'+(on?'\u2713':'')+'</span>'
+        +   '<span onclick="ceOpenLead(\''+a.lead_id+'\')" style="flex:1;font-size:13.5px;font-weight:600;color:var(--text);cursor:pointer">'+sanitize(a.name)+badge+' <span style="color:var(--sub);font-weight:400">\u203a</span></span>'
+        + '</div>'
+        + '<div style="font-size:11.5px;color:var(--sub);margin:3px 0 9px 28px">'+sanitize(sub)+'</div>'
         + '<div style="display:flex;gap:7px">'
         + (paused
           ? '<button onclick="ceAct(\'resume\',\''+a.enrollment_id+'\')" style="flex:1;padding:7px;border-radius:9px;border:1.5px solid var(--green);background:var(--white);color:var(--green);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--f)">\u25B6 Resume</button>'
@@ -8835,7 +8850,7 @@ function ceRender(){
   }
   box.innerHTML = h;
 }
-function cePickCamp(id,lbl){ var c=window._ce; c.camp=id; c.campLbl=lbl; c.sel={}; c.tab='active'; c.chip='all'; c.q=''; ceLoad(); }
+function cePickCamp(id,lbl){ var c=window._ce; c.camp=id; c.campLbl=lbl; c.sel={}; c.selA={}; c.confirmBulkExit=false; c.tab='active'; c.chip='all'; c.q=''; ceLoad(); }
 function ceToggle(id){ var c=window._ce; c.sel[id] = c.sel[id]===false ? true : false; ceRender(); }
 function ceLoad(){
   var c=window._ce; c.busy=true; ceRender();
@@ -8856,6 +8871,26 @@ function ceExit(eid){
   if(c.confirmExit!==eid){ c.confirmExit=eid; ceRender(); setTimeout(function(){ if(window._ce && window._ce.confirmExit===eid){ window._ce.confirmExit=''; ceRender(); } }, 3500); return; }
   c.confirmExit='';
   ceAct('exit', eid);
+}
+function ceSelOne(id){ var c=window._ce; c.selA=c.selA||{}; c.selA[id]=!c.selA[id]; c.confirmBulkExit=false; ceRender(); }
+function ceSelAll(){ var c=window._ce; c.selA=c.selA||{}; var q=String(c.q||'').toLowerCase(); var list=(c.data&&c.data.active||[]).filter(function(a){ return !q || String(a.name).toLowerCase().indexOf(q)!==-1; }); var all=list.length>0 && list.every(function(a){ return c.selA[a.enrollment_id]; }); list.forEach(function(a){ c.selA[a.enrollment_id]=!all; }); c.confirmBulkExit=false; ceRender(); }
+function ceBulk(action){
+  var c=window._ce; if(c.busy) return;
+  var ids=Object.keys(c.selA||{}).filter(function(k){ return c.selA[k]; });
+  if(!ids.length){ showToast('Select leads first'); return; }
+  if(action==='exit' && !c.confirmBulkExit){ c.confirmBulkExit=true; ceRender(); setTimeout(function(){ if(window._ce&&window._ce.confirmBulkExit){ window._ce.confirmBulkExit=false; ceRender(); } },3500); return; }
+  c.confirmBulkExit=false; c.busy=true; ceRender();
+  sbFetch(CE_FN, { method:'POST', body: JSON.stringify({ action:action, enrollment_ids:ids, actor:(window._userName||'operator') }) })
+    .then(function(r){ return r.json(); })
+    .then(function(j){ c.busy=false; c.selA={}; if(j&&j.ok){ var n=(j.done!=null?j.done:ids.length); showToast((action==='pause'?'Paused ':action==='resume'?'Resumed ':'Ended ')+n); } else showToast((j&&j.error)||'Failed'); ceLoad(); })
+    .catch(function(){ c.busy=false; showToast('Failed \u2014 try again'); ceLoad(); });
+}
+function ceOpenLead(dbId){
+  var loc=(leads||[]).find(function(x){ return String(x.dbId)===String(dbId); });
+  if(!loc){ showToast('Lead not in this view'); return; }
+  closeSheet('convEngSh');
+  if(typeof openLead==='function'){ openLead(loc.id); }
+  else { curTab='leads'; curLid=loc.id; if(typeof renderLeadScreen==='function') renderLeadScreen(loc.id); }
 }
 function ceActivate(){
   var c=window._ce; if(c.busy) return;
@@ -13804,7 +13839,7 @@ async function loadLeadActivity(localId, dbId) {
     // \uD83D\uDCC5 Remaining automated follow-ups for this lead -> Scheduled section
     try{
       window._pbSched = [];
-      var _en = await sbFetch('/rest/v1/playbook_enrollments?lead_id=eq.'+dbId+'&status=eq.active&select=id,campaign_id,stage_key,next_step_no,next_at,entered_at,skipped_steps&limit=1');
+      var _en = await sbFetch('/rest/v1/playbook_enrollments?lead_id=eq.'+dbId+'&status=in.(active,paused)&select=id,campaign_id,stage_key,next_step_no,next_at,entered_at,skipped_steps&order=status.asc&limit=1');
       var _enr = _en.ok ? await _en.json() : [];
       var en = _enr[0] || null;
       if (en){
@@ -23720,6 +23755,9 @@ async function loadClientLeads() {
         return !(s==='digital flyers' || s==='ai sales engine' || s==='both');
       });
       nxtId = leads.length + 1;
+      // idfix-1: local lead numbers were just re-assigned — rebuild the cached
+      // activity map so nothing ever renders under the wrong lead's name.
+      try { if (typeof preloadActivity === 'function') await preloadActivity(); } catch(_e) {}
     }
   } catch(e) { console.warn('[loadClientLeads]', e.message); }
 }
@@ -25806,6 +25844,7 @@ function openApptSheet(leadId){
   var l = leads.find(function(x){ return x.id===leadId; });
   if(!l){ return; }
   window._apptLeadId = leadId;
+  window._apptLeadDbId = l.dbId; // idfix-1: survives list re-sorts
   var tz = l.timezone || tzFromPhone(l.ph) || 'America/Toronto';
   window._apptTz = tz;
   var note = document.getElementById('apptTzNote');
@@ -25837,7 +25876,7 @@ function openApptSheet(leadId){
 // The gear link on the Set Appointment sheet goes straight to the lead's own
 // campaign Appointment Settings; account-level sheet only if there's no campaign.
 function openLeadApptSettings(){
-  var l = leads.find(function(x){ return x.id===window._apptLeadId; });
+  var l = (leads.find(function(x){ return window._apptLeadDbId && x.dbId===window._apptLeadDbId; }) || leads.find(function(x){ return x.id===window._apptLeadId; }));
   var campId = l && (l.campaign_id || l.campaign);
   if(campId && typeof openCampSettings==='function' && typeof ibEditReminder==='function'){
     closeSheet('apptSh');
@@ -25857,7 +25896,7 @@ function apptOutcomeDirect(id, outcome){
   setTimeout(function(){ mrPick(outcome); }, 60);
 }
 function apptCancelStart(){
-  var l = leads.find(function(x){ return x.id===window._apptLeadId; });
+  var l = (leads.find(function(x){ return window._apptLeadDbId && x.dbId===window._apptLeadDbId; }) || leads.find(function(x){ return x.id===window._apptLeadId; }));
   if(!l || !l.appointment_at) return;
   var tz = window._apptTz || l.timezone || 'America/Toronto';
   var t=document.getElementById('apptCancelTxt');
@@ -25870,7 +25909,7 @@ function apptCancelBack(){
   var b=document.getElementById('apptCancelBtn'); if(b) b.style.display='block';
 }
 async function apptCancelConfirm(){
-  var l = leads.find(function(x){ return x.id===window._apptLeadId; });
+  var l = (leads.find(function(x){ return window._apptLeadDbId && x.dbId===window._apptLeadDbId; }) || leads.find(function(x){ return x.id===window._apptLeadId; }));
   if(!l || !l.appointment_at){ closeSheet('apptSh'); return; }
   var old = l.appointment_at;
   var tz = window._apptTz || l.timezone || 'America/Toronto';
@@ -25995,7 +26034,7 @@ function calRender(keepDay){
   var first = new Date(c.y, c.m, 1).getDay(); var days = new Date(c.y, c.m+1, 0).getDate();
   var mk = _calMonthKey(c.y,c.m);
   // Lead's existing appointment (to mark it)
-  var l = leads.find(function(x){ return x.id===window._apptLeadId; });
+  var l = (leads.find(function(x){ return window._apptLeadDbId && x.dbId===window._apptLeadDbId; }) || leads.find(function(x){ return x.id===window._apptLeadId; }));
   var bookedDate = (l && l.appointment_at) ? isoToZonedParts(l.appointment_at, c.tz).date : '';
   var h = '';
   for (var i=0;i<first;i++) h += '<span></span>';
@@ -26088,12 +26127,22 @@ async function saveAppt(){
 }
 
 async function clearAppt(){
-  var leadId = window._apptLeadId;
-  var l = leads.find(function(x){ return x.id===leadId; });
+  // idfix-1: resolve by DATABASE id first (local ids shift on refresh), and
+  // leave an honest note — an appointment must never vanish silently.
+  var l = (leads.find(function(x){ return window._apptLeadDbId && x.dbId===window._apptLeadDbId; }) || leads.find(function(x){ return x.id===window._apptLeadId; }));
   if(!l){ closeSheet('apptSh'); return; }
+  var _old = l.appointment_at;
   try{
-    await sbFetch('/rest/v1/leads?id=eq.'+l.dbId, { method:'PATCH', body: JSON.stringify({ appointment_at: null, updated_at:new Date().toISOString() }) });
+    await sbFetch('/rest/v1/leads?id=eq.'+l.dbId, { method:'PATCH', body: JSON.stringify({ appointment_at: null, appt_reminders_sent: null, updated_at:new Date().toISOString() }) });
     l.appointment_at = null;
+    try{
+      var _tz = window._apptTz || l.timezone || 'America/Toronto';
+      await sbFetch('/rest/v1/activity_log',{ method:'POST', body: JSON.stringify({
+        lead_id: l.dbId||null, client_id: window._clientId||null,
+        type:'note', label:'Appointment cleared',
+        body:'Was set for '+(_old?fmtApptLocal(_old,_tz):'—')+'. Cleared from the appointment sheet.',
+        meta:{ cleared_appt: _old||null }, created_at:new Date().toISOString() }) });
+    }catch(_e){}
     showToast('Appointment cleared');
     closeSheet('apptSh');
     if(curLid===l.id) renderLeadScreen(l.id);
