@@ -1413,6 +1413,9 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
     <div class="menu-item" onclick="closeMenu();openBulkWiz('email')">
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>Bulk Email
     </div>
+    <div class="menu-item" onclick="closeMenu();openConvEngine()">
+      <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>Conversion Engine
+    </div>
     <div class="menu-sect">Settings</div>
     <div class="menu-item" onclick="closeMenu();openTeamSheet()">
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>Team &amp; Access
@@ -3527,6 +3530,14 @@ setTimeout(function(){ var s=document.getElementById('bootSplash'); if(s) s.styl
   </div>
 </div>
 
+<!-- ═══ CONVERSION ENGINE (aifuel-11) ═══ -->
+<div class="sheet-ov" id="convEngSh" onclick="if(event.target===this)closeSheet('convEngSh')">
+  <div class="sheet" style="max-height:calc(92dvh - var(--kb,0px))"><div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title">&#x26A1; Conversion Engine</div><button class="sheet-x" onclick="closeSheet('convEngSh')">&#x2715;</button></div>
+    <div class="sh-body" id="ceBody" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom,16px))"></div>
+  </div>
+</div>
+
 <!-- ═══ BULK SEND REPORT DETAIL ═══ -->
 <div class="sheet-ov" id="bulkRepSh" onclick="if(event.target===this)closeSheet('bulkRepSh')">
   <div class="sheet" style="max-height:calc(88dvh - var(--kb,0px))"><div class="sheet-handle"></div>
@@ -4440,7 +4451,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-14 aifuel-10';
+var APP_VERSION = 'v2026-09-14 aifuel-11';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -8727,6 +8738,134 @@ async function saveLeadAddSettings(){
 }
 
 // ═══ BULK WIZARD — Draft → Choose stages → Send now / Schedule ═══
+// ═══ CONVERSION ENGINE (aifuel-11): bulk playbook activation + pause/resume/exit ═══
+var CE_FN = '/functions/v1/conversion-engine?secret=ce_9f27c4a8e1';
+var CE_RAILS = { '1':'Fresh Lead', '2':'Call Not Connected', '3':'Callback Requested', '4':'Follow-up Scheduled', '6':'Meeting Done', 'noshow':'\uD83D\uDEAA No-Show Rescue' };
+var CE_SKIP = { opted_out:'\u26D4 texted STOP', casl_expired:'inquiry > 6 months', human_only:'human-only lead', has_appointment:'has an appointment', no_phone:'no phone number', no_plan:'no plan for this stage', plan_off:'plan is off \u2014 turn on in Playbook', master_off:'Playbook is off for this campaign' };
+var CE_CHIPS = [ ['all','All'], ['1','Fresh'], ['2','Call not connected'], ['4','Follow-up'], ['noshow','No Show'], ['6','Meeting Done'] ];
+function ceRailName(k){ return CE_RAILS[k] || ('Stage ' + k); }
+function openConvEngine(){
+  window._ce = { camp:'', campLbl:'', tab:'active', data:null, busy:false, sel:{}, chip:'all', q:'', confirmExit:'' };
+  ceRender();
+  openSheet('convEngSh');
+}
+function ceRender(){
+  var box = document.getElementById('ceBody'); if(!box) return;
+  var c = window._ce, h = '';
+  if(!c.camp){
+    var pool = (leads||[]).filter(function(l){ return l.dbId && !window._isPartnerMode; });
+    var byCamp = {};
+    pool.forEach(function(l){ var id = String(l.campaign_id||l.campaign||''); if(!id) return; if(!byCamp[id]) byCamp[id] = { id:id, label:(typeof leadCampLabel==='function'&&leadCampLabel(l))||'Campaign', n:0 }; byCamp[id].n++; });
+    h += '<div style="font-size:11px;font-weight:600;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Pick a campaign</div>';
+    var keys = Object.keys(byCamp);
+    if(!keys.length) h += '<div style="font-size:13px;color:var(--sub);padding:14px 4px">No campaigns with leads yet.</div>';
+    keys.forEach(function(k){ var cm = byCamp[k];
+      h += '<div onclick="cePickCamp(\''+cm.id+'\',\''+String(cm.label).replace(/[\'\"<>]/g,'')+'\')" style="display:flex;align-items:center;gap:11px;padding:12px 13px;margin-bottom:7px;border:1.5px solid var(--border);border-radius:12px;background:var(--white);cursor:pointer">'
+        + '<span style="flex:1;font-size:13.5px;font-weight:600;color:var(--text)">\uD83D\uDCE3 '+sanitize(cm.label)+'</span>'
+        + '<span style="font-size:12px;color:var(--sub)">'+cm.n+' leads</span></div>';
+    });
+    box.innerHTML = h; return;
+  }
+  h += '<div style="font-size:12px;color:var(--sub);margin-bottom:10px"><span onclick="window._ce.camp=\'\';window._ce.data=null;ceRender()" style="color:var(--green);font-weight:600;cursor:pointer">\u2039 Campaigns</span> \u00b7 '+sanitize(c.campLbl)+'</div>';
+  if(c.busy || !c.data){ h += '<div style="font-size:13px;color:var(--sub);padding:18px 4px;text-align:center">Loading\u2026</div>'; box.innerHTML = h; return; }
+  var d = c.data, act = d.active||[], inact = d.inactive||[];
+  var tabBtn = function(key,lbl,n){ var on = c.tab===key;
+    return '<button onclick="window._ce.tab=\''+key+'\';window._ce.confirmExit=\'\';ceRender()" style="flex:1;padding:8px;border-radius:10px;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'var(--greenl,#e7f8f3)':'var(--white)')+';color:'+(on?'var(--green)':'var(--sub)')+';font-size:12.5px;font-weight:600;cursor:pointer;font-family:var(--f)">'+lbl+' ('+n+')</button>'; };
+  h += '<div style="display:flex;gap:7px;margin-bottom:11px">' + tabBtn('active','Active',act.length) + tabBtn('inactive','Inactive',inact.length) + '</div>';
+  if(!d.master_on) h += '<div style="font-size:12px;color:#b45309;background:#fef3c7;border-radius:10px;padding:9px 11px;margin-bottom:10px">Playbook master switch is OFF for this campaign \u2014 nothing sends until it\u2019s on.</div>';
+  if(c.tab==='active'){
+    h += '<input class="finp" placeholder="Search leads\u2026" value="'+String(c.q||'').replace(/"/g,'&quot;')+'" oninput="window._ce.q=this.value;ceRender();var el=document.getElementById(\'ceBody\').querySelector(\'input\');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length)}" style="margin-bottom:10px">';
+    var q = String(c.q||'').toLowerCase();
+    var list = act.filter(function(a){ return !q || String(a.name).toLowerCase().indexOf(q) !== -1; });
+    if(!list.length) h += '<div style="font-size:13px;color:var(--sub);padding:14px 4px;text-align:center">' + (act.length? 'No matches.' : 'No leads on follow-up yet \u2014 check the Inactive tab.') + '</div>';
+    list.forEach(function(a){
+      var paused = a.status==='paused';
+      var manual = paused && a.pause_reason==='manual';
+      var waiting = paused && !manual;
+      var nx = a.next_at ? new Date(a.next_at).toLocaleString([], {weekday:'short', hour:'numeric', minute:'2-digit'}) : '';
+      var badge = manual ? '<span style="font-size:10px;background:#fef3c7;color:#b45309;border-radius:6px;padding:1px 6px;margin-left:6px">paused by you</span>'
+                : waiting ? '<span style="font-size:10px;background:var(--greenl,#e7f8f3);color:var(--green);border-radius:6px;padding:1px 6px;margin-left:6px">waiting \u2014 replied</span>' : '';
+      var sub = ceRailName(a.rail) + (a.step? ' \u00b7 step '+a.step+' of '+(a.steps_total||'?') : '') + (paused? ' \u00b7 holding' : (nx? ' \u00b7 next '+nx : ''));
+      var exitLbl = c.confirmExit===a.enrollment_id ? 'Tap again to end' : '\u23F9 Exit';
+      h += '<div style="border:1.5px solid var(--border);border-radius:12px;padding:11px 13px;margin-bottom:8px;background:var(--white)">'
+        + '<div style="font-size:13.5px;font-weight:600;color:var(--text)">'+sanitize(a.name)+badge+'</div>'
+        + '<div style="font-size:11.5px;color:var(--sub);margin:2px 0 9px">'+sanitize(sub)+'</div>'
+        + '<div style="display:flex;gap:7px">'
+        + (paused
+          ? '<button onclick="ceAct(\'resume\',\''+a.enrollment_id+'\')" style="flex:1;padding:7px;border-radius:9px;border:1.5px solid var(--green);background:var(--white);color:var(--green);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--f)">\u25B6 Resume</button>'
+          : '<button onclick="ceAct(\'pause\',\''+a.enrollment_id+'\')" style="flex:1;padding:7px;border-radius:9px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--f)">\u23F8 Pause</button>')
+        + '<button onclick="ceExit(\''+a.enrollment_id+'\')" style="flex:1;padding:7px;border-radius:9px;border:1.5px solid '+(c.confirmExit===a.enrollment_id?'#dc2626':'var(--border)')+';background:var(--white);color:#dc2626;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--f)">'+exitLbl+'</button>'
+        + '</div></div>';
+    });
+  } else {
+    h += '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px">';
+    CE_CHIPS.forEach(function(ch){ var on = c.chip===ch[0];
+      h += '<span onclick="window._ce.chip=\''+ch[0]+'\';ceRender()" style="font-size:11.5px;padding:4px 11px;border-radius:12px;cursor:pointer;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'var(--greenl,#e7f8f3)':'var(--white)')+';color:'+(on?'var(--green)':'var(--sub)')+';font-weight:600">'+ch[1]+'</span>'; });
+    h += '</div>';
+    var rows = inact.filter(function(l){
+      if(c.chip==='all') return true;
+      if(c.chip==='noshow') return l.rail==='noshow';
+      return String(l.stage||'').indexOf(c.chip+'.') === 0;
+    });
+    var selCount = 0;
+    rows.forEach(function(l){ if(l.eligible && c.sel[l.lead_id]!==false) selCount++; });
+    if(!rows.length) h += '<div style="font-size:13px;color:var(--sub);padding:14px 4px;text-align:center">No leads here.</div>';
+    rows.forEach(function(l){
+      var on = l.eligible && c.sel[l.lead_id]!==false;
+      var days = l.created_at ? Math.max(0, Math.round((Date.now()-new Date(l.created_at).getTime())/86400000)) : null;
+      var right = l.eligible ? sanitize((l.stage||'').replace(/^\d+\.\s*/,'')) + (days!=null? ' \u00b7 '+days+'d':'') : (CE_SKIP[l.skip_reason]||l.skip_reason);
+      h += '<div onclick="'+(l.eligible? 'ceToggle(\''+l.lead_id+'\')':'')+'" style="display:flex;align-items:center;gap:9px;padding:9px 4px;border-bottom:1px solid var(--border);'+(l.eligible?'cursor:pointer':'opacity:.55')+'">'
+        + '<span style="width:19px;height:19px;border-radius:5px;border:2px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'var(--green)':'var(--white)')+';display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;color:#fff;font-size:12px;font-weight:700">'+(on?'\u2713':'')+'</span>'
+        + '<span style="flex:1;font-size:13px;font-weight:500;color:var(--text)">'+sanitize(l.name)+'</span>'
+        + '<span style="font-size:11px;color:'+(l.eligible?'var(--sub)':'#b45309')+';text-align:right">'+right+'</span></div>';
+    });
+    h += '<button onclick="ceActivate()" '+(selCount? '':'disabled ')+'style="width:100%;margin-top:13px;padding:12px;border-radius:12px;border:none;background:'+(selCount?'var(--green)':'var(--border)')+';color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:var(--f)">\u26A1 Activate ('+selCount+')</button>';
+    h += '<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:7px">Each lead joins the plan for their own stage. Quiet hours 9 AM\u20137 PM and daily caps apply.</div>';
+  }
+  box.innerHTML = h;
+}
+function cePickCamp(id,lbl){ var c=window._ce; c.camp=id; c.campLbl=lbl; c.sel={}; c.tab='active'; c.chip='all'; c.q=''; ceLoad(); }
+function ceToggle(id){ var c=window._ce; c.sel[id] = c.sel[id]===false ? true : false; ceRender(); }
+function ceLoad(){
+  var c=window._ce; c.busy=true; ceRender();
+  sbFetch(CE_FN, { method:'POST', body: JSON.stringify({ action:'list', campaign_id:c.camp }) })
+    .then(function(r){ return r.json(); })
+    .then(function(j){ c.busy=false; if(!j||j.error){ showToast(j&&j.error?j.error:'Could not load'); c.data={active:[],inactive:[],master_on:true,rails:{}}; } else { c.data=j; } ceRender(); })
+    .catch(function(){ c.busy=false; showToast('Could not load \u2014 check connection'); c.data={active:[],inactive:[],master_on:true,rails:{}}; ceRender(); });
+}
+function ceAct(action,eid){
+  var c=window._ce; if(c.busy) return; c.busy=true; ceRender();
+  sbFetch(CE_FN, { method:'POST', body: JSON.stringify({ action:action, enrollment_id:eid, actor:(window._userName||'operator') }) })
+    .then(function(r){ return r.json(); })
+    .then(function(j){ c.busy=false; if(j&&j.ok){ showToast(action==='pause'?'Paused':(action==='resume'?'Resumed':'Ended')); } else { showToast((j&&j.error)||'Failed'); } ceLoad(); })
+    .catch(function(){ c.busy=false; showToast('Failed \u2014 try again'); ceLoad(); });
+}
+function ceExit(eid){
+  var c=window._ce;
+  if(c.confirmExit!==eid){ c.confirmExit=eid; ceRender(); setTimeout(function(){ if(window._ce && window._ce.confirmExit===eid){ window._ce.confirmExit=''; ceRender(); } }, 3500); return; }
+  c.confirmExit='';
+  ceAct('exit', eid);
+}
+function ceActivate(){
+  var c=window._ce; if(c.busy) return;
+  var ids=[];
+  (c.data&&c.data.inactive||[]).forEach(function(l){
+    if(!l.eligible) return;
+    if(c.chip!=='all'){ if(c.chip==='noshow'){ if(l.rail!=='noshow') return; } else if(String(l.stage||'').indexOf(c.chip+'.')!==0) return; }
+    if(c.sel[l.lead_id]===false) return;
+    ids.push(l.lead_id);
+  });
+  if(!ids.length){ showToast('No leads selected'); return; }
+  c.busy=true; ceRender();
+  sbFetch(CE_FN, { method:'POST', body: JSON.stringify({ action:'activate', campaign_id:c.camp, lead_ids:ids, actor:(window._userName||'operator') }) })
+    .then(function(r){ return r.json(); })
+    .then(function(j){ c.busy=false;
+      if(j&&j.ok){ var skipped=(j.results||[]).length-(j.started||0); showToast('\u26A1 Started '+(j.started||0)+(skipped>0? ' \u00b7 skipped '+skipped:'')); }
+      else showToast((j&&j.error)||'Failed');
+      c.sel={}; ceLoad(); })
+    .catch(function(){ c.busy=false; showToast('Failed \u2014 try again'); ceLoad(); });
+}
+
 function openBulkWiz(channel){
   if(channel==='email' && window._isTelecaller){ showToast('Not available for telecaller accounts'); return; }
   window._bw={ channel:channel, step:1, msg:'', subj:'', camp:'', svcs:{}, locs:{}, stages:{}, excluded:{}, schedOpen:false, at:'' };
