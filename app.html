@@ -4455,7 +4455,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-15 aifuel-14';
+var APP_VERSION = 'v2026-09-15 aifuel-17';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -7543,6 +7543,8 @@ function leadsHTML(){
     if(schQ) return leadMatchesQ(l, schQ);
     return true;
   });
+  // navfix-1: Prev/Next on the lead screen walk THIS filtered list, not the raw array.
+  window._visLeadIds = vis.map(function(x){ return x.id; });
 
   // ── Partner filter panel (super admin only) ─────────────────────
   var isAdminUser = !window._isPartnerMode;
@@ -7643,6 +7645,7 @@ function leadsHTML(){
   } else {
     var grpCounts={};
     vis.forEach(function(l){ var lb=leadDateLabel(l); grpCounts[lb]=(grpCounts[lb]||0)+1; });
+    window._visLeadIds = vis.map(function(x){ return x.id; }); // navfix-1: final render order
     var curLabel=null;
     vis.forEach(function(l){
       var lbl=leadDateLabel(l);
@@ -7676,6 +7679,25 @@ function leadsHTML(){
       var _cpid=l.partner_id?String(l.partner_id):'__none__';
       if(af.partners&&af.partners.length){ if(af.partners.indexOf(_cpid)===-1) return; }
       else if(schPartners.size>0){ if(!schPartners.has(_cpid)) return; }
+    }
+    // navfix-1: the chip numbers now honor every ACTIVE filter (campaign, source,
+    // location…) except the stage chips themselves — so ‘All’ matches what's listed
+    // while the numbers stay stable as you tap between stages.
+    if(af.telecallers && af.telecallers.length && af.telecallers.indexOf(gfTelecallerId(l))===-1) return;
+    if(af.managers  && af.managers.length  && af.managers.indexOf(gfManagerId(l))===-1) return;
+    if(af.campaigns && af.campaigns.length && af.campaigns.indexOf(gfCampaignId(l))===-1) return;
+    if(!advMatch(af.locations, l.location||'')) return;
+    if(af.sources   && af.sources.length   && af.sources.indexOf(srcLabel(l.src||''))===-1) return;
+    if(!advMatch(af.services, l.svc||'')) return;
+    if(af.clients   && af.clients.length   && af.clients.indexOf(l.company||'')===-1) return;
+    var _afK = Object.keys(af);
+    for(var _cj=0; _cj<_afK.length; _cj++){
+      var _kk=_afK[_cj];
+      if(_kk.indexOf('cf:')!==0) continue;
+      var _ss=af[_kk]; if(!_ss||!_ss.length) continue;
+      var _fkk=_kk.slice(3);
+      var _vv=(l.form_fields && l.form_fields[_fkk]!=null) ? String(l.form_fields[_fkk]) : '';
+      if(!advMatch(_ss, _vv)) return;
     }
     if(schQ && !leadMatchesQ(l, schQ)) return;
     _scCnt[l.stage||'']=(_scCnt[l.stage||'']||0)+1; _scTot++;
@@ -10307,7 +10329,11 @@ function fuCalIndex(from,to){
   var idx={};
   function B(d){ return idx[d]||(idx[d]={appt:[],blk:[],fu:[]}); }
   (leads||[]).forEach(function(l){
-    if(!l.appointment_at || l.meeting_outcome) return;
+    if(!l.appointment_at) return;
+    // calendar-3: hide a lead only when the recorded outcome belongs to THIS
+    // (already-past) appointment. An outcome from an earlier visit must never
+    // hide a NEW future booking (the Teresa Sep-21 case).
+    if(l.meeting_outcome && new Date(l.appointment_at).getTime() <= Date.now()) return;
     var tz=l.timezone||(typeof tzFromPhone==='function'?tzFromPhone(l.ph):'')||'America/Toronto';
     var z=isoToZonedParts(l.appointment_at,tz);
     if(z.date>=from && z.date<=to) B(z.date).appt.push({lead:l,time:z.time,dur:l.appointment_duration_min||60});
@@ -14840,10 +14866,17 @@ function closeMoreModal(){ var el=document.getElementById('moreModalOv');if(el)e
 
 
 function navLead(dir) {
-  var idx = leads.findIndex(function(l){ return l.id === curLid; });
+  // navfix-1: honor the Leads screen's active filters (campaign, stage, search…).
+  // Fall back to the raw list only when the current lead isn't in the filtered set
+  // (e.g. opened from a push link while a different filter is on).
+  var ids = (window._visLeadIds && window._visLeadIds.length && window._visLeadIds.indexOf(curLid) !== -1)
+    ? window._visLeadIds
+    : leads.map(function(l){ return l.id; });
+  var idx = ids.indexOf(curLid);
+  if(idx === -1) return;
   var newIdx = idx + dir;
-  if(newIdx < 0 || newIdx >= leads.length) return;
-  openLead(leads[newIdx].id);
+  if(newIdx < 0 || newIdx >= ids.length) return;
+  openLead(ids[newIdx]);
 }
 
 // ── Custom fields on the lead (Phase 2) ──────────────────────
@@ -15198,7 +15231,13 @@ async function toggleHumanOnly(localId){
     var r=await sbFetch('/rest/v1/leads?id=eq.'+l.dbId,{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify(bodyObj)});
     if(!r.ok) throw new Error('save failed');
     l.human_only=nv;
-    showToast(nv?'\ud83d\ude4b A human now handles this lead \u2014 AI paused':'\ud83e\udd16 AI is back on this lead');
+    if(nv){
+      // autopilot-1: switching AI off also stops every running follow-up plan
+      // for this lead (the server writes the timeline note), and the database
+      // guard keeps anything from re-enrolling them while the switch is off.
+      try{ sbFetch(CE_FN, { method:'POST', body: JSON.stringify({ action:'lead_off', lead_id:l.dbId, actor:(window._userName||'operator') }) }).then(function(r){ return r.json(); }).then(function(j){ if(j&&j.ok&&j.stopped>0){ showToast('\ud83d\ude4b AI off \u2014 '+j.stopped+' follow-up plan'+(j.stopped>1?'s':'')+' stopped'); } }).catch(function(){}); }catch(_e){}
+    }
+    showToast(nv?'\ud83d\ude4b A human now handles this lead \u2014 AI paused':'\ud83e\udd16 AI is back on this lead \u2014 re-activate follow-ups from the Conversion Engine');
     renderLeadScreen(localId);
   }catch(e){ showToast('Could not save \u2014 try again'); }
 }
