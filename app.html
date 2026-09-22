@@ -23022,6 +23022,15 @@ sessionStorage.removeItem('adviuz_session');
   var restoreEl = document.getElementById('sessionRestoring');
   try {
     var loggedIn = await refreshSession();
+    // fix 2026-09-22: the UI functions (showAdminUI etc.) live in a later
+    // script block of this 2.4MB file. On fast networks the session check can
+    // finish BEFORE the browser has parsed that block, crashing the boot with
+    // "showAdminUI is not defined" and looping back to sign-in. Wait for the
+    // document to finish parsing before touching the UI.
+    await new Promise(function(res){
+      if (document.readyState === 'interactive' || document.readyState === 'complete') return res();
+      document.addEventListener('DOMContentLoaded', res, { once: true });
+    });
     if (loggedIn) {
       // Re-run the role gate so the role is decided by the database on every
       // load, never by whatever the browser happened to have saved.
@@ -23043,6 +23052,7 @@ sessionStorage.removeItem('adviuz_session');
     }
   } catch(e) {
     console.error('[INIT] Session restore failed:', e.message);
+    clearSavedSession(); // fix 2026-09-22: never bounce back with a live session — that made an infinite loop
     location.replace('/' + (location.search || '') + (location.hash || '')); return;
   } finally {
     // Always hide the restoring screen
@@ -36309,9 +36319,6 @@ window.sendAccountantTestEmail  = sendAccountantTestEmail;
 window.openInvCustomRange       = openInvCustomRange;
 window.applyInvCustomRange      = applyInvCustomRange;
 window.clearInvCustomRange      = clearInvCustomRange;
-window._abRenderStep1           = _abRenderStep1;
-window._abPickBundle            = _abPickBundle;
-window._abPickCamp              = _abPickCamp;
 window._abPay                   = _abPay;
 window.openCampaignFilterSheet  = openCampaignFilterSheet;
 window.clientCampClearFilter    = clientCampClearFilter;
