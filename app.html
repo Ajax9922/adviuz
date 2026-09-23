@@ -15607,9 +15607,10 @@ function renderLeadScreen(id) {
   if(window._staffRole !== 'client'){
     // ══ QUOTE | INVOICE (below the leads nav) ══
     h += '<div style="background:var(--white);padding:12px 16px;margin-bottom:4px">';
-    h += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">';
+    h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">';
     h += ldQuickBtn('📄','Quotes','#fef3c7','#d97706',   'openLeadQuotes('+l.id+')','quotes');
     h += ldQuickBtn('🧾','Invoices','#d1fae5','#00a884', 'openLeadInvoices('+l.id+')','invoices');
+    h += ldQuickBtn('📋','Proposal','#f3efff','#4000f3', 'openProposalWizard('+l.id+')','quotes');
     h += '</div></div>';
     h += '<div style="height:4px;background:var(--bg)"></div>';
   }
@@ -31890,6 +31891,214 @@ var _quoteItems = [];
 // ═══════════════════════════════════════════════════════
 // QUOTES LIST SHEET — shows lead's quote history + New Quote
 // ═══════════════════════════════════════════════════════
+// ══ PROPOSAL WIZARD (2026-09-22) — Create Proposal from a lead ══════════
+// Draft saved in `proposals`; client page: hub.adviuz.ca/proposal/?id=…
+// Sends on Email + SMS, then offers a prefilled WhatsApp message.
+var PROPOSAL_PAGE = 'https://hub.adviuz.ca/proposal/?id=';
+var _PW_LINKS = {200:'https://buy.stripe.com/4gM6oAbKJ8kmgjB9579EI03',500:'https://buy.stripe.com/fZudR22a9fMO5EX8139EI0b',1000:'https://buy.stripe.com/8x2dR2eWVcAC6J11CF9EI0c',2500:'https://buy.stripe.com/6oU00c4ihbwy8R9ftv9EI0d',5000:'https://buy.stripe.com/dRmaEQ9CB0RU3wP2GJ9EI0e',10000:'https://buy.stripe.com/cNieV67ut6ceebt8139EI0f'};
+var _PW_BADGES = ['','Pilot Campaign','Recommended','Start Dominating'];
+var _PW_DESC = {'Pilot Campaign':'To test the waters — see exactly how the system works before you scale.','Recommended':'The conversion zone — enough reach for real results to start coming in.','Start Dominating':'Start dominating — own your market with sustained visibility and a steady pipeline.'};
+window._pw = null;
+function _pwEsc(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function _pwDefaults(){
+  var d=new Date(Date.now()+14*86400000);
+  return { proposalId:null, status:'draft', valid_until:d.toISOString().slice(0,10),
+    content:{ header_label:'Proposal', subject:'New Flyers Distribution System',
+      goal:'Following our meeting, this proposal is prepared for ',
+      packages:[],
+      links:{ intro:'https://www.youtube.com/shorts/THsHETvS0Ew', about:'https://adviuz.ca', flyer:'', library:'' },
+      call_number:'+1 (672) 203-8220', wa_number:'+1 (672) 203-8220',
+      sig:{ name:'Ajay S', title:'Director', phone:'+1 (672) 203-8220' } } };
+}
+async function openProposalWizard(lid){
+  var l = leads.find(function(x){ return x.id===lid; });
+  if(!l || !l.dbId){ showToast('Open a lead first'); return; }
+  window._pw = { lid:lid, dbId:l.dbId, name:l.name||'', company:l.company||l.name||'', email:l.em||'', phone:l.ph||'' };
+  if(!(window._viewBundles||[]).length && typeof _abLoadBundles==='function'){ try{ await _abLoadBundles(); }catch(e){} }
+  var st=_pwDefaults();
+  try{
+    var r=await sbFetch('/rest/v1/proposals?lead_id=eq.'+l.dbId+'&order=updated_at.desc&limit=1&select=*');
+    if(r.ok){ var rows=await r.json();
+      if(rows && rows[0]){ var pr=rows[0]; var c=pr.content||{};
+        st.proposalId=pr.id; st.status=pr.status||'draft'; st.valid_until=pr.valid_until||st.valid_until;
+        st.content={ header_label:c.header_label||st.content.header_label, subject:c.subject||st.content.subject,
+          goal:(c.goal!=null?c.goal:st.content.goal), packages:Array.isArray(c.packages)?c.packages:[],
+          links:Object.assign({},st.content.links,c.links||{}),
+          call_number:c.call_number||st.content.call_number, wa_number:c.wa_number||st.content.wa_number,
+          sig:Object.assign({},st.content.sig,c.sig||{}) };
+      } }
+  }catch(e){}
+  window._pw.state=st;
+  _pwRender();
+}
+function _pwLbl(t){ return '<div style="font-size:9.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#94a3b8;margin:16px 2px 7px">'+t+'</div>'; }
+function _pwSnap(b){
+  return { v:Number(b.views), views:_abNum(b.views), price:_abMoney(b.price), ai:_abNum(b.ai),
+    x:_abNum(b.sms), dm:(b.design>0?(b.design+' month'+(b.design>1?'s':'')):''),
+    validity:(b.validity>0?(b.validity+' months'):''), badge:'', desc:'', link:_PW_LINKS[Number(b.views)]||'' };
+}
+function _pwRender(){
+  var P=window._pw; if(!P) return;
+  var st=P.state, c=st.content;
+  var old=document.getElementById('pwSh'); if(old) old.remove();
+  var ov=document.createElement('div'); ov.className='sheet-ov'; ov.id='pwSh'; ov.style.display='flex'; ov.style.zIndex='900';
+  ov.onclick=function(ev){ if(ev.target===ov){ _pwCollect(); ov.remove(); } };
+  var pkgs='';
+  (window._viewBundles||[]).forEach(function(b){
+    if(b.test) return;
+    var sel=(c.packages||[]).find(function(x){ return Number(x.v)===Number(b.views); });
+    var badge = sel && sel.badge ? '<span onclick="event.stopPropagation();_pwCycleBadge('+Number(b.views)+')" style="font-size:8.5px;font-weight:700;letter-spacing:.06em;background:'+(sel.badge==='Recommended'?'#230835':(sel.badge==='Start Dominating'?'#4000f3':'#6b7280'))+';color:#fff;padding:3px 7px;border-radius:99px;text-transform:uppercase;margin-left:5px;vertical-align:1px;cursor:pointer">'+sel.badge+'</span>'
+      : (sel?'<span onclick="event.stopPropagation();_pwCycleBadge('+Number(b.views)+')" style="font-size:8.5px;font-weight:700;letter-spacing:.06em;background:transparent;border:1px dashed #cfd8e3;color:var(--sub);padding:2px 7px;border-radius:99px;text-transform:uppercase;margin-left:5px;vertical-align:1px;cursor:pointer">+ badge</span>':'');
+    pkgs += '<div onclick="_pwTogglePkg('+Number(b.views)+')" role="button" style="background:var(--white);border:1.5px solid '+(sel?'#4000f3':'var(--border)')+';border-radius:14px;overflow:hidden;margin-bottom:9px;cursor:pointer">'
+      +'<div style="height:3px;background:linear-gradient(90deg,#4000f3,#e65afc)"></div>'
+      +'<div style="padding:10px 13px;display:flex;align-items:center;gap:10px">'
+      +(sel?'<span style="flex:0 0 auto;width:22px;height:22px;border-radius:7px;background:linear-gradient(135deg,#4000f3,#e65afc);display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:800">✓</span>'
+           :'<span style="flex:0 0 auto;width:22px;height:22px;border-radius:7px;border:2px solid #cfd8e3"></span>')
+      +'<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:700;color:var(--text)">'+_abNum(b.views)+' Flyer Views'+badge+'</div>'
+      +'<div style="font-size:10.5px;color:var(--sub);margin-top:2px">'+_abNum(b.ai)+' AI min · '+_abNum(b.sms)+' SMS/Emails/Call min'+(b.design>0?' · '+b.design+' mo design':'')+'</div></div>'
+      +'<div style="flex-shrink:0;font-size:13.5px;font-weight:750;color:var(--text)">'+_abMoney(b.price)+'</div>'
+      +'</div></div>';
+  });
+  var linkRow=function(tag,id,val){
+    return '<div style="display:flex;gap:9px;margin-bottom:8px"><span style="flex:0 0 104px;display:flex;align-items:center;font-size:12px;font-weight:700;color:var(--text)">'+tag+'</span><input id="'+id+'" class="finp" style="margin:0;flex:1;min-width:0" value="'+_pwEsc(val||'')+'"></div>';
+  };
+  var statusNote = st.status!=='draft' ? '<div style="font-size:11px;color:#15803d;font-weight:600;margin-bottom:10px">This proposal was already sent ('+_pwEsc(st.status)+') — saving creates an updated version at the same link.</div>' : '';
+  ov.innerHTML='<div class="sheet" style="max-height:90dvh"><div class="sheet-handle"></div>'
+    +'<div class="sheet-head"><div class="sheet-title">Proposal Wizard</div><button class="sheet-x" onclick="_pwCollect();document.getElementById(\'pwSh\').remove()">✕</button></div>'
+    +'<div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom));overflow-y:auto">'
+    +statusNote
+    +_pwLbl('Prepared for').replace('margin:16px','margin:2px')
+    +'<div style="border:1px solid #e6dcf7;border-radius:14px;background:#f7f3ff;padding:12px 14px;display:flex;align-items:center;gap:11px">'
+    +'<div style="width:38px;height:38px;border-radius:50%;background:#f3efff;color:#4000f3;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-weight:800;font-size:15px">'+_pwEsc((P.name||'?').charAt(0).toUpperCase())+'</div>'
+    +'<div style="min-width:0"><div style="font-size:14px;font-weight:700;color:#111318">'+_pwEsc(P.name)+'</div><div style="font-size:11.5px;color:#5b5470;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_pwEsc(P.company)+(P.email?' · '+_pwEsc(P.email):'')+'</div></div>'
+    +'<span style="margin-left:auto;font-size:9px;font-weight:700;letter-spacing:.08em;background:#fff;border:1px solid #e6dcf7;color:#7c6ba8;padding:3px 8px;border-radius:99px;text-transform:uppercase;flex-shrink:0">Auto-filled</span></div>'
+    +_pwLbl('Header label (right side)')+'<input id="pwHeader" class="finp" style="margin:0" value="'+_pwEsc(c.header_label)+'">'
+    +_pwLbl('Subject')+'<input id="pwSubject" class="finp" style="margin:0" value="'+_pwEsc(c.subject)+'">'
+    +_pwLbl('Goal — shown after the intro')
+    +'<textarea id="pwGoal" class="finp" style="margin:0;min-height:76px;resize:none;overflow:hidden;line-height:1.55" oninput="this.style.height=\'auto\';this.style.height=(this.scrollHeight+2)+\'px\'">'+_pwEsc(c.goal)+'</textarea>'
+    +_pwLbl('Add packages')+pkgs
+    +'<div style="font-size:10.5px;color:#9ca3af;margin:2px 2px 0;line-height:1.5">Live from your pricing catalog. Tap the small chip on a selected package to set its badge (Pilot / Recommended / Start Dominating).</div>'
+    +_pwLbl('Learn More Online links')
+    +linkRow('Intro video','pwLnkIntro',c.links.intro)
+    +linkRow('About Us','pwLnkAbout',c.links.about)
+    +linkRow('Digital Flyer','pwLnkFlyer',c.links.flyer)
+    +linkRow('Design Library','pwLnkLibrary',c.links.library)
+    +'<div style="font-size:10.5px;color:#9ca3af;margin:0 2px;line-height:1.5">Leave a link empty to hide that card on the proposal.</div>'
+    +_pwLbl('Contact buttons')
+    +'<div style="display:flex;gap:9px">'
+    +'<input id="pwCall" class="finp" style="margin:0;flex:1;min-width:0" value="'+_pwEsc(c.call_number)+'" placeholder="Call number">'
+    +'<input id="pwWa" class="finp" style="margin:0;flex:1;min-width:0" value="'+_pwEsc(c.wa_number)+'" placeholder="WhatsApp number">'
+    +'</div>'
+    +_pwLbl('Signature — shown at the bottom')
+    +'<div style="display:flex;gap:9px"><input id="pwSigName" class="finp" style="margin:0;flex:1;min-width:0" value="'+_pwEsc(c.sig.name)+'" placeholder="Name"><input id="pwSigTitle" class="finp" style="margin:0;flex:1;min-width:0" value="'+_pwEsc(c.sig.title)+'" placeholder="Title"></div>'
+    +'<input id="pwSigPhone" class="finp" style="margin:8px 0 0" value="'+_pwEsc(c.sig.phone)+'" placeholder="Phone">'
+    +_pwLbl('Valid until')+'<input id="pwValid" class="finp" type="date" style="margin:0" value="'+_pwEsc(st.valid_until)+'">'
+    +'<div style="display:flex;gap:10px;margin-top:18px">'
+    +'<button onclick="_pwSave(true)" style="flex:1;padding:13px;border-radius:11px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-size:13.5px;font-weight:700;cursor:pointer;font-family:var(--f)">Save draft</button>'
+    +'<button onclick="_pwPreview()" style="flex:1;padding:13px;border-radius:11px;border:none;background:linear-gradient(90deg,#4000f3,#e65afc);color:#fff;font-size:13.5px;font-weight:700;cursor:pointer;font-family:var(--f)">Preview</button>'
+    +'</div>'
+    +'<button id="pwSendBtn" onclick="_pwSend()" style="width:100%;margin-top:10px;padding:14px;border-radius:11px;border:none;background:#230835;color:#fff;font-size:13.5px;font-weight:700;cursor:pointer;font-family:var(--f)">Send to '+_pwEsc(P.name.split(' ')[0]||'client')+' →</button>'
+    +'<div style="font-size:10.5px;color:#9ca3af;text-align:center;margin-top:9px;line-height:1.5">Send goes out on Email'+(P.phone?' + SMS':'')+' with the proposal link, then offers a ready WhatsApp message. Preview first — nothing is sent until you press Send.</div>'
+    +'</div></div>';
+  document.body.appendChild(ov);
+  var g=document.getElementById('pwGoal'); if(g){ g.style.height='auto'; g.style.height=(g.scrollHeight+2)+'px'; }
+}
+function _pwTogglePkg(v){
+  _pwCollect();
+  var c=window._pw.state.content;
+  var i=(c.packages||[]).findIndex(function(x){ return Number(x.v)===Number(v); });
+  if(i>=0) c.packages.splice(i,1);
+  else{
+    var b=(window._viewBundles||[]).find(function(x){ return Number(x.views)===Number(v); });
+    if(b) c.packages.push(_pwSnap(b));
+    c.packages.sort(function(a,z){ return Number(a.v)-Number(z.v); });
+  }
+  _pwRender();
+}
+function _pwCycleBadge(v){
+  _pwCollect();
+  var c=window._pw.state.content;
+  var pk=(c.packages||[]).find(function(x){ return Number(x.v)===Number(v); });
+  if(!pk) return;
+  var i=_PW_BADGES.indexOf(pk.badge||''); pk.badge=_PW_BADGES[(i+1)%_PW_BADGES.length];
+  pk.desc=_PW_DESC[pk.badge]||'';
+  _pwRender();
+}
+function _pwCollect(){
+  var P=window._pw; if(!P||!P.state) return;
+  var g=function(id){ var e=document.getElementById(id); return e?e.value:null; };
+  var c=P.state.content;
+  if(g('pwHeader')!=null) c.header_label=g('pwHeader');
+  if(g('pwSubject')!=null) c.subject=g('pwSubject');
+  if(g('pwGoal')!=null) c.goal=g('pwGoal');
+  if(g('pwLnkIntro')!=null) c.links={ intro:g('pwLnkIntro'), about:g('pwLnkAbout'), flyer:g('pwLnkFlyer'), library:g('pwLnkLibrary') };
+  if(g('pwCall')!=null){ c.call_number=g('pwCall'); c.wa_number=g('pwWa'); }
+  if(g('pwSigName')!=null) c.sig={ name:g('pwSigName'), title:g('pwSigTitle'), phone:g('pwSigPhone') };
+  if(g('pwValid')!=null && g('pwValid')) P.state.valid_until=g('pwValid');
+}
+async function _pwSave(toast){
+  var P=window._pw; if(!P) return false;
+  _pwCollect();
+  var st=P.state;
+  var payload={ lead_id:P.dbId, lead_name:P.name, company:P.company, email:P.email, phone:P.phone,
+    content:st.content, valid_until:st.valid_until, updated_at:new Date().toISOString() };
+  try{
+    if(st.proposalId){
+      var r=await sbFetch('/rest/v1/proposals?id=eq.'+st.proposalId,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify(payload)});
+      if(!r.ok) throw 0;
+    } else {
+      var r2=await sbFetch('/rest/v1/proposals',{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify(payload)});
+      if(!r2.ok) throw 0;
+      var rows=await r2.json(); if(rows&&rows[0]) st.proposalId=rows[0].id;
+    }
+    if(toast) showToast('Draft saved');
+    return true;
+  }catch(e){ showToast('Could not save — try again'); return false; }
+}
+async function _pwPreview(){
+  if(!(await _pwSave(false))) return;
+  window.open(PROPOSAL_PAGE+window._pw.state.proposalId,'_blank');
+}
+async function _pwSend(){
+  var P=window._pw; if(!P) return;
+  if(!P.email){ showToast('This lead has no email — add one first'); return; }
+  if(!(await _pwSave(false))) return;
+  var st=P.state, url=PROPOSAL_PAGE+st.proposalId;
+  var first=(P.name||'there').split(' ')[0];
+  if(!confirm('Send this proposal to '+P.email+(P.phone?' and '+P.phone:'')+'?\n\nTip: Preview it first if you have not.')) return;
+  var btn=document.getElementById('pwSendBtn'); if(btn){ btn.disabled=true; btn.textContent='Sending…'; }
+  try{
+    var body='Dear '+first+',<br><br>Thank you for your time. Your custom proposal from Adviuz is ready:'
+      +'<div style="text-align:center;margin:20px 0"><a href="'+url+'" style="background:#4000f3;color:#ffffff;padding:13px 28px;border-radius:9px;text-decoration:none;font-weight:700;display:inline-block">View Your Proposal</a></div>'
+      +'If the button does not open, use this link:<br><a href="'+url+'">'+url+'</a><br><br>Questions? Just reply to this email.';
+    var er=await sbFetch('/functions/v1/send-email',{method:'POST',body:JSON.stringify({
+      to:P.email, subject:'Ref: '+(P.company||P.name)+' | '+(st.content.subject||'Your Adviuz Proposal'),
+      template:'custom', template_data:{ body:body, email_type:'transactional' },
+      lead_id:P.dbId, from_email:'sales@adviuz.com' })});
+    if(!er.ok) throw new Error('email failed');
+    var smsSent=false;
+    if(P.phone){
+      var digits=String(P.phone).replace(/\D/g,''); var ph=P.phone;
+      if(digits.length===10) ph='+1'+digits; else if(digits.length===11) ph='+'+digits;
+      try{
+        var sr=await sbFetch('/functions/v1/twilio-sms',{method:'POST',body:JSON.stringify({
+          to:ph, message:'Hi '+first+', your custom proposal from Adviuz is ready: '+url+'\n\nQuestions? Reply here.\n\nReply STOP to opt out.', lead_id:P.dbId })});
+        smsSent=sr.ok;
+      }catch(e){}
+    }
+    await sbFetch('/rest/v1/proposals?id=eq.'+st.proposalId,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({status:'sent',sent_at:new Date().toISOString(),updated_at:new Date().toISOString()})});
+    st.status='sent';
+    try{ await sbFetch('/rest/v1/activity_log',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({lead_id:P.dbId,type:'proposal',label:'Proposal Sent',body:'\U0001F4CB Proposal sent (email'+(smsSent?' + SMS':'')+'): '+url,created_at:new Date().toISOString()})}); }catch(e){}
+    showToast('✅ Proposal sent'+(smsSent?' (email + SMS)':' (email)'));
+    if(P.phone && confirm('Also open WhatsApp with the message ready to send?')){
+      var wd=String(P.phone).replace(/\D/g,''); if(wd.length===10) wd='1'+wd;
+      window.open('https://wa.me/'+wd+'?text='+encodeURIComponent('Hi '+first+', your custom proposal from Adviuz is ready: '+url),'_blank');
+    }
+    var sh=document.getElementById('pwSh'); if(sh) sh.remove();
+  }catch(e){ showToast('Could not send — try again'); }
+  if(btn){ btn.disabled=false; btn.textContent='Send →'; }
+}
+
 async function openLeadQuotes(lid) {
   window._quotesListLid = lid;
   var l = leads.find(function(x){ return x.id===lid; });
