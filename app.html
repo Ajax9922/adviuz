@@ -4305,7 +4305,7 @@ Reply to this email or give us a call any time.
 
     <!-- Compose bar -->
     <div class="sms-compose-bar">
-      <button class="sms-icon-btn sms-ai-icon" onclick="generateAiSms()" title="AI message">✨</button>
+      <button class="sms-icon-btn sms-ai-icon" onclick="openSmsAi()" title="AI message">✨</button>
       <textarea class="sms-compose" id="smsCompose" placeholder="Type a message…" oninput="smsGrow(this)"></textarea>
       <button class="sms-icon-btn" onclick="smsSchedOpen()" title="Send later">⏰</button>
       <button class="sms-send-round" id="smsSendBtn" onclick="sendSmsFromSheet()">➤</button>
@@ -14704,6 +14704,98 @@ async function saveTplFromSheet(){
   var listSh=document.getElementById('smsTplListSh');
   if(listSh && listSh.classList.contains('open')) renderSmsTplListBody();
   showToast((editId||editLs>=0) ? 'Template updated' : 'Template saved');
+}
+
+// ── AI Message Assistant (✨ icon): chat window that drafts the text ──
+function openSmsAi(){
+  var l = window._smsLead || leads.find(function(x){return x.id===curLid}) || {};
+  window._smsAi = { hist:[], draft:'', busy:false, lead:l };
+  _smsAiRender();
+  // First draft comes automatically from the conversation; the instruction
+  // itself is hidden from the chat so the user just sees the draft appear.
+  window._smsAi.hist.push({ role:'user', content:'Draft the best next text message for this lead based on the conversation so far.', hide:true });
+  _smsAiCall();
+}
+function _smsAiRender(){
+  var A=window._smsAi; if(!A) return;
+  var old=document.getElementById('smsAiSh'); if(old) old.remove();
+  var ov=document.createElement('div'); ov.className='sheet-ov'; ov.id='smsAiSh'; ov.style.display='flex'; ov.style.zIndex='10002';
+  ov.onclick=function(ev){ if(ev.target===ov) ov.remove(); };
+  var esc=function(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m];}); };
+  var visible=A.hist.filter(function(m){ return !m.hide; });
+  var msgs='';
+  if(!visible.length && !A.busy){
+    msgs='<div style="text-align:center;color:#9ca3af;font-size:12.5px;padding:26px 16px;line-height:1.65">Tell me what you want to say —<br>e.g. “ask if he is free Friday for a quick call”.<br><br>I will draft it. Ask for changes until you like it, then tap Approve.</div>';
+  }
+  visible.forEach(function(m){
+    if(m.role==='user') msgs+='<div style="display:flex;justify-content:flex-end;margin:7px 0"><div style="max-width:82%;background:#f3efff;color:#230835;border-radius:14px 14px 4px 14px;padding:9px 13px;font-size:13px;line-height:1.55;white-space:pre-wrap">'+esc(m.content)+'</div></div>';
+    else msgs+='<div style="display:flex;margin:7px 0"><div style="max-width:88%;background:var(--white);border:1px solid '+(m.err?'#fecaca':'var(--border)')+';border-radius:14px 14px 14px 4px;padding:10px 13px;font-size:13px;color:'+(m.err?'#b91c1c':'var(--text)')+';line-height:1.6;white-space:pre-wrap">'+esc(m.content)+'</div></div>';
+  });
+  if(A.busy) msgs+='<div style="display:flex;margin:7px 0"><div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:10px 15px;font-size:13px;color:#9ca3af">✨ Drafting…</div></div>';
+  ov.innerHTML='<div class="sheet" style="max-height:86dvh;display:flex;flex-direction:column"><div class="sheet-handle"></div>'
+    +'<div class="sheet-head"><div class="sheet-title">✨ Message Assistant</div><button class="sheet-x" onclick="document.getElementById(\'smsAiSh\').remove()">✕</button></div>'
+    +'<div id="smsAiMsgs" style="flex:1;overflow-y:auto;padding:6px 16px 10px;min-height:200px">'+msgs+'</div>'
+    +'<div style="padding:10px 16px calc(16px + env(safe-area-inset-bottom));border-top:1px solid var(--border)">'
+    +'<div style="display:flex;gap:8px;align-items:flex-end">'
+    +'<textarea id="smsAiInp" class="finp" placeholder="Describe the message or ask for a change…" style="margin:0;flex:1;min-width:0;min-height:44px;max-height:110px;resize:none;line-height:1.5" oninput="this.style.height=\'auto\';this.style.height=Math.min(this.scrollHeight+2,110)+\'px\'" onkeydown="_smsAiKey(event)"></textarea>'
+    +'<button onclick="_smsAiSend()" '+(A.busy?'disabled ':'')+'style="flex-shrink:0;width:44px;height:44px;border-radius:50%;border:none;background:linear-gradient(135deg,#4000f3,#e65afc);color:#fff;font-size:16px;cursor:pointer;opacity:'+(A.busy?'.5':'1')+'">➤</button>'
+    +'</div>'
+    +'<div style="display:flex;gap:10px;margin-top:10px">'
+    +'<button onclick="_smsAiClear()" style="flex:1;padding:12px;border-radius:11px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-size:13px;font-weight:700;cursor:pointer;font-family:var(--f)">Clear</button>'
+    +(A.draft?'<button onclick="_smsAiApprove()" style="flex:2;padding:12px;border-radius:11px;border:none;background:#15803d;color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--f)">✓ Approve — use this message</button>':'')
+    +'</div>'
+    +'</div></div>';
+  document.body.appendChild(ov);
+  var box=document.getElementById('smsAiMsgs'); if(box) box.scrollTop=box.scrollHeight;
+}
+function _smsAiKey(e){
+  if(e.key==='Enter' && !e.shiftKey && !e.isComposing){
+    if(window.matchMedia && window.matchMedia('(pointer:fine)').matches){ e.preventDefault(); _smsAiSend(); }
+  }
+}
+async function _smsAiCall(){
+  var A=window._smsAi; if(!A) return;
+  A.busy=true; _smsAiRender();
+  var l=A.lead||{};
+  try{
+    var r=await sbFetch('/functions/v1/ai-draft-sms',{method:'POST',body:JSON.stringify({
+      history:A.hist.filter(function(m){ return !m.err; }).map(function(m){ return {role:m.role,content:m.content}; }),
+      name:l.name||'', business:window._clientName||'', stage:l.stage||'',
+      lead_id:l.dbId||'', campaign_id:(typeof gfCampaignId==='function'?gfCampaignId(l):'')||''
+    })});
+    var j=null; try{ j=await r.json(); }catch(e){}
+    if(!r.ok || !j || j.error){
+      var em=(j&&j.error)?String(j.error):'Sorry — I could not draft right now. Please try again.';
+      A.hist.push({role:'assistant',content:em,err:true});
+    } else {
+      var g=String(j.draft||'').trim();
+      if(g){ A.hist.push({role:'assistant',content:g}); A.draft=g; }
+      else A.hist.push({role:'assistant',content:'Sorry — I could not draft right now. Please try again.',err:true});
+    }
+  }catch(e){
+    A.hist.push({role:'assistant',content:'Sorry — I could not draft right now. Please try again.',err:true});
+  }
+  A.busy=false; _smsAiRender();
+  var inp=document.getElementById('smsAiInp'); if(inp) inp.focus();
+}
+function _smsAiSend(){
+  var A=window._smsAi; if(!A||A.busy) return;
+  var inp=document.getElementById('smsAiInp'); var t=(inp&&inp.value||'').trim(); if(!t) return;
+  A.hist.push({role:'user',content:t});
+  _smsAiCall();
+}
+function _smsAiClear(){
+  var A=window._smsAi; if(!A) return;
+  A.hist=[]; A.draft=''; A.busy=false;
+  _smsAiRender();
+  var inp=document.getElementById('smsAiInp'); if(inp) inp.focus();
+}
+function _smsAiApprove(){
+  var A=window._smsAi; if(!A||!A.draft) return;
+  var ta=document.getElementById('smsCompose');
+  if(ta){ ta.value=A.draft; if(typeof smsGrow==='function') smsGrow(ta); ta.focus(); }
+  var sh=document.getElementById('smsAiSh'); if(sh) sh.remove();
+  showToast('✓ Message ready — review and send');
 }
 
 async function generateAiSms(){
