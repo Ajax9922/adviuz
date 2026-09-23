@@ -32195,8 +32195,9 @@ async function _pwSend(){
   if(!confirm('Send this proposal to '+P.email+(P.phone?' and '+P.phone:'')+'?\n\nTip: Preview it first if you have not.')) return;
   var btn=document.getElementById('pwSendBtn'); if(btn){ btn.disabled=true; btn.textContent='Sending…'; }
   try{
-    var subj='Ref: '+(P.company||P.name)+' | '+(st.content.subject||'Your Adviuz Proposal');
-    var body='Dear '+first+',<br><br>Thank you for your time. Your custom proposal from Adviuz is ready:'
+    var sname=(st.content.subject||'Your Adviuz Proposal').trim();
+    var subj='Ref: '+(P.company||P.name)+' | '+sname;
+    var body='Dear '+first+',<br><br>Thank you for your time. Your custom proposal from Adviuz — <strong>'+_pwEsc(sname)+'</strong> — is ready:'
       +'<div style="text-align:center;margin:20px 0"><a href="'+url+'" style="background:#4000f3;color:#ffffff;padding:13px 28px;border-radius:9px;text-decoration:none;font-weight:700;display:inline-block">View Your Proposal</a></div>'
       +'If the button does not open, use this link:<br><a href="'+url+'">'+url+'</a><br><br>Questions? Just reply to this email.';
     var er=await sbFetch('/functions/v1/send-email',{method:'POST',body:JSON.stringify({
@@ -32208,7 +32209,7 @@ async function _pwSend(){
     // Log the email content on the lead so the Inbox / timeline can show it
     // (the send-email function only logs the subject; twin-merge joins the two rows).
     try{
-      var plain='Dear '+first+',\n\nThank you for your time. Your custom proposal from Adviuz is ready:\n'+url+'\n\nQuestions? Just reply to this email.';
+      var plain='Dear '+first+',\n\nThank you for your time. Your custom proposal from Adviuz — '+sname+' — is ready:\n'+url+'\n\nQuestions? Just reply to this email.';
       await sbFetch('/rest/v1/activity_log',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({
         lead_id:P.dbId, type:'email_sent', label:'Email Sent',
         body:'📧 From: sales@adviuz.com → To: '+P.email+'\n'+subj,
@@ -32222,7 +32223,7 @@ async function _pwSend(){
       if(digits.length===10) ph='+1'+digits; else if(digits.length===11) ph='+'+digits;
       try{
         var sr=await sbFetch('/functions/v1/twilio-sms',{method:'POST',body:JSON.stringify({
-          to:ph, message:'Hi '+first+', your custom proposal from Adviuz is ready: '+url+'\n\nQuestions? Reply here.\n\nReply STOP to opt out.', lead_id:P.dbId })});
+          to:ph, message:'Hi '+first+', your proposal from Adviuz is ready — '+sname+':\n'+url+'\n\nQuestions? Reply here.\n\nReply STOP to opt out.', lead_id:P.dbId })});
         smsSent=sr.ok;
       }catch(e){}
     }
@@ -32232,7 +32233,7 @@ async function _pwSend(){
     showToast('✅ Proposal sent'+(smsSent?' (email + SMS)':' (email)'));
     if(P.phone && confirm('Also open WhatsApp with the message ready to send?')){
       var wd=String(P.phone).replace(/\D/g,''); if(wd.length===10) wd='1'+wd;
-      window.open('https://wa.me/'+wd+'?text='+encodeURIComponent('Hi '+first+', your custom proposal from Adviuz is ready: '+url),'_blank');
+      window.open('https://wa.me/'+wd+'?text='+encodeURIComponent('Hi '+first+', your proposal from Adviuz is ready — '+sname+': '+url),'_blank');
     }
     var sh=document.getElementById('pwSh'); if(sh) sh.remove();
   }catch(e){ showToast('Could not send — try again'); }
