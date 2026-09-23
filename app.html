@@ -16069,7 +16069,13 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
       h += '<div class="ld-act-dot">'+(icons[item.type]||'📋')+'</div>';
       h += '<div class="ld-act-body" style="width:100%">';
       h += '<span class="ld-act-label">'+(item.type==='note'?'Note':item.label)+'</span><span class="ld-act-time">'+item.time+'</span>';
-      h += '<div class="ld-act-text">'+item.body+(clickable&&quoteId?' <span style="color:var(--green);font-size:11px">↗ View</span>':'')+'</div>';
+      var _abody=item.body;
+      if(item.type==='proposal'){ _abody=String(_abody||'').replace(/^U0001F4CB\s*/,'').replace(/https?:\/\/\S+/g,'').replace(/[:\s]+$/,'').trim(); }
+      h += '<div class="ld-act-text">'+_abody+(clickable&&quoteId?' <span style="color:var(--green);font-size:11px">↗ View</span>':'')+'</div>';
+      if(item.type==='proposal'){
+        var _pu=String(item.body||'').match(/https?:\/\/\S+/);
+        if(_pu) h += '<a href="'+_pu[0]+'" target="_blank" rel="noopener" style="display:inline-block;margin-top:7px;padding:6px 14px;border-radius:20px;background:#f3efff;color:#4000f3;font-size:12px;font-weight:700;text-decoration:none">View proposal →</a>';
+      }
       if (item.rec) {
         h += '<div style="display:flex;align-items:center;gap:8px;margin-top:7px;padding:7px 11px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">';
         h += '<button onclick="showToast(&quot;▶ Playing...&quot;)" style="width:26px;height:26px;border-radius:50%;background:var(--red);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center"><svg fill="white" viewBox="0 0 24 24" style="width:10px;height:10px;margin-left:2px"><polygon points="5,3 19,12 5,21"/></svg></button>';
@@ -31904,7 +31910,7 @@ function _pwDefaults(){
   var d=new Date(Date.now()+14*86400000);
   return { proposalId:null, status:'draft', valid_until:d.toISOString().slice(0,10),
     content:{ header_label:'Proposal', subject:'New Flyers Distribution System',
-      goal:'Following our meeting, this proposal is prepared for ',
+      goal:'',
       packages:[],
       links:{ intro:'https://www.youtube.com/shorts/THsHETvS0Ew', about:'https://adviuz.ca', flyer:'', library:'' },
       call_number:'+1 (672) 203-8220', wa_number:'+1 (672) 203-8220',
@@ -31937,12 +31943,9 @@ function _pwSnap(b){
     x:_abNum(b.sms), dm:(b.design>0?(b.design+' month'+(b.design>1?'s':'')):''),
     validity:(b.validity>0?(b.validity+' months'):''), badge:'', desc:'', link:_PW_LINKS[Number(b.views)]||'' };
 }
-function _pwRender(){
-  var P=window._pw; if(!P) return;
-  var st=P.state, c=st.content;
-  var old=document.getElementById('pwSh'); if(old) old.remove();
-  var ov=document.createElement('div'); ov.className='sheet-ov'; ov.id='pwSh'; ov.style.display='flex'; ov.style.zIndex='900';
-  ov.onclick=function(ev){ if(ev.target===ov){ _pwCollect(); ov.remove(); } };
+function _pwPkgsHTML(){
+  var P=window._pw; if(!P||!P.state) return '';
+  var c=P.state.content;
   var pkgs='';
   (window._viewBundles||[]).forEach(function(b){
     if(b.test) return;
@@ -31959,6 +31962,15 @@ function _pwRender(){
       +'<div style="flex-shrink:0;font-size:13.5px;font-weight:750;color:var(--text)">'+_abMoney(b.price)+'</div>'
       +'</div></div>';
   });
+  return pkgs;
+}
+function _pwRender(){
+  var P=window._pw; if(!P) return;
+  var st=P.state, c=st.content;
+  var old=document.getElementById('pwSh'); if(old) old.remove();
+  var ov=document.createElement('div'); ov.className='sheet-ov'; ov.id='pwSh'; ov.style.display='flex'; ov.style.zIndex='900';
+  ov.onclick=function(ev){ if(ev.target===ov){ _pwCollect(); ov.remove(); } };
+  var pkgs=_pwPkgsHTML();
   var linkRow=function(tag,id,val){
     return '<div style="display:flex;gap:9px;margin-bottom:8px"><span style="flex:0 0 104px;display:flex;align-items:center;font-size:12px;font-weight:700;color:var(--text)">'+tag+'</span><input id="'+id+'" class="finp" style="margin:0;flex:1;min-width:0" value="'+_pwEsc(val||'')+'"></div>';
   };
@@ -31976,7 +31988,7 @@ function _pwRender(){
     +_pwLbl('Subject')+'<input id="pwSubject" class="finp" style="margin:0" value="'+_pwEsc(c.subject)+'">'
     +_pwLbl('Goal — shown after the intro')
     +'<textarea id="pwGoal" class="finp" style="margin:0;min-height:76px;resize:none;overflow:hidden;line-height:1.55" oninput="this.style.height=\'auto\';this.style.height=(this.scrollHeight+2)+\'px\'">'+_pwEsc(c.goal)+'</textarea>'
-    +_pwLbl('Add packages')+pkgs
+    +_pwLbl('Add packages')+'<div id="pwPkgList">'+pkgs+'</div>'
     +'<div style="font-size:10.5px;color:#9ca3af;margin:2px 2px 0;line-height:1.5">Live from your pricing catalog. Tap the small chip on a selected package to set its badge (Pilot / Recommended / Start Dominating).</div>'
     +_pwLbl('Learn More Online links')
     +linkRow('Intro video','pwLnkIntro',c.links.intro)
@@ -32013,7 +32025,8 @@ function _pwTogglePkg(v){
     if(b) c.packages.push(_pwSnap(b));
     c.packages.sort(function(a,z){ return Number(a.v)-Number(z.v); });
   }
-  _pwRender();
+  var el=document.getElementById('pwPkgList');
+  if(el) el.innerHTML=_pwPkgsHTML(); else _pwRender();
 }
 function _pwCycleBadge(v){
   _pwCollect();
@@ -32022,7 +32035,8 @@ function _pwCycleBadge(v){
   if(!pk) return;
   var i=_PW_BADGES.indexOf(pk.badge||''); pk.badge=_PW_BADGES[(i+1)%_PW_BADGES.length];
   pk.desc=_PW_DESC[pk.badge]||'';
-  _pwRender();
+  var el=document.getElementById('pwPkgList');
+  if(el) el.innerHTML=_pwPkgsHTML(); else _pwRender();
 }
 function _pwCollect(){
   var P=window._pw; if(!P||!P.state) return;
@@ -32057,7 +32071,7 @@ async function _pwSave(toast){
 }
 async function _pwPreview(){
   if(!(await _pwSave(false))) return;
-  window.open(PROPOSAL_PAGE+window._pw.state.proposalId,'_blank');
+  window.open(PROPOSAL_PAGE+window._pw.state.proposalId+'&preview=1','_blank');
 }
 async function _pwSend(){
   var P=window._pw; if(!P) return;
@@ -32068,14 +32082,27 @@ async function _pwSend(){
   if(!confirm('Send this proposal to '+P.email+(P.phone?' and '+P.phone:'')+'?\n\nTip: Preview it first if you have not.')) return;
   var btn=document.getElementById('pwSendBtn'); if(btn){ btn.disabled=true; btn.textContent='Sending…'; }
   try{
+    var subj='Ref: '+(P.company||P.name)+' | '+(st.content.subject||'Your Adviuz Proposal');
     var body='Dear '+first+',<br><br>Thank you for your time. Your custom proposal from Adviuz is ready:'
       +'<div style="text-align:center;margin:20px 0"><a href="'+url+'" style="background:#4000f3;color:#ffffff;padding:13px 28px;border-radius:9px;text-decoration:none;font-weight:700;display:inline-block">View Your Proposal</a></div>'
       +'If the button does not open, use this link:<br><a href="'+url+'">'+url+'</a><br><br>Questions? Just reply to this email.';
     var er=await sbFetch('/functions/v1/send-email',{method:'POST',body:JSON.stringify({
-      to:P.email, subject:'Ref: '+(P.company||P.name)+' | '+(st.content.subject||'Your Adviuz Proposal'),
+      to:P.email, subject:subj,
       template:'custom', template_data:{ body:body, email_type:'transactional' },
       lead_id:P.dbId, from_email:'sales@adviuz.com' })});
     if(!er.ok) throw new Error('email failed');
+    var ej=null; try{ ej=await er.json(); }catch(e){}
+    // Log the email content on the lead so the Inbox / timeline can show it
+    // (the send-email function only logs the subject; twin-merge joins the two rows).
+    try{
+      var plain='Dear '+first+',\n\nThank you for your time. Your custom proposal from Adviuz is ready:\n'+url+'\n\nQuestions? Just reply to this email.';
+      await sbFetch('/rest/v1/activity_log',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({
+        lead_id:P.dbId, type:'email_sent', label:'Email Sent',
+        body:'📧 From: sales@adviuz.com → To: '+P.email+'\n'+subj,
+        meta:{ from:'sales@adviuz.com', to:P.email, subject:subj, body:plain, email_id:(ej&&ej.id)||null },
+        created_at:new Date().toISOString() })});
+    }catch(e){}
+    window._ibEmailsLoaded=false;
     var smsSent=false;
     if(P.phone){
       var digits=String(P.phone).replace(/\D/g,''); var ph=P.phone;
@@ -32088,7 +32115,7 @@ async function _pwSend(){
     }
     await sbFetch('/rest/v1/proposals?id=eq.'+st.proposalId,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({status:'sent',sent_at:new Date().toISOString(),updated_at:new Date().toISOString()})});
     st.status='sent';
-    try{ await sbFetch('/rest/v1/activity_log',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({lead_id:P.dbId,type:'proposal',label:'Proposal Sent',body:'\U0001F4CB Proposal sent (email'+(smsSent?' + SMS':'')+'): '+url,created_at:new Date().toISOString()})}); }catch(e){}
+    try{ await sbFetch('/rest/v1/activity_log',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({lead_id:P.dbId,type:'proposal',label:'Proposal Sent',body:'📋 Proposal sent (email'+(smsSent?' + SMS':'')+'): '+url,created_at:new Date().toISOString()})}); }catch(e){}
     showToast('✅ Proposal sent'+(smsSent?' (email + SMS)':' (email)'));
     if(P.phone && confirm('Also open WhatsApp with the message ready to send?')){
       var wd=String(P.phone).replace(/\D/g,''); if(wd.length===10) wd='1'+wd;
