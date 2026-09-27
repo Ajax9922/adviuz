@@ -1412,7 +1412,7 @@ body.impersonating .ls-topbar{padding-top:8px}
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>Digital Flyer Campaigns
     </div>
     <div class="menu-sect">Outreach</div>
-    <div class="menu-item" onclick="closeMenu();openBulkSheet('ai')">
+    <div class="menu-item" onclick="closeMenu();openBulkCallsWiz()">
       <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>Launch AI Campaign
     </div>
     <div class="menu-item" onclick="closeMenu();openBulkWiz('sms')">
@@ -1582,6 +1582,25 @@ body.impersonating .ls-topbar{padding-top:8px}
       <button class="aichat-send" id="aiChatSend" onclick="helpAiSend()"><svg fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg></button>
     </div>
     <div class="aichat-note">Adviuz AI can make mistakes. For account questions contact support.</div>
+  </div>
+</div>
+
+<!-- ═══ BULK AI CALLS WIZARD (bulkcall-1) — audience → goal → review → live progress ═══ -->
+<style>
+.bkc-chip{display:inline-block;border:1.5px solid var(--border);background:var(--white);border-radius:999px;padding:7px 13px;font-size:12.5px;font-weight:600;color:var(--text);cursor:pointer;margin:0 6px 8px 0;font-family:var(--f)}
+.bkc-chip.on{border-color:#4000f3;background:linear-gradient(135deg,rgba(64,0,243,.08),rgba(230,90,252,.08));color:#4000f3}
+.bkc-row{display:flex;align-items:center;padding:11px 12px;border:1.5px solid var(--border);border-radius:12px;margin-bottom:8px;gap:10px;background:var(--white)}
+.bkc-row.off{opacity:.55;background:var(--bg)}
+.bkc-row .nm{font-size:13.5px;font-weight:700;color:var(--text)}
+.bkc-row .why{font-size:11px;color:var(--sub);margin-top:2px}
+.bkc-bar{height:8px;border-radius:999px;background:var(--bg);overflow:hidden;margin:10px 0 6px}
+.bkc-bar i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#4000f3,#e65afc);transition:width .4s ease}
+.bkc-prim{width:100%;justify-content:center;background:linear-gradient(135deg,#4000f3,#e65afc)!important;border:none}
+</style>
+<div class="sheet-ov" id="bkcSh" onclick="if(event.target===this)bkcClose()">
+  <div class="sheet" style="max-height:calc(92dvh - var(--kb,0px))"><div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title" id="bkcTitle">Bulk AI Calls</div><button class="sheet-x" onclick="bkcClose()">&#x2715;</button></div>
+    <div class="sh-body" id="bkcBody" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom,16px))"></div>
   </div>
 </div>
 
@@ -4069,7 +4088,7 @@ Reply to this email or give us a call any time.
     <button class="bulk-x" onclick="deselectAll()">&#x00D7;</button>
   </div>
   <div class="bulk-actions">
-    <button class="ba ba-ai" onclick="openBulkSheet('ai')">
+    <button class="ba ba-ai" onclick="openBulkCallsWiz()">
       <svg fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>AI Call
     </button>
     <button class="ba ba-sms" onclick="openBulkSheet('sms')">
@@ -4530,7 +4549,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-27 bootspeed-3';
+var APP_VERSION = 'v2026-09-27 bulkcall-2';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -23276,6 +23295,186 @@ async function helpAiSend(){
   _helpBusy=false; if(btn) btn.disabled=false;
   helpAiRender(false);
   var i2=document.getElementById('aiChatInp'); if(i2) i2.focus();
+}
+
+// ═══════════════════════════════════════
+// BULK AI CALLS (bulkcall-1)
+// Wizard: audience → goal of the round → review (guardrail-excluded leads
+// shown greyed with reasons) → server-side one-at-a-time calling run with
+// live progress + Stop. Backend: bulk-calls edge function.
+// ═══════════════════════════════════════
+var _bkc = null;
+function openBulkCallsWiz(){
+  // Staff-only rollout (Ajax 2026-09-27): clients keep the old Launch AI
+  // Campaign flow until the client rollout is approved. Backend enforces too.
+  if (!window._isAdviuzStaff) { try { openBulkSheet('ai'); } catch(_e){} return; }
+  _bkc = { step:1, camps:null, campaign_id:'', service:'', location:'', stages:[], temps:[], notDays:0, cooldown:3, gap:3, sunday:false, purpose:'book', note:'', preview:null, sel:{}, poll:null, busy:false };
+  openSheet('bkcSh');
+  bkcLoadCamps();
+}
+function bkcClose(){ if(_bkc && _bkc.poll){ clearInterval(_bkc.poll); _bkc.poll=null; } closeSheet('bkcSh'); }
+async function bkcLoadCamps(){
+  var box=document.getElementById('bkcBody'); if(box) box.innerHTML='<div style="text-align:center;padding:40px 0"><div class="ai-spin"></div></div>';
+  var camps = [];
+  try{
+    if (window._clientCampaigns && window._clientCampaigns.length) camps = window._clientCampaigns;
+    else { var r=await sbFetch('/rest/v1/campaigns?select=id,name,client_id&order=created_at.desc&limit=100'); if(r.ok) camps=await r.json(); }
+  }catch(_e){}
+  _bkc.camps = camps||[];
+  if(_bkc.camps.length===1) _bkc.campaign_id = String(_bkc.camps[0].id);
+  bkcRender();
+}
+function _bkcEsc(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function bkcChip(list,val,label){
+  var on = list.indexOf(val)>=0;
+  return '<span class="bkc-chip'+(on?' on':'')+'" onclick="bkcToggle(this,\''+val+'\')" data-v="'+val+'">'+label+'</span>';
+}
+function bkcToggle(el,val){
+  var grp = el.parentElement.getAttribute('data-grp');
+  var arr = grp==='stages' ? _bkc.stages : _bkc.temps;
+  var i = arr.indexOf(val);
+  if(i>=0){ arr.splice(i,1); el.classList.remove('on'); } else { arr.push(val); el.classList.add('on'); }
+}
+var _BKC_STAGES = [['1','1. Fresh Lead'],['2','2. Not Connected'],['3','3. Callback Requested'],['4','4. Follow-up Scheduled'],['6','6. Meeting Done'],['7','7. Proposal Sent'],['8','8. Negotiating'],['11','11. Future Prospect']];
+function bkcRender(){
+  var box=document.getElementById('bkcBody'); if(!box||!_bkc) return;
+  var t=document.getElementById('bkcTitle');
+  if(_bkc.step===1){
+    if(t) t.textContent='Bulk AI Calls — Audience';
+    var copts = (_bkc.camps||[]).map(function(c){ return '<option value="'+_bkcEsc(c.id)+'"'+(String(c.id)===_bkc.campaign_id?' selected':'')+'>'+_bkcEsc(c.name)+'</option>'; }).join('');
+    box.innerHTML =
+      '<div class="flbl" style="margin-bottom:6px">Campaign</div>'
+      +'<select class="finp" id="bkcCamp" onchange="_bkc.campaign_id=this.value" style="margin-bottom:14px"><option value="">Choose campaign…</option>'+copts+'</select>'
+      +'<div class="flbl" style="margin-bottom:6px">Stages (empty = all open stages)</div>'
+      +'<div data-grp="stages" style="margin-bottom:8px">'+_BKC_STAGES.map(function(s){return bkcChip(_bkc.stages,s[0],s[1]);}).join('')+'</div>'
+      +'<div class="flbl" style="margin-bottom:6px">Temperature (empty = all)</div>'
+      +'<div data-grp="temps" style="margin-bottom:8px">'+bkcChip(_bkc.temps,'hot','🔥 Hot')+bkcChip(_bkc.temps,'warm','🌤️ Warm')+bkcChip(_bkc.temps,'cold','❄️ Cold')+'</div>'
+      +'<div style="display:flex;gap:10px"><div style="flex:1"><div class="flbl" style="margin-bottom:6px">Service (optional)</div><input class="finp" id="bkcSvc" value="'+_bkcEsc(_bkc.service)+'" placeholder="Any"></div>'
+      +'<div style="flex:1"><div class="flbl" style="margin-bottom:6px">Location (optional)</div><input class="finp" id="bkcLoc" value="'+_bkcEsc(_bkc.location)+'" placeholder="Any"></div></div>'
+      +'<div style="display:flex;gap:10px;margin-top:14px">'
+      +'<div style="flex:1"><div class="flbl" style="margin-bottom:6px">Skip if called in last</div><select class="finp" id="bkcCool"><option value="2"'+(_bkc.cooldown===2?' selected':'')+'>2 days</option><option value="3"'+(_bkc.cooldown===3?' selected':'')+'>3 days</option><option value="7"'+(_bkc.cooldown===7?' selected':'')+'>7 days</option><option value="14"'+(_bkc.cooldown===14?' selected':'')+'>14 days</option></select></div>'
+      +'<div style="flex:1"><div class="flbl" style="margin-bottom:6px">Gap between calls</div><select class="finp" id="bkcGap"><option value="2"'+(_bkc.gap===2?' selected':'')+'>2 min</option><option value="3"'+(_bkc.gap===3?' selected':'')+'>3 min</option><option value="5"'+(_bkc.gap===5?' selected':'')+'>5 min</option></select></div></div>'
+      +'<label style="display:flex;align-items:center;gap:9px;font-size:13.5px;font-weight:600;color:var(--text);margin:14px 0;cursor:pointer"><input type="checkbox" id="bkcSun"'+(_bkc.sunday?' checked':'')+' style="width:17px;height:17px;accent-color:#4000f3"> Allow calling on Sundays</label>'
+      +'<button class="btn btn-primary bkc-prim" onclick="bkcNext1()">Next — Goal of the round</button>'
+      +'<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:10px">Calls only go out 9 AM–8 PM in each lead\'s own time zone.</div>';
+  }
+  if(_bkc.step===2){
+    if(t) t.textContent='Bulk AI Calls — Goal';
+    function pchip(v,l){ return '<span class="bkc-chip'+(_bkc.purpose===v?' on':'')+'" onclick="_bkc.purpose=\''+v+'\';bkcRender()">'+l+'</span>'; }
+    box.innerHTML =
+      '<div class="flbl" style="margin-bottom:6px">What is this calling round for?</div>'
+      +'<div style="margin-bottom:10px">'+pchip('book','📅 Book appointments')+pchip('reengage','👋 Re-engage')+pchip('announce','📣 Announce something')+'</div>'
+      +'<div class="flbl" style="margin-bottom:6px">Fresh context for the AI (optional, highly recommended)</div>'
+      +'<textarea class="finp" id="bkcNote" rows="3" placeholder="e.g. We have new Saturday openings in October — offer them a spot.">'+_bkcEsc(_bkc.note)+'</textarea>'
+      +'<div style="font-size:11.5px;color:var(--sub);line-height:1.6;margin:8px 0 14px">The AI already knows each lead\'s full history. This line gives it a fresh, current reason for today\'s call.</div>'
+      +'<button class="btn btn-primary bkc-prim" onclick="bkcNext2()">Next — Review leads</button>'
+      +'<button class="btn" onclick="_bkc.step=1;bkcRender()" style="width:100%;justify-content:center;margin-top:8px;background:var(--bg);color:var(--text)">Back</button>';
+  }
+  if(_bkc.step===3){
+    if(t) t.textContent='Bulk AI Calls — Review';
+    var p=_bkc.preview;
+    if(!p){ box.innerHTML='<div style="text-align:center;padding:40px 0"><div class="ai-spin"></div><div style="font-size:13px;color:var(--sub)">Checking every lead against the guardrails…</div></div>'; return; }
+    var selCount=0; Object.keys(_bkc.sel).forEach(function(k){ if(_bkc.sel[k]) selCount++; });
+    var rowsH = p.leads.map(function(l){
+      if(l.ok){
+        var on = !!_bkc.sel[l.lead_id];
+        return '<div class="bkc-row" onclick="_bkc.sel[\''+l.lead_id+'\']=!_bkc.sel[\''+l.lead_id+'\'];bkcRender()" style="cursor:pointer">'
+          +'<input type="checkbox"'+(on?' checked':'')+' style="width:18px;height:18px;accent-color:#4000f3;pointer-events:none">'
+          +'<div><div class="nm">'+_bkcEsc(l.name)+'</div><div class="why">'+_bkcEsc(l.stage)+' · '+l.temp+'</div></div></div>';
+      }
+      return '<div class="bkc-row off"><span style="font-size:15px">🛡️</span><div><div class="nm">'+_bkcEsc(l.name)+'</div><div class="why">Skipped — '+_bkcEsc(l.reason)+'</div></div></div>';
+    }).join('');
+    box.innerHTML =
+      '<div style="font-size:13px;color:var(--sub);margin-bottom:10px"><b style="color:var(--text)">'+selCount+'</b> selected of '+p.eligible+' eligible · '+(p.total-p.eligible)+' protected by guardrails</div>'
+      +'<div style="max-height:44vh;overflow-y:auto;margin-bottom:12px">'+rowsH+'</div>'
+      +'<button class="btn btn-primary bkc-prim" '+(selCount?'':'disabled ')+'onclick="bkcStart()">📞 Start Bulk Calling ('+selCount+')</button>'
+      +'<button class="btn" onclick="_bkc.step=2;bkcRender()" style="width:100%;justify-content:center;margin-top:8px;background:var(--bg);color:var(--text)">Back</button>'
+      +'<div style="font-size:11px;color:var(--sub);text-align:center;margin-top:10px">One call at a time · runs in the background even if you close the app.</div>';
+  }
+}
+function bkcNext1(){
+  var c=document.getElementById('bkcCamp'); if(c) _bkc.campaign_id=c.value;
+  if(!_bkc.campaign_id){ showToast('Pick a campaign first'); return; }
+  var sv=document.getElementById('bkcSvc'); if(sv) _bkc.service=sv.value.trim();
+  var lo=document.getElementById('bkcLoc'); if(lo) _bkc.location=lo.value.trim();
+  var co=document.getElementById('bkcCool'); if(co) _bkc.cooldown=parseInt(co.value,10)||3;
+  var gp=document.getElementById('bkcGap'); if(gp) _bkc.gap=parseInt(gp.value,10)||3;
+  var su=document.getElementById('bkcSun'); if(su) _bkc.sunday=!!su.checked;
+  bkcCheckActiveThen(function(){ _bkc.step=2; bkcRender(); });
+}
+async function bkcCheckActiveThen(next){
+  try{
+    var r=await sbFetch('/functions/v1/bulk-calls?action=status',{method:'POST',body:JSON.stringify({campaign_id:_bkc.campaign_id})});
+    var d=await r.json().catch(function(){return{}});
+    if(d && d.run && ['running','paused_window','paused_no_fuel'].indexOf(d.run.status)>=0){ bkcProgress(); return; }
+  }catch(_e){}
+  next();
+}
+function bkcNext2(){
+  var n=document.getElementById('bkcNote'); if(n) _bkc.note=n.value.trim();
+  _bkc.step=3; _bkc.preview=null; bkcRender(); bkcPreview();
+}
+async function bkcPreview(){
+  try{
+    var r=await sbFetch('/functions/v1/bulk-calls?action=preview',{method:'POST',body:JSON.stringify({
+      campaign_id:_bkc.campaign_id, stages:_bkc.stages, temps:_bkc.temps, service:_bkc.service, location:_bkc.location,
+      not_contacted_days:_bkc.notDays, cooldown_days:_bkc.cooldown })});
+    var d=await r.json().catch(function(){return{}});
+    if(!r.ok||!d.ok){ showToast(d.error||'Could not load leads'); _bkc.step=1; bkcRender(); return; }
+    _bkc.preview=d; _bkc.sel={};
+    d.leads.forEach(function(l){ if(l.ok) _bkc.sel[l.lead_id]=true; });
+    bkcRender();
+  }catch(e){ showToast('Could not load leads'); _bkc.step=1; bkcRender(); }
+}
+async function bkcStart(){
+  if(_bkc.busy) return; _bkc.busy=true;
+  var ids=Object.keys(_bkc.sel).filter(function(k){return _bkc.sel[k];});
+  try{
+    var r=await sbFetch('/functions/v1/bulk-calls?action=start',{method:'POST',body:JSON.stringify({
+      campaign_id:_bkc.campaign_id, lead_ids:ids, purpose:_bkc.purpose, goal_note:_bkc.note,
+      gap_min:_bkc.gap, cooldown_days:_bkc.cooldown, allow_sunday:_bkc.sunday })});
+    var d=await r.json().catch(function(){return{}});
+    _bkc.busy=false;
+    if(!r.ok||!d.ok){ showToast(d.error||'Could not start'); return; }
+    showToast('📞 Bulk calling started — '+d.queued+' leads queued');
+    bkcProgress();
+  }catch(e){ _bkc.busy=false; showToast('Could not start'); }
+}
+function bkcProgress(){
+  var t=document.getElementById('bkcTitle'); if(t) t.textContent='Bulk AI Calls — Live';
+  if(_bkc.poll) clearInterval(_bkc.poll);
+  bkcPollOnce();
+  _bkc.poll=setInterval(bkcPollOnce,5000);
+}
+async function bkcPollOnce(){
+  var box=document.getElementById('bkcBody'); if(!box||!_bkc){ if(_bkc&&_bkc.poll)clearInterval(_bkc.poll); return; }
+  var d=null;
+  try{ var r=await sbFetch('/functions/v1/bulk-calls?action=status',{method:'POST',body:JSON.stringify({campaign_id:_bkc.campaign_id})}); d=await r.json().catch(function(){return null;}); }catch(_e){}
+  if(!d||!d.run){ box.innerHTML='<div style="text-align:center;padding:30px 0;color:var(--sub);font-size:13px">No calling round found.</div>'; return; }
+  var run=d.run;
+  var pct = run.total ? Math.round(((run.called||0)+(run.skipped||0))/run.total*100) : 0;
+  var stLbl = run.status==='running'?'🟢 Calling…':run.status==='paused_window'?'🌙 Paused — outside calling hours, resumes automatically':run.status==='paused_no_fuel'?'⛽ Paused — AI minutes used up':run.status==='done'?'✅ Finished':'⏹ Stopped';
+  var itemsH=(d.items||[]).slice().reverse().slice(0,40).map(function(i){
+    var ic = i.status==='calling'?'📞':i.status==='done'?(i.outcome==='completed'?'✅':'📵'):i.status==='skipped'?'🛡️':'⏳';
+    var sub = i.status==='skipped'?('Skipped — '+_bkcEsc(i.skip_reason||'')):i.status==='done'?_bkcEsc(i.outcome||'done'):i.status==='calling'?'On the call now…':'Waiting';
+    return '<div class="bkc-row'+(i.status==='skipped'?' off':'')+'"><span style="font-size:15px">'+ic+'</span><div><div class="nm">'+_bkcEsc(i.name)+'</div><div class="why">'+sub+'</div></div></div>';
+  }).join('');
+  var active = ['running','paused_window','paused_no_fuel'].indexOf(run.status)>=0;
+  if(!active && _bkc.poll){ clearInterval(_bkc.poll); _bkc.poll=null; }
+  box.innerHTML =
+    '<div style="font-size:13.5px;font-weight:700;color:var(--text)">'+stLbl+'</div>'
+    +'<div class="bkc-bar"><i style="width:'+pct+'%"></i></div>'
+    +'<div style="font-size:12px;color:var(--sub);margin-bottom:12px">'+(run.called||0)+' called · '+(run.connected||0)+' connected · '+(run.skipped||0)+' skipped · '+run.total+' total</div>'
+    +(active?'<button class="btn" onclick="bkcStop()" style="width:100%;justify-content:center;background:var(--redl);color:var(--red);font-weight:700;margin-bottom:12px">⏹ Stop the round</button>':'<button class="btn btn-primary bkc-prim" onclick="openBulkCallsWiz()" style="margin-bottom:12px">Start a new round</button>')
+    +'<div style="max-height:44vh;overflow-y:auto">'+itemsH+'</div>';
+}
+async function bkcStop(){
+  try{
+    var r=await sbFetch('/functions/v1/bulk-calls?action=stop',{method:'POST',body:JSON.stringify({campaign_id:_bkc.campaign_id})});
+    var d=await r.json().catch(function(){return{}});
+    showToast(d.ok?'⏹ Round stopped — a call already in progress finishes normally':(d.error||'Could not stop'));
+    bkcPollOnce();
+  }catch(e){ showToast('Could not stop'); }
 }
 
 function closeSheet(id){
