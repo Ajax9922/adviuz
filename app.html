@@ -1528,6 +1528,8 @@ body.impersonating .ls-topbar{padding-top:8px}
   box-shadow:0 8px 22px rgba(64,0,243,.38),0 2px 6px rgba(0,0,0,.18);transition:transform .18s ease,opacity .18s ease;z-index:700}
 .aifab:active{transform:scale(.92)}
 .aifab.dodge{opacity:0;pointer-events:none;transform:scale(.7)}
+.ai-spin{width:34px;height:34px;border-radius:50%;border:3px solid var(--border);border-top-color:#4000f3;border-right-color:#e65afc;animation:aiSpin .8s linear infinite;margin:0 auto 14px}
+@keyframes aiSpin{to{transform:rotate(360deg)}}
 .aifab::after{content:'';position:absolute;inset:-4px;border-radius:50%;border:2px solid rgba(230,90,252,.45);animation:aiFabPulse 2.6s ease-out infinite;pointer-events:none}
 @keyframes aiFabPulse{0%{transform:scale(.9);opacity:.8}70%{transform:scale(1.25);opacity:0}100%{transform:scale(1.25);opacity:0}}
 .aichat{position:fixed;left:0;right:0;top:0;height:calc(100dvh - var(--kb,0px));background:var(--white);display:flex;flex-direction:column;z-index:880;transform:translateY(102%);transition:transform .32s cubic-bezier(.32,.72,.24,1);visibility:hidden}
@@ -4528,7 +4530,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-27 bootspeed-1';
+var APP_VERSION = 'v2026-09-27 bootspeed-2';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -4860,8 +4862,15 @@ async function sendPartnerOTP() {
 // Unified role gate for both password and OTP logins. Sets window._staffRole
 // plus the relevant data (partner / client / telecaller). Throws if no access.
 async function applyRoleGate(user){
-  var mRes = await sbFetch('/rest/v1/client_members?select=role,user_type,client_id,lead_scope,is_active&user_id=eq.'+user.id+'&limit=1');
-  var members = mRes.ok ? await mRes.json() : [];
+  // bootspeed-2: the three identity lookups ran one-by-one (~0.5s wasted).
+  // They are independent reads, so fire them together; the results are applied
+  // in the EXACT same order and under the exact same conditions as before.
+  var _rg = await Promise.all([
+    sbFetch('/rest/v1/client_members?select=role,user_type,client_id,lead_scope,is_active&user_id=eq.'+user.id+'&limit=1'),
+    sbFetch('/rest/v1/sales_partners?user_id=eq.'+user.id+'&limit=1'),
+    sbFetch('/rest/v1/clients?select=*&auth_user_id=eq.'+user.id+'&limit=1')
+  ]);
+  var members = _rg[0].ok ? await _rg[0].json() : [];
   var m = members[0] || {};
   if(m.is_active === false) m = {};
   // "Staff" means ADVIUZ staff and nothing else. A client can name their own
@@ -4874,13 +4883,11 @@ async function applyRoleGate(user){
   window._isAdviuzStaff = isStaff;
   var isPartner=false, isClient=false, isTeamMember=false;
   if(!isStaff){
-    var pRes = await sbFetch('/rest/v1/sales_partners?user_id=eq.'+user.id+'&limit=1');
-    var pArr = pRes.ok ? await pRes.json() : [];
+    var pArr = _rg[1].ok ? await _rg[1].json() : [];
     if(pArr.length){ isPartner=true; window._partnerData=pArr[0]; }
   }
   if(!isStaff){
-    var cRes = await sbFetch('/rest/v1/clients?select=*&auth_user_id=eq.'+user.id+'&limit=1');
-    var cArr = cRes.ok ? await cRes.json() : [];
+    var cArr = _rg[2].ok ? await _rg[2].json() : [];
     if(cArr.length){ isClient=true; window._clientData=cArr[0]; window._clientId=cArr[0].id; }
   }
   // A team member is someone on a client's roster who does NOT own the account.
@@ -5585,7 +5592,7 @@ function onLoginSuccess() {
   // Show loading state
   document.getElementById('content').innerHTML =
     '<div style="text-align:center;padding:60px 20px">'
-    +'<div style="font-size:32px;margin-bottom:12px">&#x231B;</div>'
+    +'<div class="ai-spin"></div>'
     +'<div style="font-size:14px;color:var(--sub);font-weight:500">Loading your leads...</div>'
     +'</div>';
 
@@ -5662,6 +5669,9 @@ function doLogout() {
   document.getElementById('loginBtn').disabled = false;
   document.getElementById('loginBtn').textContent = 'Sign In';
   leads = [];
+  // bootspeed-2: wipe the instant-open snapshots — cached lead lists must
+  // never survive a sign-out.
+  try { Object.keys(localStorage).forEach(function(k){ if (k.indexOf('adviuz_cache_v1_') === 0) localStorage.removeItem(k); }); } catch(_e) {}
   closeMenu();
   showToast('Signed out');
   // split-1: the sign-in box lives on the small front page now.
@@ -7606,7 +7616,7 @@ function render(){
 function leadsHTML(){
   if (window._leadsLoading) {
     return '<div style="text-align:center;padding:60px 20px">'
-      +'<div style="font-size:32px;margin-bottom:12px">&#x231B;</div>'
+      +'<div class="ai-spin"></div>'
       +'<div style="font-size:14px;color:var(--sub);font-weight:500">Loading your leads...</div></div>';
   }
   var af = window._advFilters || (window._advFilters={stages:[],execs:[],locations:[],partners:[],sources:[],services:[],clients:[]});
@@ -23915,13 +23925,38 @@ async function showClientUI() {
   var leadsBtn = document.getElementById('tab-leads');
   if (leadsBtn) goTab('leads', leadsBtn);
 
+  // bootspeed-2 (WhatsApp-style open): paint the LAST known list from this
+  // phone's own storage INSTANTLY, then sync fresh data behind it. The cache
+  // is keyed per login, matched to the client account, and wiped on sign-out.
+  var _ck = 'adviuz_cache_v1_' + (window._authUserId || 'x');
+  try {
+    var _cc = JSON.parse(localStorage.getItem(_ck) || 'null');
+    if (_cc && _cc.cid === window._clientId && Array.isArray(_cc.leads) && _cc.leads.length) {
+      leads = _cc.leads; nxtId = leads.length + 1;
+      if (Array.isArray(_cc.campaigns) && _cc.campaigns.length) window._clientCampaigns = _cc.campaigns;
+      window._leadsLoading = false;
+      render();
+    }
+  } catch(_e) {}
   await loadClientCampaigns();
+  // If a lead screen was opened from the cached paint, remember WHICH lead
+  // (by database id) so the fresh list can re-point it (local numbers shift).
+  var _openDbBefore = null;
+  try { var _olb = (leads||[]).find(function(x){ return x.id === (typeof curLid !== 'undefined' ? curLid : null); }); _openDbBefore = _olb && _olb.dbId; } catch(_e) {}
   await loadClientLeads();   // includes the activity preload (idfix-1) — no second run needed
   window._leadsLoading = false;
+  try {
+    if (_openDbBefore) {
+      var _nl = (leads||[]).find(function(x){ return x.dbId === _openDbBefore; });
+      if (_nl) { curLid = _nl.id; if (document.getElementById('lsBody')) renderLeadScreen(curLid); }
+    }
+  } catch(_e) {}
   // bootspeed-1: paint the leads list NOW — the trace showed the first render
   // waiting ~4 extra seconds behind the call log, a DUPLICATE activity preload
   // and follow-ups. Those load in the background below, then one quiet repaint.
   render();
+  // bootspeed-2: refresh the instant-open snapshot for next time.
+  try { localStorage.setItem(_ck, JSON.stringify({ cid: window._clientId, ts: Date.now(), leads: leads, campaigns: window._clientCampaigns || [] })); } catch(_e) {}
   // inboxfix-1 (kept): open follow-ups feed the “AI heard a time — Approve”
   // card on the lead page; the call log feeds the Calls tab.
   Promise.all([
@@ -24102,16 +24137,19 @@ async function loadClientCampaigns() {
     var adsByCampaign = {}, adsById = {};
     async function _fetchAds(filter){
       var aRes = await sbFetch('/rest/v1/ads?select=id,live_url,ad_slug,campaign_id&'+filter);
-      if (aRes.ok) {
-        var ads = await aRes.json();
-        ads.forEach(function(a){
-          adsById[a.id] = a;
-          if (a.campaign_id && !adsByCampaign[a.campaign_id]) adsByCampaign[a.campaign_id] = a;
-        });
-      }
+      return aRes.ok ? (await aRes.json().catch(function(){ return []; })) : [];
     }
-    if (campIds.length) await _fetchAds('campaign_id=in.('+campIds.join(',')+')');
-    if (adIds.length)   await _fetchAds('id=in.('+adIds.join(',')+')');
+    // bootspeed-2: both ad lookups (and impressions below) now fetch in
+    // PARALLEL; results are applied in the ORIGINAL order, so campaign_id
+    // matches still win exactly as before.
+    var _adsP1 = campIds.length ? _fetchAds('campaign_id=in.('+campIds.join(',')+')') : Promise.resolve([]);
+    var _adsP2 = adIds.length   ? _fetchAds('id=in.('+adIds.join(',')+')')            : Promise.resolve([]);
+    var _impP  = campIds.length ? sbFetch('/rest/v1/impressions?select=campaign_id,platform,impressions&campaign_id=in.('+campIds.join(',')+')') : null;
+    var _adsAll = await Promise.all([_adsP1, _adsP2]);
+    _adsAll[0].concat(_adsAll[1]).forEach(function(a){
+      adsById[a.id] = a;
+      if (a.campaign_id && !adsByCampaign[a.campaign_id]) adsByCampaign[a.campaign_id] = a;
+    });
     camps.forEach(function(c){
       var a = adsByCampaign[c.id] || adsById[c.ad_id];
       if (a) {
@@ -24125,8 +24163,8 @@ async function loadClientCampaigns() {
     //     shows real reach instead of flyer views.
     if (campIds.length) {
       try {
-        var impRes = await sbFetch('/rest/v1/impressions?select=campaign_id,platform,impressions&campaign_id=in.('+campIds.join(',')+')');
-        if (impRes.ok) {
+        var impRes = await _impP; // bootspeed-2: fired above, in parallel with the ad lookups
+        if (impRes && impRes.ok) {
           var imps = await impRes.json();
           camps.forEach(function(c){
             var ci = (imps||[]).filter(function(i){ return i.campaign_id === c.id; });
@@ -30323,7 +30361,7 @@ function adminDashHTML() {
   h += '</div>';
   // Review/approval cards moved to Follow-ups → Approvals (approvals-2).
   if (!_adminLoaded) {
-    return h + '<div style="text-align:center;padding:60px 20px;color:var(--sub)"><div style="font-size:32px;margin-bottom:12px">&#x231B;</div><div style="font-size:14px">Loading...</div></div>';
+    return h + '<div style="text-align:center;padding:60px 20px;color:var(--sub)"><div class="ai-spin"></div><div style="font-size:14px">Loading...</div></div>';
   }
   var tot = _adminData.allLeads.length;
   var closed = _adminData.allLeads.filter(function(l){return l.stage==='9. Deal Closed'||l.stage==='Deal Closed';}).length;
