@@ -4527,7 +4527,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-26 helpai-2';
+var APP_VERSION = 'v2026-09-27 perftrace-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -5667,9 +5667,45 @@ function doLogout() {
   setTimeout(function(){ location.replace('/?msg=signedout'); }, 250);
 }
 
+// ═══ BOOT PERFORMANCE TRACE (perftrace-1) — temporary diagnostic ═══
+// Records every network call in the first 30s after open (path, start, duration),
+// then saves ONE summary row to boot_metrics so the real bottleneck can be read
+// from live phones instead of guessed. Remove once the slowness hunt is done.
+window._perfTrace = { rows: [], sent: false };
+function _perfLog(path, t0, res){
+  try{
+    var now = performance.now();
+    if (t0 > 30000 || window._perfTrace.rows.length >= 80) return;
+    window._perfTrace.rows.push({
+      p: String(path).split('?')[0].slice(0, 70),
+      s: Math.round(t0),
+      d: Math.round(now - t0),
+      ok: !!(res && res.ok),
+      b: (res && res.headers && Number(res.headers.get('content-length'))) || 0
+    });
+  }catch(_e){}
+}
+setTimeout(async function(){
+  try{
+    var tr = window._perfTrace;
+    if (tr.sent || !tr.rows.length) return;
+    tr.sent = true;
+    await sbFetch('/rest/v1/boot_metrics', { method:'POST', headers:{ Prefer:'return=minimal' }, body: JSON.stringify({
+      role: window._staffRole || (window._isClientMode ? 'client' : 'unknown'),
+      client_id: window._clientId || null,
+      total_requests: tr.rows.length,
+      last_finish_ms: Math.max.apply(null, tr.rows.map(function(r){ return r.s + r.d; })),
+      steps: tr.rows,
+      ua: (navigator.userAgent || '').slice(0, 120),
+      app_version: (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '')
+    })});
+  }catch(_e){}
+}, 32000);
+
 // Use auth token for all Supabase requests
 async function sbFetch(path, opts) {
   opts = opts || {};
+  var _pt0 = performance.now();
   var token = authToken || SB_ANON;
   var isEdgeFn = path.indexOf('/functions/v1/') === 0;
 
@@ -5706,6 +5742,7 @@ async function sbFetch(path, opts) {
     }
   }
 
+  _perfLog(path, _pt0, res);
   return res;
 }
 
