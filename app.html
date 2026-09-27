@@ -4549,7 +4549,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-27 leadsdash-1';
+var APP_VERSION = 'v2026-09-27 leadsdash-2';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -5690,7 +5690,7 @@ function doLogout() {
   leads = [];
   // bootspeed-2: wipe the instant-open snapshots — cached lead lists must
   // never survive a sign-out.
-  try { Object.keys(localStorage).forEach(function(k){ if (k.indexOf('adviuz_cache_v1_') === 0) localStorage.removeItem(k); }); } catch(_e) {}
+  try { Object.keys(localStorage).forEach(function(k){ if (k.indexOf('adviuz_cache_v1_') === 0 || k.indexOf('advz_fuel_') === 0 || k.indexOf('advz_wcai_') === 0) localStorage.removeItem(k); }); } catch(_e) {}
   closeMenu();
   showToast('Signed out');
   // split-1: the sign-in box lives on the small front page now.
@@ -24985,6 +24985,7 @@ function clientCampaignListHTML() {
   // The AI half only appears when the client has at least one active AI tank
   // (any business type); until fuel data loads it stays hidden and
   // updateWalletAiHalf() reveals it without re-rendering the dashboard.
+  if (typeof _fuelCacheHydrate==='function') _fuelCacheHydrate(); // leadsdash-2: instant fuel paint
   var _wcai = (typeof _wcAiInfo==='function') ? _wcAiInfo() : {total:0,count:0};
   if (!_wcai.count && window._aiWallets === null) {
     try {
@@ -25160,7 +25161,17 @@ function _estLeadsText(){
   if (!mx || mn===mx) return (mn||mx).toLocaleString();
   return mn.toLocaleString()+'\u2013'+mx.toLocaleString();
 }
-function _fuelKick(){ if(window._fuelT) clearTimeout(window._fuelT); window._fuelT=setTimeout(function(){ (window._aiWallets?Promise.resolve(paintAiFuel()):loadAiFuel()); },300); }
+function _fuelKick(){ if(window._fuelT) clearTimeout(window._fuelT); window._fuelT=setTimeout(function(){ ((window._aiWallets && !window._fuelFromCache)?Promise.resolve(paintAiFuel()):loadAiFuel()); },300); }
+// leadsdash-2: fuel snapshot cache — the dashboard paints the fuel panels
+// instantly from the last visit while loadAiFuel fetches fresh numbers in the
+// background (same trick as the adviuz_cache_v1 boot snapshot).
+function _fuelCacheHydrate(){
+  if (window._aiWallets || window._fuelFromCache) return;
+  try {
+    var c = JSON.parse(localStorage.getItem('advz_fuel_'+(window._clientId||'')) || 'null');
+    if (c && Array.isArray(c.w) && c.w.length){ window._aiWallets = c.w; window._aiTotals = c.t || {}; window._fuelFromCache = true; }
+  } catch(e){}
+}
 function _clientCampCard(cp) {
   var active     = (cp.status||'').toLowerCase() === 'active';
   var paused     = (cp.status||'').toLowerCase() === 'paused';
@@ -25247,7 +25258,11 @@ function _clientCampCard(cp) {
     +  '</div>';
 
   _fuelKick();
-  h += '<div id="fuel_'+cp.id+'" onclick="event.stopPropagation();openClientCampaignDetail(\''+cp.id+'\')" style="display:none;margin-top:10px"></div>';
+  // leadsdash-2: when fuel data is already in memory (or restored from the
+  // boot cache) the panel renders inline — re-renders no longer blink it.
+  var _fw = null, _fws = window._aiWallets||[];
+  for (var _fi=0; _fi<_fws.length; _fi++){ if(_fws[_fi].kind==='campaign' && String(_fws[_fi].campaign_id)===String(cp.id)){ _fw=_fws[_fi]; break; } }
+  h += '<div id="fuel_'+cp.id+'" onclick="event.stopPropagation();openClientCampaignDetail(\''+cp.id+'\')" style="display:'+(_fw?'block':'none')+';margin-top:10px">'+(_fw?_fuelPanelHTML(_fw):'')+'</div>';
 
   // Tap-to-open hint — most clients don't realise the card itself is tappable.
   if (!selMode) {
@@ -26899,6 +26914,10 @@ async function loadAiFuel(){
         window._aiTotals = tot;
       }
     }catch(_e){}
+    // leadsdash-2: fresh numbers are in — clear the cache flag and store the
+    // new snapshot so the NEXT app open paints the panels instantly.
+    window._fuelFromCache = false;
+    try { localStorage.setItem('advz_fuel_'+(window._clientId||''), JSON.stringify({ w: window._aiWallets, t: window._aiTotals || {} })); } catch(_c){}
     paintAiFuel();
     try{ updateWalletAiHalf(); }catch(_uw){}
   }catch(e){}
@@ -27154,23 +27173,19 @@ function _fuelIsFrozen(w){
   }
   return !(w && w.campaign_active);
 }
-function paintAiFuel(){
-  var ws = window._aiWallets||[];
-  ws.forEach(function(w){
-    if(w.kind!=='campaign'||!w.campaign_id) return;
-    var el = document.getElementById('fuel_'+w.campaign_id);
-    if(!el) return;
-    var frozen = _fuelIsFrozen(w);
-    el.style.display='block';
-    if (frozen) {
+// leadsdash-2: the panel's HTML lives in its own builder so campaign cards
+// can render it INLINE on first paint (no more hide \u2192 pop-in blink on every
+// dashboard re-render). paintAiFuel only rewrites a card when the HTML
+// actually changed.
+function _fuelPanelHTML(w){
+    if (_fuelIsFrozen(w)) {
       // Frozen keeps the original compact pill — the campaign is paused, so no
       // low/empty urgency applies; the balance is simply on ice.
       var chips = _fuelNum(w.ai_minutes)+' AI min \u00b7 '+_fuelNum(w.sms)+' texts \u00b7 '+_fuelNum(w.emails)+' emails \u00b7 '+_fuelNum(w.ivr_calls)+' call min';
-      el.innerHTML = '<div style="display:flex;align-items:center;gap:8px;background:#f6f7f9;border:1px solid var(--border);border-radius:11px;padding:9px 13px;cursor:pointer">'
+      return '<div style="display:flex;align-items:center;gap:8px;background:#f6f7f9;border:1px solid var(--border);border-radius:11px;padding:9px 13px;cursor:pointer">'
         + '<span style="font-size:12px;font-weight:500;color:#1d4ed8;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
         + 'Frozen \u2014 safe: '+chips+'</span>'
         + '<span style="font-size:11px;font-weight:500;color:var(--sub);flex-shrink:0">\u203A</span></div>';
-      return;
     }
     // aifuel-1: split panel — comms balances left, AI minutes right with a
     // used-of-total bar. Amber under 20% of the granted total, red at 0.
@@ -27198,7 +27213,7 @@ function paintAiFuel(){
                  : state==='warn' ? _fuelNum(usedM)+' used \u00b7 tap to top up'
                  : (totM>0 ? _fuelNum(usedM)+' used of '+_fuelNum(totM) : '');
     var rightTap = (state==='ok') ? '' : ' onclick="event.stopPropagation();openAddMinutesSheet()"';
-    el.innerHTML = '<div style="display:flex;align-items:stretch;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--white);cursor:pointer">'
+    return '<div style="display:flex;align-items:stretch;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--white);cursor:pointer">'
       + '<div style="flex:1.1;min-width:0;padding:8px 12px 9px;display:flex;flex-direction:column;justify-content:center">'
       +   '<div style="font-size:9px;font-weight:600;letter-spacing:.05em;color:var(--sub);text-transform:uppercase;margin-bottom:2px">Left to use</div>'
       +   leftRow('Texts', w.sms)
@@ -27211,9 +27226,20 @@ function paintAiFuel(){
       +   (totM>0 ? '<div style="height:4px;border-radius:3px;background:'+C.tr+';overflow:hidden;margin:2px 0 3px"><div style="height:100%;width:'+pct+'%;background:'+C.bar+';border-radius:3px"></div></div>' : '')
       +   (usedLine ? '<div style="font-size:10px;color:'+(state==='ok'?'var(--sub)':C.tx)+'">'+usedLine+'</div>' : '')
       + '</div></div>';
+}
+function paintAiFuel(){
+  var ws = window._aiWallets||[];
+  ws.forEach(function(w){
+    if(w.kind!=='campaign'||!w.campaign_id) return;
+    var el = document.getElementById('fuel_'+w.campaign_id);
+    if(!el) return;
+    var html = _fuelPanelHTML(w);
+    el.style.display='block';
+    if (el._fh !== html) { el.innerHTML = html; el._fh = html; }
   });
 }
 function _campFuelCardHTML(cp){
+  if (typeof _fuelCacheHydrate==='function') _fuelCacheHydrate(); // leadsdash-2
   var ws = window._aiWallets||[];
   var w = null;
   for(var i=0;i<ws.length;i++){ if(ws[i].kind==='campaign'&&String(ws[i].campaign_id)===String(cp.id)){ w=ws[i]; break; } }
