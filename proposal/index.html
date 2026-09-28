@@ -95,6 +95,13 @@
   .pill.web{ color:var(--accent); } .pill.tel{ color:#444; }
   .legal{ border-top:1px solid #e8e8e8; margin-top:12px; padding-top:12px; font-size:10.5px; color:#9a9a9a; line-height:1.6; }
   .loading{ text-align:center; padding:80px 20px; color:#6b7280; font-size:14px; }
+  /* PDF mode: page laid out at a fixed 560px width while the PDF is captured */
+  body.pdfmode{ display:block; padding:0; background:#fff; overflow-x:hidden; }
+  body.pdfmode .page{ width:560px!important; max-width:none; border:none; border-radius:0; box-shadow:none; margin:0; }
+  body.pdfmode .fpdf, body.pdfmode .prevbar{ display:none!important; }
+  .pdfwait{ position:fixed; inset:0; z-index:200; background:rgba(255,255,255,.96); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; font-size:14px; color:#111318; font-weight:700; }
+  .pdfwait i{ width:34px; height:34px; border-radius:50%; border:3px solid #ece5f9; border-top-color:#4000f3; animation:pdfspin .8s linear infinite; }
+  @keyframes pdfspin{ to{ transform:rotate(360deg); } }
   @media print{
     body{ background:#fff; padding:0; }
     .page{ box-shadow:none; border:none; max-width:none; border-radius:0; }
@@ -255,7 +262,7 @@
       +'<div class="fhead">Ready when you are, '+esc(firstName)+'</div>'
       +'<div class="fsub">Questions, changes, or a different budget &mdash; one tap and we are on it.</div>'
       +'<div class="fbtns"><a class="fcall" href="'+telHref(callNum)+'">Call Us</a><a class="fwa" href="'+waHref(waNum)+'" target="_blank" rel="noopener">WhatsApp</a></div>'
-      +'<a class="fpdf" onclick="window.print();return false;" href="#">Download proposal as PDF</a>'
+      +'<a class="fpdf" onclick="downloadPdf();return false;" href="#">Download proposal as PDF</a>'
       +(sigLine?'<div class="fsig">'+sigLine+'</div>':'')
       +'</div>'
       +'<h4 class="tc">Terms &amp; Conditions</h4>'
@@ -274,7 +281,62 @@
       +'</div>';
     el.innerHTML = h;
     document.title = (c.subject||c.header_label||'Proposal') + ' — Adviuz';
+    window._propName = p.company || p.lead_name || '';
+    if(qs.get('pdf')==='1') setTimeout(downloadPdf, 300);
   }
+
+  // ── Real PDF download ──
+  // One tall page that looks exactly like this web page, with every button
+  // and link (Choose this package, Call Us, WhatsApp, Learn More) clickable.
+  // Libraries load only when someone asks for the PDF.
+  function loadJs(urls){
+    return new Promise(function(res, rej){
+      (function next(i){
+        if(i>=urls.length) return rej(new Error('load'));
+        var sc=document.createElement('script'); sc.src=urls[i];
+        sc.onload=function(){ res(); }; sc.onerror=function(){ sc.remove(); next(i+1); };
+        document.head.appendChild(sc);
+      })(0);
+    });
+  }
+  var _pdfBusy=false;
+  window.downloadPdf = async function(){
+    if(_pdfBusy) return; _pdfBusy=true;
+    var wait=document.createElement('div'); wait.className='pdfwait'; wait.innerHTML='<i></i>Preparing your PDF&hellip;';
+    document.body.appendChild(wait);
+    var y=window.scrollY;
+    try{
+      if(!window.html2canvas) await loadJs(['https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js','https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js']);
+      if(!(window.jspdf&&window.jspdf.jsPDF)) await loadJs(['https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js','https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js']);
+      // make sure the logo has loaded before capturing
+      await Promise.all(Array.prototype.map.call(el.querySelectorAll('img'), function(im){
+        return im.complete ? 0 : new Promise(function(r){ im.onload=im.onerror=r; });
+      }));
+      document.body.classList.add('pdfmode');
+      window.scrollTo(0,0);
+      var W=560, H=Math.ceil(el.scrollHeight);
+      var base=el.getBoundingClientRect();
+      var links=[];
+      Array.prototype.forEach.call(el.querySelectorAll('a[href]'), function(a){
+        var href=a.getAttribute('href')||''; if(!href || href==='#') return;
+        var r=a.getBoundingClientRect(); if(!r.width||!r.height) return;
+        links.push({ x:r.left-base.left, y:r.top-base.top, w:r.width, h:r.height, url:a.href });
+      });
+      // stay under mobile canvas limits (~16M pixels)
+      var scale=Math.min(2, Math.sqrt(15000000/(W*H)));
+      var canvas=await window.html2canvas(el, { scale:scale, useCORS:true, backgroundColor:'#ffffff', width:W, height:H, windowWidth:W, scrollX:0, scrollY:0, logging:false });
+      var pdf=new window.jspdf.jsPDF({ orientation:'portrait', unit:'px', format:[W,H], hotfixes:['px_scaling'], compress:true });
+      pdf.addImage(canvas.toDataURL('image/jpeg',0.92), 'JPEG', 0, 0, W, H);
+      links.forEach(function(k){ pdf.link(k.x, k.y, k.w, k.h, { url:k.url }); });
+      var nm=('Adviuz Proposal'+(window._propName?' - '+window._propName:'')).replace(/[\\/:*?"<>|]+/g,'').trim();
+      pdf.save(nm+'.pdf');
+    }catch(e){
+      alert('Could not create the PDF right now — please try again.');
+    }
+    document.body.classList.remove('pdfmode');
+    window.scrollTo(0,y);
+    wait.remove(); _pdfBusy=false;
+  };
 })();
 </script>
 </body>
