@@ -4549,7 +4549,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-27 leadsdash-2';
+var APP_VERSION = 'v2026-09-28 propfix-3';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -4900,6 +4900,9 @@ async function applyRoleGate(user){
   // this true. Clients cannot set user_type: the database forbids it.
   var isStaff = (m.user_type==='staff') || (String(user.id)==='b108e23f-bdc9-43b7-8f87-6b70ac94f9d0');
   window._isAdviuzStaff = isStaff;
+  // propfix-3: mark this browser as an Adviuz staff device so the public
+  // proposal page (same origin) never counts our own opens as a client view.
+  if(isStaff){ try{ localStorage.setItem('advz_staff_device','1'); }catch(e){} }
   var isPartner=false, isClient=false, isTeamMember=false;
   if(!isStaff){
     var pArr = _rg[1].ok ? await _rg[1].json() : [];
@@ -32471,21 +32474,88 @@ async function openProposalWizard(lid){
     if(!window._pwMyName && typeof currentUser!=='undefined' && currentUser && currentUser.email) window._pwMyName=currentUser.email.split('@')[0];
   }
   if(!(window._viewBundles||[]).length && typeof _abLoadBundles==='function'){ try{ await _abLoadBundles(); }catch(e){} }
-  var st=_pwDefaults();
+  // propfix-2: the Proposal button first lists every proposal this lead has
+  // (newest first) with View / Edit / Duplicate, plus "+ Create new proposal".
+  // A lead with no proposals goes straight to a blank wizard.
+  var rows=[];
   try{
-    var r=await sbFetch('/rest/v1/proposals?lead_id=eq.'+l.dbId+'&order=updated_at.desc&limit=1&select=*');
-    if(r.ok){ var rows=await r.json();
-      if(rows && rows[0]){ var pr=rows[0]; var c=pr.content||{};
-        st.proposalId=pr.id; st.status=pr.status||'draft'; st.valid_until=pr.valid_until||st.valid_until;
-        st.content={ header_label:c.header_label||st.content.header_label, subject:c.subject||st.content.subject,
-          goal:(c.goal!=null?c.goal:st.content.goal), packages:Array.isArray(c.packages)?c.packages:[],
-          links:Object.assign({},st.content.links,c.links||{}),
-          call_number:c.call_number||st.content.call_number, wa_number:c.wa_number||st.content.wa_number,
-          sig:Object.assign({},st.content.sig,c.sig||{}) };
-      } }
+    var r=await sbFetch('/rest/v1/proposals?lead_id=eq.'+l.dbId+'&order=updated_at.desc&select=id,status,content,valid_until,created_at,updated_at,sent_at,viewed_at');
+    if(r.ok){ rows=await r.json(); if(!Array.isArray(rows)) rows=[]; }
   }catch(e){}
-  window._pw.state=st;
+  window._pw.list=rows;
+  if(rows.length) _pwListRender(); else _pwOpenEditor(-1,false);
+}
+// propfix-2: build the wizard state from a saved proposal (idx into _pw.list),
+// or blank when idx<0. dup=true copies its content into a NEW proposal (new link).
+function _pwOpenEditor(idx,dup){
+  var P=window._pw; if(!P) return;
+  var st=_pwDefaults();
+  var pr=(idx>=0 && P.list) ? P.list[idx] : null;
+  if(pr){ var c=pr.content||{};
+    st.content={ header_label:c.header_label||st.content.header_label, subject:c.subject||st.content.subject,
+      goal:(c.goal!=null?c.goal:st.content.goal), packages:Array.isArray(c.packages)?JSON.parse(JSON.stringify(c.packages)):[],
+      links:Object.assign({},st.content.links,c.links||{}),
+      call_number:c.call_number||st.content.call_number, wa_number:c.wa_number||st.content.wa_number,
+      sig:Object.assign({},st.content.sig,c.sig||{}) };
+    if(dup){ st.dupOf=c.subject||c.header_label||'Proposal'; }
+    else { st.proposalId=pr.id; st.status=pr.status||'draft'; st.valid_until=pr.valid_until||st.valid_until; }
+  }
+  window._pwAi=null;
+  var ls=document.getElementById('pwListSh'); if(ls) ls.remove();
+  P.state=st;
   _pwRender();
+}
+function _pwFmtD(d){ try{ return d?new Date(d).toLocaleDateString('en-CA',{month:'short',day:'numeric'}):''; }catch(e){ return ''; } }
+function _pwListRender(){
+  var P=window._pw; if(!P) return;
+  var old=document.getElementById('pwListSh'); if(old) old.remove();
+  var ws=document.getElementById('pwSh'); if(ws) ws.remove();
+  var ov=document.createElement('div'); ov.className='sheet-ov'; ov.id='pwListSh'; ov.style.display='flex'; ov.style.zIndex='900';
+  ov.onclick=function(ev){ if(ev.target===ov) ov.remove(); };
+  var chipCss='font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:99px;flex-shrink:0;';
+  var chip={ draft:chipCss+'background:#f1f5f9;color:#64748b', sent:chipCss+'background:#eef2ff;color:#4000f3', viewed:chipCss+'background:#dcfce7;color:#15803d' };
+  var btn='flex:1;min-width:0;padding:8px 6px;border-radius:9px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)';
+  var cards=(P.list||[]).map(function(pr,i){
+    var c=pr.content||{}, stt=pr.status||'draft';
+    var pk=(Array.isArray(c.packages)?c.packages:[]).map(function(x){ return x.views; }).join(' · ');
+    var when = stt==='viewed' ? 'Viewed '+_pwFmtD(pr.viewed_at) : (stt==='sent' ? 'Sent '+_pwFmtD(pr.sent_at) : 'Edited '+_pwFmtD(pr.updated_at));
+    return '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:10px">'
+      +'<div style="height:3px;background:linear-gradient(90deg,#4000f3,#e65afc)"></div>'
+      +'<div style="padding:11px 13px">'
+      +'<div style="display:flex;align-items:flex-start;gap:8px"><div style="flex:1;min-width:0">'
+      +'<div style="font-size:13.5px;font-weight:700;color:var(--text);line-height:1.35">'+_pwEsc(c.header_label||'Proposal')+'</div>'
+      +'<div style="font-size:11px;color:var(--sub);margin-top:2px;line-height:1.4">'+_pwEsc(c.subject||'')+'</div></div>'
+      +'<span style="'+(chip[stt]||chip.draft)+'">'+_pwEsc(stt)+'</span></div>'
+      +'<div style="font-size:10.5px;color:var(--sub);margin-top:6px">'+_pwEsc(when)+(pk?' · '+_pwEsc(pk)+' views':'')+'</div>'
+      +'<div style="display:flex;gap:7px;margin-top:10px">'
+      +'<button style="'+btn+'" onclick="window.open(PROPOSAL_PAGE+\''+pr.id+'\'+\'&preview=1\',\'_blank\')">View</button>'
+      +'<button style="'+btn+'" onclick="_pwOpenEditor('+i+',false)">Edit</button>'
+      +'<button style="'+btn+'" onclick="_pwOpenEditor('+i+',true)">Duplicate</button>'
+      +'<button style="'+btn+';flex:0 0 auto;padding:8px 11px" title="Copy link" onclick="_pwCopyLink(\''+pr.id+'\')">🔗</button>'
+      +'</div></div></div>';
+  }).join('');
+  ov.innerHTML='<div class="sheet" style="max-height:90dvh"><div class="sheet-handle"></div>'
+    +'<div class="sheet-head"><div class="sheet-title">Proposals · '+_pwEsc((P.name||'').split(' ')[0])+'</div><button class="sheet-x" onclick="document.getElementById(\'pwListSh\').remove()">✕</button></div>'
+    +'<div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom));overflow-y:auto">'
+    +'<button onclick="_pwOpenEditor(-1,false)" style="width:100%;padding:13px;border-radius:11px;border:none;background:linear-gradient(90deg,#4000f3,#e65afc);color:#fff;font-size:13.5px;font-weight:700;cursor:pointer;font-family:var(--f);margin-bottom:6px">+ Create new proposal</button>'
+    +'<div style="font-size:10.5px;color:#9ca3af;text-align:center;margin-bottom:14px;line-height:1.5">Each proposal has its own link. Use <b>Duplicate</b> to start a new one from an existing proposal.</div>'
+    +cards
+    +'</div></div>';
+  document.body.appendChild(ov);
+}
+async function _pwBackToList(){
+  var P=window._pw; if(!P) return;
+  _pwCollect();
+  try{
+    var r=await sbFetch('/rest/v1/proposals?lead_id=eq.'+P.dbId+'&order=updated_at.desc&select=id,status,content,valid_until,created_at,updated_at,sent_at,viewed_at');
+    if(r.ok){ var rows=await r.json(); if(Array.isArray(rows)) P.list=rows; }
+  }catch(e){}
+  _pwListRender();
+}
+function _pwCopyLink(id){
+  var u=PROPOSAL_PAGE+id;
+  try{ navigator.clipboard.writeText(u).then(function(){ showToast('Link copied'); },function(){ prompt('Copy this link:',u); }); }
+  catch(e){ prompt('Copy this link:',u); }
 }
 function _pwLbl(t){ return '<div style="font-size:9.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#94a3b8;margin:16px 2px 7px">'+t+'</div>'; }
 function _pwSnap(b){
@@ -32524,7 +32594,14 @@ function _pwRender(){
   var linkRow=function(tag,id,val){
     return '<div style="display:flex;gap:9px;margin-bottom:8px"><span style="flex:0 0 104px;display:flex;align-items:center;font-size:12px;font-weight:700;color:var(--text)">'+tag+'</span><input id="'+id+'" class="finp" style="margin:0;flex:1;min-width:0" value="'+_pwEsc(val||'')+'"></div>';
   };
-  var statusNote = st.status!=='draft' ? '<div style="font-size:11px;color:#15803d;font-weight:600;margin-bottom:10px">This proposal was already sent ('+_pwEsc(st.status)+') — saving creates an updated version at the same link.</div>' : '';
+  // propfix-2: clear notes about which proposal is being edited.
+  var backLink = (P.list&&P.list.length) ? '<button onclick="_pwBackToList()" style="background:none;border:none;padding:0 0 10px;color:#4000f3;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f)">← All proposals ('+P.list.length+')</button>' : '';
+  var statusNote = backLink;
+  if(st.proposalId && st.status!=='draft'){
+    statusNote += '<div style="border:1px solid #fcd34d;background:#fffbeb;border-radius:12px;padding:10px 12px;margin-bottom:10px;font-size:11.5px;color:#92400e;line-height:1.5"><b>Already '+_pwEsc(st.status)+'.</b> Saving changes what the client sees at the link they already have. To send a different version, go back and use <b>Duplicate</b>.</div>';
+  } else if(!st.proposalId){
+    statusNote += '<div style="border:1px solid #bbf7d0;background:#f0fdf4;border-radius:12px;padding:10px 12px;margin-bottom:10px;font-size:11.5px;color:#166534;line-height:1.5"><b>New proposal</b>'+(st.dupOf?' — copied from “'+_pwEsc(st.dupOf)+'”':'')+'. It gets its own new link.</div>';
+  }
   ov.innerHTML='<div class="sheet" style="max-height:90dvh"><div class="sheet-handle"></div>'
     +'<div class="sheet-head"><div class="sheet-title">Proposal Wizard</div><button class="sheet-x" onclick="_pwCollect();document.getElementById(\'pwSh\').remove()">✕</button></div>'
     +'<div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom));overflow-y:auto">'
