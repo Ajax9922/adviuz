@@ -125,12 +125,15 @@
 
   var qs = new URLSearchParams(location.search);
   var id = qs.get('id') || '';
+  // Short links: hub.adviuz.ca/p/<slug> (served by functions/p/[[path]].js)
+  var sm = location.pathname.match(/^\/p\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/i);
+  var slug = sm ? sm[1].toLowerCase() : '';
   var isPrev = qs.get('preview') === '1';
   var el = document.getElementById('page');
 
   function fail(msg){ el.innerHTML = '<div class="loading">'+esc(msg)+'</div>'; }
 
-  if(!id){ fail('This proposal link is incomplete — please use the link from your email or message.'); return; }
+  if(!id && !slug){ fail('This proposal link is incomplete — please use the link from your email or message.'); return; }
 
   if(isPrev){
     var pb=document.createElement('button');
@@ -144,7 +147,7 @@
   // Opens from an Adviuz staff device (flag set by the hub app at login) are
   // never counted as the client viewing the proposal.
   var isStaffDev=false; try{ isStaffDev = localStorage.getItem('advz_staff_device')==='1'; }catch(e){}
-  fetch(FN+'?id='+encodeURIComponent(id)+((isPrev||isStaffDev)?'&preview=1':'')).then(function(r){ return r.json(); }).then(function(j){
+  fetch(FN+(id?'?id='+encodeURIComponent(id):'?s='+encodeURIComponent(slug))+((isPrev||isStaffDev)?'&preview=1':'')).then(function(r){ return r.json(); }).then(function(j){
     if(!j || !j.ok || !j.proposal){ fail('We could not find this proposal. It may have been replaced — please contact us.'); return; }
     render(j.proposal);
   }).catch(function(){ fail('Could not load the proposal right now — please try again in a moment.'); });
@@ -281,7 +284,12 @@
       +'</div>';
     el.innerHTML = h;
     document.title = (c.subject||c.header_label||'Proposal') + ' — Adviuz';
-    window._propName = p.company || p.lead_name || '';
+    // PDF file name: Adviuz_<Client>_<ProposalName>_Proposal (same rule as proposal-pdf fn)
+    window._propName = (function(){
+      var cl=String(p.company||p.lead_name||'Client').trim().split(/\s+/)[0].replace(/[^A-Za-z0-9]/g,'')||'Client';
+      var hd=String(c.header_label||'').replace(/proposal/ig,' ').replace(/[^A-Za-z0-9]+/g,' ').trim().split(/\s+/).filter(Boolean).join('_');
+      return ('Adviuz_'+cl+(hd?'_'+hd:'')+'_Proposal').slice(0,90);
+    })();
     if(qs.get('pdf')==='1') setTimeout(downloadPdf, 300);
   }
 
@@ -328,7 +336,7 @@
       var pdf=new window.jspdf.jsPDF({ orientation:'portrait', unit:'px', format:[W,H], hotfixes:['px_scaling'], compress:true });
       pdf.addImage(canvas.toDataURL('image/jpeg',0.92), 'JPEG', 0, 0, W, H);
       links.forEach(function(k){ pdf.link(k.x, k.y, k.w, k.h, { url:k.url }); });
-      var nm=('Adviuz Proposal'+(window._propName?' - '+window._propName:'')).replace(/[\\/:*?"<>|]+/g,'').trim();
+      var nm=window._propName||'Adviuz_Proposal';
       pdf.save(nm+'.pdf');
     }catch(e){
       alert('Could not create the PDF right now — please try again.');
