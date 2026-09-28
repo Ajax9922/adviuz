@@ -4549,7 +4549,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-28 propfix-5';
+var APP_VERSION = 'v2026-09-28 propfix-6';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -32442,6 +32442,17 @@ var _quoteItems = [];
 // Draft saved in `proposals`; client page: hub.adviuz.ca/proposal/?id=…
 // Sends on Email + SMS, then offers a prefilled WhatsApp message.
 var PROPOSAL_PAGE = 'https://hub.adviuz.ca/proposal/?id=';
+// propfix-6: short links hub.adviuz.ca/p/<slug> (proposals.slug, unique).
+var PROPOSAL_SHORT = 'https://hub.adviuz.ca/p/';
+function _pwLink(slug,id){ return slug ? PROPOSAL_SHORT+slug : PROPOSAL_PAGE+id; }
+function _pwSlugify(x){ return String(x||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60).replace(/-+$/,''); }
+// suggestion: first word of company + first word of the header label (e.g. remax-individual)
+function _pwSuggestSlug(company, header){
+  var a=_pwSlugify(String(company||'').trim().split(/\s+/)[0]);
+  var h=String(header||'').replace(/proposal/ig,' ').trim().split(/[\s\-–—|]+/).filter(Boolean)[0]||'';
+  var b=_pwSlugify(h);
+  return (a&&b)?(a+'-'+b):(a||b||'');
+}
 var _PW_LINKS = {200:'https://buy.stripe.com/4gM6oAbKJ8kmgjB9579EI03',500:'https://buy.stripe.com/fZudR22a9fMO5EX8139EI0b',1000:'https://buy.stripe.com/8x2dR2eWVcAC6J11CF9EI0c',2500:'https://buy.stripe.com/6oU00c4ihbwy8R9ftv9EI0d',5000:'https://buy.stripe.com/dRmaEQ9CB0RU3wP2GJ9EI0e',10000:'https://buy.stripe.com/cNieV67ut6ceebt8139EI0f'};
 var _PW_BADGES = ['','Pilot Campaign','Recommended','Start Dominating'];
 var _PW_DESC = {'Pilot Campaign':'To test the waters — see exactly how the system works before you scale.','Recommended':'The conversion zone — enough reach for real results to start coming in.','Start Dominating':'Start dominating — own your market with sustained visibility and a steady pipeline.'};
@@ -32479,7 +32490,7 @@ async function openProposalWizard(lid){
   // A lead with no proposals goes straight to a blank wizard.
   var rows=[];
   try{
-    var r=await sbFetch('/rest/v1/proposals?lead_id=eq.'+l.dbId+'&order=updated_at.desc&select=id,status,content,valid_until,created_at,updated_at,sent_at,viewed_at');
+    var r=await sbFetch('/rest/v1/proposals?lead_id=eq.'+l.dbId+'&order=updated_at.desc&select=id,slug,status,content,valid_until,created_at,updated_at,sent_at,viewed_at');
     if(r.ok){ rows=await r.json(); if(!Array.isArray(rows)) rows=[]; }
   }catch(e){}
   window._pw.list=rows;
@@ -32497,8 +32508,8 @@ function _pwOpenEditor(idx,dup){
       links:Object.assign({},st.content.links,c.links||{}),
       call_number:c.call_number||st.content.call_number, wa_number:c.wa_number||st.content.wa_number,
       sig:Object.assign({},st.content.sig,c.sig||{}) };
-    if(dup){ st.dupOf=c.subject||c.header_label||'Proposal'; }
-    else { st.proposalId=pr.id; st.status=pr.status||'draft'; st.valid_until=pr.valid_until||st.valid_until; }
+    if(dup){ st.dupOf=c.subject||c.header_label||'Proposal'; st.slug=''; }
+    else { st.proposalId=pr.id; st.status=pr.status||'draft'; st.valid_until=pr.valid_until||st.valid_until; st.slug=pr.slug||''; }
   }
   window._pwAi=null;
   var ls=document.getElementById('pwListSh'); if(ls) ls.remove();
@@ -32528,6 +32539,7 @@ function _pwListRender(){
       +'<div style="font-size:11px;color:var(--sub);margin-top:2px;line-height:1.4">'+_pwEsc(c.subject||'')+'</div></div>'
       +'<span style="'+(chip[stt]||chip.draft)+'">'+_pwEsc(stt)+'</span></div>'
       +'<div style="font-size:10.5px;color:var(--sub);margin-top:6px">'+_pwEsc(when)+(pk?' · '+_pwEsc(pk)+' views':'')+'</div>'
+      +(pr.slug?'<div style="font-size:11px;color:#4000f3;font-weight:600;margin-top:3px;word-break:break-all">hub.adviuz.ca/p/'+_pwEsc(pr.slug)+'</div>':'')
       +'<div style="display:flex;gap:7px;margin-top:10px">'
       +'<button style="'+btn+'" onclick="window.open(PROPOSAL_PAGE+\''+pr.id+'\'+\'&preview=1\',\'_blank\')">View</button>'
       +'<button style="'+btn+'" onclick="_pwOpenEditor('+i+',false)">Edit</button>'
@@ -32536,7 +32548,7 @@ function _pwListRender(){
       // propfix-4: second row — Share (phone share sheet), Copy link, PDF download
       +'<div style="display:flex;gap:7px;margin-top:7px">'
       +'<button style="'+btn2+'" onclick="_pwShare('+i+')">↗ Share</button>'
-      +'<button style="'+btn2+'" onclick="_pwCopyLink(\''+pr.id+'\')">🔗 Copy link</button>'
+      +'<button style="'+btn2+'" onclick="_pwCopyLink(\''+pr.id+'\',\''+(pr.slug||'')+'\')">🔗 Copy link</button>'
       +'<button style="'+btn2+'" onclick="_pwPdf(\''+pr.id+'\')">⬇ PDF</button>'
       +'</div></div></div>';
   }).join('');
@@ -32553,7 +32565,7 @@ async function _pwBackToList(){
   var P=window._pw; if(!P) return;
   _pwCollect();
   try{
-    var r=await sbFetch('/rest/v1/proposals?lead_id=eq.'+P.dbId+'&order=updated_at.desc&select=id,status,content,valid_until,created_at,updated_at,sent_at,viewed_at');
+    var r=await sbFetch('/rest/v1/proposals?lead_id=eq.'+P.dbId+'&order=updated_at.desc&select=id,slug,status,content,valid_until,created_at,updated_at,sent_at,viewed_at');
     if(r.ok){ var rows=await r.json(); if(Array.isArray(rows)) P.list=rows; }
   }catch(e){}
   _pwListRender();
@@ -32562,12 +32574,12 @@ async function _pwBackToList(){
 // (WhatsApp, Messages, Mail…). Desktop browsers without it fall back to copy.
 function _pwShare(i){
   var P=window._pw; var pr=P&&P.list&&P.list[i]; if(!pr) return;
-  var c=pr.content||{}, u=PROPOSAL_PAGE+pr.id;
+  var c=pr.content||{}, u=_pwLink(pr.slug,pr.id);
   var first=(P.name||'').split(' ')[0]||'there';
   var title=c.subject||c.header_label||'Your Adviuz Proposal';
   if(navigator.share){
     navigator.share({ title:title, text:'Hi '+first+', here is your proposal from Adviuz — '+title+':', url:u }).catch(function(){});
-  } else _pwCopyLink(pr.id);
+  } else _pwCopyLink(pr.id,pr.slug);
 }
 // propfix-4: real PDF (clickable package + contact buttons). The proposal
 // page builds it itself when opened with &pdf=1; preview=1 keeps it from
@@ -32592,8 +32604,8 @@ async function _pwPdf(id){
   var fb=PROPOSAL_PAGE+id+'&preview=1&pdf=1';
   if(w) w.location.href=fb; else window.open(fb,'_blank');
 }
-function _pwCopyLink(id){
-  var u=PROPOSAL_PAGE+id;
+function _pwCopyLink(id,slug){
+  var u=_pwLink(slug,id);
   try{ navigator.clipboard.writeText(u).then(function(){ showToast('Link copied'); },function(){ prompt('Copy this link:',u); }); }
   catch(e){ prompt('Copy this link:',u); }
 }
@@ -32683,6 +32695,17 @@ function _pwRender(){
     +_pwLbl('Signature — shown at the bottom')
     +'<div style="display:flex;gap:9px"><input id="pwSigName" class="finp" style="margin:0;flex:1;min-width:0" value="'+_pwEsc(c.sig.name)+'" placeholder="Name"><input id="pwSigTitle" class="finp" style="margin:0;flex:1;min-width:0" value="'+_pwEsc(c.sig.title)+'" placeholder="Title"></div>'
     +'<input id="pwSigPhone" class="finp" style="margin:8px 0 0" value="'+_pwEsc(c.sig.phone)+'" placeholder="Phone">'
+    // propfix-6: short link. Locked once the proposal has been sent (the client already has that link).
+    +_pwLbl('Short link')
+    +(function(){
+      var lockSlug = !!(st.slug && st.proposalId && st.status!=='draft');
+      var val = st.slug || _pwSuggestSlug(P.company, c.header_label);
+      return '<div style="display:flex;align-items:center;border:1.5px solid var(--border);border-radius:11px;background:'+(lockSlug?'#f3f4f6':'var(--white)')+';overflow:hidden">'
+        +'<span style="flex-shrink:0;padding:0 2px 0 12px;font-size:13px;color:var(--sub);white-space:nowrap">hub.adviuz.ca/p/</span>'
+        +'<input id="pwSlug" class="finp" style="margin:0;flex:1;min-width:0;border:none;background:transparent;padding-left:0" value="'+_pwEsc(val)+'" placeholder="remax-individual" autocapitalize="none" autocorrect="off" spellcheck="false"'+(lockSlug?' readonly':'')+' oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,\'-\').replace(/--+/g,\'-\')">'
+        +'</div><div style="font-size:10.5px;color:#9ca3af;margin:6px 2px 0;line-height:1.5">'
+        +(lockSlug?'Locked — the client already has this link.':'Letters, numbers and dashes. This is the link the client receives.')+'</div>';
+    })()
     +_pwLbl('Valid until')+'<input id="pwValid" class="finp" type="date" style="margin:0" value="'+_pwEsc(st.valid_until)+'">'
     +'<div style="font-size:10.5px;color:#9ca3af;text-align:center;margin-top:16px;line-height:1.5">Send goes out on Email'+(P.phone?' + SMS':'')+' with the proposal link, then offers a ready WhatsApp message. Preview first — nothing is sent until you press Send.</div>'
     // propfix-4: action bar pinned to the bottom so Save is always visible;
@@ -32757,6 +32780,7 @@ function _pwCollect(){
   if(g('pwCall')!=null){ c.call_number=g('pwCall'); c.wa_number=g('pwWa'); }
   if(g('pwSigName')!=null) c.sig={ name:g('pwSigName'), title:g('pwSigTitle'), phone:g('pwSigPhone') };
   if(g('pwValid')!=null && g('pwValid')) P.state.valid_until=g('pwValid');
+  if(g('pwSlug')!=null) P.state.slug=_pwSlugify(g('pwSlug'));
 }
 async function _pwSave(toast){
   var P=window._pw; if(!P) return false;
@@ -32764,12 +32788,16 @@ async function _pwSave(toast){
   var st=P.state;
   var payload={ lead_id:P.dbId, lead_name:P.name, company:P.company, email:P.email, phone:P.phone,
     content:st.content, valid_until:st.valid_until, updated_at:new Date().toISOString() };
+  if(st.slug && st.slug.length<2){ showToast('Short link is too short'); return false; }
+  payload.slug = st.slug || null;
   try{
     if(st.proposalId){
       var r=await sbFetch('/rest/v1/proposals?id=eq.'+st.proposalId,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify(payload)});
+      if(r.status===409){ showToast('That short link is already used — pick another'); return false; }
       if(!r.ok) throw 0;
     } else {
       var r2=await sbFetch('/rest/v1/proposals',{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify(payload)});
+      if(r2.status===409){ showToast('That short link is already used — pick another'); return false; }
       if(!r2.ok) throw 0;
       var rows=await r2.json(); if(rows&&rows[0]) st.proposalId=rows[0].id;
     }
@@ -32850,7 +32878,7 @@ async function _pwSend(){
   var P=window._pw; if(!P) return;
   if(!P.email){ showToast('This lead has no email — add one first'); return; }
   if(!(await _pwSave(false))) return;
-  var st=P.state, url=PROPOSAL_PAGE+st.proposalId;
+  var st=P.state, url=_pwLink(st.slug,st.proposalId);
   var first=(P.name||'there').split(' ')[0];
   if(!confirm('Send this proposal to '+P.email+(P.phone?' and '+P.phone:'')+'?\n\nTip: Preview it first if you have not.')) return;
   var btn=document.getElementById('pwSendBtn'); if(btn){ btn.disabled=true; btn.textContent='Sending…'; }
