@@ -4549,7 +4549,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-28 propfix-6';
+var APP_VERSION = 'v2026-09-28 propfix-7';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -32490,7 +32490,7 @@ async function openProposalWizard(lid){
   // A lead with no proposals goes straight to a blank wizard.
   var rows=[];
   try{
-    var r=await sbFetch('/rest/v1/proposals?lead_id=eq.'+l.dbId+'&order=updated_at.desc&select=id,slug,status,content,valid_until,created_at,updated_at,sent_at,viewed_at');
+    var r=await sbFetch('/rest/v1/proposals?lead_id=eq.'+l.dbId+'&order=updated_at.desc&select=id,slug,status,content,valid_until,created_at,updated_at,sent_at,viewed_at,last_viewed_at,view_count');
     if(r.ok){ rows=await r.json(); if(!Array.isArray(rows)) rows=[]; }
   }catch(e){}
   window._pw.list=rows;
@@ -32516,6 +32516,61 @@ function _pwOpenEditor(idx,dup){
   P.state=st;
   _pwRender();
 }
+function _pwFmtDT(d){ try{ return d?new Date(d).toLocaleString('en-CA',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).replace('a.m.','AM').replace('p.m.','PM'):''; }catch(e){ return ''; } }
+// propfix-7: full history of one proposal — client opens (proposal_views),
+// sent/created, plus tracked email opens/clicks of the emails that carried it.
+async function _pwEvents(i){
+  var P=window._pw; var pr=P&&P.list&&P.list[i]; if(!pr) return;
+  var old=document.getElementById('pwEvSh'); if(old) old.remove();
+  var ov=document.createElement('div'); ov.className='sheet-ov'; ov.id='pwEvSh'; ov.style.display='flex'; ov.style.zIndex='950';
+  ov.onclick=function(ev){ if(ev.target===ov) ov.remove(); };
+  var c=pr.content||{};
+  ov.innerHTML='<div class="sheet" style="max-height:85dvh"><div class="sheet-handle"></div>'
+    +'<div class="sheet-head"><div class="sheet-title">Proposal history</div><button class="sheet-x" onclick="document.getElementById(\'pwEvSh\').remove()">✕</button></div>'
+    +'<div class="sh-body" id="pwEvBody" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom));overflow-y:auto">'
+    +'<div style="font-size:13px;font-weight:700;color:var(--text)">'+_pwEsc(c.header_label||'Proposal')+'</div>'
+    +'<div style="font-size:11px;color:var(--sub);margin:2px 0 14px">'+_pwEsc(pr.slug?'hub.adviuz.ca/p/'+pr.slug:(c.subject||''))+'</div>'
+    +'<div style="text-align:center;padding:30px 0;color:var(--sub);font-size:12.5px">Loading…</div></div></div>';
+  document.body.appendChild(ov);
+  var ev=[];
+  try{
+    var rq=await Promise.all([
+      sbFetch('/rest/v1/proposal_views?proposal_id=eq.'+pr.id+'&order=viewed_at.desc&limit=200&select=viewed_at,device,via'),
+      sbFetch('/rest/v1/activity_log?lead_id=eq.'+P.dbId+'&type=in.(email_sent,email_event)&order=created_at.desc&limit=300&select=type,label,created_at,meta')
+    ]);
+    var views=rq[0].ok?await rq[0].json():[]; var acts=rq[1].ok?await rq[1].json():[];
+    (views||[]).forEach(function(v){ ev.push({t:v.viewed_at, ic:'👀', a:'Opened the proposal', b:(v.device||'')+(v.via==='short link'?' · short link':''), hi:1}); });
+    // emails that carried THIS proposal's link → their tracked opens/clicks
+    var ids={};
+    (acts||[]).forEach(function(a){ var m=a.meta||{}; if(a.type==='email_sent' && m.email_id && String(m.body||'').indexOf(pr.slug?('/p/'+pr.slug):pr.id)>=0) ids[m.email_id]=m.subject||''; });
+    (acts||[]).forEach(function(a){ var m=a.meta||{}; if(a.type==='email_sent' && m.email_id && String(m.body||'').indexOf(pr.id)>=0) ids[m.email_id]=m.subject||''; });
+    (acts||[]).forEach(function(a){ var m=a.meta||{};
+      if(a.type==='email_sent' && ids[m.email_id]!=null) ev.push({t:a.created_at, ic:'📤', a:'Proposal email sent', b:m.to||''});
+      if(a.type==='email_event' && ids[m.email_id]!=null){
+        if(m.event==='email.opened') ev.push({t:a.created_at, ic:'📧', a:'Email opened', b:'Email tracking — may include mail scanners'});
+        else if(m.event==='email.clicked') ev.push({t:a.created_at, ic:'🔗', a:'Email link clicked', b:'Email tracking'});
+      }
+    });
+  }catch(e){}
+  ev.push({t:pr.created_at, ic:'✏️', a:'Proposal created', b:''});
+  ev=ev.filter(function(x){ return x.t; }).sort(function(a,b){ return new Date(b.t)-new Date(a.t); });
+  var body=document.getElementById('pwEvBody'); if(!body) return;
+  var nOpen=ev.filter(function(x){ return x.hi; }).length;
+  var rows=ev.map(function(x){
+    return '<div style="display:flex;gap:11px;padding:10px 0;border-bottom:1px solid var(--border)">'
+      +'<span style="flex:0 0 30px;height:30px;border-radius:50%;background:'+(x.hi?'#dcfce7':'#f3efff')+';display:flex;align-items:center;justify-content:center;font-size:14px">'+x.ic+'</span>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:700;color:'+(x.hi?'#15803d':'var(--text)')+'">'+_pwEsc(x.a)+'</div>'
+      +(x.b?'<div style="font-size:11px;color:var(--sub);margin-top:1px">'+_pwEsc(x.b)+'</div>':'')+'</div>'
+      +'<div style="flex-shrink:0;font-size:10.5px;color:var(--sub);text-align:right;padding-top:2px">'+_pwEsc(_pwFmtDT(x.t))+'</div></div>';
+  }).join('');
+  body.innerHTML='<div style="font-size:13px;font-weight:700;color:var(--text)">'+_pwEsc(c.header_label||'Proposal')+'</div>'
+    +'<div style="font-size:11px;color:var(--sub);margin:2px 0 12px">'+_pwEsc(pr.slug?'hub.adviuz.ca/p/'+pr.slug:(c.subject||''))+'</div>'
+    +'<div style="display:flex;gap:8px;margin-bottom:6px">'
+    +'<div style="flex:1;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:10px 12px"><div style="font-size:18px;font-weight:800;color:#15803d">'+nOpen+'</div><div style="font-size:10.5px;color:#166534">Client opens</div></div>'
+    +'<div style="flex:1;background:#f7f3ff;border:1px solid #e6dcf7;border-radius:12px;padding:10px 12px"><div style="font-size:12.5px;font-weight:800;color:#4000f3;padding-top:4px">'+_pwEsc(nOpen?_pwFmtDT(pr.last_viewed_at):'Not yet')+'</div><div style="font-size:10.5px;color:#5b5470;margin-top:3px">Last opened</div></div></div>'
+    +'<div style="font-size:10.5px;color:#9ca3af;margin:4px 2px 6px;line-height:1.5">Your own and your team\'s opens are not counted.</div>'
+    +(rows||'<div style="text-align:center;padding:24px 0;color:var(--sub);font-size:12.5px">No activity yet.</div>');
+}
 function _pwFmtD(d){ try{ return d?new Date(d).toLocaleDateString('en-CA',{month:'short',day:'numeric'}):''; }catch(e){ return ''; } }
 function _pwListRender(){
   var P=window._pw; if(!P) return;
@@ -32530,15 +32585,22 @@ function _pwListRender(){
   var cards=(P.list||[]).map(function(pr,i){
     var c=pr.content||{}, stt=pr.status||'draft';
     var pk=(Array.isArray(c.packages)?c.packages:[]).map(function(x){ return x.views; }).join(' · ');
-    var when = stt==='viewed' ? 'Viewed '+_pwFmtD(pr.viewed_at) : (stt==='sent' ? 'Sent '+_pwFmtD(pr.sent_at) : 'Edited '+_pwFmtD(pr.updated_at));
+    // propfix-7: "Last opened … · N opens" (every client open is logged); tap → full history
+    var nOpen=Number(pr.view_count)||0;
+    var when = nOpen ? 'Last opened '+_pwFmtDT(pr.last_viewed_at||pr.viewed_at)+' · '+nOpen+' open'+(nOpen>1?'s':'')
+      : (stt==='viewed' ? 'Opened '+_pwFmtD(pr.viewed_at) : (stt==='sent' ? 'Sent '+_pwFmtD(pr.sent_at)+' · not opened yet' : 'Edited '+_pwFmtD(pr.updated_at)));
+    var whenTap = (stt!=='draft' || nOpen);
     return '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:10px">'
       +'<div style="height:3px;background:linear-gradient(90deg,#4000f3,#e65afc)"></div>'
       +'<div style="padding:11px 13px">'
       +'<div style="display:flex;align-items:flex-start;gap:8px"><div style="flex:1;min-width:0">'
       +'<div style="font-size:13.5px;font-weight:700;color:var(--text);line-height:1.35">'+_pwEsc(c.header_label||'Proposal')+'</div>'
       +'<div style="font-size:11px;color:var(--sub);margin-top:2px;line-height:1.4">'+_pwEsc(c.subject||'')+'</div></div>'
-      +'<span style="'+(chip[stt]||chip.draft)+'">'+_pwEsc(stt)+'</span></div>'
-      +'<div style="font-size:10.5px;color:var(--sub);margin-top:6px">'+_pwEsc(when)+(pk?' · '+_pwEsc(pk)+' views':'')+'</div>'
+      +'<span style="'+(chip[stt]||chip.draft)+'">'+_pwEsc(stt==='viewed'?'opened':stt)+'</span></div>'
+      +(whenTap
+        ? '<div role="button" onclick="_pwEvents('+i+')" style="font-size:11px;color:'+(nOpen?'#15803d':'var(--sub)')+';font-weight:600;margin-top:6px;cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px">'+_pwEsc(when)+' ›</div>'
+          +(pk?'<div style="font-size:10.5px;color:var(--sub);margin-top:2px">'+_pwEsc(pk)+' views</div>':'')
+        : '<div style="font-size:10.5px;color:var(--sub);margin-top:6px">'+_pwEsc(when)+(pk?' · '+_pwEsc(pk)+' views':'')+'</div>')
       +(pr.slug?'<div style="font-size:11px;color:#4000f3;font-weight:600;margin-top:3px;word-break:break-all">hub.adviuz.ca/p/'+_pwEsc(pr.slug)+'</div>':'')
       +'<div style="display:flex;gap:7px;margin-top:10px">'
       +'<button style="'+btn+'" onclick="window.open(PROPOSAL_PAGE+\''+pr.id+'\'+\'&preview=1\',\'_blank\')">View</button>'
@@ -32565,7 +32627,7 @@ async function _pwBackToList(){
   var P=window._pw; if(!P) return;
   _pwCollect();
   try{
-    var r=await sbFetch('/rest/v1/proposals?lead_id=eq.'+P.dbId+'&order=updated_at.desc&select=id,slug,status,content,valid_until,created_at,updated_at,sent_at,viewed_at');
+    var r=await sbFetch('/rest/v1/proposals?lead_id=eq.'+P.dbId+'&order=updated_at.desc&select=id,slug,status,content,valid_until,created_at,updated_at,sent_at,viewed_at,last_viewed_at,view_count');
     if(r.ok){ var rows=await r.json(); if(Array.isArray(rows)) P.list=rows; }
   }catch(e){}
   _pwListRender();
