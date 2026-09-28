@@ -1868,6 +1868,11 @@ document.addEventListener('DOMContentLoaded', function() {
   if (storedJWT || storedRT) { _restoreAdminSession(storedJWT, storedRT); }
   else { showAdminLogin(); }
 });
+// house-1: Adviuz's own account (and the old Instad Web test account merged into it)
+// is never a paying client — never counted in revenue, never deletable here.
+var HOUSE_CLIENT_ID = '7d315d20-00af-4e7f-8d79-c89b3f2b5cf7';
+var HOUSE_IDS = ['7d315d20-00af-4e7f-8d79-c89b3f2b5cf7', '9686a0a7-75b0-4232-b5a4-20fb11296db3'];
+function isHouseClient(id){ return HOUSE_IDS.indexOf(String(id||'')) !== -1; }
 let _autoRefreshStarted = false;
 async function loadAdminData() {
   if (!_autoRefreshStarted) { _autoRefreshStarted = true; startAdminAutoRefresh(); }
@@ -1904,8 +1909,8 @@ async function loadAdminData() {
   } catch(e) { console.error('[Adviuz Admin] Load error:', e); }
 }
 function renderAdminDashboard(clients, views, leads, campaigns, txns) {
-  const revenue = txns.reduce(function(s,t){ return s + parseFloat(t.amount_cad||0); }, 0);
-  const activeClients   = clients.filter(function(c){ return c.role !== 'super_admin' && (c.status === 'active' || !c.status); }).length;
+  const revenue = txns.filter(function(t){ return !isHouseClient(t.client_id); }).reduce(function(s,t){ return s + parseFloat(t.amount_cad||0); }, 0);
+  const activeClients   = clients.filter(function(c){ return c.role !== 'super_admin' && !isHouseClient(c.id) && (c.status === 'active' || !c.status); }).length;
   const activeCampaigns = campaigns.filter(function(c){ return c.status === 'active'; }).length;
   setAdminEl('dash-views',     views.length.toLocaleString());
   setAdminEl('dash-revenue',   'CAD $' + revenue.toLocaleString('en-CA', {minimumFractionDigits:0}));
@@ -2062,6 +2067,9 @@ function renderClientRows(clients, leads) {
       : '';
 
     var balColor = fuelLeft < 200 && allotted > 0 && isViews ? 'color:var(--danger);font-weight:700' : '';
+    // house-1: Adviuz's own account — House badge, no Top-up / Delete
+    var isHouse = c.id === HOUSE_CLIENT_ID;
+    if (isHouse) pkgTag += '<span style="font-size:9px;font-weight:800;background:linear-gradient(90deg,#4000f3,#e65afc);color:#fff;padding:1px 7px;border-radius:10px;margin-left:4px;letter-spacing:.04em">HOUSE</span>';
 
     // Last seen
     var lastSeen = '—';
@@ -2095,9 +2103,9 @@ function renderClientRows(clients, leads) {
       // Actions
       '<td style="display:flex;gap:4px;flex-wrap:wrap;min-width:180px">' +
         '<button class="tbl-btn" onclick="openEditClient(this)" data-id="' + c.id + '">Edit</button>' +
-        '<button class="tbl-btn primary" onclick="openTopupForClient(this)" data-id="' + c.id + '" data-bal="' + bal + '">Top-up</button>' +
+        (isHouse ? '' : '<button class="tbl-btn primary" onclick="openTopupForClient(this)" data-id="' + c.id + '" data-bal="' + bal + '">Top-up</button>') +
         '<button class="tbl-btn" onclick="openClientLogs(this.dataset.id)" data-id="' + c.id + '" title="View logs">Logs</button>' +
-        '<button class="tbl-btn danger" onclick="deleteClient(this)" data-id="' + c.id + '">Delete</button>' +
+        (isHouse ? '' : '<button class="tbl-btn danger" onclick="deleteClient(this)" data-id="' + c.id + '">Delete</button>') +
       '</td>' +
     '</tr>';
   }).join('');
@@ -2389,8 +2397,9 @@ function renderCampaignRows(campaigns, clients) {
   }).join('');
 }
 function renderBillingPanel(transactions, clients) {
-  var total = transactions.reduce(function(s,t){ return s + parseFloat(t.amount_cad||0); }, 0);
-  var totalViews = transactions.reduce(function(s,t){ return s + (t.billing_model==='leads'?0:(t.views_added||0)); }, 0);
+  var _paid = transactions.filter(function(t){ return !isHouseClient(t.client_id); });  // house-1: no house/test money in totals
+  var total = _paid.reduce(function(s,t){ return s + parseFloat(t.amount_cad||0); }, 0);
+  var totalViews = _paid.reduce(function(s,t){ return s + (t.billing_model==='leads'?0:(t.views_added||0)); }, 0);
   setAdminEl('billing-total', 'CAD $' + total.toLocaleString('en-CA', {minimumFractionDigits:0}));
   setAdminEl('billing-views', totalViews.toLocaleString());
   var tbodies = document.querySelectorAll('#panel-billing .table-wrap table tbody');
@@ -7977,6 +7986,7 @@ async function dismissPendingLead(el) {
 // ── Delete a client (confirm first; removes the client record) ──
 async function deleteClient(el) {
   var id = (el && el.dataset) ? el.dataset.id : el;
+  if (isHouseClient(id)) { toast('Adviuz\u2019s own account can\u2019t be deleted'); return; }  // house-1
   var c  = (window._allClients || []).find(function(x){ return x.id === id; });
   var nm = c ? (c.business_name || c.email || 'this client') : 'this client';
   if (!window.confirm('Delete ' + nm + '?\n\nThis removes the client record permanently. Their campaigns and leads stay but become unlinked. This cannot be undone.')) return;
