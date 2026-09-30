@@ -4549,7 +4549,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-30 dash-2';
+var APP_VERSION = 'v2026-09-30 dash-3';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -5120,6 +5120,105 @@ function exitPartnerView() {
   if (tb) tb.style.paddingTop = '';
   render();
   showToast('Back to admin view');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// dash-3: "Dash" chip — Adviuz's own dashboard INSIDE the admin Dashboard.
+// The admin chips stay on top; Adviuz's campaigns / flyer balance / AI fuel
+// render below them exactly like a client's Dashboard (no Plan & AI Fuel card,
+// no orange bar, no jump through the Leads tab). While the chip is open the
+// client data layer points at the house client; leaving the chip (another chip
+// or another bottom tab) puts everything back to the admin view.
+// ═══════════════════════════════════════════════════════════════
+function _houseId(){ return window._ADV_HOUSE || '7d315d20-00af-4e7f-8d79-c89b3f2b5cf7'; }
+function _housePaint(){
+  if (curTab !== 'dashboard' || window._adminDashTab !== 'house' || isClientMode()) return;
+  var c = document.getElementById('content'); if (!c) return;
+  var st = c.scrollTop;
+  c.innerHTML = adminDashHTML();
+  c.scrollTop = st;
+}
+async function houseDashOpen(){
+  var HID = _houseId();
+  window._adminDashTab = 'house';
+  if (!window._houseDash) {
+    window._houseDash = true;
+    window._clientId = HID;
+    var ad = window._adminData || {};
+    var cl = (ad.clients || []).find(function(x){ return x.id === HID; });
+    window._clientData = cl || { id: HID, business_name: 'Adviuz' };
+    window._clientAiEnabled = true;
+    window._clientDashView = 'list'; window._clientDashCampId = null;
+    window._aiWallets = null; window._aiTotals = null; window._aiLedger = null; window._fuelFromCache = false;
+    window._campSearchQ = ''; window._campSelMode = false; window._campSel = {};
+    // Instant paint from what the admin screen already has in memory.
+    var ac = (ad.campaigns || []).filter(function(x){ return x.client_id === HID; });
+    window._clientCampaigns = ac.length ? ac : null;
+    window._houseLeads = (ad.allLeads || []).filter(function(l){ return l.client_id === HID; });
+  }
+  _housePaint();
+  try {
+    var r = await Promise.all([
+      loadClientCampaigns(),
+      sbFetch('/rest/v1/leads?client_id=eq.' + HID + '&select=id,campaign_id,stage,created_at&limit=5000')
+        .then(function(x){ return x.ok ? x.json() : null; }).catch(function(){ return null; }),
+      houseLoadFuel(true)
+    ]);
+    if (!window._houseDash) return;
+    if (Array.isArray(r[1])) window._houseLeads = r[1];
+    if (!window._clientCampaigns) window._clientCampaigns = [];
+  } catch(e) {}
+  _housePaint();
+}
+async function houseLoadFuel(noPaint){
+  var HID = window._clientId; if (!HID || !window._houseDash) return;
+  try {
+    var rr = await Promise.all([
+      sbFetch('/rest/v1/rpc/staff_ai_wallets', { method:'POST', body: JSON.stringify({ p_client: HID }) }),
+      sbFetch('/rest/v1/rpc/staff_ai_wallet_ledger', { method:'POST', body: JSON.stringify({ p_client: HID }) })
+    ]);
+    if (!window._houseDash) return;
+    if (rr[0].ok) window._aiWallets = await rr[0].json();
+    if (rr[1].ok) {
+      var led = await rr[1].json(), tot = {};
+      window._aiLedger = led;
+      (led || []).forEach(function(g){
+        if (!g.campaign_id) return;
+        var k = String(g.campaign_id);
+        if (!tot[k]) tot[k] = { ai_minutes:0, sms:0, emails:0, ivr_calls:0 };
+        tot[k].ai_minutes += Math.max(0, Number(g.ai_minutes)||0);
+        tot[k].sms        += Math.max(0, Number(g.sms)||0);
+        tot[k].emails     += Math.max(0, Number(g.emails)||0);
+        tot[k].ivr_calls  += Math.max(0, Number(g.ivr_calls)||0);
+      });
+      window._aiTotals = tot;
+    }
+    window._fuelFromCache = false;
+    if (!noPaint) { paintAiFuel(); try { updateWalletAiHalf(); } catch(_u){} }
+  } catch(e) {}
+}
+function houseDashExit(){
+  if (!window._houseDash) return;
+  window._houseDash = false;
+  window._clientId = null; window._clientData = null; window._clientCampaigns = null;
+  window._aiWallets = null; window._aiTotals = null; window._aiLedger = null; window._fuelFromCache = false;
+  window._clientAiEnabled = false; window._houseLeads = null;
+  window._clientDashView = 'list'; window._clientDashCampId = null;
+  if (typeof _setLeadsChromeHidden === 'function') { try { _setLeadsChromeHidden(false); } catch(_s){} }
+}
+function houseDashInner(){
+  var spin = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:45vh;color:var(--sub)"><div class="ai-spin"></div><div style="font-size:14px">Loading...</div></div>';
+  if (!window._houseDash) { setTimeout(houseDashOpen, 0); return spin; }
+  if (!window._clientCampaigns) return spin;
+  var _sv = leads;
+  leads = window._houseLeads || [];   // campaign cards count leads from this list
+  try {
+    return (window._clientDashView === 'detail' && window._clientDashCampId)
+      ? clientCampaignDetailHTML(window._clientDashCampId)
+      : clientCampaignListHTML();
+  } catch(e) {
+    return '<div style="padding:24px;color:var(--sub);font-size:13px">Could not load the Adviuz dashboard — pull to refresh.</div>';
+  } finally { leads = _sv; }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -6872,6 +6971,7 @@ var TAB_CFG={
 };
 
 function goTab(tab,btn){
+  if (tab !== 'dashboard' && window._houseDash) houseDashExit();   // dash-3
   curTab=tab;
   if(tab!=='followups' && typeof fuFabHide==='function') fuFabHide();
   // When the Follow-ups tab opens, refresh from the database so saved
@@ -24636,6 +24736,7 @@ window._campSelMode       = window._campSelMode       || false;   // bulk select
 window._campSel           = window._campSel           || {};      // {campId:true} selected
 
 function clientDashHTML() {
+  if (window._houseDash && !isClientMode()) return adminDashHTML();   // dash-3: Adviuz Dash lives inside the admin Dashboard
   if (window._clientDashView === 'detail' && window._clientDashCampId) {
     return clientCampaignDetailHTML(window._clientDashCampId);
   }
@@ -26933,6 +27034,7 @@ window._designCredits = null; // design-editing months (usage_credits) — 2026-
 window._aiLedger = null;
 window._aiTotals = {};
 async function loadAiFuel(){
+  if (window._houseDash && !isClientMode()) return houseLoadFuel();   // dash-3: staff read Adviuz's own fuel
   try{
     var r = await sbFetch('/rest/v1/rpc/my_ai_wallets',{method:'POST',body:'{}'});
     if(!r.ok) return;
@@ -30639,14 +30741,14 @@ function adminDashHTML() {
   // Super admin filtering by a SINGLE partner → show THAT partner's dashboard
   var fp = gfFilteredPartnerId();
   if (fp && fp !== '__none__') return partnerDashForId(fp);
-  var tabs = [{k:'funds',l:'💰 Funds'},{k:'__adviuz',l:'Adviuz'},{k:'clients',l:'Clients'},{k:'campaigns',l:'Campaigns'},{k:'allleads',l:'All Leads'},{k:'quotes',l:'Quotes'},{k:'invoices',l:'Invoices'},{k:'affiliates',l:'Affiliates'},{k:'commissions',l:'Commissions'},{k:'__announce',l:'📣 Announce'}];
+  var tabs = [{k:'funds',l:'💰 Funds'},{k:'house',l:'Dash'},{k:'clients',l:'Clients'},{k:'campaigns',l:'Campaigns'},{k:'allleads',l:'All Leads'},{k:'quotes',l:'Quotes'},{k:'invoices',l:'Invoices'},{k:'affiliates',l:'Affiliates'},{k:'commissions',l:'Commissions'},{k:'__announce',l:'📣 Announce'}];
   var cur = window._adminDashTab || 'clients';
   var h = '<div style="display:flex;gap:6px;padding:10px 12px 8px;overflow-x:auto;background:var(--white);border-bottom:1px solid var(--border);-webkit-overflow-scrolling:touch">';
   tabs.forEach(function(t) {
     var _tclick = (t.k==='__announce')
       ? "openAnnounceSheet()"
-      : (t.k==='__adviuz') ? "openAdviuzHouse()"
-      : "window._adminDashTab='" + t.k + "';document.getElementById('content').innerHTML=adminDashHTML();if(typeof renderCtrlBar==='function')renderCtrlBar();if(typeof renderStats==='function')renderStats()";
+      : (t.k==='house') ? "houseDashOpen()"
+      : "houseDashExit();window._adminDashTab='" + t.k + "';document.getElementById('content').innerHTML=adminDashHTML();if(typeof renderCtrlBar==='function')renderCtrlBar();if(typeof renderStats==='function')renderStats()";
     h += '<div style="flex-shrink:0;padding:6px 14px;border-radius:20px;font-family:var(--f);font-size:12px;font-weight:500;cursor:pointer;border:1.5px solid '+(cur===t.k?'var(--text)':'var(--border)')+';background:'+(cur===t.k?'var(--text)':'var(--white)')+';color:'+(cur===t.k?'#fff':'var(--sub)')+'" onclick="'+_tclick.replace(/"/g,'&quot;')+'">'+t.l+'</div>';
   });
   h += '</div>';
@@ -30658,7 +30760,7 @@ function adminDashHTML() {
   var closed = _adminData.allLeads.filter(function(l){return l.stage==='9. Deal Closed'||l.stage==='Deal Closed';}).length;
   if (cur==='campaigns' && !window._adminCampDetailId) {
     h += founderInsightHTML();
-  } else if (cur !== 'affiliates' && cur !== 'invoices' && !(cur==='campaigns' && window._adminCampDetailId)) {  // Partners + Invoices views are focused — no generic KPI tiles
+  } else if (cur !== 'house' && cur !== 'affiliates' && cur !== 'invoices' && !(cur==='campaigns' && window._adminCampDetailId)) {  // Partners + Invoices views are focused — no generic KPI tiles
     h += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:12px">';
     h += adMini(_adminData.clients.length,'Clients');
     h += adMini(_adminData.campaigns.length,'Campaigns');
@@ -30666,6 +30768,7 @@ function adminDashHTML() {
     h += adMini(closed,'Closed');
     h += '</div>';
   }
+  if (cur==='house') return h + houseDashInner();   // dash-3
   if (cur==='funds')       h += fundsDashHTML();
   else if (cur==='clients')     h += adClientsHTML();
   else if (cur==='campaigns')   h += adCampaignsHTML();
