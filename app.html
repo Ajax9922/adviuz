@@ -4549,7 +4549,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-28 house-1';
+var APP_VERSION = 'v2026-09-30 dash-2';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -5135,9 +5135,9 @@ async function openAdviuzHouse(){
   var hid = window._ADV_HOUSE || '7d315d20-00af-4e7f-8d79-c89b3f2b5cf7';
   var list = (window._adminData && _adminData.clients) ? _adminData.clients : [];
   if (!list.some(function(x){ return x.id === hid; })) { showToast('Still loading — try again in a second'); return; }
-  return adminViewAsClient(hid);
+  return adminViewAsClient(hid, { tab: 'dashboard', house: true });   // dash-2: Adviuz's own Dashboard, no orange bar
 }
-async function adminViewAsClient(clientId) {
+async function adminViewAsClient(clientId, opts) {
   var list = (window._adminData && _adminData.clients) ? _adminData.clients : [];
   var c = list.find(function(x){ return x.id === clientId; });
   if (!c) { showToast('Client not found'); return; }
@@ -5148,20 +5148,25 @@ async function adminViewAsClient(clientId) {
   window._clientId   = c.id;
   window._staffRole  = 'client';   // make the view render exactly like the client's
 
-  // Orange "Viewing as…" banner with Exit (mirrors view-as-partner)
+  // Orange "Viewing as…" banner with Exit (mirrors view-as-partner).
+  // dash-2: NOT for Adviuz's own account — that is Ajax's own leads/dashboard,
+  // so it opens clean with a back arrow in the header instead (set below).
+  var isHouse = !!(opts && opts.house);
   var banner = document.getElementById('viewingAsBanner');
-  if (!banner) {
+  if (!isHouse && !banner) {
     banner = document.createElement('div');
     banner.id = 'viewingAsBanner';
     banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:1000;background:#d97706;color:#fff;padding:calc(env(safe-area-inset-top,0px) + 8px) 16px 8px;font-size:12px;font-weight:500;display:flex;align-items:center;justify-content:space-between;gap:10px';
     document.body.appendChild(banner);
   }
+  if (!isHouse) {
   banner.innerHTML = '<span>\uD83D\uDC41 Viewing as ' + window._viewingAsClient.name + '</span>'
     + '<button onclick="exitClientView()" style="padding:5px 14px;border-radius:6px;background:rgba(0,0,0,.25);border:none;color:#fff;font-family:var(--f);font-size:12px;font-weight:500;cursor:pointer">Exit</button>';
   banner.style.display = 'flex';
   document.body.classList.add('impersonating');
   var tb = document.querySelector('.topbar');
   if (tb) tb.style.paddingTop = 'calc(env(safe-area-inset-top,0px) + 44px)';
+  }
 
   showToast('Opening ' + window._viewingAsClient.name + '\u2026');
   await showClientUI();   // renders the client dashboard / tabs / billing for _clientId
@@ -5170,6 +5175,25 @@ async function adminViewAsClient(clientId) {
   // so the operator can't accidentally log themselves out.
   var so = document.getElementById('clientSignOutBtn');
   if (so) so.style.display = 'none';
+
+  // dash-1: the Adviuz chip opens straight onto the Dashboard tab (campaigns,
+  // fuel, AI settings) instead of the Leads list.
+  if (opts && opts.tab === 'dashboard') {
+    var dbBtn = document.getElementById('tab-dashboard');
+    if (dbBtn) goTab('dashboard', dbBtn);
+  }
+
+  // dash-2: Adviuz's own account — the header's left button becomes a back
+  // arrow to the admin view (same clean reload as Exit).
+  if (isHouse) {
+    var mb = document.querySelector('.tb-menu');
+    if (mb) {
+      mb.style.display = '';
+      mb.title = 'Back to admin';
+      mb.onclick = function(){ exitClientView(); };
+      mb.innerHTML = '<svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>';
+    }
+  }
 }
 
 function exitClientView() {
@@ -13133,8 +13157,8 @@ async function brainImportSite(){
 
 // ═══ PLAYBOOK — the stage-by-stage follow-up plan ══════════════════════════
 var _pbCid=null,_pbClientId=null,_pbName='',_pbSteps=[],_pbStages={},_pbEditId=null;
-var PB_ORDER=['1','2','3','noshow','6','7','9','10','11'];
-var PB_NAMES={'1':'\uD83C\uDF31 Fresh Lead','2':'\uD83D\uDCF5 Call Not Connected','3':'\uD83D\uDCDE Callback Requested','noshow':'\uD83D\uDEAA No-Show Rescue','6':'\uD83E\uDD1D Meeting Done','7':'\uD83D\uDCC4 Proposal Sent','9':'\uD83C\uDF89 Deal Closed','10':'\uD83D\uDE45 Not Interested','11':'\uD83C\uDF31 Future Prospect'};
+var PB_ORDER=['1','2','3','noshow','6','7','9','topup','10','11'];
+var PB_NAMES={'1':'\uD83C\uDF31 Fresh Lead','2':'\uD83D\uDCF5 Call Not Connected','3':'\uD83D\uDCDE Callback Requested','noshow':'\uD83D\uDEAA No-Show Rescue','6':'\uD83E\uDD1D Meeting Done','7':'\uD83D\uDCC4 Proposal Sent','9':'\uD83C\uDF89 Deal Closed','topup':'\uD83D\uDCB3 Client Top-up Follow-ups','10':'\uD83D\uDE45 Not Interested','11':'\uD83C\uDF31 Future Prospect'};
 var PB_CHIP={'sms':'\uD83D\uDCAC Text','email':'\uD83D\uDCE7 Email','call':'\uD83E\uDD16 AI Call','task':'\uD83D\uDC64 Task'};
 function _pbDelayLbl(h){ h=Number(h)||0; if(h===0) return 'Right away'; if(h<24) return h+'h in'; return 'Day '+Math.round(h/24); }
 async function pbMaster(el){
@@ -13474,6 +13498,7 @@ function renderPlaybook(){
     var steps=_pbSteps.filter(function(s){ return String(s.stage_key)===key; })
       .sort(function(a,b){ return (Number(a.delay_hours)||0)-(Number(b.delay_hours)||0) || (Number(a.step_no)||0)-(Number(b.step_no)||0); });
     if(!steps.length && !staff) return;
+    if(key==='topup' && !steps.length) return;   // twocamp-1: only the campaign that owns client top-ups (Adviuz Digital Flyers)
     var on=_pbStages[key]===true;
     h+='<div style="margin-top:12px;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--white)'+(on?'':';opacity:.8')+'">'
       +'<div style="display:flex;align-items:center;gap:10px;padding:11px 13px;background:'+(on?'#e7f8f3':'var(--bg)')+'">'
@@ -13498,6 +13523,13 @@ function renderPlaybook(){
         +'<label style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:'+(d1on?'var(--green)':'var(--sub)')+';cursor:pointer">'+(d1on?'ON':'OFF')
         +'<input type="checkbox" '+(d1on?'checked':'')+' onchange="pbD1Toggle(this)" style="width:17px;height:17px;accent-color:var(--green)"></label>'
         +'</div>';
+    }
+    if(key==='topup'){
+      // twocamp-1: client top-ups — read live by the topup-followup worker.
+      h+='<div style="padding:10px 13px;border-top:1px solid var(--border);background:#f5f3ff;font-size:11px;color:#4c1d95;line-height:1.6">'
+        +'For <b>your clients</b>, not leads. Starts when a client\u2019s campaign runs out of flyer views and they get the report \u2014 days count from that report. '
+        +'First-week texts and emails wait for your approval; after that they send on their own, Mon\u2013Fri 10 AM\u20135 PM their time. '
+        +'Stops the moment they top up or text back. Fill-ins: {name} {campaign} {results} {link} {paused_leads_line}.</div>';
     }
     steps.forEach(function(s){ h+=_pbStepHtml(s); });
     if(staff) h+='<div style="padding:6px 12px 10px;border-top:1px solid var(--border)"><button onclick="pbAddStep(\''+key+'\')" style="width:100%;padding:8px;border:1px dashed var(--border);border-radius:9px;background:var(--white);color:var(--sub);font-size:12px;font-weight:500;cursor:pointer;font-family:var(--f)">\u2795 Add a step (Adviuz)</button></div>';
@@ -28671,8 +28703,12 @@ function csOpenPage(page){
       +   _csToggleHTML('csAiSrcWeb', ((_ai.autocall_sources||{}).website !== false))
       + '</div>'
       + '<div style="display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:13px 14px;margin-top:8px">'
-      +   '<span style="flex:1;font-size:13px;font-weight:600;color:var(--text)">\u270D\uFE0F Manually added leads</span>'
+      +   '<span style="flex:1;font-size:13px;font-weight:600;color:var(--text)">\u270D\uFE0F Leads your team adds</span>'
       +   _csToggleHTML('csAiSrcMan', ((_ai.autocall_sources||{}).manual === true))
+      + '</div>'
+      + '<div style="display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:13px 14px;margin-top:8px">'
+      +   '<span style="flex:1;font-size:13px;font-weight:600;color:var(--text)">\uD83E\uDD1D Leads an affiliate adds</span>'
+      +   _csToggleHTML('csAiSrcAff', ((_ai.autocall_sources||{}).affiliate === true))
       + '</div>'
       + '<div class="cs-note" style="margin-top:8px">People who call you are never auto-called. New leads get a text first and a call about 90 seconds later; follow-up calls go out after 3 PM in the lead\u2019s own timezone (4\u20136 PM first, then other windows). Overnight leads are texted now and called at 10 AM. Opted-out leads are never called.</div>'
       + '<div class="cs-h" style="margin-top:20px">\uD83D\uDCAC AI books by text</div>'
@@ -29080,7 +29116,8 @@ async function saveCampSettings(){
       autocall_sources: {
         ads: _tgOn('csAiSrcAds'),
         website: _tgOn('csAiSrcWeb'),
-        manual: _tgOn('csAiSrcMan')
+        manual: _tgOn('csAiSrcMan'),
+        affiliate: _tgOn('csAiSrcAff')
       },
       approvals: {
         sms: (v('csAiApprSms') === 'auto') ? 'auto' : 'review',
