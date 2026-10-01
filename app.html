@@ -4565,7 +4565,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-01 ap-3';
+var APP_VERSION = 'v2026-10-01 ap-4';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -15703,6 +15703,7 @@ function _apOffList(l){
 function apSummary(l){
   if (l.human_only) return 'OFF — a person handles this lead: no AI calls, texts or emails, and their calls ring you';
   var off = _apOffList(l);
+  if (off.length >= AP_CH.length) return 'OFF \u2014 every AI switch is off for this lead: nothing automatic goes out, and their calls ring you';
   if (!off.length) return 'ON — the AI may call, text and email this lead automatically';
   var names = AP_CH.filter(function(c){ return off.indexOf(c.k) > -1; }).map(function(c){ return c.sh; });
   return 'PARTLY ON — off for this lead: ' + names.join(', ');
@@ -15778,6 +15779,11 @@ function apSetCh(k){
   var c = AP_CH.find(function(x){ return x.k === k; }) || { t:k };
   var turningOff = o[k] !== true;
   if (turningOff) o[k] = true; else delete o[k];
+  // All five off = the same as Autopilot OFF: flip the master so the state is one clear OFF.
+  if (AP_CH.every(function(x){ return o[x.k] === true; })){
+    _apSave(l, { human_only:true, ai_off:{}, ai_callback_at:null }, '\uD83D\uDE4B Everything is off now \u2014 AI Autopilot switched OFF for this lead.');
+    return;
+  }
   _apSave(l, { ai_off:o }, turningOff ? ('⏸️ ' + c.t + ' — off for this lead') : ('▶️ ' + c.t + ' — back on'));
 }
 
@@ -16053,7 +16059,7 @@ function renderLeadScreen(id) {
     // Campaign off -> switch shows OFF and tapping it opens the campaign's
     // AI Employee page (the real place to turn it on) instead of flipping a
     // lead flag that would do nothing.
-    var _apEffOn = !_apMasterOff && !l.human_only;
+    var _apEffOn = !_apMasterOff && !l.human_only && !((typeof _apOffList==='function') && _apOffList(l).length >= 5);
     var _apPartial = _apEffOn && (typeof _apOffList==='function') && _apOffList(l).length > 0;
     var _apClick = _apMasterOff ? ('apGoToAiSettings(\''+String((_camp&&_camp.id)||'')+'\')') : ('openApSheet('+l.id+')');
     var _apSub;
