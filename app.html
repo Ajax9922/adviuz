@@ -1604,6 +1604,14 @@ body.impersonating .ls-topbar{padding-top:8px}
   </div>
 </div>
 
+<!-- ═══ VIDEO REVIEW SHEET (vr-1) ═══ -->
+<div class="sheet-ov" id="vrSh" onclick="if(event.target===this)vrClose()">
+  <div class="sheet" style="max-height:calc(94dvh - var(--kb,0px))"><div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title" id="vrTitle">Video review</div><button class="sheet-x" onclick="vrClose()">&#x2715;</button></div>
+    <div class="sh-body" id="vrBody" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom,16px))"></div>
+  </div>
+</div>
+
 <!-- ═══ EMAIL SHEET ═══ -->
 <div class="sheet-ov" id="emailSh" style="align-items:stretch">
   <div class="sheet" style="max-height:100dvh;height:100dvh;border-radius:0"><div class="sheet-handle"></div>
@@ -4549,7 +4557,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-09-30 dash-4';
+var APP_VERSION = 'v2026-10-01 vr-2';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -13259,8 +13267,8 @@ async function brainImportSite(){
 
 // ═══ PLAYBOOK — the stage-by-stage follow-up plan ══════════════════════════
 var _pbCid=null,_pbClientId=null,_pbName='',_pbSteps=[],_pbStages={},_pbEditId=null;
-var PB_ORDER=['1','2','3','noshow','6','7','9','topup','10','11'];
-var PB_NAMES={'1':'\uD83C\uDF31 Fresh Lead','2':'\uD83D\uDCF5 Call Not Connected','3':'\uD83D\uDCDE Callback Requested','noshow':'\uD83D\uDEAA No-Show Rescue','6':'\uD83E\uDD1D Meeting Done','7':'\uD83D\uDCC4 Proposal Sent','9':'\uD83C\uDF89 Deal Closed','topup':'\uD83D\uDCB3 Client Top-up Follow-ups','10':'\uD83D\uDE45 Not Interested','11':'\uD83C\uDF31 Future Prospect'};
+var PB_ORDER=['1','2','3','noshow','6','7','9','review','topup','10','11'];
+var PB_NAMES={'1':'\uD83C\uDF31 Fresh Lead','2':'\uD83D\uDCF5 Call Not Connected','3':'\uD83D\uDCDE Callback Requested','noshow':'\uD83D\uDEAA No-Show Rescue','6':'\uD83E\uDD1D Meeting Done','7':'\uD83D\uDCC4 Proposal Sent','9':'\uD83C\uDF89 Deal Closed','review':'\u2B50 Review Request','topup':'\uD83D\uDCB3 Client Top-up Follow-ups','10':'\uD83D\uDE45 Not Interested','11':'\uD83C\uDF31 Future Prospect'};
 var PB_CHIP={'sms':'\uD83D\uDCAC Text','email':'\uD83D\uDCE7 Email','call':'\uD83E\uDD16 AI Call','task':'\uD83D\uDC64 Task'};
 function _pbDelayLbl(h){ h=Number(h)||0; if(h===0) return 'Right away'; if(h<24) return h+'h in'; return 'Day '+Math.round(h/24); }
 async function pbMaster(el){
@@ -13600,6 +13608,7 @@ function renderPlaybook(){
     var steps=_pbSteps.filter(function(s){ return String(s.stage_key)===key; })
       .sort(function(a,b){ return (Number(a.delay_hours)||0)-(Number(b.delay_hours)||0) || (Number(a.step_no)||0)-(Number(b.step_no)||0); });
     if(!steps.length && !staff) return;
+    if(key==='review' && !steps.length) return;   // pbrev-1: only campaigns that have a Review stage (Adviuz Digital Flyers)
     if(key==='topup' && !steps.length) return;   // twocamp-1: only the campaign that owns client top-ups (Adviuz Digital Flyers)
     var on=_pbStages[key]===true;
     h+='<div style="margin-top:12px;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--white)'+(on?'':';opacity:.8')+'">'
@@ -13625,6 +13634,12 @@ function renderPlaybook(){
         +'<label style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:'+(d1on?'var(--green)':'var(--sub)')+';cursor:pointer">'+(d1on?'ON':'OFF')
         +'<input type="checkbox" '+(d1on?'checked':'')+' onchange="pbD1Toggle(this)" style="width:17px;height:17px;accent-color:var(--green)"></label>'
         +'</div>';
+    }
+    if(key==='review'){
+      // pbrev-1: Review stage — chained after Deal Closed by the database.
+      h+='<div style="padding:10px 13px;border-top:1px solid var(--border);background:#fffbeb;font-size:11px;color:#92400e;line-height:1.6">'
+        +'Starts <b>only after a deal is closed</b> \u2014 right after the Deal Closed steps finish (or straight away if Deal Closed is switched off). '
+        +'Days count from when this stage starts. Paste your Google review link into the steps before switching this on.</div>';
     }
     if(key==='topup'){
       // twocamp-1: client top-ups — read live by the topup-followup worker.
@@ -15609,12 +15624,13 @@ async function toggleHumanOnly(localId){
     if(!r.ok) throw new Error('save failed');
     l.human_only=nv;
     if(nv){
-      // autopilot-1: switching AI off also stops every running follow-up plan
-      // for this lead (the server writes the timeline note), and the database
-      // guard keeps anything from re-enrolling them while the switch is off.
-      try{ sbFetch(CE_FN, { method:'POST', body: JSON.stringify({ action:'lead_off', lead_id:l.dbId, actor:(window._userName||'operator') }) }).then(function(r){ return r.json(); }).then(function(j){ if(j&&j.ok&&j.stopped>0){ showToast('\ud83d\ude4b AI off \u2014 '+j.stopped+' follow-up plan'+(j.stopped>1?'s':'')+' stopped'); } }).catch(function(){}); }catch(_e){}
+      // autopilot-2: the database now does the whole stop the moment the switch
+      // flips (trg_autopilot_off_cleanup): scheduled AI call, follow-up plans,
+      // AI messages waiting for approval, AI texting — and inbound calls from
+      // this lead ring a person instead of the AI (twilio-call-router v8).
+      l.ai_callback_at=null;
     }
-    showToast(nv?'\ud83d\ude4b A human now handles this lead \u2014 AI paused':'\ud83e\udd16 AI is back on this lead \u2014 re-activate follow-ups from the Conversion Engine');
+    showToast(nv?'\ud83d\ude4b AI off \u2014 all AI calls, texts and follow-ups cancelled. If they call, it rings you.':'\ud83e\udd16 AI is back on this lead \u2014 re-activate follow-ups from the Conversion Engine');
     renderLeadScreen(localId);
   }catch(e){ showToast('Could not save \u2014 try again'); }
 }
@@ -15868,7 +15884,7 @@ function renderLeadScreen(id) {
     var _apClick = _apMasterOff ? ('apGoToAiSettings(\''+String((_camp&&_camp.id)||'')+'\')') : ('toggleHumanOnly('+l.id+')');
     var _apSub;
     if (_apMasterOff) _apSub = 'OFF \u2014 Autopilot is off for this whole campaign';
-    else if (l.human_only) _apSub = 'OFF \u2014 a human is handling this lead; the AI stays silent';
+    else if (l.human_only) _apSub = 'OFF \u2014 a person handles this lead: no AI calls or texts, and their calls ring you';
     else _apSub = 'ON \u2014 the AI may call and text this lead automatically';
     h += '<div onclick="'+_apClick+'" style="background:var(--white);padding:12px 16px;margin-bottom:4px;display:flex;align-items:center;gap:10px;cursor:pointer">'
       + '<div style="font-size:20px;flex-shrink:0">\ud83e\udd16</div>'
@@ -15982,6 +15998,11 @@ function renderLeadScreen(id) {
     h += '</div></div>';
     h += '<div style="height:4px;background:var(--bg)"></div>';
   }
+
+  // vr-1: Video review card — filled in right after render (Deal Closed leads,
+  // or any lead that already sent a review).
+  h += '<div id="ldVr"></div>';
+  setTimeout(function(){ try{ vrLeadCard(l); }catch(_e){} }, 0);
 
   // ══ CONVERT TO CLIENT BANNER (Deal Closed only) ══
   // DISABLED 2026-05-28: keep code for future, restore by removing `false && `
@@ -30743,7 +30764,7 @@ function adminDashHTML() {
   // Super admin filtering by a SINGLE partner → show THAT partner's dashboard
   var fp = gfFilteredPartnerId();
   if (fp && fp !== '__none__') return partnerDashForId(fp);
-  var tabs = [{k:'funds',l:'💰 Funds'},{k:'house',l:'Dash'},{k:'clients',l:'Clients'},{k:'campaigns',l:'Campaigns'},{k:'allleads',l:'All Leads'},{k:'quotes',l:'Quotes'},{k:'invoices',l:'Invoices'},{k:'affiliates',l:'Affiliates'},{k:'commissions',l:'Commissions'},{k:'__announce',l:'📣 Announce'}];
+  var tabs = [{k:'funds',l:'💰 Funds'},{k:'house',l:'Dash'},{k:'reviews',l:'\uD83C\uDFA5 Reviews'},{k:'clients',l:'Clients'},{k:'campaigns',l:'Campaigns'},{k:'allleads',l:'All Leads'},{k:'quotes',l:'Quotes'},{k:'invoices',l:'Invoices'},{k:'affiliates',l:'Affiliates'},{k:'commissions',l:'Commissions'},{k:'__announce',l:'📣 Announce'}];
   var cur = window._adminDashTab || 'clients';
   var h = '<div style="display:flex;gap:6px;padding:10px 12px 8px;overflow-x:auto;background:var(--white);border-bottom:1px solid var(--border);-webkit-overflow-scrolling:touch">';
   tabs.forEach(function(t) {
@@ -30762,7 +30783,7 @@ function adminDashHTML() {
   var closed = _adminData.allLeads.filter(function(l){return l.stage==='9. Deal Closed'||l.stage==='Deal Closed';}).length;
   if (cur==='campaigns' && !window._adminCampDetailId) {
     h += founderInsightHTML();
-  } else if (cur !== 'house' && cur !== 'affiliates' && cur !== 'invoices' && !(cur==='campaigns' && window._adminCampDetailId)) {  // Partners + Invoices views are focused — no generic KPI tiles
+  } else if (cur !== 'house' && cur !== 'reviews' && cur !== 'affiliates' && cur !== 'invoices' && !(cur==='campaigns' && window._adminCampDetailId)) {  // Partners + Invoices views are focused — no generic KPI tiles
     h += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:12px">';
     h += adMini(_adminData.clients.length,'Clients');
     h += adMini(_adminData.campaigns.length,'Campaigns');
@@ -30772,6 +30793,7 @@ function adminDashHTML() {
   }
   if (cur==='house') return h + houseDashInner();   // dash-3
   if (cur==='funds')       h += fundsDashHTML();
+  else if (cur==='reviews')     h += adReviewsHTML();   // vr-1
   else if (cur==='clients')     h += adClientsHTML();
   else if (cur==='campaigns')   h += adCampaignsHTML();
   else if (cur==='allleads')    h += adAllLeadsHTML();
@@ -30780,6 +30802,246 @@ function adminDashHTML() {
   else if (cur==='affiliates')  h += adAffiliatesHTML();
   else if (cur==='commissions') h += adCommissionsHTML();
   return h;
+}
+
+// ═══════════════════════════════════════════════════════
+// VIDEO REVIEWS (vr-1, 2026-09-30)
+// Customers record a short video (or write a few words) on a no-login page:
+//   https://hub.adviuz.ca/v/<code>   (one personal code per lead)
+// Videos live in the PRIVATE "video-reviews" bucket; we play them through
+// short-lived signed links. Lead screen card + admin "🎥 Reviews" chip.
+// Playbook messages can carry the link as {video_review_link}.
+// ═══════════════════════════════════════════════════════
+var _vrCache = {};          // lead dbId -> { row, ts }
+var _vrRows = {};           // review id -> row (for the sheet)
+var _vrFilter = 'new';      // admin list filter: new | approved | all
+function _vrEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m];}); }
+function _vrLink(code){ return 'https://hub.adviuz.ca/v/' + code; }
+function _vrStars(n){ n=Number(n)||0; if(!n) return ''; return '<span style="color:#f59e0b;letter-spacing:1px">'+'★'.repeat(n)+'</span><span style="color:var(--border);letter-spacing:1px">'+'★'.repeat(5-n)+'</span>'; }
+function _vrBadge(st){
+  var m = { requested:['Link ready','var(--sub)'], received:['New','var(--green)'], approved:['Approved','#4000f3'], hidden:['Hidden','var(--sub)'] }[st] || ['',''];
+  return m[0] ? '<span style="font-size:10px;font-weight:600;color:'+m[1]+';padding:3px 8px;border-radius:20px;background:var(--bg)">'+m[0]+'</span>' : '';
+}
+function _vrFirst(name){ var n=String(name||'').trim(); return n ? n.split(/\s+/)[0] : 'them'; }
+
+// Lead screen card. Shows for Deal Closed leads, or any lead that already has a review.
+async function vrLeadCard(l){
+  if(!l || !l.dbId) return;
+  var c = _vrCache[l.dbId];
+  if(c) _vrPaintCard(l, c.row);
+  if(c && Date.now() - c.ts < 60000) return;
+  var row = null;
+  try{
+    var r = await sbFetch('/rest/v1/video_reviews?lead_id=eq.'+l.dbId+'&select=*&order=created_at.desc&limit=1');
+    var j = await r.json(); row = (Array.isArray(j) && j[0]) || null;
+  }catch(e){ return; }
+  _vrCache[l.dbId] = { row: row, ts: Date.now() };
+  if(row) _vrRows[row.id] = row;
+  _vrPaintCard(l, row);
+}
+function _vrPaintCard(l, row){
+  var box = document.getElementById('ldVr');
+  if(!box || window._curLeadDb !== l.dbId) return;
+  if(!row && !/deal closed/i.test(l.stage||'')){ box.innerHTML=''; return; }
+  var btn = 'flex:1;padding:10px 8px;border-radius:10px;font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer;';
+  var h = '<div style="background:var(--white);padding:12px 16px;margin-bottom:4px">';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><div style="font-size:13px;font-weight:600;color:var(--text)">🎥 Video review</div>'+(row?_vrBadge(row.status):'')+'</div>';
+  if(!row || row.status==='requested'){
+    h += '<div style="font-size:12px;color:var(--sub);line-height:1.5;margin-bottom:10px">Ask '+_vrEsc(_vrFirst(l.name))+' for a 30-second video review. The link opens on their phone — no app, no login.'
+      + (row && row.opened_at ? '<br><b style="color:var(--text)">Link opened '+timeAgo(row.opened_at)+'</b> — no review yet.' : '') + '</div>';
+    h += '<div style="display:flex;gap:8px">';
+    h += '<button onclick="vrTextLink('+l.id+')" style="'+btn+'border:none;background:var(--green);color:#fff">💬 Text the link</button>';
+    h += '<button onclick="vrCopyLink('+l.id+')" style="'+btn+'border:1.5px solid var(--border);background:var(--white);color:var(--text)">📋 Copy link</button>';
+    h += '</div>';
+  } else {
+    var meta = [];
+    if(row.rating) meta.push(_vrStars(row.rating));
+    meta.push(row.video_path ? ('🎥 '+(row.duration_sec?Math.round(row.duration_sec)+'s video':'Video')) : '✍️ Written');
+    meta.push(timeAgo(row.submitted_at));
+    h += '<div style="font-size:12px;color:var(--sub);margin-bottom:6px">'+meta.join(' · ')+'</div>';
+    if(row.review_text) h += '<div style="font-size:13px;color:var(--text);line-height:1.5;margin-bottom:8px">“'+_vrEsc(String(row.review_text).slice(0,160))+(String(row.review_text).length>160?'…':'')+'”</div>';
+    h += '<div style="font-size:11px;color:'+(row.consent_public?'var(--green)':'var(--sub)')+';margin-bottom:10px">'+(row.consent_public?'✅ OK to share publicly':'🔒 Private — not OK to post publicly')+'</div>';
+    h += '<button onclick="vrOpen(\''+row.id+'\')" style="'+btn+'width:100%;border:none;background:#4000f3;color:#fff">'+(row.video_path?'▶ Watch video':'Open review')+'</button>';
+  }
+  h += '</div><div style="height:4px;background:var(--bg)"></div>';
+  box.innerHTML = h;
+}
+
+async function _vrEnsureCode(l){
+  var c = _vrCache[l.dbId];
+  if(c && c.row && c.row.code) return c.row.code;
+  var r = await sbFetch('/rest/v1/rpc/video_review_code', { method:'POST', body: JSON.stringify({ p_lead: l.dbId }) });
+  var code = await r.json();
+  if(!r.ok || typeof code !== 'string' || !code) throw new Error('no code');
+  delete _vrCache[l.dbId];
+  return code;
+}
+async function vrCopyLink(lid){
+  var l = leads.find(function(x){ return x.id===lid; }); if(!l) return;
+  try{
+    var u = _vrLink(await _vrEnsureCode(l));
+    try{ await navigator.clipboard.writeText(u); showToast('Video review link copied'); }catch(_){ prompt('Copy this link:', u); }
+    vrLeadCard(l);
+  }catch(e){ showToast('Couldn’t make the link — please try again'); }
+}
+// Opens the normal text-message screen with the ask pre-typed. Nothing is sent
+// until you tap Send yourself.
+async function vrTextLink(lid){
+  var l = leads.find(function(x){ return x.id===lid; }); if(!l) return;
+  if(!l.ph){ showToast('This lead has no phone number — use Copy link'); return; }
+  try{
+    var u = _vrLink(await _vrEnsureCode(l));
+    openSms(lid);
+    var ta = document.getElementById('smsCompose');
+    if(ta){
+      ta.value = 'Hi ' + _vrFirst(l.name) + ', thank you for choosing us! Would you record a quick 30-second video about your experience? It works right from your phone, no app needed:\n' + u + '\n\nThank you!';
+      smsGrow(ta);
+    }
+    vrLeadCard(l);
+  }catch(e){ showToast('Couldn’t make the link — please try again'); }
+}
+
+// ── Review sheet: watch, approve, hide, download ──
+async function vrOpen(id){
+  var row = _vrRows[id];
+  try{
+    var r = await sbFetch('/rest/v1/video_reviews?id=eq.'+id+'&select=*&limit=1');
+    var j = await r.json(); if(Array.isArray(j) && j[0]){ row = j[0]; _vrRows[id] = row; }
+  }catch(_){}
+  if(!row){ showToast('Couldn’t open this review'); return; }
+  var lead = (typeof _adminData!=='undefined' && _adminData && _adminData.allLeads || []).find(function(x){ return x.id===row.lead_id; })
+          || leads.find(function(x){ return x.dbId===row.lead_id; }) || {};
+  var who = lead.name || row.display_name || 'Customer';
+  document.getElementById('vrTitle').textContent = '🎥 ' + who;
+  var body = document.getElementById('vrBody');
+  var h = '';
+  if(row.video_path){
+    h += '<div id="vrVidWrap" style="background:#000;border-radius:14px;overflow:hidden;aspect-ratio:3/4;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px">Loading video…</div>';
+  }
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin:12px 0 6px"><div style="font-size:14px">'+(_vrStars(row.rating)||'<span style="color:var(--sub);font-size:12px">No star rating</span>')+'</div>'+_vrBadge(row.status)+'</div>';
+  if(row.review_text) h += '<div style="font-size:14px;line-height:1.55;color:var(--text);margin-bottom:8px">“'+_vrEsc(row.review_text)+'”</div>';
+  h += '<div style="font-size:12px;color:var(--sub);line-height:1.6">'
+    + 'Name to show: <b style="color:var(--text)">'+_vrEsc(row.display_name||'—')+'</b><br>'
+    + 'Sent '+(row.submitted_at?new Date(row.submitted_at).toLocaleString('en-CA',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'—')
+    + (row.duration_sec?' · '+Math.round(row.duration_sec)+'s':'') + (row.video_bytes>=104858?' · '+(row.video_bytes/1048576).toFixed(1)+' MB':'') + '</div>';
+  h += '<div style="margin:10px 0 14px;padding:10px 12px;border-radius:10px;font-size:12px;line-height:1.5;background:'+(row.consent_public?'var(--greenl)':'var(--bg)')+';color:'+(row.consent_public?'var(--green)':'var(--sub)')+'">'
+    + (row.consent_public ? '✅ They said you may share this on your website and social media.' : '🔒 They did <b>not</b> tick the box to share publicly — keep this one private, or ask them first.') + '</div>';
+  var b = 'flex:1;padding:12px 8px;border-radius:12px;font-family:var(--f);font-size:13px;font-weight:600;cursor:pointer;';
+  h += '<div style="display:flex;gap:8px;margin-bottom:8px">';
+  if(row.status!=='approved') h += '<button onclick="vrSetStatus(\''+row.id+'\',\'approved\')" style="'+b+'border:none;background:var(--green);color:#fff">✓ Approve</button>';
+  else h += '<button onclick="vrSetStatus(\''+row.id+'\',\'received\')" style="'+b+'border:1.5px solid var(--border);background:var(--white);color:var(--text)">Undo approve</button>';
+  if(row.status!=='hidden') h += '<button onclick="vrSetStatus(\''+row.id+'\',\'hidden\')" style="'+b+'border:1.5px solid var(--border);background:var(--white);color:var(--sub)">Hide</button>';
+  else h += '<button onclick="vrSetStatus(\''+row.id+'\',\'received\')" style="'+b+'border:1.5px solid var(--border);background:var(--white);color:var(--text)">Unhide</button>';
+  h += '</div>';
+  if(row.video_path) h += '<button id="vrDl" onclick="vrDownload(\''+row.id+'\')" style="'+b+'width:100%;border:1.5px solid var(--border);background:var(--white);color:var(--text)">⬇ Download video</button>';
+  h += '<div style="font-size:11px;color:var(--sub);line-height:1.5;margin-top:12px">Approve = ready to use. It also closes their link so the video can’t be replaced.</div>';
+  body.innerHTML = h;
+  openSheet('vrSh');
+  if(row.video_path){
+    var u = await _vrSigned(row.video_path);
+    var w = document.getElementById('vrVidWrap');
+    if(!w) return;
+    if(!u){ w.textContent = 'Couldn’t load the video'; return; }
+    w.innerHTML = '<video src="'+_vrEsc(u)+'" controls playsinline preload="metadata" style="width:100%;height:100%;object-fit:contain;background:#000"></video>';
+  }
+}
+function vrClose(){
+  var v = document.querySelector('#vrSh video'); if(v){ try{ v.pause(); }catch(_){} }
+  closeSheet('vrSh');
+}
+async function _vrSigned(path, download){
+  try{
+    var r = await sbFetch('/storage/v1/object/sign/video-reviews/'+path.split('/').map(encodeURIComponent).join('/'), { method:'POST', body: JSON.stringify({ expiresIn: 3600 }) });
+    var j = await r.json();
+    var s = j && (j.signedURL || j.signedUrl);
+    if(!r.ok || !s) return null;
+    var u = SB_URL + '/storage/v1' + (s.charAt(0)==='/'?'':'/') + s;
+    if(download) u += (u.indexOf('?')>-1?'&':'?') + 'download=' + encodeURIComponent(download);
+    return u;
+  }catch(_){ return null; }
+}
+async function vrDownload(id){
+  var row = _vrRows[id]; if(!row || !row.video_path) return;
+  var ext = (row.video_path.split('.').pop()||'mp4');
+  var nm = 'video-review-' + String(row.display_name||row.code||'customer').replace(/[^a-z0-9]+/gi,'-').toLowerCase() + '.' + ext;
+  var u = await _vrSigned(row.video_path, nm);
+  if(!u){ showToast('Couldn’t prepare the download'); return; }
+  var a = document.createElement('a'); a.href = u; a.download = nm; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();
+}
+async function vrSetStatus(id, st){
+  var patch = { status: st, updated_at: new Date().toISOString(), approved_at: st==='approved' ? new Date().toISOString() : null };
+  try{
+    var r = await sbFetch('/rest/v1/video_reviews?id=eq.'+id, { method:'PATCH', body: JSON.stringify(patch) });
+    if(!r.ok) throw 0;
+    showToast(st==='approved' ? 'Approved ✓' : st==='hidden' ? 'Hidden' : 'Updated');
+    var row = _vrRows[id]; if(row){ Object.assign(row, patch); if(row.lead_id) delete _vrCache[row.lead_id]; }
+    vrClose();
+    if(document.getElementById('vrList')) vrLoadList();
+    var ol = leads.find(function(x){ return x.dbId===(row&&row.lead_id); }); if(ol) vrLeadCard(ol);
+  }catch(e){ showToast('Couldn’t save — please try again'); }
+}
+
+// ── Admin: 🎥 Reviews chip ──
+function adReviewsHTML(){
+  var f = [['new','New'],['approved','Approved'],['all','All']];
+  var h = '<div style="padding:12px 12px 4px"><div style="display:flex;gap:6px">';
+  f.forEach(function(x){
+    var on = _vrFilter===x[0];
+    h += '<button onclick="_vrFilter=\''+x[0]+'\';vrLoadList()" style="padding:6px 14px;border-radius:20px;font-family:var(--f);font-size:12px;font-weight:500;cursor:pointer;border:1.5px solid '+(on?'var(--text)':'var(--border)')+';background:'+(on?'var(--text)':'var(--white)')+';color:'+(on?'#fff':'var(--sub)')+'">'+x[1]+'</button>';
+  });
+  h += '</div></div>';
+  h += '<div id="vrStats" style="padding:8px 12px 0"></div>';
+  h += '<div id="vrList" style="padding:8px 12px 24px"><div style="text-align:center;padding:30px;color:var(--sub);font-size:13px">Loading…</div></div>';
+  setTimeout(vrLoadList, 0);
+  return h;
+}
+async function vrLoadList(){
+  var box = document.getElementById('vrList'); if(!box) return;
+  // Repaint the filter chips (they live in the same view).
+  var chips = box.parentNode && box.parentNode.querySelectorAll('button');
+  var rows = [];
+  try{
+    var r = await sbFetch('/rest/v1/video_reviews?select=id,code,lead_id,campaign_id,status,video_path,duration_sec,rating,review_text,display_name,consent_public,opened_at,submitted_at,created_at,leads(name)&order=submitted_at.desc.nullslast,created_at.desc&limit=300');
+    rows = await r.json(); if(!Array.isArray(rows)) rows = [];
+  }catch(_){ box.innerHTML = '<div style="text-align:center;padding:30px;color:var(--sub);font-size:13px">Couldn’t load reviews.</div>'; return; }
+  box = document.getElementById('vrList'); if(!box) return;
+  rows.forEach(function(x){ _vrRows[x.id] = x; });
+  var asked = rows.length, opened = rows.filter(function(x){ return x.opened_at; }).length;
+  var got = rows.filter(function(x){ return x.status!=='requested'; }).length;
+  var st = document.getElementById('vrStats');
+  if(st) st.innerHTML = '<div style="display:flex;gap:16px;flex-wrap:wrap;background:var(--white);border:1px solid var(--border);border-radius:12px;padding:11px 14px;font-size:12px">'
+    + '<span style="color:var(--sub)">Links made <b style="color:var(--text)">'+asked+'</b></span>'
+    + '<span style="color:var(--sub)">Opened <b style="color:var(--text)">'+opened+'</b></span>'
+    + '<span style="color:var(--sub)">Reviews in <b style="color:var(--green)">'+got+'</b></span></div>';
+  var list = rows.filter(function(x){
+    if(_vrFilter==='new') return x.status==='received';
+    if(_vrFilter==='approved') return x.status==='approved';
+    return x.status!=='requested';
+  });
+  if(chips) [].forEach.call(document.querySelectorAll('#content button[onclick^="_vrFilter="]'), function(b){
+    var on = b.getAttribute('onclick').indexOf("'"+_vrFilter+"'")>-1;
+    b.style.background = on?'var(--text)':'var(--white)'; b.style.color = on?'#fff':'var(--sub)'; b.style.borderColor = on?'var(--text)':'var(--border)';
+  });
+  if(!list.length){
+    box.innerHTML = '<div style="text-align:center;padding:36px 20px;color:var(--sub);font-size:13px;line-height:1.6">'
+      + (_vrFilter==='new' ? 'No new reviews waiting.' : 'Nothing here yet.')
+      + '<br>Open any Deal Closed lead and tap <b>Text the link</b> to ask for one.</div>';
+    return;
+  }
+  var camps = {}; ((typeof _adminData!=='undefined' && _adminData && _adminData.campaigns) || []).forEach(function(c){ camps[c.id] = c.name; });
+  var h = '<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden">';
+  list.forEach(function(x, i){
+    var nm = (x.leads && x.leads.name) || x.display_name || 'Customer';
+    var sub = [_vrStars(x.rating), x.video_path ? '🎥 '+(x.duration_sec?Math.round(x.duration_sec)+'s':'video') : '✍️ written', timeAgo(x.submitted_at)].filter(Boolean).join(' · ');
+    h += '<div onclick="vrOpen(\''+x.id+'\')" style="display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;'+(i?'border-top:1px solid var(--border)':'')+'">'
+      + '<div style="width:40px;height:40px;border-radius:12px;background:#4000f322;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">'+(x.video_path?'🎥':'✍️')+'</div>'
+      + '<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_vrEsc(nm)+'</div>'
+      + '<div style="font-size:11px;color:var(--sub)">'+sub+'</div>'
+      + (camps[x.campaign_id] ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">'+_vrEsc(camps[x.campaign_id])+(x.consent_public?' · ✅ OK to share':'')+'</div>' : '')
+      + '</div>' + _vrBadge(x.status) + '</div>';
+  });
+  h += '</div>';
+  box.innerHTML = h;
 }
 
 function adMini(val, lbl) {
