@@ -1604,6 +1604,14 @@ body.impersonating .ls-topbar{padding-top:8px}
   </div>
 </div>
 
+<!-- ═══ AI AUTOPILOT SHEET (autopilot-3) ═══ -->
+<div class="sheet-ov" id="apSh" onclick="if(event.target===this)closeSheet('apSh')">
+  <div class="sheet" style="max-height:calc(94dvh - var(--kb,0px))"><div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title" id="apTitle">AI for this lead</div><button class="sheet-x" onclick="closeSheet('apSh')">&#x2715;</button></div>
+    <div class="sh-body" id="apBody" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom,16px))"></div>
+  </div>
+</div>
+
 <!-- ═══ VIDEO REVIEW SHEET (vr-1) ═══ -->
 <div class="sheet-ov" id="vrSh" onclick="if(event.target===this)vrClose()">
   <div class="sheet" style="max-height:calc(94dvh - var(--kb,0px))"><div class="sheet-handle"></div>
@@ -4557,7 +4565,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-01 vr-2';
+var APP_VERSION = 'v2026-10-01 ap-3';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6193,7 +6201,8 @@ function mapLead(l, i) {
     ai_score_reason: l.ai_score_reason || '',
     ai_summary:      l.ai_summary || '',
     ai_facts:        Array.isArray(l.ai_facts) ? l.ai_facts : [],
-    human_only:      l.human_only === true
+    human_only:      l.human_only === true,
+    ai_off:          (l.ai_off && typeof l.ai_off === 'object') ? l.ai_off : {}
   };
 }
 
@@ -10951,9 +10960,11 @@ async function loadSeqUpcoming(){
   window._seqUpLoading=true;
   try{
     var cid=window._clientId;
-    if(!cid){ window._seqUp=[]; }
+    // autopilot-3: staff (no client picked) see every client's queue — RLS decides.
+    var _staffAll = !cid && !(typeof isClientMode==='function' && isClientMode());
+    if(!cid && !_staffAll){ window._seqUp=[]; }
     else{
-      var r=await sbFetch('/rest/v1/playbook_enrollments?client_id=eq.'+encodeURIComponent(cid)+'&status=eq.active&next_at=not.is.null&select=lead_id,campaign_id,stage_key,next_step_no,next_at&limit=400');
+      var r=await sbFetch('/rest/v1/playbook_enrollments?'+(cid?'client_id=eq.'+encodeURIComponent(cid)+'&':'')+'status=eq.active&next_at=not.is.null&select=id,lead_id,campaign_id,stage_key,next_step_no,next_at,skipped_steps&order=next_at.asc&limit=400');
       var en=r.ok?await r.json():[];
       var cids={}; (en||[]).forEach(function(e){ if(e.campaign_id) cids[e.campaign_id]=1; });
       var stepMap={}; var keys=Object.keys(cids);
@@ -10974,14 +10985,16 @@ async function loadSeqUpcoming(){
         if(rails[e.campaign_id+'|_master']===false) return null;
         if(rails[e.campaign_id+'|'+e.stage_key]!==true) return null;
         var s=stepMap[e.campaign_id+'|'+e.stage_key+'|'+e.next_step_no]||{};
+        if(Array.isArray(e.skipped_steps) && e.skipped_steps.map(Number).indexOf(Number(e.next_step_no))>-1) return null;
         var prev=String((s.channel==='email'&&s.subject)?s.subject:(s.body||'')).slice(0,120);
-        return { lead_db:e.lead_id, next_at:e.next_at, channel:s.channel||'sms', preview:prev };
+        return { lead_db:e.lead_id, next_at:e.next_at, channel:s.channel||'sms', preview:prev, enr:e.id, step:e.next_step_no };
       }).filter(function(x){ return !!x; });
     }
   }catch(e){ window._seqUp=[]; }
   window._seqUpLoading=false; window._seqUpAt=Date.now();
   try{
     if(curTab==='followups'){ var c=document.getElementById('content'); if(c) c.innerHTML=followupsHTML(); }
+    if(curTab==='calls' && window._ibChan==='sched'){ var c2=document.getElementById('content'); if(c2) c2.innerHTML=callsHTML(); }
     var _lsc=document.getElementById('leadScreen');
     if(_lsc && _lsc.classList.contains('open') && curLid!=null && typeof renderLeadScreen==='function') renderLeadScreen(curLid);
   }catch(_e){}
@@ -12520,6 +12533,13 @@ function ibWhenLabel(ms, tz, clinic){
   return ds+' \u00b7 '+t2+suf;
 }
 
+// autopilot-3: one honest count for the Scheduled chip — every kind of queued item.
+function _ibSchedCount(sched){
+  var n=(sched?sched.length:0)+((window._ibSchedEmails&&window._ibSchedEmails.length)||0)+((window._ibSchedSms&&window._ibSchedSms.length)||0);
+  n+=(leads||[]).filter(function(x){ return x.ai_callback_at && !isNaN(new Date(x.ai_callback_at)) && new Date(x.ai_callback_at).getTime()>Date.now()-3600000; }).length;
+  n+=(window._seqUp||[]).filter(function(q){ return (leads||[]).some(function(x){ return String(x.dbId)===String(q.lead_db); }); }).length;
+  return n;
+}
 function callsHTML(){
   if(!window._ibChan){ window._ibChan = (typeof ibDefGet==='function') ? ibDefGet() : 'all'; }
   window._ibChan = window._ibChan || 'all';     // all | call | sms | email | sched
@@ -12625,7 +12645,7 @@ function callsHTML(){
     +   chChip('call','\uD83D\uDCDE Calls ('+nCall+')')
     +   chChip('sms','\uD83D\uDCAC SMS ('+nSms+')')
     +   chChip('email','\uD83D\uDCE7 Email ('+_emails.length+')')
-    +   chChip('sched','\u23F3 Scheduled ('+(_sched.length + ((window._ibSchedEmails&&window._ibSchedEmails.length)||0))+')')
+    +   chChip('sched','\u23F3 Scheduled ('+_ibSchedCount(_sched)+')')
     + '</div>'
     + '<div style="padding:4px 14px 8px;display:flex;gap:7px;overflow-x:auto;-webkit-overflow-scrolling:touch">'
     +   ((window._ibChan==='sched'||window._ibChan==='email') ? '' : (whoChip('all','All') + whoChip('ai','\uD83E\uDD16 AI') + whoChip('human','\uD83D\uDC64 Human')))
@@ -12817,9 +12837,32 @@ function callsHTML(){
           +'<div class="call-av" style="background:#eef2ff;color:#4f46e5;cursor:pointer" onclick="openLead('+x.id+')">\uD83E\uDD16</div>'
           +'<div style="flex:1;min-width:0;cursor:pointer" onclick="openLead('+x.id+')">'
           +'<div style="font-size:14.5px;font-weight:500;color:var(--text)">'+sanitize(x.name||'Lead')+'</div>'
-          +'<div style="font-size:12.5px;color:var(--text);margin-top:2px">Selina calls '+when+(x.ai_call_attempts?' \u00b7 try '+(x.ai_call_attempts+1):'')+'</div>'
+          +'<div style="font-size:12.5px;color:var(--text);margin-top:2px">AI calls '+when+(x.ai_call_attempts?' \u00b7 try '+(x.ai_call_attempts+1):'')+'</div>'
           +'</div>'
           +'<button onclick="aiCallCancel('+x.id+',this)" style="flex-shrink:0;padding:6px 12px;border-radius:20px;border:1.5px solid #fecaca;background:#fff;color:var(--red);font-size:11.5px;font-weight:500;cursor:pointer;font-family:var(--f)">Cancel</button>'
+          +'</div>';
+      });
+      _seHtml+='</div>';
+    }
+    // autopilot-3: the NEXT automatic follow-up message for each lead (follow-up plans)
+    if(window._seqUp===undefined || !window._seqUpAt || Date.now()-window._seqUpAt>120000){ try{ loadSeqUpcoming(); }catch(_e){} }
+    var _pbRows=(window._seqUp||[]).map(function(q){ var ld=(leads||[]).find(function(x){ return String(x.dbId)===String(q.lead_db); }); return ld?{q:q,l:ld}:null; })
+      .filter(function(x){ return !!x; }).sort(function(a,b){ return new Date(a.q.next_at)-new Date(b.q.next_at); });
+    if(_pbRows.length){
+      _seHtml+='<div style="padding:12px 16px 7px;font-size:11.5px;font-weight:600;letter-spacing:.06em;color:var(--sub);text-transform:uppercase;background:var(--bg)">\uD83D\uDCCB Follow-up plan \u2014 next message <span style="color:var(--green)">('+_pbRows.length+')</span></div><div style="background:var(--white)">';
+      _pbRows.forEach(function(r){
+        var q=r.q, x=r.l, d=new Date(q.next_at);
+        var ic=q.channel==='email'?'\uD83D\uDCE7':q.channel==='call'?'\uD83D\uDCDE':q.channel==='task'?'\uD83D\uDC64':'\uD83D\uDCAC';
+        var kind=q.channel==='email'?'Email':q.channel==='call'?'AI call':q.channel==='task'?'Reminder for you':'Text';
+        var when=isNaN(d)?'':('\u2248 '+d.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})+' \u00b7 '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}));
+        _seHtml+='<div style="border-bottom:1px solid var(--border);padding:12px 14px;display:flex;align-items:flex-start;gap:11px">'
+          +'<div class="call-av" style="background:#f0fdf4;color:#15803d;cursor:pointer" onclick="openLead('+x.id+')">'+ic+'</div>'
+          +'<div style="flex:1;min-width:0;cursor:pointer" onclick="openLead('+x.id+')">'
+          +'<div style="font-size:14.5px;font-weight:500;color:var(--text)">'+sanitize(x.name||'Lead')+' <span style="font-size:11px;font-weight:500;color:var(--sub)">\u00b7 '+kind+'</span></div>'
+          +'<div style="font-size:12.5px;color:var(--text);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+sanitize(String(q.preview||''))+'</div>'
+          +'<div style="font-size:11.5px;color:var(--sub);margin-top:2px">'+when+'</div>'
+          +'</div>'
+          +'<button onclick="pbSkipOne(\''+q.enr+'\','+Number(q.step)+',this)" style="flex-shrink:0;max-width:120px;padding:6px 12px;border-radius:20px;border:1.5px solid #fecaca;background:#fff;color:var(--red);font-size:11.5px;font-weight:500;cursor:pointer;font-family:var(--f)">Cancel</button>'
           +'</div>';
       });
       _seHtml+='</div>';
@@ -12844,7 +12887,7 @@ function callsHTML(){
     }
     var sHtml='';
     if(!_sched.length){
-      sHtml=(_seHtml ? '' : '<div style="text-align:center;padding:32px 16px;color:var(--sub);font-size:13px">Nothing scheduled right now.<br><span style="font-size:12px">AI calls, reminder texts and scheduled emails show up here automatically.</span></div>');
+      sHtml=(_seHtml ? '' : '<div style="text-align:center;padding:32px 16px;color:var(--sub);font-size:13px">Nothing scheduled right now.<br><span style="font-size:12px">AI calls, follow-up messages, reminder texts and scheduled emails all show up here.</span></div>');
     } else {
       sHtml='<div style="padding:10px 14px 4px;font-size:12px;color:var(--sub);line-height:1.55">These texts go out automatically. Timing and wording come from each campaign\u2019s \u2699 settings.</div>';
       var lastK=null, openG=false;
@@ -15583,6 +15626,7 @@ async function pbSkipOne(enrId, stepNo, btn){
     if(!p.ok){ showToast('Could not cancel \u2014 try again'); return; }
     showToast('\u2705 Cancelled \u2014 that message will be skipped');
     if(window._lastActLead) loadLeadActivity(window._lastActLead.localId, window._lastActLead.dbId);
+    try{ window._seqUpAt=0; loadSeqUpcoming(); }catch(_e){}
   }catch(e){ showToast('Could not cancel \u2014 try again'); }
 }
 async function coachDecide(id, act, btn){
@@ -15634,6 +15678,135 @@ async function toggleHumanOnly(localId){
     renderLeadScreen(localId);
   }catch(e){ showToast('Could not save \u2014 try again'); }
 }
+// ═══════════════════════════════════════════════════════
+// AI AUTOPILOT SHEET (autopilot-3, 2026-10-01)
+// Master switch (leads.human_only) + five per-lead switches (leads.ai_off):
+//   call_out · call_in · sms · email · plan   (true = that one thing is OFF)
+// The database does the cancelling the moment a switch flips
+// (trg_autopilot_off_cleanup) and every sender checks the same switches.
+// ═══════════════════════════════════════════════════════
+var AP_CH = [
+  { k:'call_out', i:'📞', t:'AI calls them', sh:'AI calls', s:'Scheduled and follow-up AI phone calls' },
+  { k:'call_in',  i:'📲', t:'AI answers their calls', sh:'AI answering their calls', s:'Off = when they call, it rings your phone' },
+  { k:'sms',      i:'💬', t:'AI texts', sh:'AI texts', s:'Automatic replies and follow-up texts' },
+  { k:'email',    i:'✉️', t:'Automated emails', sh:'emails', s:'Follow-up emails' },
+  { k:'plan',     i:'📋', t:'Follow-up plan', sh:'follow-up plan', s:'The automatic step-by-step follow-ups' }
+];
+var _apLid = null, _apBusy = false;
+function _apOff(l){ return (l && l.ai_off && typeof l.ai_off === 'object') ? l.ai_off : {}; }
+function _apOffList(l){
+  if (!l) return [];
+  if (l.human_only) return AP_CH.map(function(c){ return c.k; });
+  var o = _apOff(l); return AP_CH.filter(function(c){ return o[c.k] === true; }).map(function(c){ return c.k; });
+}
+// One-line state for the lead screen row.
+function apSummary(l){
+  if (l.human_only) return 'OFF — a person handles this lead: no AI calls, texts or emails, and their calls ring you';
+  var off = _apOffList(l);
+  if (!off.length) return 'ON — the AI may call, text and email this lead automatically';
+  var names = AP_CH.filter(function(c){ return off.indexOf(c.k) > -1; }).map(function(c){ return c.sh; });
+  return 'PARTLY ON — off for this lead: ' + names.join(', ');
+}
+function _apToggle(on, dim){
+  return '<div style="width:44px;height:26px;border-radius:20px;background:'+(on?'var(--green)':'var(--border)')+';position:relative;flex-shrink:0;opacity:'+(dim?'.45':'1')+';transition:background .15s">'
+    + '<div style="position:absolute;top:3px;'+(on?'right:3px':'left:3px')+';width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)"></div></div>';
+}
+function openApSheet(localId){
+  var l = leads.find(function(x){ return x.id === localId; });
+  if (!l || !l.dbId) return;
+  _apLid = localId;
+  apRender();
+  openSheet('apSh');
+}
+function apRender(){
+  var l = leads.find(function(x){ return x.id === _apLid; });
+  var b = document.getElementById('apBody'); if (!b || !l) return;
+  var t = document.getElementById('apTitle'); if (t) t.textContent = '🤖 AI for ' + (l.name || 'this lead');
+  var master = !l.human_only, o = _apOff(l);
+  var h = '';
+  h += '<div onclick="apSetMaster('+(master?'false':'true')+')" style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:14px;border:1.5px solid '+(master?'var(--green)':'var(--border)')+';background:'+(master?'var(--greenl)':'var(--bg)')+';cursor:pointer;margin-bottom:16px">'
+    + '<div style="font-size:22px">🤖</div>'
+    + '<div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600;color:var(--text)">AI Autopilot</div>'
+    + '<div style="font-size:12px;color:var(--sub);margin-top:2px">'+(master?'On — turn off to stop ALL AI for this lead at once':'Off — a person handles this lead. Turn on to let the AI help again')+'</div></div>'
+    + _apToggle(master, false) + '</div>';
+  h += '<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);margin:0 2px 6px">Or switch off just one thing</div>';
+  h += '<div style="border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--white)">';
+  AP_CH.forEach(function(c, i){
+    var on = master && o[c.k] !== true;
+    h += '<div onclick="apSetCh(\''+c.k+'\')" style="display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer;'+(i?'border-top:1px solid var(--border);':'')+(master?'':'opacity:.6;')+'">'
+      + '<div style="font-size:18px;width:24px;text-align:center">'+c.i+'</div>'
+      + '<div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:500;color:var(--text)">'+c.t+'</div>'
+      + '<div style="font-size:11.5px;color:var(--sub);margin-top:1px">'+c.s+'</div></div>'
+      + _apToggle(on, !master) + '</div>';
+  });
+  h += '</div>';
+  h += '<div style="font-size:11.5px;color:var(--sub);line-height:1.55;margin-top:12px">Switching something off cancels what was already scheduled for it. Appointment reminders keep going. If they text STOP, all texts stop automatically.</div>';
+  h += '<button onclick="apShowSched()" style="width:100%;margin-top:14px;padding:12px;border-radius:12px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-family:var(--f);font-size:13px;font-weight:500;cursor:pointer">🕒 See everything scheduled for this lead</button>';
+  b.innerHTML = h;
+}
+function apShowSched(){
+  closeSheet('apSh');
+  window._actFilter = 'sched';
+  if (typeof renderLeadScreen === 'function') renderLeadScreen(_apLid);
+  setTimeout(function(){ var b = document.querySelector('#lsBody [data-filter="sched"]'); if (b) b.scrollIntoView({ behavior:'smooth', block:'start' }); }, 60);
+}
+async function _apSave(l, body, okMsg){
+  if (_apBusy) return; _apBusy = true;
+  try{
+    var r = await sbFetch('/rest/v1/leads?id=eq.'+l.dbId, { method:'PATCH', headers:{'Prefer':'return=representation'}, body: JSON.stringify(body) });
+    if (!r.ok) throw 0;
+    var rows = await r.json().catch(function(){ return []; });
+    var row = Array.isArray(rows) && rows[0];
+    if (row){ l.human_only = row.human_only === true; l.ai_off = row.ai_off || {}; l.ai_callback_at = row.ai_callback_at || null; }
+    else { if ('human_only' in body) l.human_only = body.human_only; if ('ai_off' in body) l.ai_off = body.ai_off; }
+    showToast(okMsg);
+    apRender();
+    if (typeof renderLeadScreen === 'function' && document.getElementById('leadScreen').classList.contains('open')) renderLeadScreen(l.id);
+    if (window._lastActLead && typeof loadLeadActivity === 'function') loadLeadActivity(window._lastActLead.localId, window._lastActLead.dbId);
+  }catch(e){ showToast('Could not save — try again'); }
+  _apBusy = false;
+}
+function apSetMaster(on){
+  var l = leads.find(function(x){ return x.id === _apLid; }); if (!l) return;
+  if (on) _apSave(l, { human_only:false, ai_off:{} }, '🤖 AI is back on for this lead. Restart follow-ups from the Conversion Engine if you want them.');
+  else _apSave(l, { human_only:true, ai_callback_at:null }, '🙋 AI off — all AI calls, texts and follow-ups cancelled. If they call, it rings you.');
+}
+function apSetCh(k){
+  var l = leads.find(function(x){ return x.id === _apLid; }); if (!l) return;
+  if (l.human_only){ showToast('Turn AI Autopilot on first'); return; }
+  var o = Object.assign({}, _apOff(l));
+  var c = AP_CH.find(function(x){ return x.k === k; }) || { t:k };
+  var turningOff = o[k] !== true;
+  if (turningOff) o[k] = true; else delete o[k];
+  _apSave(l, { ai_off:o }, turningOff ? ('⏸️ ' + c.t + ' — off for this lead') : ('▶️ ' + c.t + ' — back on'));
+}
+
+// ═══ Cancel EVERYTHING scheduled for one lead (AI stays on for replies) ═══
+async function leadCancelAll(localId, btn){
+  var l = leads.find(function(x){ return x.id === localId; }); if (!l || !l.dbId) return;
+  if (btn && btn.dataset.armed !== '1'){
+    btn.dataset.armed = '1'; btn.textContent = 'Tap again to cancel everything below';
+    setTimeout(function(){ if (btn){ btn.dataset.armed = '0'; btn.textContent = '🚫 Cancel everything scheduled'; } }, 3500);
+    return;
+  }
+  if (btn){ btn.disabled = true; btn.textContent = 'Cancelling…'; }
+  try{
+    var r = await sbFetch('/rest/v1/rpc/lead_cancel_scheduled', { method:'POST', body: JSON.stringify({ p_lead: l.dbId }) });
+    var j = await r.json().catch(function(){ return {}; });
+    if (!r.ok || !j || j.ok !== true) throw 0;
+    l.ai_callback_at = null;
+    window._ibSchedSms = undefined; window._ibSchedEmails = undefined; window._seqUpAt = 0;
+    var n = (j.calls||0) + (j.plans||0) + (j.approvals||0) + (j.texts||0) + (j.emails||0);
+    showToast(n ? '🚫 Cancelled — nothing automatic will go out to this lead now (appointment reminders kept)' : 'Nothing was scheduled');
+    if (window._lastActLead && typeof loadLeadActivity === 'function') loadLeadActivity(window._lastActLead.localId, window._lastActLead.dbId);
+    if (typeof renderLeadScreen === 'function') renderLeadScreen(l.id);
+    try{ loadSeqUpcoming(); }catch(_e){}
+  }catch(e){
+    showToast('Could not cancel — try again');
+    if (btn){ btn.disabled = false; btn.dataset.armed = '0'; btn.textContent = '🚫 Cancel everything scheduled'; }
+  }
+}
+
 // stability-2: leaving a lead, or switching to another one, always stops playback.
 function _lsStopAudio(){
   try{
@@ -15881,18 +16054,18 @@ function renderLeadScreen(id) {
     // AI Employee page (the real place to turn it on) instead of flipping a
     // lead flag that would do nothing.
     var _apEffOn = !_apMasterOff && !l.human_only;
-    var _apClick = _apMasterOff ? ('apGoToAiSettings(\''+String((_camp&&_camp.id)||'')+'\')') : ('toggleHumanOnly('+l.id+')');
+    var _apPartial = _apEffOn && (typeof _apOffList==='function') && _apOffList(l).length > 0;
+    var _apClick = _apMasterOff ? ('apGoToAiSettings(\''+String((_camp&&_camp.id)||'')+'\')') : ('openApSheet('+l.id+')');
     var _apSub;
     if (_apMasterOff) _apSub = 'OFF \u2014 Autopilot is off for this whole campaign';
-    else if (l.human_only) _apSub = 'OFF \u2014 a person handles this lead: no AI calls or texts, and their calls ring you';
-    else _apSub = 'ON \u2014 the AI may call and text this lead automatically';
+    else _apSub = apSummary(l);
     h += '<div onclick="'+_apClick+'" style="background:var(--white);padding:12px 16px;margin-bottom:4px;display:flex;align-items:center;gap:10px;cursor:pointer">'
       + '<div style="font-size:20px;flex-shrink:0">\ud83e\udd16</div>'
       + '<div style="flex:1;min-width:0"><div style="font-weight:500;font-size:14px;color:var(--text)">AI Autopilot for this lead</div>'
       + '<div style="font-size:12px;color:var(--sub)">'+_apSub+'</div>'
       + (_apMasterOff ? '<div style="font-size:11.5px;color:#8a6116;background:#fff7e6;border:1px solid #f2d49b;border-radius:8px;padding:6px 9px;margin-top:6px;line-height:1.45">\u26a0\ufe0f Tap here to open Campaign settings \u2192 AI Employee and turn Autopilot on for the whole campaign.</div>' : '')
       + '</div>'
-      + '<div style="width:44px;height:26px;border-radius:20px;background:'+(_apEffOn?'var(--green)':'var(--border)')+';position:relative;flex-shrink:0;transition:background .15s"><div style="position:absolute;top:3px;'+(_apEffOn?'right:3px':'left:3px')+';width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)"></div></div>'
+      + '<div style="width:44px;height:26px;border-radius:20px;background:'+(_apEffOn?(_apPartial?'var(--amber)':'var(--green)'):'var(--border)')+';position:relative;flex-shrink:0;transition:background .15s"><div style="position:absolute;top:3px;'+(_apEffOn?'right:3px':'left:3px')+';width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)"></div></div>'
       + '</div>';
   }
 
@@ -16167,7 +16340,7 @@ function renderLeadScreen(id) {
         _schedItems.push({ type:'sched_aicall', _when:_cbD.getTime(),
           label:'\uD83E\uDD16 AI phone call'+(l.ai_call_attempts?' \u00b7 try '+(l.ai_call_attempts+1):''),
           time:(function(){ try{ var _z=_cbEff&&_cbEff.tz; return _cbD.toLocaleDateString('en-CA',(_z?{timeZone:_z,weekday:'short',month:'short',day:'numeric'}:{weekday:'short',month:'short',day:'numeric'}))+' '+_cbD.toLocaleTimeString('en-CA',(_z?{timeZone:_z,hour:'numeric',minute:'2-digit'}:{hour:'numeric',minute:'2-digit'}))+(_z?(' ('+(_cbEff.clinic?'clinic time':((typeof tzShortLabel==='function')?tzShortLabel(_z):_z))+')'):''); }catch(_ce){ return _cbD.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})+' '+_cbD.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}); } })(),
-          body:'Selina will call automatically. Held if the person is texting with us; moved if it lands outside 9 AM\u20138 PM their time.' });
+          body:'The AI will call automatically. Held if the person is texting with us; moved if it lands outside 9 AM\u20138 PM their time.' });
       }
     }
     var _pbHint=true;
@@ -16242,8 +16415,12 @@ function renderLeadScreen(id) {
   });
   h += '</div>';
 
+  // autopilot-3: one tap cancels everything scheduled for this lead.
+  if(actFilter==='sched' && _schedItems.some(function(x){ return x.type!=='sched_sms'; })){
+    h += '<button onclick="leadCancelAll('+l.id+',this)" style="width:100%;margin:2px 0 10px;padding:11px;border-radius:12px;border:1.5px solid #fecaca;background:#fff;color:var(--red);font-family:var(--f);font-size:13px;font-weight:600;cursor:pointer">\uD83D\uDEAB Cancel everything scheduled</button>';
+  }
   if(!filteredActs.length){
-    h += '<div style="text-align:center;color:var(--sub);font-size:13px;padding:20px 0">No '+actFilter+' activity yet</div>';
+    h += '<div style="text-align:center;color:var(--sub);font-size:13px;padding:20px 0">'+(actFilter==='sched'?'Nothing scheduled for this lead.':'No '+actFilter+' activity yet')+'</div>';
   } else {
 
   var icons={call:'📞',sms:'💬',sms_sent:'💬',sms_received:'📩',email_sent:'📧',email:'📧',email_opened:'👁',note:'📝',fu:'🗓️',stage_change:'⚡',
@@ -18623,7 +18800,7 @@ function aiCallReschedule(localId){
   var ov=document.createElement('div'); ov.className='sheet-ov'; ov.style.display='flex'; ov.id='aiCbSheet';
   ov.innerHTML='<div class="sheet" style="max-height:70vh"><div class="sh-head"><div class="sh-title">\uD83E\uDD16 Change AI call time</div><button class="sh-x" onclick="this.closest(\'.sheet-ov\').remove()">\u2715</button></div>'
     +'<div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom))">'
-    +'<div style="font-size:13px;color:var(--sub);margin-bottom:10px">Pick when Selina should call <b>'+sanitize(l.name||'this lead')+'</b>. Times are in your clock; calls are held during quiet hours automatically.</div>'
+    +'<div style="font-size:13px;color:var(--sub);margin-bottom:10px">Pick when the AI should call <b>'+sanitize(l.name||'this lead')+'</b>. Times are in your clock; calls are held during quiet hours automatically.</div>'
     +'<input id="aiCbWhen" type="datetime-local" value="'+val+'" style="width:100%;padding:12px;border:1.5px solid var(--border);border-radius:10px;font-family:var(--f);font-size:15px">'
     +'<button class="btn" style="width:100%;justify-content:center;margin-top:12px;background:var(--green);color:#fff;font-weight:600;padding:13px" onclick="aiCallRescheduleSave('+localId+',this)">Save time</button>'
     +'</div></div>';
