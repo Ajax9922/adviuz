@@ -1612,6 +1612,14 @@ body.impersonating .ls-topbar{padding-top:8px}
   </div>
 </div>
 
+<!-- ═══ AI AFTER THE MEETING (am-1) ═══ -->
+<div class="sheet-ov" id="amSh" onclick="if(event.target===this)amKeep()">
+  <div class="sheet" style="max-height:calc(94dvh - var(--kb,0px))"><div class="sheet-handle"></div>
+    <div class="sheet-head"><div class="sheet-title" id="amTitle">Meeting done ✅</div><button class="sheet-x" onclick="amKeep()">&#x2715;</button></div>
+    <div class="sh-body" id="amBody" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom,16px))"></div>
+  </div>
+</div>
+
 <!-- ═══ VIDEO REVIEW SHEET (vr-1) ═══ -->
 <div class="sheet-ov" id="vrSh" onclick="if(event.target===this)vrClose()">
   <div class="sheet" style="max-height:calc(94dvh - var(--kb,0px))"><div class="sheet-handle"></div>
@@ -4565,7 +4573,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-01 ap-4';
+var APP_VERSION = 'v2026-10-02 am-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -7577,6 +7585,7 @@ function setQuickStage(stage){
   } else {
     render();
   }
+  if (typeof amAfterStage === 'function') amAfterStage(l, old, stage);
 }
 
 // ── rpt-1: multiple payments per lead ────────────────────────────────
@@ -7728,6 +7737,7 @@ async function saveDealValueAndClose(){
   } else {
     render();
   }
+  if (typeof amAfterStage === 'function') amAfterStage(l, _dvOldStage, _dvNewStage);
 }
 function skipDealValueAndClose(){
   // User chose to skip entering value — just patch the stage change.
@@ -7749,6 +7759,7 @@ function skipDealValueAndClose(){
   } else {
     render();
   }
+  if (l && typeof amAfterStage === 'function') amAfterStage(l, _dvOldStage, _dvNewStage);
 }
 
 // ═══════════════════════════════════════
@@ -15694,6 +15705,184 @@ var AP_CH = [
 ];
 var _apLid = null, _apBusy = false;
 function _apOff(l){ return (l && l.ai_off && typeof l.ai_off === 'object') ? l.ai_off : {}; }
+// ═══ am-1: AI AFTER THE MEETING ═══
+// Campaign setting settings.ai.after_meeting = { mode:'ask'|'auto'|'choose'|'keep', off:{call_out..plan} }.
+// 'auto'/'choose' are applied by the database the moment a lead reaches stage 6+ (trg_after_meeting_ai);
+// Default (no setting saved) = 'auto' (Ajax 2026-10-02): AI goes quiet after the meeting.
+// 'ask' opens this pop-up so the person decides for that lead.
+var _amLid = null, _amSel = {}, _amRemember = false, _amBusy = false;
+function _stRank(st){
+  var t = String(st || ''), m = t.match(/^\s*(\d+)\s*\./);
+  if (m) return parseInt(m[1], 10);
+  t = t.toLowerCase();
+  var map = [['fresh',1],['not connected',2],['callback',3],['follow',4],['meeting booked',5],['meeting done',6],['proposal',7],['negotiat',8],['deal closed',9],['not interested',10],['future prospect',11],['visited',12],['partnership',13],['vendor',14],['looking for job',15]];
+  for (var i = 0; i < map.length; i++){ if (t.indexOf(map[i][0]) !== -1) return map[i][1]; }
+  return 0;
+}
+function _amSetting(cp){
+  var a = (cp && cp.settings && cp.settings.ai && cp.settings.ai.after_meeting) || {};
+  var mode = (a.mode === 'ask' || a.mode === 'choose' || a.mode === 'keep') ? a.mode : 'auto';
+  return { mode: mode, off: (a.off && typeof a.off === 'object') ? a.off : {} };
+}
+function _amCanEditCamp(){ return window._isAdviuzStaff === true || window._isAccountOwner === true; }
+// Called after every stage change in the app.
+function amAfterStage(l, oldStage, newStage){
+  try{
+    if (!l || !l.dbId) return;
+    if (_stRank(newStage) < 6 || _stRank(oldStage) >= 6) return;
+    if (l.human_only === true) return;
+    var cp = (typeof ibCampaignFor === 'function') ? ibCampaignFor(l) : null;
+    if (!cp) return;
+    var st = _amSetting(cp);
+    if (st.mode === 'keep') return;
+    if (st.mode === 'auto' || st.mode === 'choose'){
+      // The database already switched it off — refresh this lead so the screen matches.
+      setTimeout(function(){ _amRefreshLead(l, '\uD83D\uDE4B Meeting done \u2014 the AI has stopped contacting '+(String(l.name||'this lead').split(' ')[0])+'. Want follow-ups? Campaign settings \u2192 AI Employee.'); }, 900);
+      return;
+    }
+    var o = _apOff(l);
+    if (AP_CH.every(function(c){ return o[c.k] === true; })) return;
+    _amLid = l.id; _amRemember = false; _amSel = {};
+    AP_CH.forEach(function(c){ _amSel[c.k] = o[c.k] !== true; });
+    setTimeout(function(){ amRender(); openSheet('amSh'); }, 350);
+  }catch(e){ console.warn('[am]', e && e.message); }
+}
+async function _amRefreshLead(l, msg){
+  try{
+    var r = await sbFetch('/rest/v1/leads?id=eq.'+l.dbId+'&select=human_only,ai_off,ai_callback_at');
+    var rows = r.ok ? await r.json() : [];
+    if (rows && rows[0]){ l.human_only = rows[0].human_only === true; l.ai_off = rows[0].ai_off || {}; l.ai_callback_at = rows[0].ai_callback_at || null; }
+    if (msg && (l.human_only || Object.keys(_apOff(l)).length)) showToast(msg);
+    if (typeof curLid !== 'undefined' && curLid === l.id && typeof renderLeadScreen === 'function') renderLeadScreen(l.id);
+    if (window._lastActLead && typeof loadLeadActivity === 'function') loadLeadActivity(window._lastActLead.localId, window._lastActLead.dbId);
+  }catch(e){}
+}
+function _amToggle(on){
+  return '<div style="width:44px;height:26px;border-radius:20px;background:'+(on?'#e11d48':'var(--border)')+';position:relative;flex-shrink:0;transition:background .15s">'
+    + '<div style="position:absolute;top:3px;'+(on?'right:3px':'left:3px')+';width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)"></div></div>';
+}
+function amRender(){
+  var l = leads.find(function(x){ return x.id === _amLid; });
+  var b = document.getElementById('amBody'); if (!b || !l) return;
+  var nm = String(l.name || '').trim(), first = nm ? nm.split(' ')[0] : 'this lead';
+  var o = _apOff(l), h = '';
+  h += '<div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:14px">'
+    + '<div style="width:42px;height:42px;border-radius:12px;background:var(--greenl);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">\uD83D\uDE4B</div>'
+    + '<div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600;color:var(--text)">Turn off the AI for '+_csEsc(first)+'?</div>'
+    + '<div style="font-size:13px;color:var(--sub);margin-top:3px;line-height:1.45">You\u2019ve met them, so your team can take it from here. The AI will stop contacting them.</div></div></div>';
+  h += '<div style="font-size:11.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#be123c;margin:0 2px 6px">Switch off for '+_csEsc(first)+'</div>';
+  h += '<div style="border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--white);margin-bottom:12px">';
+  AP_CH.forEach(function(c, i){
+    var already = o[c.k] === true;
+    h += '<div onclick="'+(already?'':'amFlip(\''+c.k+'\')')+'" style="display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer;'+(i?'border-top:1px solid var(--border);':'')+(already?'opacity:.5;':'')+'">'
+      + '<div style="font-size:18px;width:24px;text-align:center">'+c.i+'</div>'
+      + '<div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:500;color:var(--text)">'+c.t+'</div>'
+      + '<div style="font-size:11.5px;color:var(--sub);margin-top:1px">'+(already?'Already off':c.s)+'</div></div>'
+      + _amToggle(already || _amSel[c.k] === true) + '</div>';
+  });
+  h += '</div>';
+  if (_amCanEditCamp()){
+    h += '<div onclick="_amRemember=!_amRemember;amRender()" style="display:flex;gap:10px;align-items:flex-start;background:#f7f2fc;border-radius:12px;padding:12px 14px;margin-bottom:14px;cursor:pointer">'
+      + '<div style="width:20px;height:20px;border-radius:6px;border:2px solid '+(_amRemember?'#4000f3':'#b9a6f7')+';background:'+(_amRemember?'#4000f3':'transparent')+';color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px">'+(_amRemember?'\u2713':'')+'</div>'
+      + '<div><div style="font-size:13.5px;font-weight:600;color:var(--text)">Do this automatically for my next leads</div>'
+      + '<div style="font-size:12px;color:var(--sub);margin-top:2px;line-height:1.45">Every lead in this campaign that reaches Meeting Done or later will have these turned off. You won\u2019t see this pop-up again. Change it any time in Campaign settings \u2192 AI Employee.</div></div></div>';
+  }
+  var n = AP_CH.filter(function(c){ return _amSel[c.k] === true && o[c.k] !== true; }).length;
+  h += '<button onclick="amApply()" '+(_amBusy?'disabled ':'')+'style="width:100%;border:none;border-radius:12px;padding:14px;background:var(--text);color:#fff;font-family:var(--f);font-size:15px;font-weight:600;cursor:pointer">'+(n?('Turn off AI for '+_csEsc(first)):'Save')+'</button>';
+  h += '<button onclick="amKeep()" style="width:100%;border:none;border-radius:12px;padding:14px;background:var(--bg);color:var(--text);font-family:var(--f);font-size:15px;font-weight:600;cursor:pointer;margin-top:8px">Keep AI on</button>';
+  h += '<div style="font-size:11.5px;color:var(--muted);text-align:center;margin-top:10px">Appointment reminders still go out.</div>';
+  b.innerHTML = h;
+}
+function amFlip(k){ _amSel[k] = !(_amSel[k] === true); amRender(); }
+// AI Employee page card
+var _amSetMode = 'ask', _amSetOff = {};
+function amSettingsHTML(cp){
+  var st = _amSetting(cp);
+  _amSetMode = st.mode;
+  _amSetOff = {};
+  AP_CH.forEach(function(c){ _amSetOff[c.k] = st.mode === 'choose' ? (st.off[c.k] === true) : true; });
+  return '<div class="cs-h" style="margin-top:20px">\uD83D\uDE4B After the meeting is done</div>'
+    + '<div class="cs-note">What should the AI do once a lead reaches <b>Meeting Done</b> or any later stage (Proposal Sent, Negotiating, Deal Closed and the stages after)?</div>'
+    + '<div id="amSetBox">' + amSettingsInner() + '</div>';
+}
+function amSettingsInner(){
+  var opt = function(k, title, sub, tag){
+    var on = _amSetMode === k;
+    return '<div onclick="amSetMode(\''+k+'\')" style="display:flex;gap:10px;align-items:flex-start;border:1.5px solid '+(on?'#4000f3':'var(--border)')+';background:'+(on?'#faf8ff':'var(--white)')+';border-radius:12px;padding:11px 12px;margin-top:8px;cursor:pointer">'
+      + '<div style="width:18px;height:18px;border-radius:50%;border:2px solid '+(on?'#4000f3':'#c7c2d6')+';flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center">'+(on?'<div style="width:8px;height:8px;border-radius:50%;background:#4000f3"></div>':'')+'</div>'
+      + '<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600;color:var(--text)">'+title+(tag?' <span style="font-size:10px;font-weight:700;background:var(--amberl);color:#92400e;padding:2px 7px;border-radius:999px;margin-left:4px">'+tag+'</span>':'')+'</div>'
+      + '<div style="font-size:12px;color:var(--sub);margin-top:2px;line-height:1.4">'+sub+'</div></div></div>';
+  };
+  var h = opt('auto', 'Turn the AI off automatically', 'No calls, texts, emails or follow-ups. Their calls ring your team.', 'DEFAULT')
+    + opt('ask', 'Ask me each time', 'A pop-up asks you when you move a lead to Meeting Done.')
+    + opt('choose', 'Turn off only what I choose', 'Pick which ones stop.');
+  if (_amSetMode === 'choose'){
+    h += '<div style="margin:8px 0 0 28px;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--white)">'
+      + '<div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#be123c;padding:9px 14px 2px">Red = switch off</div>';
+    AP_CH.forEach(function(c, i){
+      h += '<div onclick="amSetFlip(\''+c.k+'\')" style="display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer;border-top:1px solid var(--border)">'
+        + '<div style="font-size:16px;width:22px;text-align:center">'+c.i+'</div><div style="flex:1;font-size:13.5px;color:var(--text)">'+c.t+'</div>'
+        + _amToggle(_amSetOff[c.k] === true) + '</div>';
+    });
+    h += '</div>';
+  }
+  h += opt('keep', 'Keep the AI on', 'The AI keeps following up using your Meeting Done, Proposal Sent and Deal Closed follow-ups.');
+  if (_amSetMode === 'keep'){
+    h += '<div style="margin:8px 0 0 28px;background:#fff7e6;border:1px solid #f2d49b;border-radius:12px;padding:12px 14px">'
+      + '<div style="font-size:12.5px;color:#8a6116;line-height:1.5"><b>Read these messages first.</b> After a meeting, the AI sends whatever is written in your Automated Follow-ups for Meeting Done and the stages after it. Make sure every message is true for your business \u2014 for example, don\u2019t promise a treatment plan unless your team really sends one.</div>'
+      + '<button type="button" onclick="amSaveAndOpenPb()" style="width:100%;margin-top:10px;border:none;border-radius:10px;padding:11px;background:var(--text);color:#fff;font-family:var(--f);font-size:13px;font-weight:600;cursor:pointer">\uD83D\uDCD6 Save & open Automated Follow-ups</button>'
+      + '</div>';
+  }
+  h += '<div class="cs-note" style="margin-top:10px">You can always turn the AI back on for one lead from its AI Autopilot sheet. This only affects leads that reach Meeting Done from now on.</div>';
+  return h;
+}
+async function amSaveAndOpenPb(){
+  try{ await saveCampSettings(); }catch(e){}
+  setTimeout(function(){ if (typeof openPlaybook === 'function') openPlaybook(); }, 250);
+}
+function amSetMode(k){ _amSetMode = k; var b = document.getElementById('amSetBox'); if (b) b.innerHTML = amSettingsInner(); }
+function amSetFlip(k){ _amSetOff[k] = !(_amSetOff[k] === true); var b = document.getElementById('amSetBox'); if (b) b.innerHTML = amSettingsInner(); }
+function amCollect(){
+  if (_amSetMode === 'choose'){
+    var off = {}; AP_CH.forEach(function(c){ if (_amSetOff[c.k] === true) off[c.k] = true; });
+    if (AP_CH.every(function(c){ return off[c.k] === true; })) return { mode:'auto' };
+    return { mode:'choose', off: off };
+  }
+  return { mode: _amSetMode };
+}
+function amKeep(){ closeSheet('amSh'); _amLid = null; }
+async function amApply(){
+  if (_amBusy) return;
+  var l = leads.find(function(x){ return x.id === _amLid; }); if (!l){ amKeep(); return; }
+  var o = _apOff(l), off = {}, n = 0;
+  AP_CH.forEach(function(c){ if (_amSel[c.k] === true && o[c.k] !== true){ off[c.k] = true; n++; } });
+  // all five (counting ones already off) = master OFF, handled by the database function
+  if (AP_CH.every(function(c){ return _amSel[c.k] === true || o[c.k] === true; })) AP_CH.forEach(function(c){ off[c.k] = true; });
+  _amBusy = true; amRender();
+  try{
+    if (n){
+      var r = await sbFetch('/rest/v1/rpc/lead_after_meeting_apply', { method:'POST', body: JSON.stringify({ p_lead: l.dbId, p_off: off }) });
+      var j = r.ok ? await r.json().catch(function(){ return {}; }) : null;
+      if (!r.ok || !j || j.ok === false) throw 0;
+    }
+    if (_amRemember && _amCanEditCamp()){
+      var cp = (typeof ibCampaignFor === 'function') ? ibCampaignFor(l) : null;
+      if (cp){
+        var sel = {}; AP_CH.forEach(function(c){ if (_amSel[c.k] === true) sel[c.k] = true; });
+        var all = AP_CH.every(function(c){ return sel[c.k] === true; });
+        var s2 = JSON.parse(JSON.stringify(cp.settings || {}));
+        s2.ai = s2.ai || {};
+        s2.ai.after_meeting = all ? { mode:'auto' } : { mode:'choose', off: sel };
+        var r2 = await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(cp.id), { method:'PATCH', headers:{ Prefer:'return=minimal' }, body: JSON.stringify({ settings: s2 }) });
+        if (r2.ok) cp.settings = s2;
+      }
+    }
+    closeSheet('amSh'); _amLid = null;
+    showToast(n ? ('\uD83D\uDE4B AI switched off for '+(String(l.name||'this lead').split(' ')[0])+(_amRemember?' \u2014 next leads will be done automatically':'')) : (_amRemember ? 'Saved \u2014 next leads will be done automatically' : 'Nothing changed'));
+    _amRefreshLead(l, '');
+  }catch(e){ showToast('Could not save \u2014 try again'); }
+  _amBusy = false;
+}
 function _apOffList(l){
   if (!l) return [];
   if (l.human_only) return AP_CH.map(function(c){ return c.k; });
@@ -18093,6 +18282,7 @@ function lsSetStage(stage){
   } else if (curTab==='leads') {
     render();
   }
+  if (typeof amAfterStage === 'function') amAfterStage(l, oldStage, stage);
 }
 
 
@@ -29069,7 +29259,8 @@ function csOpenPage(page){
           '<select id="csAiApprEmail" class="cs-in" style="margin-bottom:0">'
         +   '<option value="review"'+(((_ai.approvals||{}).email==='auto')?'':' selected')+'>Review first \u2014 I approve each one</option>'
         +   '<option value="auto"'+(((_ai.approvals||{}).email==='auto')?' selected':'')+'>Automatic \u2014 send without asking</option>'
-        + '</select>');
+        + '</select>')
+      + amSettingsHTML(cp);
   }
   _csFooter(page);
   var b = document.querySelector('#campSettingsSh .sh-body'); if (b) b.scrollTop = 0;
@@ -29441,11 +29632,14 @@ async function saveCampSettings(){
     if (!s.ai.sms_agent_name) delete s.ai.sms_agent_name;
     if (!s.ai.sms_agent_title) delete s.ai.sms_agent_title;
     if (!s.ai.sms_opener) delete s.ai.sms_opener;
+    // am-1: AI after the meeting
+    if (document.getElementById('amSetBox')) s.ai.after_meeting = amCollect();
+    else if (cp.settings && cp.settings.ai && cp.settings.ai.after_meeting) s.ai.after_meeting = cp.settings.ai.after_meeting;
     // Preserve EVERY other AI setting this tab doesn't own (address, intro, and anything added
     // later) — never let a save on this tab wipe them.
     (function(){
       var _prev = (cp.settings && cp.settings.ai) || {};
-      var _owned = { tz:1, schedule:1, approvals:1, inbound_on:1, outbound_on:1, outbound_mode:1, autocall_sources:1, booking:1, sms_book_on:1, sms_agent_name:1, sms_agent_title:1, sms_opener:1 };
+      var _owned = { tz:1, schedule:1, approvals:1, inbound_on:1, outbound_on:1, outbound_mode:1, autocall_sources:1, booking:1, sms_book_on:1, sms_agent_name:1, sms_agent_title:1, sms_opener:1, after_meeting:1 };
       Object.keys(_prev).forEach(function(k){ if(!_owned[k] && s.ai[k] === undefined) s.ai[k] = _prev[k]; });
     })();
     patchBody = { settings: s };
@@ -34260,7 +34454,7 @@ async function saveAndSendQuote() {
         +'<p style="margin:0 0 16px;font-size:16px;font-weight:500;color:#111827;">Hi '+firstName+',</p>'
         +'<p style="margin:0 0 20px;font-size:14px;color:#4b5563;line-height:1.6;">Please find your quote from Adviuz below. Click the button to review and pay online securely.</p>'
         // Items table
-        +'<table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;border-top:2px solid #001f3f;">'
+        +'<table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;border-top:2px solid #230835;">'
         +'<tr><th style="padding:10px 0;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;text-align:left;letter-spacing:.06em;">Service</th>'
         +'<th style="padding:10px 0;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;text-align:right;letter-spacing:.06em;">Amount</th></tr>'
         +itemsList
@@ -34269,18 +34463,22 @@ async function saveAndSendQuote() {
         +'<table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">'
         +discountRow+taxRow
         +'<tr><td style="padding:12px 0 0;font-size:18px;font-weight:600;color:#111827;border-top:2px solid #111827;">Total Due</td>'
-        +'<td style="padding:12px 0 0;font-size:18px;font-weight:600;color:#001f3f;text-align:right;border-top:2px solid #111827;">CAD $'+total.toLocaleString('en-CA',{minimumFractionDigits:2})+'</td></tr>'
+        +'<td style="padding:12px 0 0;font-size:18px;font-weight:600;color:#230835;text-align:right;border-top:2px solid #111827;">CAD $'+total.toLocaleString('en-CA',{minimumFractionDigits:2})+'</td></tr>'
         +'</table>'
         // CTA
-        +'<a href="'+qUrl+'" style="display:block;background:#001f3f;color:#fff;text-align:center;padding:14px 24px;border-radius:8px;font-size:15px;font-weight:500;text-decoration:none;margin-bottom:16px;">View &amp; Pay Quote &rarr;</a>'
+        +'<a href="'+qUrl+'" style="display:block;background:#230835;color:#fff;text-align:center;padding:15px 24px;border-radius:10px;font-size:15px;font-weight:600;text-decoration:none;margin-bottom:10px;">View &amp; Pay Quote &rarr;</a>'
+        +'<p style="margin:0 0 16px;font-size:12px;color:#9ca3af;text-align:center;">&#128274; Secure online payment via Stripe</p>'
         +(notes ? '<p style="margin:16px 0 0;font-size:13px;color:#6b7280;background:#f8f9fa;padding:12px;border-radius:6px;line-height:1.6;">'+notes+'</p>' : '')
         +'</td></tr>'
         // Footer
-        +'<tr><td style="padding:20px 24px;background:#f8f9fa;border-top:1px solid #e5e7eb;text-align:center;">'
-        +'<p style="margin:0 0 4px;font-size:14px;font-weight:500;color:#111827;">Adviuz Support</p>'
-        +'<p style="margin:0 0 8px;font-size:12px;color:#6b7280;">'+_emailSig.hours+'</p>'
-        +'<a href="mailto:sales@adviuz.ca" style="color:#001f3f;font-size:12px;text-decoration:none;">sales@adviuz.ca</a>'
-        +'<p style="margin:12px 0 0;font-size:11px;color:#9ca3af;">&copy; 2026 Adviuz. All rights reserved.</p>'
+        +'<tr><td style="background:#f8f9fa;padding:20px 28px;border-top:1px solid #e5e7eb;text-align:center;font-family:Helvetica,Arial,sans-serif">'
+        +'<p style="margin:0 0 3px;font-size:13px;font-weight:bold;color:#111111;font-family:Comfortaa,Arial,sans-serif;letter-spacing:.2px">Sales Team</p>'
+        +'<p style="margin:0 0 16px;font-size:11px;color:#999999">'+(_emailSig.hours||'Monday to Friday &middot; 10:00 AM &ndash; 6:00 PM CST')+'</p>'
+        +'<table cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 16px"><tr>'
+        +'<td style="padding:0 4px"><a href="https://adviuz.ca" style="display:inline-block;background:#ffffff;border:1px solid #e2e2e2;border-radius:999px;padding:8px 16px;font-size:12px;color:#4000f3;text-decoration:none;line-height:14px;white-space:nowrap"><img src="https://hub.adviuz.ca/brand/icon-globe-grey.png" alt="" width="13" height="13" style="vertical-align:-2px;margin:0 5px 0 0;border:0">adviuz.ca</a></td>'
+        +'<td style="padding:0 4px"><a href="tel:+16472501152" style="display:inline-block;background:#ffffff;border:1px solid #e2e2e2;border-radius:999px;padding:8px 16px;font-size:12px;color:#444444;text-decoration:none;line-height:14px;white-space:nowrap"><img src="https://hub.adviuz.ca/brand/icon-telephone-grey.png" alt="" width="13" height="13" style="vertical-align:-2px;margin:0 5px 0 0;border:0">+1 647 250 1152</a></td>'
+        +'</tr></table>'
+        +'<p style="margin:0;border-top:1px solid #e8e8e8;padding-top:12px;font-size:11px;color:#9a9a9a;line-height:1.6">&copy; 2026 <strong style="color:#777777">Adviuz</strong>. Instad Web Services Limited, <a href="https://maps.google.com/?q=Scotiabank%20Building%2C%20111%202nd%20Avenue%20South%2C%20Unit%20400%2C%20Saskatoon%2C%20SK%20S7K%201K6" style="color:#9a9a9a;text-decoration:none">Unit 400, Scotiabank Building, 111 2nd Avenue South, Saskatoon, SK S7K 1K6</a></p>'
         +'</td></tr>'
         +'</table></td></tr></table>'
         +'</body></html>';
