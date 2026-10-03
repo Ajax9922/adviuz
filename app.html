@@ -4573,7 +4573,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-02 am-1';
+var APP_VERSION = 'v2026-10-03 calls-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -20712,6 +20712,14 @@ function ensureCallConfirmSheet(){
         '<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:500;color:var(--text)">\uD83E\uDD16 AI is handling this lead \u2014 pause it and take over?</div>'+
         '<div style="font-size:12px;color:var(--sub);margin-top:2px">Tap to pause the AI for this lead. You can turn it back on anytime from the lead screen.</div></div>'+
         '</div>'+
+        '<div id="ccTalkWrap" style="display:none;margin-top:16px;text-align:left">'+
+          '<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);margin-bottom:8px">Talk on</div>'+
+          '<div style="display:flex;gap:8px">'+
+            '<button type="button" id="ccTalkPhone" onclick="_ccSetTalk(\'phone\')" style="flex:1;padding:11px 8px;border-radius:12px;border:1.5px solid var(--border);background:var(--white);font-family:var(--f);font-size:13.5px;font-weight:600;color:var(--text);cursor:pointer">\uD83D\uDCF1 Ring my phone</button>'+
+            '<button type="button" id="ccTalkApp" onclick="_ccSetTalk(\'app\')" style="flex:1;padding:11px 8px;border-radius:12px;border:1.5px solid var(--border);background:var(--white);font-family:var(--f);font-size:13.5px;font-weight:600;color:var(--text);cursor:pointer">\uD83C\uDFA7 In this app</button>'+
+          '</div>'+
+          '<div id="ccTalkNote" style="font-size:12px;color:var(--sub);margin-top:8px;line-height:1.45"></div>'+
+        '</div>'+
         '<div style="display:flex;gap:10px;margin-top:22px">'+
           '<button onclick="closeSheet(\'callConfirmSh\')" style="flex:1;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--white);color:var(--text);font-weight:500;font-size:15px;font-family:var(--f);cursor:pointer">Cancel</button>'+
           '<button onclick="_confirmCallGo()" style="flex:1.5;padding:14px;border:none;border-radius:12px;background:var(--green);color:#fff;font-weight:600;font-size:15px;font-family:var(--f);cursor:pointer">\uD83D\uDCDE Call now</button>'+
@@ -20755,7 +20763,66 @@ function doCall(id){
   var row=document.getElementById('ccAiRow');
   if(row){ row.style.display = aiVisible ? 'flex' : 'none'; }
   var c=document.getElementById('ccAiChk'); if(c){ c.style.background='transparent'; c.style.borderColor='var(--border)'; c.textContent=''; }
+  _ccTalkSetup(l);
   openSheet('callConfirmSh');
+  // First open of the session: lines may still be loading — refresh the row when they arrive.
+  if(window._myLines===undefined){ _myLinesLoad().then(function(){ if(_pendingCallId===id) _ccTalkSetup(l); }); }
+}
+
+// ── calls-1: personal lines (e.g. Ajax's 8220) ───────────────────────────
+// A line belongs to ONE person and ONE business. On that business's leads the
+// Call button calls FROM the line, and offers "Ring my phone": the hub rings the
+// person's cell first, they press a key, then the lead is connected — so the
+// call keeps going when they switch apps (in-app calls go silent).
+window._myLines = undefined;
+function _myLinesLoad(){
+  if(window._myLinesP) return window._myLinesP;
+  var uid = window.currentUser && window.currentUser.id;
+  if(!uid){ window._myLines=[]; return Promise.resolve([]); }
+  window._myLinesP = sbFetch('/rest/v1/phone_lines?owner_user_id=eq.'+encodeURIComponent(uid)+'&active=eq.true&select=phone,client_id,owner_name,ring_to')
+    .then(function(r){ return r.ok ? r.json() : []; })
+    .then(function(j){ window._myLines = Array.isArray(j) ? j : []; return window._myLines; })
+    .catch(function(){ window._myLines = []; window._myLinesP = null; return []; });
+  return window._myLinesP;
+}
+function _lineForLead(l){
+  if(!l || !Array.isArray(window._myLines) || !window._myLines.length) return null;
+  if(window._isPartnerMode===true || window._activeRole==='partner') return null;
+  var cid = l.client_id || window._clientId || '';
+  for(var i=0;i<window._myLines.length;i++){ if(window._myLines[i].client_id===cid) return window._myLines[i]; }
+  return null;
+}
+function _fmtLine(p){ var d=String(p||'').replace(/\D/g,'').slice(-10); return d.length===10 ? d.slice(0,3)+' '+d.slice(3,6)+' '+d.slice(6) : String(p||''); }
+function _ccTalkGet(){ try{ return localStorage.getItem('adv_talk_on')==='app' ? 'app' : 'phone'; }catch(e){ return 'phone'; } }
+function _ccSetTalk(t){
+  try{ localStorage.setItem('adv_talk_on', t); }catch(e){}
+  window._ccTalk = t;
+  var ph=document.getElementById('ccTalkPhone'), ap=document.getElementById('ccTalkApp');
+  [[ph,'phone'],[ap,'app']].forEach(function(x){ if(!x[0]) return; var on = x[1]===t;
+    x[0].style.borderColor = on ? 'var(--green)' : 'var(--border)'; x[0].style.background = on ? 'var(--greenl)' : 'var(--white)'; });
+  var ln = window._ccLine, n=document.getElementById('ccTalkNote');
+  if(n && ln) n.innerHTML = (t==='phone'
+    ? 'We ring your phone <b>\u2026'+_fmtLine(ln.ring_to).slice(-4)+'</b> first. Answer and press any key, then the lead is connected. You can switch apps freely.'
+    : 'Talk through the hub. Keep the app open during the call.')
+    + '<br>The lead sees <b>'+_fmtLine(ln.phone)+'</b>. Recorded and saved on the timeline.';
+}
+function _ccTalkSetup(l){
+  var w=document.getElementById('ccTalkWrap'); if(!w) return;
+  var ln=_lineForLead(l); window._ccLine = ln;
+  if(!ln || !ln.ring_to){ w.style.display='none'; window._ccTalk='app'; return; }
+  w.style.display='block';
+  _ccSetTalk(_ccTalkGet());
+}
+async function _ringMyPhone(l){
+  var ln=_lineForLead(l);
+  if(!ln){ _doCallNow(l.id); return; }
+  showToast('\uD83D\uDCF1 Ringing your phone\u2026 answer and press any key');
+  try{
+    var r = await sbFetch('/functions/v1/twilio-voice?action=bridge',{method:'POST',body:JSON.stringify({lead_id:l.dbId||l.id})});
+    var j = await r.json().catch(function(){return {};});
+    if(!r.ok || !j.success){ showToast('\u274C '+(j.error||'Could not ring your phone')); return; }
+    showToast('\uD83D\uDCF1 Answer your phone (\u2026'+(j.ring_to_last4||'')+') and press any key to connect');
+  }catch(e){ showToast('\u274C Could not ring your phone \u2014 check your connection'); }
 }
 function _confirmCallGo(){
   var id=_pendingCallId; _pendingCallId=null;
@@ -20771,7 +20838,12 @@ function _confirmCallGo(){
     }
   }
   window._ccPauseAi=false;
-  if(id!=null) _doCallNow(id);
+  if(id==null) return;
+  if(window._ccLine && window._ccTalk==='phone'){
+    var lr=leads.find(function(x){return x.id===id||x.dbId===id;});
+    if(lr){ _ringMyPhone(lr); return; }
+  }
+  _doCallNow(id);
 }
 function _doCallNow(id) {
   var l = leads.find(function(x){ return x.id===id||x.dbId===id; });
@@ -20817,7 +20889,9 @@ function _makeCall(l) {
       clientId: _inPartnerCall ? '' : (_clientId || ''),
       // Campaign-first caller ID: the lead sees THEIR campaign's number, so a
       // callback lands on the right line (right forwarding, right dedup).
-      campaignId: _inPartnerCall ? '' : (l.campaign_id || l.campaign || '')
+      campaignId: _inPartnerCall ? '' : (l.campaign_id || l.campaign || ''),
+      // calls-1: on this person's own business, the lead sees their personal line.
+      line: _inPartnerCall ? '' : ((_lineForLead(l)||{}).phone || '')
     }
   }).then(function(call) {
     activeCall = call;
