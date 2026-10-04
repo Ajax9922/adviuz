@@ -837,6 +837,18 @@ body.impersonating .ls-topbar{padding-top:8px}
 .sms-bubble.out .sms-tag{background:rgba(255,255,255,.22);color:#fff}
 .sms-bubble.in  .sms-tag{background:var(--surface);color:var(--sub)}
 .sms-bubble.out .sms-bubble-time{color:#e9fff5}
+/* sms-1: texts sent from a personal line (e.g. 8220) + the Send-from chip + quiet bar */
+.sms-bubble.out.line{background:var(--top2)}
+.sms-from-row{display:none;align-items:center;gap:8px;padding:8px 12px 0;background:var(--white);border-top:1px solid var(--border);flex-shrink:0}
+.sms-from-row.show{display:flex}
+.sms-from-lbl{font-size:11px;color:var(--sub)}
+.sms-from-chip{display:inline-flex;align-items:center;gap:6px;border:1.5px solid var(--border);background:var(--bg);border-radius:20px;padding:5px 11px;font-family:var(--f);font-size:12px;font-weight:600;color:var(--text);cursor:pointer}
+.sms-from-dot{width:9px;height:9px;border-radius:50%;background:var(--green)}
+.sms-from-dot.line{background:var(--top2)}
+.sms-from-hint{font-size:11px;color:var(--muted);margin-left:auto;text-align:right}
+.sms-quiet{display:none;align-items:center;justify-content:center;gap:8px;font-size:12px;color:#92400e;background:var(--amberl);padding:7px 12px;flex-shrink:0}
+.sms-quiet.show{display:flex}
+.sms-quiet button{border:none;background:var(--white);color:var(--text);font-family:var(--f);font-size:11px;font-weight:600;padding:4px 9px;border-radius:8px;cursor:pointer;white-space:nowrap}
 .sms-bubble.in .sms-bubble-time{color:var(--sub)}
 /* template bar (collapsible) */
 .sms-tpl-bar{display:none;flex-wrap:wrap;gap:6px;padding:10px 12px;border-top:1px solid var(--border);
@@ -4413,6 +4425,14 @@ Reply to this email or give us a call any time.
     <!-- Template bar (toggled by the 🗂️ button) -->
     <div class="sms-tpl-bar" id="smsTplBar"></div>
 
+    <!-- sms-1: AI quiet window + Send-from chip -->
+    <div class="sms-quiet" id="smsQuiet"><span id="smsQuietTxt"></span><button onclick="smsResumeAi()">Resume AI</button></div>
+    <div class="sms-from-row" id="smsFromRow">
+      <span class="sms-from-lbl">Send from</span>
+      <button class="sms-from-chip" id="smsFromChip" onclick="smsOpenFromPicker()"></button>
+      <span class="sms-from-hint" id="smsFromHint"></span>
+    </div>
+
     <!-- Compose bar -->
     <div class="sms-compose-bar">
       <button class="sms-icon-btn sms-ai-icon" onclick="openSmsAi()" title="AI message">✨</button>
@@ -4425,6 +4445,24 @@ Reply to this email or give us a call any time.
 
 
 <!-- ═══ SMS TEMPLATES — MANAGE LIST SHEET ═══ -->
+<div class="act-sheet-ov" id="smsFromOv" style="z-index:905" onclick="if(event.target===this)smsCloseFromPicker()">
+  <div class="act-sheet">
+    <div class="act-sheet-handle"></div>
+    <div class="act-sheet-title">Send this text from</div>
+    <div class="act-opt" id="smsFromOptLine" onclick="smsPickFrom('line')">
+      <div class="act-opt-icon" style="background:var(--purplel);font-size:20px">👤</div>
+      <div class="act-opt-body"><div class="act-opt-title" id="smsFromLineT"></div><div class="act-opt-sub">Your own line. Replies come to you, never to the AI</div></div>
+      <div id="smsFromTickLine" style="font-size:18px;color:var(--green)"></div>
+    </div>
+    <div class="act-opt" id="smsFromOptCamp" onclick="smsPickFrom('campaign')">
+      <div class="act-opt-icon" style="background:var(--greenl);font-size:20px">🏢</div>
+      <div class="act-opt-body"><div class="act-opt-title" id="smsFromCampT"></div><div class="act-opt-sub">Company number — the same one the AI uses</div></div>
+      <div id="smsFromTickCamp" style="font-size:18px;color:var(--green)"></div>
+    </div>
+    <div style="margin:4px 16px 0;background:var(--amberl);color:#92400e;border-radius:12px;padding:10px 12px;font-size:12px;line-height:1.5">💡 The lead sees each number as a <b>separate chat</b> on their phone. Pick one and stay with it — the hub remembers your choice for this lead (calls use it too).</div>
+  </div>
+</div>
+
 <div class="sheet-ov" id="smsTplListSh" style="z-index:900" onclick="if(event.target===this)closeSheet('smsTplListSh')">
   <div class="sheet"><div class="sheet-handle"></div>
     <div class="sheet-head">
@@ -4573,7 +4611,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-03 calls-2';
+var APP_VERSION = 'v2026-10-04 sms-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -14698,6 +14736,11 @@ function openSmsSheet(){
   // Reset compose + bars
   var ta = document.getElementById('smsCompose'); if(ta){ ta.value=''; smsGrow(ta); }
   var st  = document.getElementById('smsAiStatus'); if(st){ st.style.display='none'; }
+  // sms-1: Send-from chip (personal line) + AI quiet bar
+  window._smsLine = null; window._smsFrom = 'campaign';
+  var fr=document.getElementById('smsFromRow'); if(fr) fr.classList.remove('show');
+  if(window._myLines===undefined && typeof _myLinesLoad==='function'){ _myLinesLoad().then(function(){ if(window._smsLead===l) _smsFromSetup(l, window._smsMsgs||[]); }); }
+  _smsQuietLoad(l);
   // Templates visible by default. Load this client's shared templates from the
   // database first (falls back to local), then render the strip.
   renderSmsTplChips();
@@ -14736,7 +14779,7 @@ async function loadSmsThread(l, quiet){
     var last10 = String((l.ph)||'').replace(/\D/g,'').slice(-10);
     var actP = sbFetch('/rest/v1/lead_activity?lead_id=eq.'+encodeURIComponent(l.dbId)
         +'&activity_type=in.(sms_sent,sms_received,sms)'
-        +'&select=activity_type,description,direction,created_at&order=created_at.asc&limit=300');
+        +'&select=activity_type,description,direction,created_at,metadata&order=created_at.asc&limit=300');
     // to_number is stored as the last 10 digits, so this matches the LEAD's number
     // and therefore never picks up client_alert — those go to the client's phone.
     // status=sent only: a message that never arrived must not look delivered.
@@ -14744,7 +14787,7 @@ async function loadSmsThread(l, quiet){
       ? sbFetch('/rest/v1/sms_guard_log?lead_id=eq.'+encodeURIComponent(l.dbId)
           +'&to_number=eq.'+encodeURIComponent(last10)
           +'&status=eq.sent'
-          +'&select=body_preview,purpose,created_at&order=created_at.asc&limit=300')
+          +'&select=body_preview,purpose,created_at,from_number&order=created_at.asc&limit=300')
       : Promise.resolve(null);
 
     var out = await Promise.all([actP, logP]).catch(function(){ return [null,null]; });
@@ -14762,7 +14805,9 @@ async function loadSmsThread(l, quiet){
           var dir = (r.direction||'').toLowerCase();
           var inbound = dir==='inbound' || type==='sms_received';
           if(!body) return;
-          msgs.push({ body:body, time:r.created_at, out:!inbound, tag: inbound?'':'Human', src:'act' });
+          var md = r.metadata || {};
+          msgs.push({ body:body, time:r.created_at, out:!inbound, tag: inbound?'':'Human', src:'act',
+                      num: inbound ? (md.to_number||'') : (md.from_number||'') });
         });
       }
     }catch(e){}
@@ -14777,7 +14822,7 @@ async function loadSmsThread(l, quiet){
           var p = (r.purpose||'').toLowerCase();
           // welcome + reminder fire on a schedule with nobody involved.
           var tag = _smsPurposeTag(p)==='AI' ? '\uD83E\uDD16 AI' : _smsPurposeTag(p);
-          msgs.push({ body:body, time:r.created_at, out:true, tag:tag, src:'log' });
+          msgs.push({ body:body, time:r.created_at, out:true, tag:tag, src:'log', num:r.from_number||'' });
         });
       }
     }catch(e){}
@@ -14813,6 +14858,8 @@ async function loadSmsThread(l, quiet){
   // On a quiet poll, skip the re-render when nothing new arrived.
   if(quiet && window._smsThreadCount === msgs.length) return;
   window._smsThreadCount = msgs.length;
+  window._smsMsgs = msgs;
+  _smsFromSetup(l, msgs);
   renderSmsThread(msgs);
 }
 
@@ -14828,8 +14875,13 @@ function renderSmsThread(msgs){
     var day = isNaN(d) ? '' : d.toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'});
     if(day && day!==lastDay){ h += '<div class="sms-day">'+_smsEsc(day)+'</div>'; lastDay=day; }
     var tm = isNaN(d) ? '' : d.toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit',hour12:true});
-    h += '<div class="sms-bubble '+(m.out?'out':'in')+'">'
-       + (m.tag ? '<span class="sms-tag">'+_smsEsc(m.tag)+'</span>' : '')
+    var _ln = window._smsLine, _cp = window._smsCampPhone, _l4 = function(p){ return String(p||'').replace(/\D/g,'').slice(-4); };
+    var _num = m.num || (_ln ? _cp : '');
+    var _isLine = !!(_ln && _l4(_num) && _l4(_num)===_l4(_ln.phone));
+    var _tag = m.tag;
+    if(_ln && _l4(_num)){ _tag = m.out ? ((m.tag||'Sent')+' \u00b7 '+_l4(_num)) : ('Lead \u2192 '+_l4(_num)); }
+    h += '<div class="sms-bubble '+(m.out?'out':'in')+(m.out&&_isLine?' line':'')+'">'
+       + (_tag ? '<span class="sms-tag">'+_smsEsc(_tag)+'</span>' : '')
        + _smsEsc(m.body)
        + '<span class="sms-bubble-time">'+_smsEsc(tm)+'</span></div>';
   });
@@ -14837,12 +14889,86 @@ function renderSmsThread(msgs){
   box.scrollTop = box.scrollHeight;
 }
 
-function appendSmsBubble(text, out){
+// ── sms-1: Send from (personal line vs company number) ──────────────────
+// Smart default: the number the lead last texted; else the last number a person
+// texted them from; else this lead's remembered choice (shared with the Call
+// button); else the company number. Shown only to people who own a line.
+function _smsFromSetup(l, msgs){
+  var row=document.getElementById('smsFromRow'); if(!row) return;
+  var ln=(typeof _lineForLead==='function') ? _lineForLead(l) : null;
+  window._smsLine = ln; window._smsCampPhone = (typeof _campPhoneFor==='function') ? _campPhoneFor(l) : '';
+  if(!ln){ row.classList.remove('show'); window._smsFrom='campaign'; return; }
+  row.classList.add('show');
+  if(window._smsFromLead !== (l.dbId||l.id)){
+    window._smsFromLead = (l.dbId||l.id);
+    var l4=function(p){ return String(p||'').replace(/\D/g,'').slice(-4); };
+    var pick='', why='';
+    for(var i=(msgs||[]).length-1;i>=0;i--){ var m=msgs[i]; if(!m.num) continue;
+      if(!m.out){ pick = l4(m.num)===l4(ln.phone)?'line':'campaign'; why='last texted '+l4(m.num); break; }
+      if(m.tag==='Human' && !pick){ pick = l4(m.num)===l4(ln.phone)?'line':'campaign'; why='you last used '+l4(m.num); }
+    }
+    if(!pick){ var st=''; try{ st=localStorage.getItem('adv_from_'+(l.dbId||l.id))||''; }catch(e){}
+      if(st){ pick = st==='line'?'line':'campaign'; why='remembered'; } }
+    if(!pick){ pick='campaign'; why='new conversation'; }
+    if(!window._smsCampPhone) pick='line';
+    window._smsFrom = pick; window._smsFromWhy = why;
+  }
+  _smsFromRender();
+}
+function _smsFromRender(){
+  var ln=window._smsLine; if(!ln) return;
+  var f=window._smsFrom, cp=window._smsCampPhone;
+  var c=document.getElementById('smsFromChip'), h=document.getElementById('smsFromHint');
+  var num = f==='line' ? ln.phone : cp;
+  if(c) c.innerHTML='<span class="sms-from-dot'+(f==='line'?' line':'')+'"></span>'+(f==='line'?_smsEsc(ln.owner_name||'Me'):'Company')+' \u00b7 '+_fmtLine(num).slice(-4)+' <span style="color:var(--sub);font-size:10px">\u25BE</span>';
+  if(h) h.textContent = window._smsFromWhy==='remembered' ? 'Remembered' : (window._smsFromWhy ? ('Auto: '+window._smsFromWhy) : '');
+  var sb=document.getElementById('smsSendBtn'); if(sb) sb.style.background = f==='line' ? 'var(--top2)' : '';
+}
+function smsOpenFromPicker(){
+  var ln=window._smsLine; if(!ln) return;
+  var lt=document.getElementById('smsFromLineT'), ct=document.getElementById('smsFromCampT');
+  if(lt) lt.textContent=(ln.owner_name||'Me')+' \u00b7 '+_fmtLine(ln.phone);
+  if(ct) ct.textContent='Company \u00b7 '+(window._smsCampPhone?_fmtLine(window._smsCampPhone):'not set');
+  var oc=document.getElementById('smsFromOptCamp'); if(oc) oc.style.display = window._smsCampPhone ? 'flex' : 'none';
+  var tl=document.getElementById('smsFromTickLine'), tc=document.getElementById('smsFromTickCamp');
+  if(tl) tl.textContent = window._smsFrom==='line' ? '\u2713' : ''; if(tc) tc.textContent = window._smsFrom==='campaign' ? '\u2713' : '';
+  var ov=document.getElementById('smsFromOv'); if(ov) ov.classList.add('open');
+}
+function smsCloseFromPicker(){ var ov=document.getElementById('smsFromOv'); if(ov) ov.classList.remove('open'); }
+function smsPickFrom(f){
+  var l=window._smsLead; window._smsFrom=f; window._smsFromWhy='remembered';
+  try{ if(l) localStorage.setItem('adv_from_'+(l.dbId||l.id), f); }catch(e){}
+  _smsFromRender(); smsCloseFromPicker();
+}
+// ── sms-1: AI quiet window (set by the server when a person texts by hand) ──
+function _smsQuietLoad(l){
+  window._smsQuietUntil=null; _smsQuietShow();
+  if(!l || !l.dbId) return;
+  sbFetch('/rest/v1/leads?id=eq.'+encodeURIComponent(l.dbId)+'&select=ai_quiet_until')
+    .then(function(r){ return r.ok ? r.json() : []; })
+    .then(function(j){ if(window._smsLead!==l) return; window._smsQuietUntil=(j&&j[0]&&j[0].ai_quiet_until)||null; _smsQuietShow(); })
+    .catch(function(){});
+}
+function _smsQuietShow(){
+  var bar=document.getElementById('smsQuiet'), t=document.getElementById('smsQuietTxt'); if(!bar) return;
+  var u=window._smsQuietUntil ? new Date(window._smsQuietUntil) : null;
+  if(!u || isNaN(u) || u.getTime()<=Date.now()){ bar.classList.remove('show'); return; }
+  if(t) t.textContent='\uD83E\uDD2B AI texts paused until '+u.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit',hour12:true})+' \u2014 you\u2019re texting by hand';
+  bar.classList.add('show');
+}
+function smsResumeAi(){
+  var l=window._smsLead; if(!l||!l.dbId) return;
+  sbFetch('/rest/v1/rpc/lead_resume_ai_texts',{method:'POST',body:JSON.stringify({p_lead:l.dbId})})
+    .then(function(r){ if(r.ok){ window._smsQuietUntil=null; _smsQuietShow(); showToast('\uD83E\uDD16 AI texts resumed for this lead'); } else showToast('\u274C Could not resume'); })
+    .catch(function(){ showToast('\u274C Could not resume'); });
+}
+
+function appendSmsBubble(text, out, viaLine){
   var box = document.getElementById('smsThread'); if(!box) return;
   var empty = box.querySelector('.sms-empty'); if(empty) box.innerHTML='';
   var tm = new Date().toLocaleTimeString('en-CA',{hour:'2-digit',minute:'2-digit',hour12:true});
   var div = document.createElement('div');
-  div.className = 'sms-bubble '+(out?'out':'in');
+  div.className = 'sms-bubble '+(out?'out':'in')+(out&&viaLine?' line':'');
   div.innerHTML = _smsEsc(text)+'<span class="sms-bubble-time">'+_smsEsc(tm)+'</span>';
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
@@ -15265,14 +15391,20 @@ async function sendSmsFromSheet(){
         to:        phone,
         message:   msg,
         lead_id:   l.dbId || '',
-        client_id: window._clientId || ''
+        client_id: window._clientId || '',
+        // sms-1: typed by a person → the AI goes quiet on this lead for a while
+        purpose:   'manual',
+        line:      (window._smsLine && window._smsFrom==='line') ? window._smsLine.phone : ''
       })
     });
     var data = await res.json();
+    if(data && data.blocked && !data.error) throw new Error('Not sent ('+String(data.reason||'blocked').replace(/_/g,' ')+')');
     if(!res.ok || data.error) throw new Error(data.error || 'SMS failed');
+    var _sentFrom = data.from || '';
+    if(data.ai_quiet_until){ window._smsQuietUntil = data.ai_quiet_until; _smsQuietShow(); }
 
     // Show the sent message in the thread immediately (instant feedback) and clear the box.
-    appendSmsBubble(msg, true);
+    appendSmsBubble(msg, true, !!(window._smsLine && _sentFrom && _sentFrom.replace(/\D/g,'').slice(-10)===window._smsLine.phone.replace(/\D/g,'').slice(-10)));
     if(ta){ ta.value=''; smsGrow(ta); }
 
     // Persist the sent message so it stays in the conversation (and shows on the right)
@@ -15287,6 +15419,7 @@ async function sendSmsFromSheet(){
             activity_type: 'sms_sent',
             description:   msg,
             direction:     'outbound',
+            metadata:      { handler:'human', from_number: _sentFrom || null },
             created_at:    new Date().toISOString()
           })
         });
