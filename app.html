@@ -4573,7 +4573,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-03 calls-1';
+var APP_VERSION = 'v2026-10-03 calls-2';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -14352,6 +14352,7 @@ async function loadLeadActivity(localId, dbId) {
         id:           row.id,
         call_note:    row.call_note || null,
         is_ai:        !!(row.metadata && (row.metadata.handler === 'ai' || row.metadata.ai === true)),
+        via:          (row.metadata && (row.metadata.from_number || row.metadata.line)) || '',
         // follow-3: the phone network counts a voicemail pickup as "answered",
         // so raw duration lies. Truth order (same as the Inbox): manual
         // correction \u2192 voicemail flag \u2192 the word in the description.
@@ -16681,7 +16682,7 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
       // Top row — status badge + direction/duration | time
       h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px">';
       h += '<div style="display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap">';
-      h += '<span style="font-size:10px;font-weight:600;padding:3px 8px;border-radius:20px;background:'+(isAI?'#ede9fe':'#f3f4f6')+';color:'+(isAI?'#7c3aed':'#4b5563')+';white-space:nowrap">'+(isAI?'🤖 AI':'👤 Human')+'</span>';
+      h += '<span style="font-size:10px;font-weight:600;padding:3px 8px;border-radius:20px;background:'+(isAI?'#ede9fe':'#f3f4f6')+';color:'+(isAI?'#7c3aed':'#4b5563')+';white-space:nowrap">'+(isAI?'🤖 AI':'👤 Human')+(function(){ var v=item.via; if(!v){ try{ v=_campPhoneFor(typeof lsGetLead==='function'?lsGetLead():null); }catch(e){ v=''; } } var d=String(v||'').replace(/\D/g,''); return d.length>=4 ? ' \u00b7 '+d.slice(-4) : ''; })()+'</span>';
       h += '<span style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;background:'+stColBg+';color:'+stCol+';letter-spacing:.02em;white-space:nowrap">'+dirArrow+' '+statusTxt+'</span>';
       h += '<span style="font-size:11px;color:#6b7280;font-weight:600;white-space:nowrap">'+channel+(isIn?'Incoming':'Outgoing')+(durTxt?' \u00b7 '+durTxt:'')+'</span>';
       h += '</div>';
@@ -20700,7 +20701,7 @@ var _pendingCallId = null;
 function ensureCallConfirmSheet(){
   if(document.getElementById('callConfirmSh')) return;
   var html='<div class="sheet-ov" id="callConfirmSh" onclick="if(event.target===this)closeSheet(\'callConfirmSh\')" style="z-index:1055">'+
-    '<div class="sheet" style="max-height:62dvh">'+
+    '<div class="sheet" style="max-height:90dvh;overflow-y:auto">'+
       '<div class="sheet-handle"></div>'+
       '<div class="sh-body" style="padding:6px 18px calc(24px + env(safe-area-inset-bottom,0px));text-align:center">'+
         '<div style="width:62px;height:62px;border-radius:50%;background:#e7f8f3;display:flex;align-items:center;justify-content:center;font-size:28px;margin:4px auto 12px">\uD83D\uDCDE</div>'+
@@ -20713,6 +20714,11 @@ function ensureCallConfirmSheet(){
         '<div style="font-size:12px;color:var(--sub);margin-top:2px">Tap to pause the AI for this lead. You can turn it back on anytime from the lead screen.</div></div>'+
         '</div>'+
         '<div id="ccTalkWrap" style="display:none;margin-top:16px;text-align:left">'+
+          '<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);margin-bottom:8px">Call from</div>'+
+          '<div style="display:flex;gap:8px;margin-bottom:14px">'+
+            '<button type="button" id="ccFromLine" onclick="_ccSetFrom(\'line\')" style="flex:1;padding:10px 8px;border-radius:12px;border:1.5px solid var(--border);background:var(--white);font-family:var(--f);font-size:13px;font-weight:600;color:var(--text);cursor:pointer"></button>'+
+            '<button type="button" id="ccFromCamp" onclick="_ccSetFrom(\'campaign\')" style="flex:1;padding:10px 8px;border-radius:12px;border:1.5px solid var(--border);background:var(--white);font-family:var(--f);font-size:13px;font-weight:600;color:var(--text);cursor:pointer"></button>'+
+          '</div>'+
           '<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);margin-bottom:8px">Talk on</div>'+
           '<div style="display:flex;gap:8px">'+
             '<button type="button" id="ccTalkPhone" onclick="_ccSetTalk(\'phone\')" style="flex:1;padding:11px 8px;border-radius:12px;border:1.5px solid var(--border);background:var(--white);font-family:var(--f);font-size:13.5px;font-weight:600;color:var(--text);cursor:pointer">\uD83D\uDCF1 Ring my phone</button>'+
@@ -20792,6 +20798,26 @@ function _lineForLead(l){
   for(var i=0;i<window._myLines.length;i++){ if(window._myLines[i].client_id===cid) return window._myLines[i]; }
   return null;
 }
+// calls-2: the campaign's own number for a lead (e.g. Adviuz 1152).
+function _campPhoneFor(l){
+  try{
+    var cps=[].concat(window._clientCampaigns||[], (window._adminData&&window._adminData.campaigns)||[]);
+    var cid=l&&(l.campaign_id||l.campaign);
+    var cp=cps.find(function(c){ return String(c.id)===String(cid); });
+    return (cp&&cp.twilio_phone)||'';
+  }catch(e){ return ''; }
+}
+function _ccFromGet(l){ try{ return localStorage.getItem('adv_from_'+(l.dbId||l.id))==='campaign' ? 'campaign' : 'line'; }catch(e){ return 'line'; } }
+function _ccSetFrom(f){
+  var l=window._ccLead; if(!l) return;
+  if(f==='campaign' && !_campPhoneFor(l)) f='line';
+  window._ccFrom=f;
+  try{ localStorage.setItem('adv_from_'+(l.dbId||l.id), f); }catch(e){}
+  [['ccFromLine','line'],['ccFromCamp','campaign']].forEach(function(x){ var b=document.getElementById(x[0]); if(!b) return; var on=x[1]===f;
+    b.style.borderColor = on ? 'var(--green)' : 'var(--border)'; b.style.background = on ? 'var(--greenl)' : 'var(--white)'; });
+  _ccSetTalk(window._ccTalk||_ccTalkGet());
+}
+function _ccFromNum(){ var ln=window._ccLine, l=window._ccLead; if(!ln) return ''; return (window._ccFrom==='campaign' && l && _campPhoneFor(l)) ? _campPhoneFor(l) : ln.phone; }
 function _fmtLine(p){ var d=String(p||'').replace(/\D/g,'').slice(-10); return d.length===10 ? d.slice(0,3)+' '+d.slice(3,6)+' '+d.slice(6) : String(p||''); }
 function _ccTalkGet(){ try{ return localStorage.getItem('adv_talk_on')==='app' ? 'app' : 'phone'; }catch(e){ return 'phone'; } }
 function _ccSetTalk(t){
@@ -20802,26 +20828,31 @@ function _ccSetTalk(t){
     x[0].style.borderColor = on ? 'var(--green)' : 'var(--border)'; x[0].style.background = on ? 'var(--greenl)' : 'var(--white)'; });
   var ln = window._ccLine, n=document.getElementById('ccTalkNote');
   if(n && ln) n.innerHTML = (t==='phone'
-    ? 'We ring your phone <b>\u2026'+_fmtLine(ln.ring_to).slice(-4)+'</b> first. Answer and press any key, then the lead is connected. You can switch apps freely.'
+    ? 'We ring your phone <b>\u2026'+_fmtLine(ln.ring_to).slice(-4)+'</b> first. Answer it and the lead is connected straight away. You can switch apps freely.'
     : 'Talk through the hub. Keep the app open during the call.')
-    + '<br>The lead sees <b>'+_fmtLine(ln.phone)+'</b>. Recorded and saved on the timeline.';
+    + '<br>The lead sees <b>'+_fmtLine(_ccFromNum())+'</b>. Recorded and saved on the timeline.';
 }
 function _ccTalkSetup(l){
   var w=document.getElementById('ccTalkWrap'); if(!w) return;
-  var ln=_lineForLead(l); window._ccLine = ln;
-  if(!ln || !ln.ring_to){ w.style.display='none'; window._ccTalk='app'; return; }
+  var ln=_lineForLead(l); window._ccLine = ln; window._ccLead = l;
+  if(!ln || !ln.ring_to){ w.style.display='none'; window._ccTalk='app'; window._ccFrom='line'; return; }
   w.style.display='block';
-  _ccSetTalk(_ccTalkGet());
+  var cph=_campPhoneFor(l);
+  var bl=document.getElementById('ccFromLine'), bc=document.getElementById('ccFromCamp');
+  if(bl) bl.textContent='\uD83D\uDC64 '+(ln.owner_name||'Me')+' \u00b7 '+_fmtLine(ln.phone).slice(-4);
+  if(bc){ bc.textContent='\uD83C\uDFE2 Company \u00b7 '+(cph?_fmtLine(cph).slice(-4):'\u2014'); bc.style.display = cph && _fmtLine(cph)!==_fmtLine(ln.phone) ? '' : 'none'; }
+  window._ccTalk=_ccTalkGet();
+  _ccSetFrom(_ccFromGet(l));
 }
 async function _ringMyPhone(l){
   var ln=_lineForLead(l);
   if(!ln){ _doCallNow(l.id); return; }
-  showToast('\uD83D\uDCF1 Ringing your phone\u2026 answer and press any key');
+  showToast('\uD83D\uDCF1 Ringing your phone\u2026');
   try{
-    var r = await sbFetch('/functions/v1/twilio-voice?action=bridge',{method:'POST',body:JSON.stringify({lead_id:l.dbId||l.id})});
+    var r = await sbFetch('/functions/v1/twilio-voice?action=bridge',{method:'POST',body:JSON.stringify({lead_id:l.dbId||l.id, from:(window._ccFrom==='campaign'?'campaign':'line')})});
     var j = await r.json().catch(function(){return {};});
     if(!r.ok || !j.success){ showToast('\u274C '+(j.error||'Could not ring your phone')); return; }
-    showToast('\uD83D\uDCF1 Answer your phone (\u2026'+(j.ring_to_last4||'')+') and press any key to connect');
+    showToast('\uD83D\uDCF1 Answer your phone (\u2026'+(j.ring_to_last4||'')+') \u2014 the lead is connected as soon as you pick up');
   }catch(e){ showToast('\u274C Could not ring your phone \u2014 check your connection'); }
 }
 function _confirmCallGo(){
@@ -20891,7 +20922,7 @@ function _makeCall(l) {
       // callback lands on the right line (right forwarding, right dedup).
       campaignId: _inPartnerCall ? '' : (l.campaign_id || l.campaign || ''),
       // calls-1: on this person's own business, the lead sees their personal line.
-      line: _inPartnerCall ? '' : ((_lineForLead(l)||{}).phone || '')
+      line: (_inPartnerCall || window._ccFrom==='campaign') ? '' : ((_lineForLead(l)||{}).phone || '')
     }
   }).then(function(call) {
     activeCall = call;
@@ -20914,6 +20945,8 @@ function _makeCall(l) {
             description:   'Outbound call',
             call_sid:      callSid,
             direction:     'outbound',
+            // calls-2: which number the lead saw (shown next to "Human" on the card)
+            metadata:      { handler: 'human', from_number: (_lineForLead(l) && window._ccFrom!=='campaign') ? _lineForLead(l).phone : (_campPhoneFor(l) || null) },
             created_at:    new Date().toISOString()
           })
         }).then(function(r){
@@ -21009,6 +21042,12 @@ function openCallSheet(name, ph) {
   var mb = document.getElementById('muteBtn'); if(mb){mb.style.background='';mb.style.color='';}
   _speakerOn = true;
   var sb = document.getElementById('spkBtn'); if(sb){ sb.style.background='rgba(255,255,255,.30)'; }
+  // calls-2: iPhone web apps can't switch speaker/earpiece — hide the button
+  // there instead of showing one that does nothing ("Ring my phone" is the fix).
+  try{
+    var canSwitch = !!(window.twilioDevice && twilioDevice.audio && twilioDevice.audio.isOutputSelectionSupported);
+    if(sb && sb.parentNode) sb.parentNode.style.display = canSwitch ? 'flex' : 'none';
+  }catch(_e){}
   var mini0 = document.getElementById('callMini'); if(mini0){ mini0.style.display='none'; } document.body.classList.remove('call-mini-open');
   var wv = document.getElementById('cuWave');
   if (wv) wv.innerHTML = Array.from({length:22},function(){ var h=6+Math.random()*20,d=(.4+Math.random()*.8).toFixed(2); return '<div class="cu-bar" style="--h:'+h+'px;--d:'+d+'s"></div>';}).join('');
@@ -24859,7 +24898,7 @@ async function preloadActivity() {
         var dir=(row.direction||'').toLowerCase();
         var isInbound=dir==='inbound'||type==='sms_received'||type==='email_received';
         if(type==='call') label=isInbound?'📞 Inbound Call':'📞 Outbound Call';
-        return {sender_tag:(type==='sms_sent')?'Human':'', is_ai:!!(row.metadata&&(row.metadata.handler==='ai'||row.metadata.ai===true)), voicemail:(function(){ var o=(row.metadata&&row.metadata.outcome_override)||''; if(o==='voicemail') return true; if(o==='answered'||o==='missed') return false; if(row.metadata&&row.metadata.voicemail===true) return true; return /voicemail/i.test(row.description||''); })(), transcript:(row.metadata&&row.metadata.transcript)||'', type:type,label:label,time:row.created_at,body:body,rec:!!row.recording_url,recording_url:row.recording_url||null,dur:durStr,duration_seconds:durSec,call_sid:row.call_sid||null,direction:dir,callType:isInbound?'inbound':'outbound',isInbound:isInbound,summary:row.ai_summary||row.summary||null,id:row.id,call_note:row.call_note||null,email_subject:emailSubj,email_body:emailBody,email_id:(row.metadata&&row.metadata.email_id)?String(row.metadata.email_id):'',email_from:(row.metadata&&row.metadata.from)?String(row.metadata.from):''};
+        return {sender_tag:(type==='sms_sent')?'Human':'', via:(row.metadata&&(row.metadata.from_number||row.metadata.line))||'', is_ai:!!(row.metadata&&(row.metadata.handler==='ai'||row.metadata.ai===true)), voicemail:(function(){ var o=(row.metadata&&row.metadata.outcome_override)||''; if(o==='voicemail') return true; if(o==='answered'||o==='missed') return false; if(row.metadata&&row.metadata.voicemail===true) return true; return /voicemail/i.test(row.description||''); })(), transcript:(row.metadata&&row.metadata.transcript)||'', type:type,label:label,time:row.created_at,body:body,rec:!!row.recording_url,recording_url:row.recording_url||null,dur:durStr,duration_seconds:durSec,call_sid:row.call_sid||null,direction:dir,callType:isInbound?'inbound':'outbound',isInbound:isInbound,summary:row.ai_summary||row.summary||null,id:row.id,call_note:row.call_note||null,email_subject:emailSubj,email_body:emailBody,email_id:(row.metadata&&row.metadata.email_id)?String(row.metadata.email_id):'',email_from:(row.metadata&&row.metadata.from)?String(row.metadata.from):''};
       });
       // outcome-1: drop the flagless shell row of an AI call (see lead-screen loader).
       norm1 = norm1.filter(function(a){
