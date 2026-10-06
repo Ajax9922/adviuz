@@ -4611,7 +4611,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-06 eminbox-2';
+var APP_VERSION = 'v2026-10-06 eminbox-3';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -19812,12 +19812,36 @@ function _emibDetail(ai){
    +(dirIn?'<span class="emib-tg recv">↓ Received</span>':'<span class="emib-tg sent">↑ Sent</span>')
    +'</div></div>'
    +'<div class="emib-card" style="padding:13px 15px"><div class="emib-mt">Full history</div>'+hist+'</div>'
-   +_emibBodyCard(subject, bodyTxt)
+   +'<div id="emibBodyCard">'+_emibBodyCard(subject, bodyTxt)+'</div>'
    +'<div class="emib-abr">'
    +'<button class="emib-ab pri" onclick="_emibReply('+ai+')">↩︎ Reply</button>'
    +'<button class="emib-ab" onclick="_emibFwd('+ai+')">↪︎ Forward</button>'
    +'</div>';
   det.scrollTop=0;
+  // eminbox-3: show the email the way Gmail does — fetch the FULL designed
+  // HTML from the email provider (email-body fn, staff-only) and swap it in.
+  if(!dirIn && a.email_id && !/<\s*(!doctype|html|body|table|div)\b/i.test(bodyTxt)) _emibLoadHtml(a.email_id);
+}
+window._emibHtml = window._emibHtml || {};
+async function _emibLoadHtml(emailId){
+  var box=document.getElementById('emibBodyCard'); if(!box) return;
+  var cached=window._emibHtml[emailId];
+  if(cached===''){ return; } // already tried — nothing stored at the provider
+  if(cached){ box.innerHTML='<div class="emib-card" style="overflow:hidden"><iframe sandbox srcdoc="'+_emibEsc(cached)+'" style="width:100%;height:520px;border:none;background:#fff;display:block"></iframe></div>'; return; }
+  var note=document.createElement('div');
+  note.style.cssText='font-size:11px;color:var(--sub);text-align:center;padding:2px 0 6px';
+  note.textContent='Loading the designed email…';
+  box.appendChild(note);
+  try{
+    var r=await sbFetch('/functions/v1/email-body',{ method:'POST', body: JSON.stringify({ email_id: emailId }) });
+    var d=r.ok?await r.json():{};
+    var html=(d&&d.ok&&d.html)?String(d.html):'';
+    window._emibHtml[emailId]=html;
+    var box2=document.getElementById('emibBodyCard'); if(!box2) return;
+    if(html){ box2.innerHTML='<div class="emib-card" style="overflow:hidden"><iframe sandbox srcdoc="'+_emibEsc(html)+'" style="width:100%;height:520px;border:none;background:#fff;display:block"></iframe></div>'; }
+    else if(d&&d.ok&&d.text){ box2.innerHTML='<div class="emib-card" style="padding:17px 16px;font-size:14px;line-height:1.75;color:var(--text);white-space:pre-wrap">'+_emibEsc(String(d.text))+'</div>'; }
+    else { note.remove(); }
+  }catch(_e){ try{ note.remove(); }catch(_e2){} }
 }
 function _emibReply(ai){
   var l=leads.find(function(x){return x.id===window._emib.lid;}); if(!l) return;
