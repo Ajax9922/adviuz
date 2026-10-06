@@ -4611,7 +4611,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-06 fuelpause-1';
+var APP_VERSION = 'v2026-10-06 emfrom-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -20023,6 +20023,7 @@ function openEmailAddr(email, lid) {
   var t = document.getElementById('emailTo');
   if(t) t.value = email;
   closeSheet('leadSh');
+  try{ _emPaintFromOptions(leads.find(function(x){ return x.id===lid; })); }catch(_e){} // emfrom-1
   openSheet('emailSh');
 }
 
@@ -22018,6 +22019,7 @@ function openEmail(id){
       if(_rp.from){ var _to=document.getElementById('emailTo'); if(_to && !_to.value) _to.value=_rp.from; }
     }
   }catch(e){}
+  _emPaintFromOptions(l); // emfrom-1
   openSheet('emailSh');
 }
 
@@ -22706,6 +22708,32 @@ var FROM_NAMES = {
   'sales@adviuz.com':'Adviuz Sales',
   'support@adviuz.com':'Adviuz Support'
 };
+// emfrom-1 (2026-10-06): the From dropdown is now the truth. A lead of a real
+// client with verified sending gets that client's brand as a "__client" option,
+// pre-selected (same default as before) — but an Adviuz address picked by the
+// operator is honored exactly. Before this, the client identity silently
+// overrode the dropdown (Anil's design email went out as "Laser Cosmetics
+// Clinic" while the sheet said support@adviuz.com).
+var _EM_HOUSE=['7d315d20-00af-4e7f-8d79-c89b3f2b5cf7','9686a0a7-75b0-4232-b5a4-20fb11296db3'];
+function _emPaintFromOptions(l){
+  var el=document.getElementById('emailFrom'); if(!el) return;
+  var old=el.querySelector('option[value="__client"]'); if(old) old.remove();
+  el.value='relations@adviuz.com';
+  var cid=(l&&l.client_id)?String(l.client_id):'';
+  if(!cid||_EM_HOUSE.indexOf(cid)>=0) return;
+  sbFetch('/rest/v1/client_integrations?client_id=eq.'+cid+'&select=email_enabled,from_email,from_name&limit=1')
+    .then(function(r){ return r.ok?r.json():[]; })
+    .then(function(arr){
+      var ci=(arr&&arr[0])||null;
+      if(!(ci&&ci.email_enabled===true&&ci.from_email)) return;
+      var o=document.createElement('option');
+      o.value='__client';
+      o.textContent=String(ci.from_name||'Client brand')+' <'+String(ci.from_email)+'>';
+      el.insertBefore(o, el.firstChild);
+      el.value='__client';
+      try{ if(typeof emailFromChanged==='function') emailFromChanged(); }catch(_e){}
+    }).catch(function(){});
+}
 // v-locked: footer team names, automatic per sending address (matches send-email engine)
 var TEAM_NAMES_FOOTER = {
   'sales@adviuz.com':'Sales Team',
@@ -23561,7 +23589,11 @@ async function sendEmail(){
   var _emLeadRow = _emailLeadId ? leads.find(function(x){ return x.id===_emailLeadId; }) : null;
   var _emLeadDb = (_emLeadRow && _emLeadRow.dbId) ? _emLeadRow.dbId : null;
   var _emClientDb = (_emLeadRow && _emLeadRow.client_id) ? _emLeadRow.client_id : (window._clientId||null);
-  var fromEmail = (document.getElementById('emailFrom')||{}).value||'relations@adviuz.com';
+  var _fromSel = (document.getElementById('emailFrom')||{}).value||'relations@adviuz.com';
+  // emfrom-1: '__client' = send as the lead's business (looked up below);
+  // an Adviuz address is honored exactly as picked.
+  var _asClient = (_fromSel==='__client');
+  var fromEmail = _asClient ? 'relations@adviuz.com' : _fromSel;
   var to   = (document.getElementById('emailTo')||{}).value.trim();
   var cc   = (document.getElementById('emailCc')||{}).value.trim();
   var viewsAdded = (document.getElementById('emailViewsAdded')||{}).value.trim();
@@ -23670,7 +23702,7 @@ async function sendEmail(){
     var _sendFrom=fromEmail, _sendName=(FROM_NAMES[fromEmail]||'Adviuz Team'), _sendReply=fromEmail;
     try{
       var _HOUSE=['7d315d20-00af-4e7f-8d79-c89b3f2b5cf7','9686a0a7-75b0-4232-b5a4-20fb11296db3'];
-      if(_emClientDb && _HOUSE.indexOf(String(_emClientDb))<0){
+      if(_asClient && _emClientDb && _HOUSE.indexOf(String(_emClientDb))<0){
         var _cir=await sbFetch('/rest/v1/client_integrations?client_id=eq.'+_emClientDb+'&select=email_enabled,from_email,from_name,reply_to_email,email_footer_text,email_website_url,email_logo_url&limit=1');
         var _ciArr=_cir.ok?await _cir.json():[];
         var _ci=(_ciArr&&_ciArr[0])||null;
@@ -23739,7 +23771,7 @@ async function sendEmail(){
 
     window._emAtt=[]; if(typeof emPaintAtts==='function') emPaintAtts();
     closeSheet('emailSh');
-    showToast('Sent from '+fromEmail);
+    showToast('Sent from '+_sendFrom);
     try{
       var _lidNow=_emailLeadId; if(_lidNow!=null){
         if(!leadAct[_lidNow]) leadAct[_lidNow]=[];
