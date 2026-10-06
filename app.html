@@ -4611,7 +4611,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-06 eminbox-3';
+var APP_VERSION = 'v2026-10-06 eminbox-4';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -19530,9 +19530,9 @@ function _emibBodyCard(subject, bodyTxt){
 //    manual "Schedule" sends (scheduled_emails) + the quote system's auto
 //    reminders (computed from the quote, same rules as process-reminders)
 //    + the follow-up plan's upcoming email steps (loaded with the timeline).
-async function _emibLoadSched(l){
+async function _emibLoadSched(l, ro){
   var out=[];
-  if(l.dbId){
+  if(l.dbId && !ro){
     try{
       var sr=await sbFetch('/rest/v1/scheduled_emails?lead_id=eq.'+l.dbId+'&status=eq.scheduled&select=id,subject,message,send_at,from_email,to_email&order=send_at.asc&limit=20');
       if(sr.ok) (await sr.json()||[]).forEach(function(x){ x.src='manual'; out.push(x); });
@@ -19596,10 +19596,13 @@ async function openEmailInbox(id, keep){
   var l = (id!=null) ? leads.find(function(x){return x.id===id;}) : (typeof lsGetLead==='function'?lsGetLead():null);
   if(!l) return;
   if(typeof isPartnerMode==='function' && isPartnerMode()){ openPartnerProposal(l.id); return; }
-  if(isClientMode() || window._isTelecaller){ showToast('Email is being set up for your account — coming soon.'); return; }
+  // eminbox-4 (step 1 for clients): client owners and team members get the
+  // inbox READ-ONLY — every email + live tracking, no Compose/Reply yet.
+  // The AI-plan gate stays at the Email button (clientCan('email')).
+  var _ro=(isClientMode() || !!window._isTelecaller);
   _emibCss();
   if(!keep || !window._emib) window._emib={ lid:l.id, tab:'all', kind:'all', sort:'new', q:'' };
-  window._emib.lid=l.id;
+  window._emib.lid=l.id; window._emib.ro=_ro;
   var ov=document.getElementById('emibOv');
   if(!ov){ ov=document.createElement('div'); ov.id='emibOv'; document.body.appendChild(ov); }
   ov.innerHTML='<div class="emib-gl"></div><div class="emib-top"><div class="emib-bk" onclick="closeEmailInbox()">‹</div><div style="flex:1;min-width:0"><div class="emib-nm">Emails · '+_emibEsc(l.name||'Lead')+'</div><div class="emib-em">'+_emibEsc(l.em||'no email on file')+(l.company?(' · '+_emibEsc(l.company)):'')+'</div></div></div>'
@@ -19610,7 +19613,7 @@ async function openEmailInbox(id, keep){
     }
   }catch(_e){}
   window._emibSched=[]; window._emibLogs={};
-  try{ window._emibSched=await _emibLoadSched(l); }catch(_e){}
+  try{ window._emibSched=await _emibLoadSched(l, _ro); }catch(_e){}
   if(l.dbId){
     try{ var er=await sbFetch('/rest/v1/email_logs?lead_id=eq.'+l.dbId+'&select=resend_id,bounced_at&bounced_at=not.is.null&limit=50'); if(er.ok){ (await er.json()||[]).forEach(function(x){ if(x.resend_id) window._emibLogs[x.resend_id]=x; }); } }catch(_e){}
   }
@@ -19638,7 +19641,9 @@ function _emibRender(l){
   if(st.sort==='old') list.sort(function(a,b){return a.ms-b.ms;});
   else if(st.sort==='opened') list.sort(function(a,b){return _emibOpenCount(l,b)-_emibOpenCount(l,a) || b.ms-a.ms;});
   else list.sort(function(a,b){return b.ms-a.ms;});
-  var tabs=[['all','All',rows.length],['recv','Received',recv.length],['sent','Sent',sent.length],['drafts','Drafts',draft?1:0],['sched','Scheduled',sched.length]];
+  var tabs=st.ro
+    ? [['all','All',rows.length],['recv','Received',recv.length],['sent','Sent',sent.length],['sched','Scheduled',sched.length]]
+    : [['all','All',rows.length],['recv','Received',recv.length],['sent','Sent',sent.length],['drafts','Drafts',draft?1:0],['sched','Scheduled',sched.length]];
   var h='<div class="emib-gl"></div>'
    +'<div class="emib-top"><div class="emib-bk" onclick="closeEmailInbox()">‹</div><div style="flex:1;min-width:0"><div class="emib-nm">Emails · '+_emibEsc(l.name||'Lead')+'</div><div class="emib-em">'+_emibEsc(l.em||'no email on file')+(l.company?(' · '+_emibEsc(l.company)):'')+'</div></div><div style="font-size:10.5px;font-weight:700;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:5px 10px">'+rows.length+' email'+(rows.length===1?'':'s')+'</div></div>'
    +'<div class="emib-strip">'
@@ -19658,7 +19663,7 @@ function _emibRender(l){
    +'</div></div>'
    +'<div id="emibList"></div>'
    +'<div style="height:90px"></div>'
-   +'<button class="emib-fab" onclick="_emibCompose()"><span class="pl">＋</span> Compose</button>';
+   +(st.ro?'':'<button class="emib-fab" onclick="_emibCompose()"><span class="pl">＋</span> Compose</button>');
   ov.innerHTML=h;
   window._emibList=list;
   _emibPaintOnly();
@@ -19697,7 +19702,7 @@ function _emibPaintOnly(){
   }
   var list=window._emibList||[];
   if(st.q){ var q=st.q.toLowerCase(); list=list.filter(function(r){ return (r.subject+' '+r.body).toLowerCase().indexOf(q)>=0; }); }
-  if(!list.length){ box.innerHTML='<div style="text-align:center;color:var(--sub);font-size:13px;padding:50px 30px">'+(st.q?'No emails match the search.':'No emails with this lead yet. Tap ＋ Compose to send the first one.')+'</div>'; return; }
+  if(!list.length){ box.innerHTML='<div style="text-align:center;color:var(--sub);font-size:13px;padding:50px 30px">'+(st.q?'No emails match the search.':(st.ro?'No emails with this lead yet.':'No emails with this lead yet. Tap ＋ Compose to send the first one.'))+'</div>'; return; }
   var lastDay='';
   list.forEach(function(r){
     var day=_emibDayLbl(r.ms);
@@ -19813,10 +19818,12 @@ function _emibDetail(ai){
    +'</div></div>'
    +'<div class="emib-card" style="padding:13px 15px"><div class="emib-mt">Full history</div>'+hist+'</div>'
    +'<div id="emibBodyCard">'+_emibBodyCard(subject, bodyTxt)+'</div>'
-   +'<div class="emib-abr">'
-   +'<button class="emib-ab pri" onclick="_emibReply('+ai+')">↩︎ Reply</button>'
-   +'<button class="emib-ab" onclick="_emibFwd('+ai+')">↪︎ Forward</button>'
-   +'</div>';
+   +((window._emib&&window._emib.ro)
+      ? '<div style="text-align:center;font-size:12px;color:var(--sub);padding:4px 16px 24px">Replying from the app is coming soon.</div>'
+      : '<div class="emib-abr">'
+       +'<button class="emib-ab pri" onclick="_emibReply('+ai+')">↩︎ Reply</button>'
+       +'<button class="emib-ab" onclick="_emibFwd('+ai+')">↪︎ Forward</button>'
+       +'</div>');
   det.scrollTop=0;
   // eminbox-3: show the email the way Gmail does — fetch the FULL designed
   // HTML from the email provider (email-body fn, staff-only) and swap it in.
