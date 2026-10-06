@@ -4611,7 +4611,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-06 eminbox-1';
+var APP_VERSION = 'v2026-10-06 eminbox-2';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -19423,8 +19423,8 @@ function _emibCss(){
   if(document.getElementById('emibCssTag')) return;
   var st=document.createElement('style'); st.id='emibCssTag';
   st.textContent=''
-   +'#emibOv{position:fixed;inset:0;z-index:960;background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch}'
-   +'#emibDet{position:fixed;inset:0;z-index:962;background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch}'
+   +'#emibOv{position:fixed;inset:0;z-index:830;background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch}'
+   +'#emibDet{position:fixed;inset:0;z-index:832;background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch}'
    +'.emib-gl{height:3px;background:'+_EMIB_GRAD+';position:sticky;top:0;z-index:7}'
    +'.emib-top{background:var(--white);border-bottom:1px solid var(--border);padding:calc(10px + env(safe-area-inset-top)) 16px 11px;display:flex;align-items:center;gap:12px;position:sticky;top:3px;z-index:6}'
    +'.emib-bk{width:32px;height:32px;border-radius:10px;background:var(--bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--text);cursor:pointer;flex-shrink:0}'
@@ -19462,7 +19462,7 @@ function _emibCss(){
    +'.emib-tg.open{background:#fff7e6;color:#b45309}.emib-tg.click{background:#eaf2fe;color:#1d4ed8}'
    +'.emib-tg.noopen{background:#f4f6f8;color:#8795a7}.emib-tg.bounce{background:#fdeeee;color:#b91c1c}'
    +'.emib-tg.ai{background:#f3efff;color:#4000f3}.emib-tg.sched{background:#eef6ff;color:#0369a1}'
-   +'.emib-fab{position:fixed;right:16px;bottom:calc(20px + env(safe-area-inset-bottom));z-index:961;display:flex;align-items:center;gap:8px;background:#0a0a0a;color:#fff;font-size:13.5px;font-weight:700;border:none;border-radius:13px;padding:13px 22px;box-shadow:0 8px 20px rgba(10,10,10,.30);cursor:pointer;font-family:var(--f)}'
+   +'.emib-fab{position:fixed;right:16px;bottom:calc(20px + env(safe-area-inset-bottom));z-index:833;display:flex;align-items:center;gap:8px;background:#0a0a0a;color:#fff;font-size:13.5px;font-weight:700;border:none;border-radius:13px;padding:13px 22px;box-shadow:0 8px 20px rgba(10,10,10,.30);cursor:pointer;font-family:var(--f)}'
    +'.emib-fab .pl{background:'+_EMIB_GRAD+';-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:900;font-size:15px}'
    +'.emib-card{background:var(--white);margin:10px 12px;border:1px solid var(--border);border-radius:14px}'
    +'.emib-mt{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#94a3b8;margin-bottom:9px}'
@@ -19509,6 +19509,66 @@ document.addEventListener('input', function(ev){
     }catch(_e){}
   },600);
 });
+function _emibSnip(r){
+  var t=String(r.body||'').replace(/<style[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+  if(!t || t===String(r.subject||'').replace(/\s+/g,' ').trim()) return r.dir==='out'?'Designed (HTML) email':'';
+  return t.slice(0,95);
+}
+function _emibBodyCard(subject, bodyTxt){
+  var t=String(bodyTxt||'');
+  // A real HTML email renders in a sandboxed frame (no scripts can run there).
+  if(/<\s*(!doctype|html|body|table|div|td|tr|h[1-6]|p|img|a)\b/i.test(t)){
+    return '<div class="emib-card" style="overflow:hidden"><iframe sandbox srcdoc="'+_emibEsc(t)+'" style="width:100%;height:460px;border:none;background:#fff;display:block"></iframe></div>';
+  }
+  var plain=t.replace(/\s+/g,' ').trim();
+  if(!plain || plain===String(subject||'').replace(/\s+/g,' ').trim()){
+    return '<div class="emib-card" style="padding:17px 16px;font-size:13px;color:var(--sub);line-height:1.7">🎨 This was a designed (HTML template) email — its full design isn’t stored in the timeline. Delivery and opens above are live.</div>';
+  }
+  return '<div class="emib-card" style="padding:17px 16px;font-size:14px;line-height:1.75;color:var(--text);white-space:pre-wrap">'+_emibEsc(t)+'</div>';
+}
+// ── Fix 3: the Scheduled tab shows EVERY email queued for this lead:
+//    manual "Schedule" sends (scheduled_emails) + the quote system's auto
+//    reminders (computed from the quote, same rules as process-reminders)
+//    + the follow-up plan's upcoming email steps (loaded with the timeline).
+async function _emibLoadSched(l){
+  var out=[];
+  if(l.dbId){
+    try{
+      var sr=await sbFetch('/rest/v1/scheduled_emails?lead_id=eq.'+l.dbId+'&status=eq.scheduled&select=id,subject,message,send_at,from_email,to_email&order=send_at.asc&limit=20');
+      if(sr.ok) (await sr.json()||[]).forEach(function(x){ x.src='manual'; out.push(x); });
+    }catch(_e){}
+    try{
+      var qr=await sbFetch('/rest/v1/quotes?lead_id=eq.'+l.dbId+'&status=in.(sent,viewed)&select=id,quote_number,status,sent_at,created_at,valid_until,reminder_1_sent,reminder_2_sent,reminder_3_sent,reminders_off&limit=10');
+      var qs=qr.ok?await qr.json()||[]:[];
+      var today=new Date(); today.setHours(0,0,0,0);
+      qs.forEach(function(q){
+        if(q.reminders_off) return;
+        var num=q.quote_number||'quote';
+        var base=new Date(q.sent_at||q.created_at);
+        var exp=q.valid_until?new Date(String(q.valid_until).slice(0,10)+'T12:00:00'):null;
+        var plus=function(d,n){ var x=new Date(d); x.setDate(x.getDate()+n); x.setHours(9,0,0,0); return x; };
+        var rems=[{sent:!!q.reminder_1_sent,d:plus(base,2),subject:'Quick follow-up on your quote — '+num,message:'Just checking in to make sure you received the quote and can answer any questions.'}];
+        if(exp){
+          rems.push({sent:!!q.reminder_2_sent,d:plus(exp,-2),subject:'Your quote expires in 2 days — '+num,message:'A reminder that the quote expires in 2 days — accept now to lock in the pricing.'});
+          rems.push({sent:!!q.reminder_3_sent,d:plus(exp,0),subject:'Last day — quote expires today — '+num,message:'Today is the last day to accept the quote.'});
+        }
+        rems.forEach(function(r){
+          if(r.sent || r.d.getTime()<today.getTime()) return;
+          out.push({ src:'quote', qid:q.id, subject:r.subject, message:r.message, send_at:r.d.toISOString(), from_email:'' });
+        });
+      });
+    }catch(_e){}
+  }
+  try{
+    ((window._pbSched)||[]).forEach(function(st){
+      if(st.channel!=='email' || st.skipped) return;
+      if(!st.due || st.due<Date.now()) return;
+      out.push({ src:'plan', subject:String(st.subject||'Follow-up email'), message:String(st.body||''), send_at:new Date(st.due).toISOString(), from_email:'', exact:!!st.exact });
+    });
+  }catch(_e){}
+  out.sort(function(a,b){ return new Date(a.send_at)-new Date(b.send_at); });
+  return out;
+}
 // gather this lead's emails out of the already-loaded timeline
 function _emibRows(l){
   var out=[];
@@ -19550,8 +19610,8 @@ async function openEmailInbox(id, keep){
     }
   }catch(_e){}
   window._emibSched=[]; window._emibLogs={};
+  try{ window._emibSched=await _emibLoadSched(l); }catch(_e){}
   if(l.dbId){
-    try{ var sr=await sbFetch('/rest/v1/scheduled_emails?lead_id=eq.'+l.dbId+'&status=eq.scheduled&select=id,subject,message,send_at,from_email,to_email&order=send_at.asc&limit=20'); if(sr.ok) window._emibSched=await sr.json()||[]; }catch(_e){}
     try{ var er=await sbFetch('/rest/v1/email_logs?lead_id=eq.'+l.dbId+'&select=resend_id,bounced_at&bounced_at=not.is.null&limit=50'); if(er.ok){ (await er.json()||[]).forEach(function(x){ if(x.resend_id) window._emibLogs[x.resend_id]=x; }); } }catch(_e){}
   }
   if(!document.getElementById('emibOv')) return; // closed while loading
@@ -19629,7 +19689,8 @@ function _emibPaintOnly(){
        +'<div class="emib-av out" style="background:#eef6ff;color:#0369a1">🕑</div><div class="emib-bd">'
        +'<div class="emib-l1"><div class="emib-sj">'+_emibEsc(x.subject||'(no subject)')+'</div><div class="emib-tm">'+_emibTime(t.getTime())+'</div></div>'
        +'<div class="emib-sn">'+_emibEsc(String(x.message||'').slice(0,90))+'</div>'
-       +'<div class="emib-tags"><span class="emib-tg sched">🕑 '+t.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})+' '+t.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'})+'</span><span class="emib-tg noopen">Tap to edit or cancel</span></div>'
+       +'<div class="emib-tags"><span class="emib-tg sched">🕑 '+t.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})+(x.src==='quote'?'':(' '+t.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'})))+'</span>'
+       +(x.src==='quote'?'<span class="emib-tg ai">Quote reminder · auto</span>':x.src==='plan'?'<span class="emib-tg ai">Follow-up plan'+(x.exact?'':' · approx')+'</span>':'<span class="emib-tg noopen">Tap to edit or cancel</span>')+'</div>'
        +'</div></div>';
     });
     box.innerHTML=h; return;
@@ -19644,7 +19705,7 @@ function _emibPaintOnly(){
     h+='<div class="emib-row'+((r.dir==='in')?' unread':'')+'" onclick="_emibDetail('+r.i+')">'
      +'<div class="emib-av '+(r.dir==='in'?'in':'out')+'">'+_emibEsc((l.name||'?').trim().charAt(0).toUpperCase()||'?')+'</div>'
      +'<div class="emib-bd"><div class="emib-l1"><div class="emib-sj">'+_emibEsc(r.subject)+'</div><div class="emib-tm">'+_emibTime(r.ms)+'</div></div>'
-     +'<div class="emib-sn">'+_emibEsc(String(r.body||'').replace(/\s+/g,' ').slice(0,95))+'</div>'
+     +'<div class="emib-sn">'+_emibEsc(_emibSnip(r))+'</div>'
      +'<div class="emib-tags">'+_emibLastTag(l,r)+(r.ai?'<span class="emib-tg ai">Automated</span>':'')+'</div>'
      +'</div></div>';
   });
@@ -19670,6 +19731,22 @@ function _emibDropDraft(){ _emDraftClear(window._emib.lid); _emibPaintOnly(); sh
 function _emibSchedSheet(i){
   var x=(window._emibSched||[])[i]; if(!x) return;
   var t=new Date(x.send_at);
+  if(x.src==='quote' || x.src==='plan'){
+    var ov2=document.createElement('div'); ov2.className='sheet-ov'; ov2.style.display='flex'; ov2.style.zIndex='10001';
+    var expl=(x.src==='quote')
+      ? 'Sent automatically by the quote system at 9 AM, the client\u2019s local time. Stopping it stops ALL remaining reminders for that quote.'
+      : 'Part of this lead\u2019s automated follow-up plan'+(x.exact?'':' (time is approximate — the engine fixes the exact moment closer to sending)')+'. Manage it from the Scheduled section on the lead screen.';
+    ov2.innerHTML='<div class="sheet" style="max-height:70vh"><div class="sh-head"><div class="sh-title">🕑 '+(x.src==='quote'?'Quote reminder':'Follow-up plan email')+'</div><button class="sh-x" onclick="this.closest(\'.sheet-ov\').remove()">✕</button></div>'
+     +'<div class="sh-body" style="padding:14px 16px calc(26px + env(safe-area-inset-bottom))">'
+     +'<div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px">'+_emibEsc(x.subject||'')+'</div>'
+     +'<div style="font-size:12px;color:var(--sub);margin-bottom:10px">Goes out '+t.toLocaleDateString('en-CA',{weekday:'long',month:'short',day:'numeric'})+'</div>'
+     +(x.message?('<div style="background:var(--bg);border:1px solid var(--border);border-radius:11px;padding:12px;font-size:13px;color:var(--text);line-height:1.65;white-space:pre-wrap;max-height:180px;overflow-y:auto;margin-bottom:12px">'+_emibEsc(x.message)+'</div>'):'')
+     +'<div style="font-size:12px;color:var(--sub);line-height:1.6;margin-bottom:14px">'+expl+'</div>'
+     +(x.src==='quote'?'<button class="btn" style="width:100%;justify-content:center;background:#fdeeee;border:1.5px solid #f5c2c2;color:#b91c1c;padding:13px" onclick="var s=this.closest(\'.sheet-ov\');s.remove();cancelQuoteReminders(\''+x.qid+'\');setTimeout(function(){ if(document.getElementById(\'emibOv\')) openEmailInbox(window._emib&&window._emib.lid,true); },900)">🛑 Stop this quote\u2019s reminders</button>':'')
+     +'</div></div>';
+    document.body.appendChild(ov2);
+    return;
+  }
   var ov=document.createElement('div'); ov.className='sheet-ov'; ov.style.display='flex'; ov.style.zIndex='10001';
   ov.innerHTML='<div class="sheet" style="max-height:70vh"><div class="sh-head"><div class="sh-title">🕑 Scheduled email</div><button class="sh-x" onclick="this.closest(\'.sheet-ov\').remove()">✕</button></div>'
    +'<div class="sh-body" style="padding:14px 16px calc(26px + env(safe-area-inset-bottom))">'
@@ -19682,7 +19759,7 @@ function _emibSchedSheet(i){
   document.body.appendChild(ov);
 }
 async function _emibSchedCancel(i, sheetEl){
-  var x=(window._emibSched||[])[i]; if(!x) return;
+  var x=(window._emibSched||[])[i]; if(!x || x.src!=='manual') return;
   try{
     var r=await sbFetch('/rest/v1/scheduled_emails?id=eq.'+x.id+'&status=eq.scheduled',{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ status:'cancelled' }) });
     if(!r.ok) throw new Error('HTTP '+r.status);
@@ -19735,7 +19812,7 @@ function _emibDetail(ai){
    +(dirIn?'<span class="emib-tg recv">↓ Received</span>':'<span class="emib-tg sent">↑ Sent</span>')
    +'</div></div>'
    +'<div class="emib-card" style="padding:13px 15px"><div class="emib-mt">Full history</div>'+hist+'</div>'
-   +'<div class="emib-card" style="padding:17px 16px;font-size:14px;line-height:1.75;color:var(--text);white-space:pre-wrap">'+_emibEsc(bodyTxt)+'</div>'
+   +_emibBodyCard(subject, bodyTxt)
    +'<div class="emib-abr">'
    +'<button class="emib-ab pri" onclick="_emibReply('+ai+')">↩︎ Reply</button>'
    +'<button class="emib-ab" onclick="_emibFwd('+ai+')">↪︎ Forward</button>'
