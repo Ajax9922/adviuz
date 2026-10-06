@@ -4611,7 +4611,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-05 rpt-3';
+var APP_VERSION = 'v2026-10-05 rolefix-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -5619,7 +5619,10 @@ async function refreshSession() {
   if (!session || !session.token) { clearSavedSession(); return false; }
 
   // Restore role + credentials immediately
-  window._staffRole = session.role || null;   // a hint only; the gate below decides
+  // rolefix-1: never let a background token refresh wipe the role the database
+  // already decided (the sign-in page saves role:"", so switching tabs used to
+  // blank it and a client briefly got operator-only rows/buttons).
+  if (!window._staffRole) window._staffRole = session.role || null;   // a hint only; the gate decides
   authToken   = session.token;
   currentUser = session.user;
 
@@ -5634,7 +5637,7 @@ async function refreshSession() {
       currentUser = userData;
       console.log('[Session] Token valid ✅', userData.email);
       // Save fresh user data
-      saveSession(session.token, session.refresh, userData, session.role, session.remember);
+      saveSession(session.token, session.refresh, userData, window._staffRole || session.role, session.remember);
       // Schedule background refresh in 50 minutes
       scheduleTokenRefresh(50 * 60 * 1000);
       return true;
@@ -5672,7 +5675,7 @@ async function refreshSession() {
         refreshData.access_token,
         refreshData.refresh_token || session.refresh,
         refreshData.user,
-        session.role,
+        window._staffRole || session.role,
         session.remember
       );
       console.log('[Session] Token refreshed ✅');
