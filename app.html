@@ -4611,7 +4611,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-06 emfrom-1';
+var APP_VERSION = 'v2026-10-06 eminbox-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -16426,7 +16426,7 @@ function renderLeadScreen(id) {
       // has email switched on.
       h += ldCallBtn('📧','Email','#dbeafe','#2563eb', 'openClientEmail('+l.id+')');
     } else {
-      h += ldCallBtn('📧','Email','#dbeafe','#2563eb', 'lsDoEmail()','email');
+      h += ldCallBtn('📧','Email','#dbeafe','#2563eb', 'openEmailInbox()','email');
     }
   }
   h += ldCallBtn('💬','SMS','#d1fae5','var(--green)','openSmsSheet()');
@@ -19406,6 +19406,365 @@ function ceAttRemove(i){
 }
 
 function lsDoSms(){ var l=lsGetLead();if(l)openSms(l.id); }
+
+// ═══════════════════════════════════════════════════════════════
+// eminbox-1 (2026-10-06, Ajax): LEAD EMAIL INBOX
+// The 📧 Email button now opens a Gmail-style inbox for the lead:
+// fixed tabs (All · Received · Sent · Drafts · Scheduled), a
+// Human/Automated filter, search, sorting, ONE latest-event tag per
+// row (Clicked > Opened > Delivered), full open/click history on tap,
+// and ＋ Compose into the existing sender chooser (lsDoEmail).
+// Operator-only; partners keep the proposal flow, clients their stop.
+// Drafts: whatever is typed in the compose sheet auto-saves per lead
+// (localStorage) and clears on a successful send.
+// ═══════════════════════════════════════════════════════════════
+var _EMIB_GRAD='linear-gradient(90deg,#4000f3,#e65afc)';
+function _emibCss(){
+  if(document.getElementById('emibCssTag')) return;
+  var st=document.createElement('style'); st.id='emibCssTag';
+  st.textContent=''
+   +'#emibOv{position:fixed;inset:0;z-index:960;background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch}'
+   +'#emibDet{position:fixed;inset:0;z-index:962;background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch}'
+   +'.emib-gl{height:3px;background:'+_EMIB_GRAD+';position:sticky;top:0;z-index:7}'
+   +'.emib-top{background:var(--white);border-bottom:1px solid var(--border);padding:calc(10px + env(safe-area-inset-top)) 16px 11px;display:flex;align-items:center;gap:12px;position:sticky;top:3px;z-index:6}'
+   +'.emib-bk{width:32px;height:32px;border-radius:10px;background:var(--bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--text);cursor:pointer;flex-shrink:0}'
+   +'.emib-nm{font-size:15.5px;font-weight:700;color:var(--text);line-height:1.2}'
+   +'.emib-em{font-size:11px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}'
+   +'.emib-strip{display:flex;gap:8px;padding:12px 14px;background:var(--white);border-bottom:1px solid var(--border)}'
+   +'.emib-st{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:11px;padding:8px 6px;text-align:center}'
+   +'.emib-st b{display:block;font-size:15px;color:var(--text)}'
+   +'.emib-st span{font-size:9.5px;color:var(--sub);font-weight:600;letter-spacing:.05em;text-transform:uppercase}'
+   +'.emib-tools{background:var(--white);border-bottom:1px solid var(--border);padding:10px 14px 0}'
+   +'.emib-q{display:flex;align-items:center;gap:8px;background:var(--bg);border:1.5px solid var(--border);border-radius:11px;padding:0 12px}'
+   +'.emib-q input{flex:1;border:none;outline:none;background:transparent;padding:10px 0;font-size:13.5px;font-family:var(--f);color:var(--text)}'
+   +'.emib-tabs{display:flex;margin-top:10px;border-bottom:1px solid var(--border)}'
+   +'.emib-tab{flex:1;text-align:center;font-size:11.5px;font-weight:700;color:#71717a;padding:9px 0 10px;position:relative;white-space:nowrap;cursor:pointer}'
+   +'.emib-tab b{font-weight:800;font-size:10px;color:#a1a1aa;margin-left:2px}'
+   +'.emib-tab.on{color:var(--text)}'
+   +'.emib-tab.on:after{content:"";position:absolute;left:14%;right:14%;bottom:-1px;height:3px;border-radius:3px 3px 0 0;background:'+_EMIB_GRAD+'}'
+   +'.emib-frow{display:flex;align-items:center;gap:6px;padding:9px 0 10px}'
+   +'.emib-fc{font-size:11px;font-weight:700;border-radius:18px;padding:6px 11px;background:var(--bg);border:1.5px solid var(--border);color:#52525b;white-space:nowrap;cursor:pointer}'
+   +'.emib-fc.on{background:#f3efff;border-color:#d9ccff;color:#4000f3}'
+   +'.emib-sort{margin-left:auto;font-size:11px;font-weight:700;color:var(--text);background:var(--white);border:1.5px solid var(--border);border-radius:18px;padding:6px 11px;white-space:nowrap;cursor:pointer}'
+   +'.emib-day{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#94a3b8;padding:15px 18px 6px}'
+   +'.emib-row{background:var(--white);margin:0 12px 9px;border:1px solid var(--border);border-radius:14px;padding:12px 13px;display:flex;gap:11px;cursor:pointer}'
+   +'.emib-row.unread{border-left:3px solid #4000f3}'
+   +'.emib-av{width:36px;height:36px;border-radius:12px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700}'
+   +'.emib-av.in{background:#fdf0fe;color:#b11fd0}.emib-av.out{background:#f1f1f4;color:var(--text)}'
+   +'.emib-bd{flex:1;min-width:0}'
+   +'.emib-l1{display:flex;align-items:center;gap:7px}'
+   +'.emib-sj{flex:1;min-width:0;font-size:13.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'
+   +'.emib-tm{font-size:10.5px;color:#94a3b8;flex-shrink:0}'
+   +'.emib-sn{font-size:12px;color:var(--sub);margin-top:2.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'
+   +'.emib-tags{display:flex;gap:5px;margin-top:8px;flex-wrap:wrap}'
+   +'.emib-tg{font-size:9.8px;font-weight:700;border-radius:7px;padding:3.5px 8px;display:inline-flex;align-items:center;gap:4px}'
+   +'.emib-tg.sent{background:#f1f1f4;color:#3f3f46}.emib-tg.recv{background:#fdf0fe;color:#b11fd0}'
+   +'.emib-tg.open{background:#fff7e6;color:#b45309}.emib-tg.click{background:#eaf2fe;color:#1d4ed8}'
+   +'.emib-tg.noopen{background:#f4f6f8;color:#8795a7}.emib-tg.bounce{background:#fdeeee;color:#b91c1c}'
+   +'.emib-tg.ai{background:#f3efff;color:#4000f3}.emib-tg.sched{background:#eef6ff;color:#0369a1}'
+   +'.emib-fab{position:fixed;right:16px;bottom:calc(20px + env(safe-area-inset-bottom));z-index:961;display:flex;align-items:center;gap:8px;background:#0a0a0a;color:#fff;font-size:13.5px;font-weight:700;border:none;border-radius:13px;padding:13px 22px;box-shadow:0 8px 20px rgba(10,10,10,.30);cursor:pointer;font-family:var(--f)}'
+   +'.emib-fab .pl{background:'+_EMIB_GRAD+';-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:900;font-size:15px}'
+   +'.emib-card{background:var(--white);margin:10px 12px;border:1px solid var(--border);border-radius:14px}'
+   +'.emib-mt{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#94a3b8;margin-bottom:9px}'
+   +'.emib-tl{display:flex;align-items:center;gap:9px;padding:5.5px 0;font-size:12.5px;color:var(--text)}'
+   +'.emib-tl .d{width:8px;height:8px;border-radius:50%;flex-shrink:0}'
+   +'.emib-tl b{margin-left:auto;font-size:11.5px;color:var(--sub);font-weight:600}'
+   +'.emib-abr{display:flex;gap:9px;margin:4px 12px 24px}'
+   +'.emib-ab{flex:1;text-align:center;border-radius:12px;padding:12.5px;font-size:13px;font-weight:700;border:1.5px solid var(--border);background:var(--white);color:var(--text);cursor:pointer;font-family:var(--f)}'
+   +'.emib-ab.pri{background:'+_EMIB_GRAD+';color:#fff;border:none}';
+  document.head.appendChild(st);
+}
+function _emibEsc(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function _emibDayKey(d){ return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(); }
+function _emibDayLbl(ms){
+  var d=new Date(ms), now=new Date();
+  if(_emibDayKey(d)===_emibDayKey(now)) return 'Today';
+  var y=new Date(now.getTime()-86400000);
+  if(_emibDayKey(d)===_emibDayKey(y)) return 'Yesterday';
+  return d.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'});
+}
+function _emibTime(ms){
+  var d=new Date(ms), now=new Date();
+  if(_emibDayKey(d)===_emibDayKey(now)) return d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'});
+  return d.toLocaleDateString('en-CA',{month:'short',day:'numeric'});
+}
+// drafts: one per lead, auto-saved while typing in the compose sheet
+function _emDraftGet(dbId){ try{ var r=localStorage.getItem('adv_emdraft_'+dbId); return r?JSON.parse(r):null; }catch(e){ return null; } }
+function _emDraftClear(localId){ try{ var l=leads.find(function(x){return x.id===localId;}); if(l&&l.dbId) localStorage.removeItem('adv_emdraft_'+l.dbId); }catch(e){} }
+document.addEventListener('input', function(ev){
+  var t=ev.target; if(!t) return;
+  if(t.id!=='emailSubj' && t.id!=='emailBody') return;
+  if(typeof _emailLeadId==='undefined' || _emailLeadId==null) return;
+  clearTimeout(window._emDraftT);
+  window._emDraftT=setTimeout(function(){
+    try{
+      var l=leads.find(function(x){return x.id===_emailLeadId;}); if(!l||!l.dbId) return;
+      var sj=(document.getElementById('emailSubj')||{}).value||'';
+      var bEl=document.getElementById('emailBody');
+      var bd=bEl?(bEl.tagName==='TEXTAREA'?bEl.value:(bEl.innerText||'')):'';
+      var rest=String(bd).replace(/^Hi\s+[^,\n]*,?\s*/i,'').trim();
+      var k='adv_emdraft_'+l.dbId;
+      if(!sj.trim() && rest.length<2) localStorage.removeItem(k);
+      else localStorage.setItem(k, JSON.stringify({ subj:sj, body:bd, at:new Date().toISOString() }));
+    }catch(_e){}
+  },600);
+});
+// gather this lead's emails out of the already-loaded timeline
+function _emibRows(l){
+  var out=[];
+  ((typeof leadAct!=='undefined'&&leadAct[l.id])||[]).forEach(function(a,ai){
+    if(a.type!=='email_sent' && a.type!=='email_received') return;
+    var raw=a._rawTime||a.time; var d=new Date(raw);
+    out.push({ kind:'mail', i:ai, dir:(a.type==='email_received')?'in':'out',
+      subject:String(a.email_subject||'').trim()||String(a.body||'').slice(0,80)||'(no subject)',
+      body:String(a.email_body||a.body||''), from:String(a.email_from||''),
+      eid:String(a.email_id||''), ai:!!a.is_ai, ms:isNaN(d)?Date.now():d.getTime(), raw:raw });
+  });
+  return out;
+}
+function _emibLastTag(l,r){
+  if(r.dir==='in') return '<span class="emib-tg recv">↓ Received</span>';
+  var base='<span class="emib-tg sent">↑ Sent'+(r.from?(' · '+_emibEsc(r.from)):'')+'</span>';
+  var bl=(window._emibLogs||{})[r.eid];
+  if(bl && bl.bounced_at) return base+'<span class="emib-tg bounce">Bounced</span>';
+  var st=(typeof emOpensFor==='function')?emOpensFor(l.id,r.eid,r.raw):null;
+  if(st && st.clicks.length) return base+'<span class="emib-tg click">Clicked '+_emibTime(new Date(st.clicks[0].at).getTime())+' ›</span>';
+  if(st && st.opens.length)  return base+'<span class="emib-tg open">Opened'+(st.opens.length>1?(' '+st.opens.length+'×'):(' '+_emibTime(new Date(st.opens[0].at).getTime())))+' ›</span>';
+  return base+'<span class="emib-tg noopen">Not opened</span>';
+}
+async function openEmailInbox(id, keep){
+  var l = (id!=null) ? leads.find(function(x){return x.id===id;}) : (typeof lsGetLead==='function'?lsGetLead():null);
+  if(!l) return;
+  if(typeof isPartnerMode==='function' && isPartnerMode()){ openPartnerProposal(l.id); return; }
+  if(isClientMode() || window._isTelecaller){ showToast('Email is being set up for your account — coming soon.'); return; }
+  _emibCss();
+  if(!keep || !window._emib) window._emib={ lid:l.id, tab:'all', kind:'all', sort:'new', q:'' };
+  window._emib.lid=l.id;
+  var ov=document.getElementById('emibOv');
+  if(!ov){ ov=document.createElement('div'); ov.id='emibOv'; document.body.appendChild(ov); }
+  ov.innerHTML='<div class="emib-gl"></div><div class="emib-top"><div class="emib-bk" onclick="closeEmailInbox()">‹</div><div style="flex:1;min-width:0"><div class="emib-nm">Emails · '+_emibEsc(l.name||'Lead')+'</div><div class="emib-em">'+_emibEsc(l.em||'no email on file')+(l.company?(' · '+_emibEsc(l.company)):'')+'</div></div></div>'
+    +'<div style="text-align:center;padding:70px 0"><div class="ai-spin"></div><div style="font-size:13px;color:var(--sub);margin-top:10px">Loading emails…</div></div>';
+  try{
+    if(l.dbId && typeof loadLeadActivity==='function' && (window._emibFresh!==l.id || !(typeof leadAct!=='undefined'&&leadAct[l.id]))){
+      await loadLeadActivity(l.id, l.dbId); window._emibFresh=l.id;
+    }
+  }catch(_e){}
+  window._emibSched=[]; window._emibLogs={};
+  if(l.dbId){
+    try{ var sr=await sbFetch('/rest/v1/scheduled_emails?lead_id=eq.'+l.dbId+'&status=eq.scheduled&select=id,subject,message,send_at,from_email,to_email&order=send_at.asc&limit=20'); if(sr.ok) window._emibSched=await sr.json()||[]; }catch(_e){}
+    try{ var er=await sbFetch('/rest/v1/email_logs?lead_id=eq.'+l.dbId+'&select=resend_id,bounced_at&bounced_at=not.is.null&limit=50'); if(er.ok){ (await er.json()||[]).forEach(function(x){ if(x.resend_id) window._emibLogs[x.resend_id]=x; }); } }catch(_e){}
+  }
+  if(!document.getElementById('emibOv')) return; // closed while loading
+  _emibRender(l);
+}
+function closeEmailInbox(){ ['emibDet','emibOv'].forEach(function(k){ var e=document.getElementById(k); if(e) e.parentNode.removeChild(e); }); }
+function _emibSet(k,v){ window._emib[k]=v; var l=leads.find(function(x){return x.id===window._emib.lid;}); if(l) _emibRender(l); }
+function _emibSort(){ var o={new:'old',old:'opened',opened:'new'}; _emibSet('sort', o[window._emib.sort]||'new'); }
+function _emibOpenCount(l,r){ var st=(typeof emOpensFor==='function')?emOpensFor(l.id,r.eid,r.raw):null; return st?(st.opens.length+st.clicks.length):0; }
+function _emibRender(l){
+  var ov=document.getElementById('emibOv'); if(!ov) return;
+  var st=window._emib, rows=_emibRows(l);
+  var sent=rows.filter(function(r){return r.dir==='out';}), recv=rows.filter(function(r){return r.dir==='in';});
+  var openedN=sent.filter(function(r){ return _emibOpenCount(l,r)>0; }).length;
+  var clicks=0; sent.forEach(function(r){ var s=(typeof emOpensFor==='function')?emOpensFor(l.id,r.eid,r.raw):null; if(s) clicks+=s.clicks.length; });
+  var draft=l.dbId?_emDraftGet(l.dbId):null;
+  var sched=window._emibSched||[];
+  // choose the working set
+  var list=rows.slice();
+  if(st.tab==='recv') list=recv.slice();
+  if(st.tab==='sent') list=sent.slice();
+  if(st.kind==='human') list=list.filter(function(r){return !r.ai;});
+  if(st.kind==='auto')  list=list.filter(function(r){return r.ai;});
+  if(st.sort==='old') list.sort(function(a,b){return a.ms-b.ms;});
+  else if(st.sort==='opened') list.sort(function(a,b){return _emibOpenCount(l,b)-_emibOpenCount(l,a) || b.ms-a.ms;});
+  else list.sort(function(a,b){return b.ms-a.ms;});
+  var tabs=[['all','All',rows.length],['recv','Received',recv.length],['sent','Sent',sent.length],['drafts','Drafts',draft?1:0],['sched','Scheduled',sched.length]];
+  var h='<div class="emib-gl"></div>'
+   +'<div class="emib-top"><div class="emib-bk" onclick="closeEmailInbox()">‹</div><div style="flex:1;min-width:0"><div class="emib-nm">Emails · '+_emibEsc(l.name||'Lead')+'</div><div class="emib-em">'+_emibEsc(l.em||'no email on file')+(l.company?(' · '+_emibEsc(l.company)):'')+'</div></div><div style="font-size:10.5px;font-weight:700;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:5px 10px">'+rows.length+' email'+(rows.length===1?'':'s')+'</div></div>'
+   +'<div class="emib-strip">'
+   +'<div class="emib-st"><b>'+sent.length+'</b><span>Sent</span></div>'
+   +'<div class="emib-st"><b>'+recv.length+'</b><span>Received</span></div>'
+   +'<div class="emib-st"><b style="color:#4000f3">'+(sent.length?Math.round(openedN*100/sent.length):0)+'%</b><span>Opened</span></div>'
+   +'<div class="emib-st"><b style="color:#e65afc">'+clicks+'</b><span>Clicks</span></div>'
+   +'</div>'
+   +'<div class="emib-tools">'
+   +'<div class="emib-q"><span style="font-size:13px;color:#9ca3af">🔍</span><input id="emibQ" placeholder="Search subject or text…" value="'+_emibEsc(st.q)+'" oninput="window._emib.q=this.value;clearTimeout(window._emibQT);window._emibQT=setTimeout(_emibPaintOnly,250)"></div>'
+   +'<div class="emib-tabs">'+tabs.map(function(t){ return '<div class="emib-tab'+(st.tab===t[0]?' on':'')+'" onclick="_emibSet(\'tab\',\''+t[0]+'\')">'+t[1]+'<b>'+t[2]+'</b></div>'; }).join('')+'</div>'
+   +'<div class="emib-frow">'
+   +'<div class="emib-fc'+(st.kind==='all'?' on':'')+'" onclick="_emibSet(\'kind\',\'all\')">Everything</div>'
+   +'<div class="emib-fc'+(st.kind==='human'?' on':'')+'" onclick="_emibSet(\'kind\',\'human\')">Human</div>'
+   +'<div class="emib-fc'+(st.kind==='auto'?' on':'')+'" onclick="_emibSet(\'kind\',\'auto\')">Automated</div>'
+   +'<div class="emib-sort" onclick="_emibSort()">⇅ '+(st.sort==='old'?'Oldest':st.sort==='opened'?'Most opened':'Newest')+'</div>'
+   +'</div></div>'
+   +'<div id="emibList"></div>'
+   +'<div style="height:90px"></div>'
+   +'<button class="emib-fab" onclick="_emibCompose()"><span class="pl">＋</span> Compose</button>';
+  ov.innerHTML=h;
+  window._emibList=list;
+  _emibPaintOnly();
+}
+function _emibPaintOnly(){
+  var box=document.getElementById('emibList'); if(!box) return;
+  var st=window._emib; var l=leads.find(function(x){return x.id===st.lid;}); if(!l) return;
+  var h='';
+  if(st.tab==='drafts'){
+    var d=l.dbId?_emDraftGet(l.dbId):null;
+    if(!d){ box.innerHTML='<div style="text-align:center;color:var(--sub);font-size:13px;padding:50px 30px">No draft for this lead.<br>Anything you type in Compose is saved here automatically.</div>'; return; }
+    h+='<div class="emib-day">Draft — not sent</div>'
+     +'<div class="emib-row" style="border-style:dashed" onclick="_emibResumeDraft()">'
+     +'<div class="emib-av out" style="background:#fff7e6;color:#b45309">✍️</div><div class="emib-bd">'
+     +'<div class="emib-l1"><div class="emib-sj">'+_emibEsc(d.subj||'(no subject yet)')+'</div><div class="emib-tm">'+_emibTime(new Date(d.at).getTime())+'</div></div>'
+     +'<div class="emib-sn">'+_emibEsc(String(d.body||'').slice(0,90))+'</div>'
+     +'<div class="emib-tags"><span class="emib-tg open">✍️ Draft · tap to continue</span><span class="emib-tg noopen" onclick="event.stopPropagation();_emibDropDraft()">🗑 Discard</span></div>'
+     +'</div></div>';
+    box.innerHTML=h; return;
+  }
+  if(st.tab==='sched'){
+    var sc=window._emibSched||[];
+    if(!sc.length){ box.innerHTML='<div style="text-align:center;color:var(--sub);font-size:13px;padding:50px 30px">Nothing scheduled for this lead.<br>In Compose, use Schedule to queue an email.</div>'; return; }
+    h+='<div class="emib-day">Going out later</div>';
+    sc.forEach(function(x,i){
+      var t=new Date(x.send_at);
+      h+='<div class="emib-row" style="border-style:dashed;background:#fbfcff" onclick="_emibSchedSheet('+i+')">'
+       +'<div class="emib-av out" style="background:#eef6ff;color:#0369a1">🕑</div><div class="emib-bd">'
+       +'<div class="emib-l1"><div class="emib-sj">'+_emibEsc(x.subject||'(no subject)')+'</div><div class="emib-tm">'+_emibTime(t.getTime())+'</div></div>'
+       +'<div class="emib-sn">'+_emibEsc(String(x.message||'').slice(0,90))+'</div>'
+       +'<div class="emib-tags"><span class="emib-tg sched">🕑 '+t.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})+' '+t.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'})+'</span><span class="emib-tg noopen">Tap to edit or cancel</span></div>'
+       +'</div></div>';
+    });
+    box.innerHTML=h; return;
+  }
+  var list=window._emibList||[];
+  if(st.q){ var q=st.q.toLowerCase(); list=list.filter(function(r){ return (r.subject+' '+r.body).toLowerCase().indexOf(q)>=0; }); }
+  if(!list.length){ box.innerHTML='<div style="text-align:center;color:var(--sub);font-size:13px;padding:50px 30px">'+(st.q?'No emails match the search.':'No emails with this lead yet. Tap ＋ Compose to send the first one.')+'</div>'; return; }
+  var lastDay='';
+  list.forEach(function(r){
+    var day=_emibDayLbl(r.ms);
+    if(day!==lastDay){ h+='<div class="emib-day">'+day+'</div>'; lastDay=day; }
+    h+='<div class="emib-row'+((r.dir==='in')?' unread':'')+'" onclick="_emibDetail('+r.i+')">'
+     +'<div class="emib-av '+(r.dir==='in'?'in':'out')+'">'+_emibEsc((l.name||'?').trim().charAt(0).toUpperCase()||'?')+'</div>'
+     +'<div class="emib-bd"><div class="emib-l1"><div class="emib-sj">'+_emibEsc(r.subject)+'</div><div class="emib-tm">'+_emibTime(r.ms)+'</div></div>'
+     +'<div class="emib-sn">'+_emibEsc(String(r.body||'').replace(/\s+/g,' ').slice(0,95))+'</div>'
+     +'<div class="emib-tags">'+_emibLastTag(l,r)+(r.ai?'<span class="emib-tg ai">Automated</span>':'')+'</div>'
+     +'</div></div>';
+  });
+  box.innerHTML=h;
+}
+function _emibCompose(){
+  var l=leads.find(function(x){return x.id===window._emib.lid;}); if(!l) return;
+  if(typeof curLid!=='undefined') curLid=l.id;
+  lsDoEmail();
+}
+function _emibResumeDraft(){
+  var l=leads.find(function(x){return x.id===window._emib.lid;}); if(!l) return;
+  var d=l.dbId?_emDraftGet(l.dbId):null; if(!d) return;
+  openEmail(l.id);
+  setTimeout(function(){
+    try{
+      var sj=document.getElementById('emailSubj'); if(sj){ sj.value=d.subj||''; if(typeof subjValidate==='function') subjValidate(); }
+      var bEl=document.getElementById('emailBody'); if(bEl){ if(bEl.tagName==='TEXTAREA') bEl.value=d.body||''; else bEl.innerText=d.body||''; }
+    }catch(_e){}
+  },80);
+}
+function _emibDropDraft(){ _emDraftClear(window._emib.lid); _emibPaintOnly(); showToast('Draft discarded'); }
+function _emibSchedSheet(i){
+  var x=(window._emibSched||[])[i]; if(!x) return;
+  var t=new Date(x.send_at);
+  var ov=document.createElement('div'); ov.className='sheet-ov'; ov.style.display='flex'; ov.style.zIndex='10001';
+  ov.innerHTML='<div class="sheet" style="max-height:70vh"><div class="sh-head"><div class="sh-title">🕑 Scheduled email</div><button class="sh-x" onclick="this.closest(\'.sheet-ov\').remove()">✕</button></div>'
+   +'<div class="sh-body" style="padding:14px 16px calc(26px + env(safe-area-inset-bottom))">'
+   +'<div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px">'+_emibEsc(x.subject||'(no subject)')+'</div>'
+   +'<div style="font-size:12px;color:var(--sub);margin-bottom:10px">Goes out '+t.toLocaleDateString('en-CA',{weekday:'long',month:'short',day:'numeric'})+' at '+t.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'})+(x.from_email?(' · from '+_emibEsc(x.from_email)):'')+'</div>'
+   +'<div style="background:var(--bg);border:1px solid var(--border);border-radius:11px;padding:12px;font-size:13px;color:var(--text);line-height:1.65;white-space:pre-wrap;max-height:200px;overflow-y:auto;margin-bottom:14px">'+_emibEsc(x.message||'')+'</div>'
+   +'<button class="btn" style="width:100%;justify-content:center;background:var(--bg);border:1.5px solid var(--border);color:var(--text);padding:13px;margin-bottom:9px" onclick="this.closest(\'.sheet-ov\').remove();_emibSchedEdit('+i+')">✏️ Edit — cancel this and reopen in Compose</button>'
+   +'<button class="btn" style="width:100%;justify-content:center;background:#fdeeee;border:1.5px solid #f5c2c2;color:#b91c1c;padding:13px" onclick="var s=this.closest(\'.sheet-ov\');_emibSchedCancel('+i+',s)">🗑 Cancel send</button>'
+   +'</div></div>';
+  document.body.appendChild(ov);
+}
+async function _emibSchedCancel(i, sheetEl){
+  var x=(window._emibSched||[])[i]; if(!x) return;
+  try{
+    var r=await sbFetch('/rest/v1/scheduled_emails?id=eq.'+x.id+'&status=eq.scheduled',{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ status:'cancelled' }) });
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    window._emibSched.splice(i,1);
+    if(sheetEl) sheetEl.remove();
+    var l=leads.find(function(y){return y.id===window._emib.lid;}); if(l) _emibRender(l);
+    showToast('Scheduled email cancelled');
+  }catch(e){ showToast('Could not cancel: '+e.message); }
+}
+function _emibSchedEdit(i){
+  var x=(window._emibSched||[])[i]; if(!x) return;
+  _emibSchedCancel(i, null);
+  var l=leads.find(function(y){return y.id===window._emib.lid;}); if(!l) return;
+  openEmail(l.id);
+  setTimeout(function(){
+    try{
+      var sj=document.getElementById('emailSubj');
+      if(sj){ sj.value=String(x.subject||'').replace(/^Ref:\s*[^|]+\|\s*/i,'').trim(); if(typeof subjValidate==='function') subjValidate(); }
+      var bEl=document.getElementById('emailBody'); if(bEl){ if(bEl.tagName==='TEXTAREA') bEl.value=x.message||''; else bEl.innerText=x.message||''; }
+    }catch(_e){}
+  },80);
+}
+function _emibDetail(ai){
+  var l=leads.find(function(x){return x.id===window._emib.lid;}); if(!l) return;
+  var a=((typeof leadAct!=='undefined'&&leadAct[l.id])||[])[ai]; if(!a) return;
+  var dirIn=(a.type==='email_received');
+  var subject=String(a.email_subject||'').trim()||'(no subject)';
+  var bodyTxt=String(a.email_body||a.body||'');
+  var raw=a._rawTime||a.time; var ms=new Date(raw).getTime();
+  var st=(!dirIn && typeof emOpensFor==='function')?emOpensFor(l.id, a.email_id||'', raw):null;
+  var hist='<div class="emib-tl"><span class="d" style="background:#0a0a0a"></span> '+(dirIn?'Received':'Delivered')+' <b>'+_emWhen(raw)+'</b></div>';
+  if(st){
+    (st.opens||[]).slice().reverse().forEach(function(o,ix){ hist+='<div class="emib-tl"><span class="d" style="background:#4000f3"></span> Opened'+(ix>0?' again':'')+' <b>'+_emWhen(o.at)+'</b></div>'; });
+    (st.clicks||[]).slice().reverse().forEach(function(c){ hist+='<div class="emib-tl"><span class="d" style="background:#e65afc"></span> Clicked'+(c.link?(' — '+_emibEsc(String(c.link).slice(0,46))):'')+' <b>'+_emWhen(c.at)+'</b></div>'; });
+  } else if(!dirIn){
+    var bl=(window._emibLogs||{})[a.email_id||''];
+    hist+= (bl&&bl.bounced_at) ? '<div class="emib-tl"><span class="d" style="background:#b91c1c"></span> Bounced <b>'+_emWhen(bl.bounced_at)+'</b></div>'
+                               : '<div class="emib-tl"><span class="d" style="background:#cbd5e1"></span> Not opened yet <b>—</b></div>';
+  }
+  var det=document.getElementById('emibDet');
+  if(!det){ det=document.createElement('div'); det.id='emibDet'; document.body.appendChild(det); }
+  det.innerHTML='<div class="emib-gl"></div>'
+   +'<div class="emib-top"><div class="emib-bk" onclick="document.getElementById(\'emibDet\').remove()">‹</div><div style="flex:1;min-width:0"><div class="emib-nm">Email</div><div class="emib-em">'+_emibEsc(l.name||'')+(l.company?(' · '+_emibEsc(l.company)):'')+'</div></div></div>'
+   +'<div style="background:var(--white);padding:17px 16px;border-bottom:1px solid var(--border)">'
+   +'<div style="font-size:16.5px;font-weight:800;line-height:1.35;color:var(--text)">'+_emibEsc(subject)+'</div>'
+   +'<div style="display:flex;gap:10px;margin-top:13px;align-items:center">'
+   +'<div class="emib-av '+(dirIn?'in':'out')+'" style="width:34px;height:34px;font-size:13px">'+_emibEsc((dirIn?(l.name||'?'):'A').trim().charAt(0).toUpperCase())+'</div>'
+   +'<div style="flex:1;min-width:0"><b style="font-size:12.5px;display:block">'+(dirIn?(_emibEsc(l.name||'Lead')+(l.em?(' <'+_emibEsc(l.em)+'>'):'')):(_emibEsc(a.email_from||'Adviuz')))+'</b>'
+   +'<span style="font-size:11px;color:var(--sub)">'+(dirIn?'to us':('to '+_emibEsc(l.em||'')))+' · '+_emWhen(raw)+'</span></div>'
+   +(dirIn?'<span class="emib-tg recv">↓ Received</span>':'<span class="emib-tg sent">↑ Sent</span>')
+   +'</div></div>'
+   +'<div class="emib-card" style="padding:13px 15px"><div class="emib-mt">Full history</div>'+hist+'</div>'
+   +'<div class="emib-card" style="padding:17px 16px;font-size:14px;line-height:1.75;color:var(--text);white-space:pre-wrap">'+_emibEsc(bodyTxt)+'</div>'
+   +'<div class="emib-abr">'
+   +'<button class="emib-ab pri" onclick="_emibReply('+ai+')">↩︎ Reply</button>'
+   +'<button class="emib-ab" onclick="_emibFwd('+ai+')">↪︎ Forward</button>'
+   +'</div>';
+  det.scrollTop=0;
+}
+function _emibReply(ai){
+  var l=leads.find(function(x){return x.id===window._emib.lid;}); if(!l) return;
+  var a=(leadAct[l.id]||[])[ai]; if(!a) return;
+  var d=document.getElementById('emibDet'); if(d) d.remove();
+  openEmailReply(l.id, encodeURIComponent(String(a.email_subject||'')), encodeURIComponent(String(a.email_body||a.body||'').slice(0,1200)), encodeURIComponent(''), '');
+}
+function _emibFwd(ai){
+  var l=leads.find(function(x){return x.id===window._emib.lid;}); if(!l) return;
+  var a=(leadAct[l.id]||[])[ai]; if(!a) return;
+  var d=document.getElementById('emibDet'); if(d) d.remove();
+  var subj=String(a.email_subject||'').replace(/^(re|fwd?):\s*/i,'');
+  var quote=String(a.email_body||a.body||'').split('\n').slice(0,40).map(function(x){return '> '+x;}).join('\n');
+  openEmail(l.id);
+  setTimeout(function(){
+    try{
+      var sj=document.getElementById('emailSubj'); if(sj){ sj.value='Fwd: '+subj; if(typeof subjValidate==='function') subjValidate(); }
+      var to=document.getElementById('emailTo'); if(to) to.value='';
+      var bEl=document.getElementById('emailBody');
+      var v='\n\n——— Forwarded message ———\n'+quote;
+      if(bEl){ if(bEl.tagName==='TEXTAREA') bEl.value=v; else bEl.innerText=v; }
+    }catch(_e){}
+  },80);
+}
 
 // ═══ IN-PLACE EXPAND for email/SMS cards in the lead timeline ═══
 // ═══ EMAIL OPENS & CLICKS — every open time sits behind the eye badge ═══
@@ -23740,6 +24099,7 @@ async function sendEmail(){
       closeSheet('emailSh');
       var _sd=new Date(_scheduleAt);
       showToast('Scheduled for '+_sd.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})+' '+_sd.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}));
+      try{ _emDraftClear(_emailLeadId); if(document.getElementById('emibOv')) setTimeout(function(){ openEmailInbox(window._emib&&window._emib.lid, true); }, 400); }catch(_e){}
       if(curLid) renderLeadScreen(curLid);
       return;
     }
@@ -23772,6 +24132,8 @@ async function sendEmail(){
     window._emAtt=[]; if(typeof emPaintAtts==='function') emPaintAtts();
     closeSheet('emailSh');
     showToast('Sent from '+_sendFrom);
+    // eminbox-1: the sent email replaces any draft; refresh the inbox if open.
+    try{ _emDraftClear(_emailLeadId); if(document.getElementById('emibOv')){ window._emibFresh=null; setTimeout(function(){ openEmailInbox(window._emib&&window._emib.lid, true); }, 1800); } }catch(_e){}
     try{
       var _lidNow=_emailLeadId; if(_lidNow!=null){
         if(!leadAct[_lidNow]) leadAct[_lidNow]=[];
@@ -24571,7 +24933,7 @@ setTimeout(function(){var s=document.getElementById('splash');if(s)s.remove()},2
         <div class="mm-icon mmi-wa"><svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51A9 9 0 0010 8c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413zm-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374A9.86 9.86 0 012.1 11.9C2.1 6.45 6.54 2 12 2s9.9 4.45 9.9 9.9c0 5.45-4.44 9.885-9.85 9.885z"/></svg></div>
         WhatsApp
       </button>
-      <button class="mm-btn" onclick="closeMoreModal();lsDoEmail()">
+      <button class="mm-btn" onclick="closeMoreModal();openEmailInbox()">
         <div class="mm-icon mmi-email"><svg fill="none" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div>
         Email
       </button>
