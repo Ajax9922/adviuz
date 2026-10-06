@@ -4611,7 +4611,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-04 sms-1';
+var APP_VERSION = 'v2026-10-05 rpt-3';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -12265,8 +12265,12 @@ function clientReportsHTML(){
     return !stageOneOf(l, ['6. Meeting Done','9. Deal Closed','10. Not Interested','12. Visited — Not Closed','15. Looking for Job']);
   }).length;
 
-  // Meeting Done — stage 6
-  var meetingDone = ls.filter(function(l){ return stageOneOf(l, ['6. Meeting Done']); }).length;
+  // rpt-3 (Ajax 2026-10-05): Meetings Done = EVERY lead that actually had the
+  // meeting — Meeting Done, Proposal Sent, Negotiating, Deal Closed and Visited —
+  // Not Closed. Not Interested / Future Prospect etc. are not meetings.
+  // (This row now overlaps Deals Closed, so the rows no longer add up to Total.)
+  var _MET_STAGES = ['6. Meeting Done','7. Proposal Sent','8. Negotiating','9. Deal Closed','12. Visited — Not Closed'];
+  var meetingDone = ls.filter(function(l){ return stageOneOf(l, _MET_STAGES); }).length;
 
   // Deals Closed — stage 9
   var dealsClosed = ls.filter(function(l){ return stageOneOf(l, ['9. Deal Closed']); }).length;
@@ -12360,7 +12364,7 @@ function clientReportsHTML(){
     {label:'Total Leads',       n:tot,           pct:'100.00%', col:'var(--text)', drill:''},
     {label:'Deals in Process',  n:inProcess,     pct:pct(inProcess),    col:'#2563eb', drill:inProcessStages},
     {label:'Deal Disqualified', n:disqualified,  pct:pct(disqualified), col:'#cc0000', drill:'10. Not Interested|12. Visited — Not Closed|15. Looking for Job'},
-    {label:'Meeting Done',      n:meetingDone,   pct:pct(meetingDone),  col:'#16a34a', drill:'6. Meeting Done'},
+    {label:'Meetings Done',     n:meetingDone,   pct:pct(meetingDone),  col:'#16a34a', drill:_MET_STAGES.join('|')},
     {label:'Deals Closed',      n:dealsClosed,   pct:pct(dealsClosed),  col:'#15803d', drill:'9. Deal Closed'}
   ];
   h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:18px">';
@@ -15863,7 +15867,14 @@ function _amCanEditCamp(){ return window._isAdviuzStaff === true || window._isAc
 function amAfterStage(l, oldStage, newStage){
   try{
     if (!l || !l.dbId) return;
-    if (_stRank(newStage) < 6 || _stRank(oldStage) >= 6) return;
+    // ni-1: Not Interested = the database silenced everything; just refresh the screen.
+    if (_stRank(newStage) === 10 && _stRank(oldStage) !== 10){
+      setTimeout(function(){ _amRefreshLead(l, '\uD83D\uDEAB Not Interested \u2014 no more automated calls, texts or emails to '+(String(l.name||'this lead').split(' ')[0])+'.'); }, 900);
+      return;
+    }
+    // Only real meeting stages count: 6-9 and 12 (Visited \u2014 Not Closed).
+    var _met = function(s){ var r=_stRank(s); return (r>=6 && r<=9) || r===12; };
+    if (!_met(newStage) || _met(oldStage)) return;
     if (l.human_only === true) return;
     var cp = (typeof ibCampaignFor === 'function') ? ibCampaignFor(l) : null;
     if (!cp) return;
