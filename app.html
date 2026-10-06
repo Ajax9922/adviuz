@@ -4611,7 +4611,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-06 eminbox-4';
+var APP_VERSION = 'v2026-10-06 eminbox-5';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -16420,14 +16420,10 @@ function renderLeadScreen(id) {
     if(!(isClientMode() || window._isTelecaller))
       h += ldCallBtn('📄','Proposal','#dbeafe','#2563eb','lsDoEmail()');
   } else {
-    if(isClientMode() || window._isTelecaller){
-      // Client-side users get THEIR OWN email tool (their address, no Adviuz
-      // sender list, no Adviuz sales templates). Only appears if the account
-      // has email switched on.
-      h += ldCallBtn('📧','Email','#dbeafe','#2563eb', 'openClientEmail('+l.id+')');
-    } else {
-      h += ldCallBtn('📧','Email','#dbeafe','#2563eb', 'openEmailInbox()','email');
-    }
+    // eminbox-5: EVERYONE's Email button opens the inbox. Inside it, Compose
+    // routes by role — clients to THEIR OWN email tool (their address, their
+    // templates), operators to the Adviuz sender chooser.
+    h += ldCallBtn('📧','Email','#dbeafe','#2563eb', 'openEmailInbox('+l.id+')');
   }
   h += ldCallBtn('💬','SMS','#d1fae5','var(--green)','openSmsSheet()');
   h += ldCallBtn('🟢','WhatsApp','#dcfce7','#25d366','lsDoWa()');
@@ -19663,7 +19659,7 @@ function _emibRender(l){
    +'</div></div>'
    +'<div id="emibList"></div>'
    +'<div style="height:90px"></div>'
-   +(st.ro?'':'<button class="emib-fab" onclick="_emibCompose()"><span class="pl">＋</span> Compose</button>');
+   +'<button class="emib-fab" onclick="_emibCompose()"><span class="pl">＋</span> Compose</button>';
   ov.innerHTML=h;
   window._emibList=list;
   _emibPaintOnly();
@@ -19702,7 +19698,7 @@ function _emibPaintOnly(){
   }
   var list=window._emibList||[];
   if(st.q){ var q=st.q.toLowerCase(); list=list.filter(function(r){ return (r.subject+' '+r.body).toLowerCase().indexOf(q)>=0; }); }
-  if(!list.length){ box.innerHTML='<div style="text-align:center;color:var(--sub);font-size:13px;padding:50px 30px">'+(st.q?'No emails match the search.':(st.ro?'No emails with this lead yet.':'No emails with this lead yet. Tap ＋ Compose to send the first one.'))+'</div>'; return; }
+  if(!list.length){ box.innerHTML='<div style="text-align:center;color:var(--sub);font-size:13px;padding:50px 30px">'+(st.q?'No emails match the search.':'No emails with this lead yet. Tap ＋ Compose to send the first one.')+'</div>'; return; }
   var lastDay='';
   list.forEach(function(r){
     var day=_emibDayLbl(r.ms);
@@ -19719,7 +19715,15 @@ function _emibPaintOnly(){
 function _emibCompose(){
   var l=leads.find(function(x){return x.id===window._emib.lid;}); if(!l) return;
   if(typeof curLid!=='undefined') curLid=l.id;
+  if(window._emib.ro){ openClientEmail(l.id); return; }   // client's own tool
   lsDoEmail();
+}
+function _emibReplyClient(ai){
+  var l=leads.find(function(x){return x.id===window._emib.lid;}); if(!l) return;
+  var a=(leadAct[l.id]||[])[ai];
+  var d=document.getElementById('emibDet'); if(d) d.remove();
+  if(typeof curLid!=='undefined') curLid=l.id;
+  openClientEmail(l.id, (a&&a.email_subject)?_jsq(String(a.email_subject)):'');
 }
 function _emibResumeDraft(){
   var l=leads.find(function(x){return x.id===window._emib.lid;}); if(!l) return;
@@ -19819,7 +19823,7 @@ function _emibDetail(ai){
    +'<div class="emib-card" style="padding:13px 15px"><div class="emib-mt">Full history</div>'+hist+'</div>'
    +'<div id="emibBodyCard">'+_emibBodyCard(subject, bodyTxt)+'</div>'
    +((window._emib&&window._emib.ro)
-      ? '<div style="text-align:center;font-size:12px;color:var(--sub);padding:4px 16px 24px">Replying from the app is coming soon.</div>'
+      ? '<div class="emib-abr"><button class="emib-ab pri" onclick="_emibReplyClient('+ai+')">↩︎ Reply</button></div>'
       : '<div class="emib-abr">'
        +'<button class="emib-ab pri" onclick="_emibReply('+ai+')">↩︎ Reply</button>'
        +'<button class="emib-ab" onclick="_emibFwd('+ai+')">↪︎ Forward</button>'
