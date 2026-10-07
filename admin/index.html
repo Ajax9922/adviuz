@@ -1048,6 +1048,23 @@ input[type=color]{width:40px;height:36px;border:1px solid var(--border);border-r
       </div>
     </div><!-- /panel-adbuilder -->
     <!-- ══ PASTE CODE MODAL ══ -->
+    <!-- formwiz-1: form connection check -->
+    <div class="modal-overlay" id="fgModal" onclick="if(event.target===this)closeModal('fgModal')">
+      <div class="modal" style="max-width:520px">
+        <div class="modal-head">
+          <div class="modal-title">🔌 Form connection check</div>
+          <button class="modal-close" onclick="closeModal('fgModal')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body" style="padding:16px 18px">
+          <div id="fgBody" style="display:flex;flex-direction:column;gap:8px"></div>
+          <button id="fgTestBtn" onclick="_fgTest()" style="width:100%;margin-top:14px;padding:11px;border-radius:10px;border:none;background:#7c3aed;color:#fff;font-size:13.5px;font-weight:700;cursor:pointer">⚡ Test connection — no lead is created</button>
+          <div id="fgTestOut" style="margin-top:10px;font-size:13px;line-height:1.55"></div>
+        </div>
+      </div>
+    </div>
+
     <div class="modal-overlay" id="pasteCodeModal" onclick="if(event.target===this)closeModal('pasteCodeModal')">
       <div class="modal" style="max-width:700px">
         <div class="modal-head" style="flex-direction:column;align-items:stretch;gap:12px">
@@ -2898,6 +2915,7 @@ function renderAdBuilderPanel() {
           (ad.live_url ? '<button class="tbl-btn" data-url="https://' + ad.live_url + '/preview" onclick="window.open(this.dataset.url,\'_blank\')" title="Preview (no view counted)">&#128065; Preview</button>' : '') +
           '<button class="tbl-btn" data-id="' + ad.id + '" onclick="openEditAd(this)">Edit</button>' +
           (ad.custom_html ? '<button class="tbl-btn" data-id="' + ad.id + '" onclick="openEditHtml(this)">Edit HTML</button>' : '') +
+          (ad.custom_html ? '<button class="tbl-btn" data-id="' + ad.id + '" onclick="fgCheckAd(this)" title="Check that this page\'s lead form is connected">🔌 Check form</button>' : '') +
           (ad.custom_html ? '<button class="tbl-btn" data-id="' + ad.id + '" onclick="downloadAdHtml(this)" title="Download HTML file">&#8681; Download</button>' : '') +
           '<button class="tbl-btn danger" data-id="' + ad.id + '" data-name="' + (ad.business_name||'Ad').replace(/"/g,'&quot;') + '" onclick="deleteAd(this)">Delete</button>' +
         '</div>' +
@@ -3434,6 +3452,84 @@ function parseAdServiceOptions(html){
   }catch(e){ return []; }
 }
 
+// ═══ formwiz-1 — Form connection wizard (2026-10-07) ═══════════════
+// Why: a pasted landing page whose form forgets ad_slug sends every lead
+// into a 400 error while showing "Booked ✓" (the Gul miss). Three defences:
+//   1. _fgApply stamps a tiny guard into every saved page — any form post to
+//      submit-lead that lacks ad_slug gets it filled in automatically.
+//   2. _fgReport shows a plain-English checklist after every save.
+//   3. _fgTest proves the wiring end-to-end via submit-lead's test mode —
+//      the server resolves the routing but creates NO lead and notifies nobody.
+function _fgApply(html, slug){
+  try{
+    var h=String(html||'');
+    if(!/submit-lead|<form/i.test(h)) return h;
+    var guard = '<scr'+'ipt data-adviuz-form-guard="1">\n'
+      +'/* Adviuz form guard (auto-added by admin). If a lead form on this page posts to submit-lead without ad_slug, this fills it in so the lead always reaches the right account. */\n'
+      +'(function(){var SLUG='+JSON.stringify(String(slug||''))+';var of=window.fetch;window.fetch=function(u,o){try{if(o&&String(o.method||"").toUpperCase()==="POST"&&String(u).indexOf("/functions/v1/submit-lead")>-1&&typeof o.body==="string"){var b=JSON.parse(o.body);if(b&&typeof b==="object"&&!b.ad_slug){b.ad_slug=SLUG;o=Object.assign({},o,{body:JSON.stringify(b)});}}}catch(e){}return of.call(this,u,o);};})();\n'
+      +'</scr'+'ipt>';
+    var re=/<script data-adviuz-form-guard="1">[\s\S]*?<\/script>/;
+    if(re.test(h)) return h.replace(re, guard);
+    if(/<\/body>/i.test(h)) return h.replace(/<\/body>/i, guard+'\n</body>');
+    return h+'\n'+guard;
+  }catch(e){ return html; }
+}
+function _fgRows(html, slug){
+  var h=String(html||'');
+  var hasForm=/<form/i.test(h);
+  var toSubmit=h.indexOf('functions/v1/submit-lead')>-1;
+  var toRest=h.indexOf('rest/v1/leads')>-1;
+  var guarded=h.indexOf('data-adviuz-form-guard')>-1;
+  var slugged=h.indexOf('ad_slug')>-1;
+  var rows=[];
+  function row(st,txt){ rows.push({st:st,txt:txt}); }
+  if(!hasForm && !toSubmit){ row('warn','No lead form found on this page. Fine for a call-only page — otherwise the form HTML is missing.'); return rows; }
+  row('ok','Lead form found');
+  if(toSubmit) row('ok','Form sends to Adviuz (submit-lead)');
+  else if(toRest) row('bad','Form writes STRAIGHT to the database (old style) — leads may skip campaign routing and AI follow-up. Rebuild the form to post to submit-lead.');
+  else row('bad','Form is NOT connected to Adviuz — it posts somewhere else (or nowhere). Leads from this page will be lost.');
+  if(guarded) row('ok','Ad address (ad_slug) is guaranteed — the guard fills it in automatically');
+  else if(slugged) row('ok','ad_slug found in the page');
+  else row('bad','ad_slug missing — the server will reject every submission with "Missing ad_slug".');
+  return rows;
+}
+function _fgReport(html, slug){
+  window._fgSlug=slug;
+  var body=document.getElementById('fgBody'); if(!body) return;
+  var rows=_fgRows(html, slug);
+  var ic={ok:'✅',warn:'⚠️',bad:'❌'};
+  body.innerHTML = '<div style="font-size:12px;color:var(--muted);margin-bottom:2px">Page: <b style="color:var(--text)">'+sanitize(slug)+'</b></div>'
+    + rows.map(function(r){ return '<div style="display:flex;gap:8px;align-items:flex-start;font-size:13px;line-height:1.5"><span>'+ic[r.st]+'</span><span>'+r.txt+'</span></div>'; }).join('');
+  var out=document.getElementById('fgTestOut'); if(out) out.innerHTML='';
+  openModal('fgModal');
+}
+async function fgCheckAd(btn){
+  var id=btn.dataset.id;
+  var r=await sbAdmin('/rest/v1/ads?id=eq.'+id+'&select=ad_slug,custom_html',{});
+  var d=r.ok?await r.json():[];
+  if(!d.length){ toast('Could not load this ad'); return; }
+  _fgReport(d[0].custom_html||'', d[0].ad_slug||'');
+}
+async function _fgTest(){
+  var slug=window._fgSlug||'';
+  var out=document.getElementById('fgTestOut');
+  var btn=document.getElementById('fgTestBtn');
+  if(!slug){ if(out) out.textContent='No ad selected.'; return; }
+  if(btn){ btn.disabled=true; btn.textContent='Testing…'; }
+  try{
+    var r=await fetch(SB_URL+'/functions/v1/submit-lead',{method:'POST',headers:{'Content-Type':'application/json','apikey':SB_ANON,'Authorization':'Bearer '+SB_ANON},body:JSON.stringify({ad_slug:slug,test:true})});
+    var d=await r.json().catch(function(){return{};});
+    if(r.ok && d.success){
+      var who='';
+      if(d.client_id){ try{ var cr=await sbAdmin('/rest/v1/clients?id=eq.'+d.client_id+'&select=business_name',{}); var cd=cr.ok?await cr.json():[]; who=cd.length?(cd[0].business_name||''):''; }catch(e){} }
+      if(out) out.innerHTML='✅ <b>Connected.</b> Form leads will land in <b>'+sanitize(who||'the right client')+'</b>&rsquo;s account'+(d.campaign_linked?' with the campaign linked — AI follow-up will run.':' — ⚠️ but <b>no campaign is linked</b> to this ad yet, so AI follow-up will not start.');
+    } else {
+      if(out) out.innerHTML='❌ <b>Not connected:</b> '+sanitize((d&&d.error)||('HTTP '+r.status))+'. Leads from this page would be lost.';
+    }
+  }catch(e){ if(out) out.textContent='❌ Could not reach the server — try again.'; }
+  if(btn){ btn.disabled=false; btn.textContent='⚡ Test connection — no lead is created'; }
+}
+
 async function savePastedCode() {
   var name     = (document.getElementById('paste-ad-name')?.value  || '').trim();
   var clientId = document.getElementById('paste-client-sel')?.value || '';
@@ -3452,6 +3548,8 @@ async function savePastedCode() {
     ? liveHost.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')
     : name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
   if (!adSlug) adSlug = 'ad-' + Date.now().toString(36);
+  // formwiz-1: stamp the form guard so ad_slug can never be missing again (the Gul miss).
+  code = _fgApply(code, adSlug);
   // Save RAW html to DB — tracking is injected at deploy time, never stored
   var rawCode = code; // never store tracking in DB
   var svcOpts = parseAdServiceOptions(rawCode);
@@ -3493,6 +3591,7 @@ async function savePastedCode() {
   }
 
   toast('✅ Ad saved!');
+  try{ _fgReport(rawCode, adSlug); }catch(e){}
 
   // HTML is stored in Supabase (custom_html). The Cloudflare Worker serves it
   // live by hostname — no Netlify/GitHub deploy needed.
