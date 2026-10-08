@@ -4700,7 +4700,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-08 import-6';
+var APP_VERSION = 'v2026-10-08 import-7';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -25596,7 +25596,28 @@ async function bkcLoadCamps(){
   var camps = [];
   try{
     if (window._clientCampaigns && window._clientCampaigns.length) camps = window._clientCampaigns;
-    else { var r=await sbFetch('/rest/v1/campaigns?select=id,name,client_id&order=created_at.desc&limit=100'); if(r.ok) camps=await r.json(); }
+    else {
+      // import-7 (Ajax 2026-10-07): staff see every client's campaigns so they
+      // can run rounds for anyone — but the list must SAY whose campaign each
+      // one is, Adviuz's own two first, so a round is never started on the
+      // wrong client by mistake. Clients still only ever see their own.
+      var r=await sbFetch('/rest/v1/campaigns?select=id,name,client_id&status=in.(active,live,running)&order=created_at.desc&limit=100');
+      if(r.ok) camps=await r.json();
+      var bizById={};
+      try{
+        var cr=await sbFetch('/rest/v1/clients?select=id,business_name&limit=200');
+        if(cr.ok){ (await cr.json()).forEach(function(c){ bizById[String(c.id)]=c.business_name||''; }); }
+      }catch(_e2){}
+      var ADV='7d315d20-00af-4e7f-8d79-c89b3f2b5cf7';
+      camps=(camps||[]).map(function(c){
+        var own=String(c.client_id)===ADV;
+        var biz=own?'Adviuz (your own)':(bizById[String(c.client_id)]||'Client');
+        return Object.assign({}, c, { _lbl:(c.name||'Campaign')+' — '+biz, _own:own });
+      }).sort(function(a,b){
+        if(a._own!==b._own) return a._own?-1:1;
+        return String(a._lbl).localeCompare(String(b._lbl));
+      });
+    }
   }catch(_e){}
   _bkc.camps = camps||[];
   if(_bkc.camps.length===1) _bkc.campaign_id = String(_bkc.camps[0].id);
@@ -25619,7 +25640,7 @@ function bkcRender(){
   var t=document.getElementById('bkcTitle');
   if(_bkc.step===1){
     if(t) t.textContent='Bulk AI Calls — Audience';
-    var copts = (_bkc.camps||[]).map(function(c){ return '<option value="'+_bkcEsc(c.id)+'"'+(String(c.id)===_bkc.campaign_id?' selected':'')+'>'+_bkcEsc(c.name)+'</option>'; }).join('');
+    var copts = (_bkc.camps||[]).map(function(c){ return '<option value="'+_bkcEsc(c.id)+'"'+(String(c.id)===_bkc.campaign_id?' selected':'')+'>'+_bkcEsc(c._lbl||c.name)+'</option>'; }).join('');
     box.innerHTML =
       '<div class="flbl" style="margin-bottom:6px">Campaign</div>'
       +'<select class="finp" id="bkcCamp" onchange="_bkc.campaign_id=this.value" style="margin-bottom:14px"><option value="">Choose campaign…</option>'+copts+'</select>'
