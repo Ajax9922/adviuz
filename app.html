@@ -4700,7 +4700,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-08 import-9';
+var APP_VERSION = 'v2026-10-08 import-10';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -11549,6 +11549,256 @@ async function requestAiMinutes(btn){
   if(btn){ btn.disabled = false; btn.textContent = '\u2795 Add minutes'; }
 }
 
+// ═══════════════════════════════════════
+// REPORTS v2 (import-10): AI ENGINE TAB
+// Data comes from the report-data edge function (one POST per filter change,
+// cached). Funnel/appointment numbers reuse the SAME filtered leads as the
+// Leads report, so both tabs always agree.
+// ═══════════════════════════════════════
+var AE_ICONS={
+ camp:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M3 11l18-7-7 18-2.5-7.5L3 11z"/></svg>',
+ round:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="vertical-align:-2px"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>',
+ date:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="vertical-align:-2px"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
+ loc:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>',
+ srv:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>'};
+var AE_TN={c:'Outbound calls',i:'Inbound calls',s:'Texts sent',r:'Texts answered',e:'Emails sent',a:'Call summaries',n:'Notes added',f:'Follow-ups scheduled'};
+var AE_TI={c:'📞',i:'📲',s:'💬',r:'↩️',e:'📧',a:'🧠',n:'📝',f:'⏰'};
+var AE_GROUPS=[['Calls',['c','i'],'#4000f3'],['Texts',['s','r'],'#8b2bf7'],['Emails',['e'],'#b43ef9'],['Notes',['a','n'],'#e65afc'],['Follow-ups',['f'],'#f3a0fd']];
+function aeEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function aeEnsureCss(){
+  if(document.getElementById('aeCss'))return;
+  var st=document.createElement('style'); st.id='aeCss';
+  st.textContent='@keyframes aePul{0%,100%{opacity:1}50%{opacity:.35}}.aeLive{width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 3px rgba(255,255,255,.25);display:inline-block;animation:aePul 2s infinite}@media (prefers-reduced-motion:reduce){.aeLive{animation:none}}';
+  document.head.appendChild(st);
+}
+function aeStNum(l){ var m=String(l.stage||'').match(/^(\d+)/); return m?parseInt(m[1],10):1; }
+function aeGrad(txt){ return '<span style="background:linear-gradient(90deg,#4000f3,#e65afc);-webkit-background-clip:text;background-clip:text;color:transparent">'+txt+'</span>'; }
+function aeFmtDur(s){ s=Math.round(s||0); if(s<60)return s+' sec'; var m=Math.floor(s/60); if(m<60)return m+' min'+(s%60?' '+(s%60)+' s':''); return Math.floor(m/60)+' h '+(m%60)+' m'; }
+function aeFmtD(ymd){ if(!ymd)return''; var p=String(ymd).split('-'); var M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return M[(+p[1]||1)-1]+' '+(+p[2]||1); }
+function aeParams(){
+  var f=window._rptFilters||{};
+  return { campaign_id:(f.campaigns&&f.campaigns.length===1)?String(f.campaigns[0]):'', from:f.from||'', to:f.to||'' };
+}
+function rfAiLoad(force){
+  var p=aeParams(), key=JSON.stringify(p);
+  var R=window._aiRep;
+  if(!force && R && R.key===key && (R.data||R.loading)) return;
+  window._aiRep={key:key,loading:true,data:(R&&R.key===key)?R.data:null};
+  sbFetch('/functions/v1/report-data',{method:'POST',body:JSON.stringify(p)})
+    .then(function(r){return r.json();})
+    .then(function(j){
+      if(JSON.stringify(aeParams())!==key) return; // filters moved on
+      window._aiRep={key:key,loading:false,data:(j&&j.ok)?j:null,error:!(j&&j.ok)};
+      if((window._rptTab||'')==='ai'){ var c=document.getElementById('content'); if(c&&typeof reportsHTML==='function') c.innerHTML=reportsHTML(); }
+    })
+    .catch(function(){ window._aiRep={key:key,loading:false,data:null,error:true};
+      if((window._rptTab||'')==='ai'){ var c=document.getElementById('content'); if(c&&typeof reportsHTML==='function') c.innerHTML=reportsHTML(); } });
+}
+function aeRerender(){ var c=document.getElementById('content'); if(c) c.innerHTML=reportsHTML(); }
+function aeCalNav(dir){
+  var m=window._aeM, y=+m.slice(0,4), mo=+m.slice(5,7)+dir;
+  if(mo<1){mo=12;y--;} if(mo>12){mo=1;y++;}
+  window._aeM=y+'-'+String(mo).padStart(2,'0'); aeRerender();
+}
+function aeCalPick(d){ window._aeSel=window._aeSel===d?null:d; aeRerender(); }
+function aeDayToggle(d){ window._aeDay=window._aeDay===d?null:d; aeRerender(); }
+function aeAllLog(){ window._aeAll=!window._aeAll; aeRerender(); }
+function aeChannel(ch){ window._rptTab=ch; aeRerender(); }
+
+function aiEngineHTML(){
+  aeEnsureCss();
+  rfAiLoad();
+  var R=window._aiRep||{};
+  var camps=(window._rptFilters&&window._rptFilters.campaigns)||[];
+  var scopeName=camps.length===1?rptCampName(camps[0]):(camps.length?camps.length+' campaigns':'all campaigns');
+  var card=function(title,em,body,id){ return '<div'+(id?' id="'+id+'"':'')+' style="margin:12px 16px 0;background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px 15px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--sub)"><span>'+title+'</span>'+(em?'<span style="font-weight:500;letter-spacing:0;text-transform:none;color:var(--muted,#9aa1ad);font-size:10.5px">'+em+'</span>':'')+'</div>'+body+'</div>'; };
+  if(!R.data){
+    var msg=R.error?'Couldn’t load the AI report. <span onclick="rfAiLoad(true);aeRerender()" style="color:#4000f3;font-weight:600;cursor:pointer">Try again</span>':'Loading your AI’s work…';
+    return '<div style="margin:14px 16px;background:var(--white);border:1px solid var(--border);border-radius:14px;padding:26px 16px;text-align:center;font-size:13px;color:var(--sub)">'+msg+'</div>';
+  }
+  var rep=R.data;
+  // per-day / per-type maps
+  var byDay={}, perDay={}, T={c:0,i:0,s:0,r:0,e:0,a:0,n:0,f:0}, opens=0, hasAct=false;
+  (rep.acts||[]).forEach(function(a){
+    var d=a[0],t=a[1],n=+a[2]||0;
+    if(t==='o'){opens+=n;return;}
+    if(!(t in T))return;
+    T[t]+=n; byDay[d]=(byDay[d]||0)+n;
+    (perDay[d]=perDay[d]||{})[t]=((perDay[d]||{})[t]||0)+n;
+    hasAct=true;
+  });
+  var dayKeys=Object.keys(byDay).sort();
+  // same filtered leads as the Leads report
+  var ls=rptApplyFilters(leads||[]);
+  var ltot=ls.length;
+  var apCount=ls.filter(function(l){return !!l.appointment_at;}).length;
+  var bkd=ls.filter(function(l){var s=aeStNum(l);return !!l.appointment_at||[5,6,7,8,9,12].indexOf(s)>-1;}).length;
+  var met=ls.filter(function(l){var s=aeStNum(l);return (l.meeting_outcome!=null&&l.meeting_outcome!=='')||[6,7,8,9,12].indexOf(s)>-1;}).length;
+  var cls=ls.filter(function(l){return aeStNum(l)===9;}).length;
+  var eng=ls.filter(function(l){return aeStNum(l)!==1;}).length;
+  var tasksTot=T.c+T.i+T.s+T.r+T.e+T.a+T.n+T.f+apCount;
+  var h='';
+  // ── hero ──
+  var pcL=ltot?Math.round(bkd/ltot*100):0, pcA=bkd?Math.round(cls/bkd*100):0;
+  var nextTxt='';
+  if(rep.nextDue&&rep.nextDue.next_at){ try{ var nd=new Date(rep.nextDue.next_at); nextTxt=rep.nextDue.count+' follow-up'+(rep.nextDue.count===1?'':'s')+' queued · next '+nd.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+nd.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}); }catch(e){} }
+  var spd=rep.speed&&rep.speed.median_s!=null?aeFmtDur(rep.speed.median_s):'—';
+  h+='<div style="margin:12px 16px 0;background:linear-gradient(118deg,#4000f3 0%,#8b2bf7 55%,#e65afc 100%);border-radius:18px;padding:22px 16px 16px;color:#fff;text-align:center">'
+    +'<div style="display:flex;align-items:center;justify-content:center;gap:8px;font-size:12px;color:#f0e3ff"><span class="aeLive"></span>Your AI is on duty · '+aeEsc(scopeName)+'</div>'
+    +'<div style="font-size:50px;font-weight:700;letter-spacing:-2px;line-height:1.05;margin-top:8px">'+tasksTot.toLocaleString()+'</div>'
+    +'<div style="font-size:14.5px;font-weight:600;margin-top:3px">Tasks handled by your AI</div>'
+    +'<div style="height:1px;background:rgba(255,255,255,.28);margin:15px 4px 0"></div>'
+    +'<div style="display:flex;margin-top:13px">'
+    +'<div style="flex:1;border-right:1px solid rgba(255,255,255,.28);padding:0 4px"><div style="font-size:22px;font-weight:700;letter-spacing:-.5px">'+(rep.leadsHandled||0)+'</div><div style="font-size:10px;color:#f0e3ff;margin-top:2px;line-height:1.35">Leads handled<br>of '+(rep.leadsTotal||0)+' in this view</div></div>'
+    +'<div style="flex:1;border-right:1px solid rgba(255,255,255,.28);padding:0 4px"><div style="font-size:22px;font-weight:700;letter-spacing:-.5px">'+bkd+'</div><div style="font-size:10px;color:#f0e3ff;margin-top:2px;line-height:1.35">Appointments booked<br>'+pcL+'% of leads</div></div>'
+    +'<div style="flex:1;padding:0 4px"><div style="font-size:22px;font-weight:700;letter-spacing:-.5px">'+cls+'</div><div style="font-size:10px;color:#f0e3ff;margin-top:2px;line-height:1.35">Deals closed<br>'+pcA+'% of appointments</div></div>'
+    +'</div>'
+    +(nextTxt?'<div style="font-size:10.5px;color:#f0e3ff;margin-top:13px">'+aeEsc(nextTxt)+'</div>':'')
+    +'</div>';
+  if(!hasAct&&!apCount){
+    return h+'<div style="margin:12px 16px 0;background:var(--white);border:1px dashed var(--border);border-radius:14px;padding:22px 15px;text-align:center;font-size:12.5px;color:var(--sub);line-height:1.6">No AI activity for these filters yet.<br>Try a wider date range or another campaign.</div>';
+  }
+  // ── last 14 days bars (ending at range end or today) ──
+  var endY=(window._rptFilters&&window._rptFilters.to)||rptYmd(new Date());
+  var seq=[],mx=1;
+  for(var i=13;i>=0;i--){
+    var d0=new Date(endY+'T12:00:00'); d0.setDate(d0.getDate()-i);
+    var ds=rptYmd(d0), v=byDay[ds]||0; seq.push([ds,v]); if(v>mx)mx=v;
+  }
+  var bars='',labs='';
+  seq.forEach(function(p){ bars+='<div title="'+p[1]+'" style="flex:1;border-radius:3px 3px 0 0;min-height:2px;height:'+(p[1]?Math.max(6,Math.round(p[1]/mx*100)):4)+'%;background:'+(p[1]?'linear-gradient(180deg,#e65afc,#4000f3)':'#e4defa')+'"></div>'; labs+='<span style="flex:1;text-align:center;font-size:8px;color:var(--muted,#9aa1ad)">'+(+p[0].slice(8))+'</span>'; });
+  h+=card('Last 14 days','tasks per day',
+    '<div style="display:flex;gap:7px">'
+    +'<div style="display:flex;flex-direction:column;justify-content:space-between;height:62px;font-size:9px;color:var(--muted,#9aa1ad);text-align:right;min-width:16px"><span>'+mx+'</span><span>'+Math.round(mx/2)+'</span><span>0</span></div>'
+    +'<div style="flex:1"><div style="display:flex;align-items:flex-end;gap:4px;height:62px;border-bottom:1px solid #eee9f8;background:linear-gradient(to top,transparent 49%,#f3f1f8 49%,#f3f1f8 51%,transparent 51%)">'+bars+'</div><div style="display:flex;gap:4px;margin-top:5px">'+labs+'</div></div></div>');
+  // ── latest work feed ──
+  if(rep.feed&&rep.feed.length){
+    var fb='<div style="position:relative"><div style="position:absolute;left:11px;top:8px;bottom:8px;width:2px;background:#eee9f8"></div>';
+    rep.feed.forEach(function(f,i2){
+      var when=''; try{ var fd=new Date(f.at); when=fd.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})+' · '+fd.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}); }catch(e){}
+      var who='<b>'+aeEsc(f.who||'Lead')+'</b>', txt='';
+      if(f.t==='c') txt='Called '+who+(f.ds>=40?' — '+aeFmtDur(f.ds)+' conversation':(f.ds>0?' — voicemail':''));
+      else if(f.t==='i') txt='Answered a call from '+who+(f.ds?' — '+aeFmtDur(f.ds):'');
+      else if(f.t==='s') txt='Texted '+who;
+      else if(f.t==='e') txt='Emailed '+who;
+      else if(f.t==='a') txt='Wrote the call summary for '+who;
+      else if(f.t==='n') txt='Added a note on '+who;
+      else if(f.t==='f') txt='Scheduled a follow-up for '+who;
+      else txt=AE_TN[f.t]||'Worked on '+who;
+      fb+='<div style="display:flex;gap:10px;padding:7px 0;position:relative"><div style="width:24px;height:24px;border-radius:50%;background:var(--white);border:1.5px solid '+(i2===0?'#b43ef9':'#e2d9fa')+';display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;z-index:1">'+(AE_TI[f.t]||'•')+'</div><div style="flex:1"><div style="font-size:12px;color:var(--text);line-height:1.45">'+txt+'</div><div style="font-size:10px;color:var(--muted,#9aa1ad);margin-top:1px">'+when+'</div></div></div>';
+    });
+    fb+='</div><div onclick="aeAllLog()" style="cursor:pointer;text-align:center;font-size:12px;font-weight:600;margin-top:10px">'+aeGrad(window._aeAll?'Show less':'See all tasks ↓')+'</div>';
+    h+=card('Latest work, as it happened','from the activity log',fb);
+  }
+  // ── work calendar (month view, day tap = detail) ──
+  if(!window._aeM) window._aeM=rptYmd(new Date()).slice(0,7);
+  var wy=+window._aeM.slice(0,4), wm=+window._aeM.slice(5,7);
+  var mN=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var wdays=new Date(wy,wm,0).getDate(), wlead=(new Date(wy,wm-1,1).getDay()+6)%7;
+  var hm=1; dayKeys.forEach(function(k){ if(k.slice(0,7)===window._aeM&&byDay[k]>hm)hm=byDay[k]; });
+  var cells=''; ['M','T','W','T','F','S','S'].forEach(function(w){cells+='<div style="font-size:8.5px;color:var(--muted,#9aa1ad);text-align:center;padding-bottom:1px">'+w+'</div>';});
+  for(var b=0;b<wlead;b++)cells+='<div></div>';
+  var todayY=rptYmd(new Date());
+  for(var dd=1;dd<=wdays;dd++){
+    var ymd=window._aeM+'-'+String(dd).padStart(2,'0');
+    var vv=byDay[ymd]||0, bg='#efecf7', txc='var(--muted,#9aa1ad)';
+    if(vv>0){ var q=vv/hm;
+      bg=q>.8?'linear-gradient(135deg,#4000f3,#e65afc)':q>.6?'linear-gradient(135deg,#4000f3,#8b2bf7)':q>.35?'#9a79f3':q>.15?'#c8b6f7':'#e4defa';
+      txc=q>.35?'#fff':'#3b2a86';
+    }
+    var selD=window._aeSel===ymd;
+    cells+='<div onclick="aeCalPick(\''+ymd+'\')" title="'+vv+' tasks" style="cursor:pointer;aspect-ratio:1;border-radius:4px;background:'+bg+';display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:'+txc+';'+(selD?'outline:2px solid #4000f3;outline-offset:1px':(ymd===todayY?'outline:1.5px solid #e65afc;outline-offset:1px':''))+'">'+dd+'</div>';
+  }
+  var calBody='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">'
+    +'<button onclick="aeCalNav(-1)" style="border:1px solid var(--border);background:var(--white);border-radius:9px;padding:5px 11px;font-size:14px;cursor:pointer;font-family:var(--f)">‹</button>'
+    +'<div style="font-size:13px;font-weight:600;color:var(--text)">'+mN[wm-1]+' '+wy+'</div>'
+    +'<button onclick="aeCalNav(1)" style="border:1px solid var(--border);background:var(--white);border-radius:9px;padding:5px 11px;font-size:14px;cursor:pointer;font-family:var(--f)">›</button></div>'
+    +'<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">'+cells+'</div>'
+    +'<div style="display:flex;align-items:center;gap:4px;margin-top:9px;font-size:9.5px;color:var(--muted,#9aa1ad);justify-content:flex-end">less <i style="width:10px;height:10px;border-radius:3px;background:#efecf7;display:inline-block"></i><i style="width:10px;height:10px;border-radius:3px;background:#e4defa;display:inline-block"></i><i style="width:10px;height:10px;border-radius:3px;background:#c8b6f7;display:inline-block"></i><i style="width:10px;height:10px;border-radius:3px;background:#9a79f3;display:inline-block"></i><i style="width:10px;height:10px;border-radius:3px;background:linear-gradient(135deg,#4000f3,#e65afc);display:inline-block"></i> more</div>';
+  if(window._aeSel){
+    var so=perDay[window._aeSel]||{}, sTot=byDay[window._aeSel]||0;
+    calBody+='<div style="background:#faf9ff;border:1px solid #e9e2fa;border-radius:11px;padding:10px 13px;margin-top:10px">'
+      +'<div style="display:flex;justify-content:space-between;font-size:12.5px;font-weight:600;color:var(--text);margin-bottom:4px"><span>'+aeFmtD(window._aeSel)+'</span><span>'+sTot+' task'+(sTot===1?'':'s')+'</span></div>';
+    if(sTot){ ['c','i','s','r','e','a','n','f'].forEach(function(t){ if(so[t]) calBody+='<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text);padding:2px 0">'+AE_TI[t]+' '+AE_TN[t]+'<b style="font-weight:600">'+so[t]+'</b></div>'; }); }
+    else calBody+='<div style="font-size:11.5px;color:var(--sub)">No AI tasks this day — nothing was due and no new leads came in.</div>';
+    calBody+='</div>';
+  }
+  h+=card('Work calendar','darker = busier · tap a day',calBody);
+  // ── what your AI did ──
+  var tbl='<table style="width:100%;border-collapse:collapse">';
+  var rowsDef=[['c','calls'],['i','calls'],['s','sms'],['r','sms'],['e','email'],['a',''],['n',''],['f','']];
+  rowsDef.forEach(function(rd){
+    var t=rd[0],ch=rd[1];
+    tbl+='<tr'+(ch?' onclick="aeChannel(\''+ch+'\')" style="cursor:pointer"':'')+'><td style="padding:10px 0;border-bottom:1px solid #f3f1f8;font-size:13px;color:var(--text)">'+AE_TI[t]+' '+AE_TN[t]+'</td><td style="padding:10px 0;border-bottom:1px solid #f3f1f8;text-align:right;font-size:13.5px;font-weight:600;color:var(--text)">'+T[t]+(ch?'<span style="color:#c9c2dd;font-size:13px;padding-left:7px">›</span>':'<span style="padding-left:7px;opacity:0">›</span>')+'</td></tr>';
+  });
+  tbl+='<tr><td style="padding:10px 0;border-bottom:1px solid #f3f1f8;font-size:13px;color:var(--text)">📅 Appointments booked</td><td style="padding:10px 0;border-bottom:1px solid #f3f1f8;text-align:right;font-size:13.5px;font-weight:600;color:var(--text)">'+apCount+'<span style="padding-left:7px;opacity:0">›</span></td></tr>';
+  tbl+='<tr><td style="padding:12px 0 2px;font-size:13.5px;font-weight:650;color:var(--text)">Total Tasks</td><td style="padding:12px 0 2px;text-align:right;font-size:15px;font-weight:700;color:var(--text)">'+tasksTot+'</td></tr></table>';
+  h+=card('What your AI did','tap Calls / Texts / Emails for detail',tbl);
+  // ── funnel ──
+  if(ltot){
+    var pw=function(n){return Math.max(2,Math.round(n/ltot*100));}, pc=function(n){return Math.round(n/ltot*100)+'%';};
+    var frow=function(lbl,n,showPc){ return '<div style="margin-bottom:11px"><div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:var(--text);margin-bottom:4px"><b style="font-weight:600">'+lbl+'</b><span>'+n+(showPc?'<span style="color:var(--muted,#9aa1ad);font-size:10.5px;margin-left:5px;font-weight:500">'+pc(n)+'</span>':'')+'</span></div><div style="height:8px;border-radius:5px;background:#f0edf8;overflow:hidden"><div style="height:100%;border-radius:5px;background:linear-gradient(90deg,#4000f3,#e65afc);width:'+pw(n)+'%"></div></div></div>'; };
+    h+=card('From lead to meeting','what the work produced',
+      frow('New leads',ltot,false)+frow('Moved to next stage',eng,true)+frow('Meeting booked',bkd,true)+frow('Meeting done',met,true)
+      +'<div style="margin-bottom:0"><div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:var(--text);margin-bottom:4px"><b style="font-weight:600">Deal closed</b><span>'+cls+'<span style="color:var(--muted,#9aa1ad);font-size:10.5px;margin-left:5px;font-weight:500">'+pc(cls)+'</span></span></div><div style="height:8px;border-radius:5px;background:#f0edf8;overflow:hidden"><div style="height:100%;border-radius:5px;background:linear-gradient(90deg,#4000f3,#e65afc);width:'+pw(cls)+'%"></div></div></div>');
+  }
+  // ── highlights ──
+  var HL=[];
+  if(rep.touches){ HL.push(['Avg contact attempts per lead',rep.touches.avg,0]); HL.push(['Most attempts on one lead',rep.touches.max,0]); }
+  HL.push(['Leads reached at least once',(rep.leadsHandled||0)+' of '+(rep.leadsTotal||0),1]);
+  if(ltot){ HL.push(['Leads turned into an appointment',Math.round(bkd/ltot*100)+'%',1]); HL.push(['Appointments became a sale, so far',(bkd?Math.round(cls/bkd*100):0)+'%',0]); }
+  if(T.e>0) HL.push(['Emails opened',Math.round(opens/T.e*100)+'% · '+opens+' of '+T.e,1]);
+  HL.push(['Avg response to a new lead','⚡ '+spd,1]);
+  if(rep.speed&&rep.speed.fastOf) HL.push(['Recent leads contacted within 2 min',rep.speed.fast+' of '+rep.speed.fastOf,0]);
+  var hlT='<table style="width:100%;border-collapse:collapse">';
+  HL.forEach(function(r5){ hlT+='<tr><td style="padding:10px 0;border-bottom:1px solid #f3f1f8;font-size:13px;color:var(--text)">'+r5[0]+'</td><td style="padding:10px 0;border-bottom:1px solid #f3f1f8;text-align:right;font-size:14px;font-weight:650;white-space:nowrap;color:var(--text)">'+(r5[2]?aeGrad(r5[1]):r5[1])+'</td></tr>'; });
+  hlT+='</table>';
+  if(rep.calls&&rep.calls.made) hlT+='<div style="font-size:11px;color:var(--sub);margin-top:9px;line-height:1.5">📞 AI calls: '+rep.calls.connected+' of '+rep.calls.made+' connected'+(rep.calls.made?' ('+Math.round(rep.calls.connected/rep.calls.made*100)+'%)':'')+' · total talk '+aeFmtDur(rep.calls.talk_s)+' · '+rep.calls.voicemail+' voicemails · every no-answer gets a retry</div>';
+  h+=card('Highlights','',hlT);
+  // ── busiest hours ──
+  if(rep.hours&&rep.hours.some(function(x){return x>0;})){
+    var H2=rep.hours.slice(8,21), hmax=1; H2.forEach(function(x){if(x>hmax)hmax=x;});
+    var hb='',hl2='';
+    H2.forEach(function(x,ix){ var hr=ix+8, lbl=(hr%12===0?12:hr%12)+(hr<12?'a':'p');
+      hb+='<div style="flex:1;border-radius:3px 3px 0 0;min-height:2px;height:'+(x?Math.max(6,Math.round(x/hmax*100)):4)+'%;background:'+(x?'linear-gradient(180deg,#e65afc,#4000f3)':'#e4defa')+'"></div>';
+      hl2+='<span style="flex:1;text-align:center;font-size:8px;color:var(--muted,#9aa1ad)">'+lbl+'</span>'; });
+    var night=(rep.hours[21]||0)+(rep.hours[22]||0)+(rep.hours[23]||0)+(rep.hours[0]||0)+(rep.hours[1]||0)+(rep.hours[2]||0)+(rep.hours[3]||0)+(rep.hours[4]||0)+(rep.hours[5]||0)+(rep.hours[6]||0)+(rep.hours[7]||0);
+    h+=card('Busiest hours','when your AI works · lead’s local time',
+      '<div style="display:flex;align-items:flex-end;gap:4px;height:44px">'+hb+'</div><div style="display:flex;gap:4px;margin-top:5px">'+hl2+'</div>'
+      +(night?'<div style="font-size:11px;color:var(--sub);margin-top:8px">'+night+' task'+(night===1?'':'s')+' happened outside 8 AM – 8 PM — instant replies never sleep. Calls stay inside calling hours.</div>':''));
+  }
+  // ── day-by-day ledger ──
+  var recent=dayKeys.slice().reverse(); if(!window._aeAll) recent=recent.slice(0,10);
+  if(recent.length){
+    var lmax=1; recent.forEach(function(k){ if(byDay[k]>lmax)lmax=byDay[k]; });
+    var lg='<div style="display:flex;flex-wrap:wrap;gap:10px;padding:2px 0 10px;font-size:10px;color:var(--sub)">';
+    AE_GROUPS.forEach(function(g){ lg+='<span style="display:inline-flex;align-items:center;gap:4px"><i style="width:9px;height:9px;border-radius:3px;background:'+g[2]+';display:inline-block"></i>'+g[0]+'</span>'; });
+    lg+='</div><div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--sub)"><div style="width:46px">Date</div><div style="flex:1">Tasks</div><div>Total</div></div>';
+    var WD=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    recent.forEach(function(k){
+      var o=perDay[k]||{};
+      var dt=new Date(k+'T12:00:00');
+      var bar=''; AE_GROUPS.forEach(function(g){ var v=0; g[1].forEach(function(t){v+=o[t]||0;}); if(v>0) bar+='<div title="'+g[0]+': '+v+'" style="width:'+Math.max(3,Math.round(v/lmax*100))+'%;background:'+g[2]+'"></div>'; });
+      var open=window._aeDay===k;
+      lg+='<div onclick="aeDayToggle(\''+k+'\')" style="cursor:pointer">'
+        +'<div style="display:flex;align-items:center;gap:10px;padding:11px 0;'+(open?'':'border-bottom:1px solid #f3f1f8')+'">'
+        +'<div style="width:46px"><div style="font-size:10px;color:var(--muted,#9aa1ad)">'+WD[dt.getDay()]+'</div><div style="font-size:13px;font-weight:600;color:var(--text)">'+aeFmtD(k)+'</div></div>'
+        +'<div style="flex:1;display:flex;height:12px;border-radius:6px;overflow:hidden;background:#f6f4fb">'+bar+'</div>'
+        +'<div style="width:30px;text-align:right;font-size:13px;font-weight:650;color:var(--text)">'+byDay[k]+'</div>'
+        +'<div style="color:#c9c2dd;font-size:12px">'+(open?'∨':'›')+'</div></div>';
+      if(open){
+        lg+='<div style="background:#faf9ff;border-radius:11px;padding:9px 13px;margin:0 0 10px">';
+        ['c','i','s','r','e','a','n','f'].forEach(function(t){ if(o[t]) lg+='<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text);padding:3px 0">'+AE_TI[t]+' '+AE_TN[t]+'<b style="font-weight:600">'+o[t]+'</b></div>'; });
+        lg+='</div>';
+      }
+      lg+='</div>';
+    });
+    h+=card('Day-by-day ledger',(window._aeAll?'every working day · '+recent.length+' days':'most recent '+recent.length+' working days'),lg,'ledger');
+  }
+  h+='<div style="text-align:center;color:var(--muted,#9aa1ad);font-size:11px;margin:16px 16px 0;line-height:1.5">Every task here is also logged on the lead’s own timeline.</div>';
+  return h;
+}
+
 function reportsHTML(){
   // Four sub-reports behind tiles: Leads / Calls / SMS / Email. The old Bulk
   // SMS / Bulk Email tiles are gone — their job lists now live INSIDE the SMS
@@ -11557,20 +11807,23 @@ function reportsHTML(){
   var t=window._rptTab||'leads';
   if(t==='bsms')  t=window._rptTab='sms';
   if(t==='bemail')t=window._rptTab='email';
-  var tile=function(v,ico,lbl){ var on=t===v;
-    return '<button onclick="window._rptTab=\''+v+'\';document.getElementById(\'content\').innerHTML=reportsHTML()" style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 4px;border-radius:12px;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'var(--greenl,#e7f8f3)':'var(--white)')+';cursor:pointer;font-family:var(--f)">'
+  var tile=function(v,ico,lbl,on){
+    return '<button onclick="window._rptTab=\''+v+'\';document.getElementById(\'content\').innerHTML=reportsHTML()" style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;padding:11px 4px;border-radius:12px;border:1.5px solid '+(on?'transparent':'var(--border)')+';background:'+(on?'linear-gradient(var(--white),var(--white)) padding-box,linear-gradient(90deg,#4000f3,#e65afc) border-box':'var(--white)')+';cursor:pointer;font-family:var(--f)">'
       + '<span style="font-size:16px">'+ico+'</span>'
-      + '<span style="font-size:10.5px;font-weight:600;color:'+(on?'var(--green)':'var(--sub)')+';white-space:nowrap">'+lbl+'</span>'
+      + '<span style="font-size:10.5px;font-weight:'+(on?'600':'500')+';color:'+(on?'#4000f3':'var(--sub)')+';white-space:nowrap">'+lbl+'</span>'
       + '</button>'; };
+  // import-10: two tiles — Leads | AI Engine. The Calls / SMS / Email reports
+  // still exist one tap deeper: rows in the AI task table open them.
+  var isCh=(t==='calls'||t==='sms'||t==='email');
   var tiles='<div style="display:flex;gap:7px;padding:12px 14px 2px">'
-    + tile('leads','\uD83D\uDC65','Leads')
-    + tile('calls','\uD83D\uDCDE','Calls')
-    + tile('sms','\uD83D\uDCAC','SMS')
-    + tile('email','\uD83D\uDCE7','Email')
+    + tile('leads','\uD83D\uDC65','Leads',t==='leads')
+    + tile('ai','\uD83E\uDD16','AI Engine',t==='ai'||isCh)
     + '</div>';
-  if(t==='calls') return tiles + commReportHTML('calls');
-  if(t==='sms')   return tiles + commReportHTML('sms');
-  if(t==='email') return tiles + commReportHTML('email');
+  var back=isCh?'<div style="padding:10px 16px 0"><button onclick="window._rptTab=\'ai\';document.getElementById(\'content\').innerHTML=reportsHTML()" style="border:1px solid var(--border);background:var(--white);border-radius:999px;padding:7px 13px;font-size:12px;font-weight:600;color:var(--text);cursor:pointer;font-family:var(--f)">\u2039 Back to AI Engine</button></div>':'';
+  if(t==='calls') return tiles + back + commReportHTML('calls');
+  if(t==='sms')   return tiles + back + commReportHTML('sms');
+  if(t==='email') return tiles + back + commReportHTML('email');
+  if(t==='ai')    return tiles + '<div style="padding:14px 16px 0">'+rfChipBarHTML()+'</div>' + aiEngineHTML();
   return tiles + clientReportsHTML();
 
   var filtLeads = rptFilterLeads(leads);
@@ -12334,10 +12587,10 @@ function advPretty(a,b){
 }
 window.advPretty = advPretty;
 
-// ── Campaign No. (flyer top-up windows): "1st campaign", "2nd campaign"… ──
-// One view top-up = one run of the campaign. Window = top-up date until the
-// next top-up (or today for the latest). Loaded from the client's own
-// transactions (RLS lets clients see only their own).
+// ── Campaign No. (import-10): real delivery runs from the report-data edge
+// function. A run starts when its views start being delivered and ends the
+// day they finish; a gap between runs shows as "paused · out of views";
+// paid-but-not-started blocks show as queued.
 window._rfRounds = window._rfRounds || { key:'', list:[], loading:false };
 function rfOrd(n){ return n===1?'1st':n===2?'2nd':n===3?'3rd':(n+'th'); }
 function rfRoundScopeCid(){
@@ -12346,40 +12599,19 @@ function rfRoundScopeCid(){
 }
 async function rfLoadRounds(force){
   var cid=rfRoundScopeCid();
-  var clid='';
-  if(cid){
-    var lists=[].concat(((window._adminData&&window._adminData.campaigns)||[]),(window._clientCampaigns||[]));
-    var cp=lists.find(function(x){return String(x.id)===cid;});
-    if(cp&&cp.client_id) clid=String(cp.client_id);
-  }
-  if(!clid && window._clientData && window._clientData.id) clid=String(window._clientData.id);
-  var key=cid+'|'+clid;
+  var key=cid;
   if(!force && window._rfRounds.key===key) return;
-  if(!cid && !clid){ window._rfRounds={key:key,list:[],loading:false}; return; }
-  window._rfRounds.loading=true; window._rfRounds.key=key;
+  window._rfRounds={key:key,list:[],loading:!!cid};
+  if(!cid) return; // rounds need one campaign picked first
   try{
-    var q='/rest/v1/transactions?select=campaign_id,client_id,created_at,views_added,amount_cad&order=created_at.asc&limit=200&views_added=gt.0&';
-    if(cid && clid) q+='or=(campaign_id.eq.'+cid+',and(client_id.eq.'+clid+',campaign_id.is.null))';
-    else if(cid)    q+='campaign_id=eq.'+cid;
-    else            q+='client_id=eq.'+clid;
-    var r=await sbFetch(q);
-    var rows=r.ok?await r.json():[];
-    // group by campaign (null = account-wide top-ups from before per-campaign tracking)
-    var groups={};
-    rows.forEach(function(t){ var g=String(t.campaign_id||''); (groups[g]=groups[g]||[]).push(t); });
+    var r=await sbFetch('/functions/v1/report-data',{method:'POST',body:JSON.stringify({campaign_id:cid})});
+    var j=r.ok?await r.json():null;
     var out=[];
-    Object.keys(groups).forEach(function(g){
-      groups[g].forEach(function(t,i){
-        var nx=groups[g][i+1];
-        var from=(t.created_at||'').slice(0,10);
-        var to;
-        if(nx){ var d=new Date((nx.created_at||'').slice(0,10)+'T12:00:00'); d.setDate(d.getDate()-1); to=rptYmd(d); }
-        else to=rptYmd(new Date());
-        out.push({ cid:g, label:rfOrd(i+1)+' campaign', current:!nx, from:from, to:to,
-                   views:t.views_added||0, amt:Number(t.amount_cad)||0, acct:!g });
-      });
+    ((j&&j.rounds)||[]).forEach(function(rd){
+      out.push({ cid:cid, n:rd.n, label:rfOrd(rd.n)+' campaign', status:rd.status, current:rd.status==='run',
+                 from:rd.from, to:rd.to, views:rd.views||0, used:rd.used||0,
+                 paidAt:rd.paidAt||'', pauseBefore:rd.pauseBefore||null });
     });
-    out.sort(function(a,b){ return a.from<b.from?-1:1; });
     window._rfRounds.list=out;
   }catch(e){ window._rfRounds.list=[]; }
   window._rfRounds.loading=false;
@@ -12396,7 +12628,7 @@ function rfDateLabel(){
     var fp=f.from.split('-'),tp=f.to.split('-');
     return m[+fp[1]-1]+' '+(+fp[2])+' – '+m[+tp[1]-1]+' '+(+tp[2]);
   }
-  return {all:'All time',today:'Today','7d':'Last 7 days','30d':'Last 30 days',custom:'Custom'}[f.preset||'all']||'All time';
+  return {all:'All time',today:'Today',yday:'Yesterday','7d':'Last 7 days','14d':'Last 14 days','30d':'Last 30 days',lastmonth:'Last month',thisyear:'This year',lastyear:'Last year',custom:'Custom'}[f.preset||'all']||'All time';
 }
 function rfChip(kind,icon,txt,set){
   return '<button onclick="openRptFilter(\''+kind+'\')" style="flex-shrink:0;display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:8px 12px;font-size:12px;font-family:var(--f);cursor:pointer;white-space:nowrap;color:var(--text);font-weight:'+(set?'700':'500')+';border:1.5px solid '+(set?'transparent':'var(--border)')+';background:'+(set?'linear-gradient(var(--white),var(--white)) padding-box,linear-gradient(90deg,#4000f3,#e65afc) border-box':'var(--white)')+'">'+icon+' '+rfEsc(txt)+' <span style="color:var(--muted);font-size:9px">\u25BE</span></button>';
@@ -12406,11 +12638,11 @@ function rfChipBarHTML(){
   if(typeof rfLoadRounds==='function') setTimeout(function(){ rfLoadRounds(); },0);
   var campTxt=!(f.campaigns||[]).length?'All campaigns':(f.campaigns.length===1?rptCampName(f.campaigns[0]):f.campaigns.length+' campaigns');
   var h='<div style="display:flex;gap:7px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:2px 2px 10px;margin:0 -2px">';
-  h+=rfChip('camp','\uD83D\uDCE3',campTxt,(f.campaigns||[]).length>0);
-  h+=rfChip('round','\uD83D\uDCEC',f.round?f.round.label:'Campaign No.',!!f.round);
-  h+=rfChip('date','\uD83D\uDCC5',f.round?'\u2014':rfDateLabel(),(f.preset||'all')!=='all'&&!f.round);
-  h+=rfChip('loc','\uD83D\uDCCD',(f.locations||[]).length?((f.locations.length===1)?f.locations[0]:f.locations.length+' locations'):'Location',(f.locations||[]).length>0);
-  h+=rfChip('svc','\uD83D\uDC88',(f.services||[]).length?((f.services.length===1)?f.services[0]:f.services.length+' services'):'Service',(f.services||[]).length>0);
+  h+=rfChip('camp',AE_ICONS.camp,campTxt,(f.campaigns||[]).length>0);
+  h+=rfChip('round',AE_ICONS.round,f.round?f.round.label:'Campaign No.',!!f.round);
+  h+=rfChip('date',AE_ICONS.date,f.round?'\u2014':rfDateLabel(),(f.preset||'all')!=='all'&&!f.round);
+  h+=rfChip('loc',AE_ICONS.loc,(f.locations||[]).length?((f.locations.length===1)?f.locations[0]:f.locations.length+' locations'):'Location',(f.locations||[]).length>0);
+  h+=rfChip('svc',AE_ICONS.srv,(f.services||[]).length?((f.services.length===1)?f.services[0]:f.services.length+' services'):'Service',(f.services||[]).length>0);
   if(rptActiveCount()>0) h+='<button onclick="rptClearFilters()" style="flex-shrink:0;border-radius:999px;padding:8px 12px;font-size:12px;font-family:var(--f);cursor:pointer;white-space:nowrap;color:var(--sub);font-weight:600;border:1px solid var(--border);background:var(--white)">\u2715 Clear</button>';
   return h+'</div>';
 }
@@ -12451,7 +12683,7 @@ function renderRptFilter(){
   var box=document.getElementById('rptFilterBody'); if(!box) return;
   var f=window._rptFilters, k=window._rfKind||'camp', html='', ttl='Filter';
   if(k==='camp'){
-    ttl='\uD83D\uDCE3 Campaign';
+    ttl=AE_ICONS.camp+' Campaign';
     var opts=rfDistinct('campaign');
     html+=rfOptBtn(!(f.campaigns||[]).length,'rfCampAll()','All campaigns','', (leads||[]).length+' leads');
     opts.forEach(function(o){
@@ -12461,40 +12693,51 @@ function renderRptFilter(){
     html+='<div style="font-size:11px;color:var(--muted);padding:4px 2px 0">Tap more than one to combine. Done closes.</div>';
   }
   if(k==='round'){
-    ttl='\uD83D\uDCEC Campaign No.';
-    html+='<div style="font-size:12px;color:var(--sub);margin-bottom:10px;line-height:1.5">Every views top-up starts a new run of the campaign. Pick one and the dates are set for you.</div>';
+    ttl=AE_ICONS.round+' Campaign No.';
+    html+='<div style="font-size:12px;color:var(--sub);margin-bottom:10px;line-height:1.5">Each run of your campaign, worked out from when its views were actually delivered. Pick one and the dates are set for you.</div>';
     html+=rfOptBtn(!f.round,'rfRoundOff()','All campaigns together','','');
     var cid=rfRoundScopeCid();
-    if(!cid && !(window._clientData&&window._clientData.id)){
-      html+='<div style="font-size:12px;color:var(--muted);padding:6px 2px">Pick one campaign first (\uD83D\uDCE3 chip) to see its campaign numbers.</div>';
+    if(!cid){
+      html+='<div style="font-size:12px;color:var(--muted);padding:6px 2px">Pick one campaign first ('+AE_ICONS.camp+' chip) to see its campaign numbers.</div>';
     } else if(window._rfRounds.loading){
-      html+='<div style="font-size:12px;color:var(--muted);padding:6px 2px">Loading top-up history\u2026</div>';
+      html+='<div style="font-size:12px;color:var(--muted);padding:6px 2px">Working out the delivery windows\u2026</div>';
     } else if(!window._rfRounds.list.length){
-      html+='<div style="font-size:12px;color:var(--muted);padding:6px 2px">No views top-ups recorded here yet.</div>';
+      html+='<div style="font-size:12px;color:var(--muted);padding:6px 2px">No delivery history recorded here yet.</div>';
     } else {
       var m=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      var fd=function(s){var p=s.split('-');return m[+p[1]-1]+' '+(+p[2]);};
+      var fd=function(s){if(!s)return'';var p=String(s).slice(0,10).split('-');return m[+p[1]-1]+' '+(+p[2]);};
       window._rfRounds.list.forEach(function(r,i){
+        if(r.pauseBefore&&r.pauseBefore.from) html+='<div style="margin:2px 2px 8px;font-size:11.5px;color:#92600a;background:#fdf6e3;border:1px solid #f3e3b3;border-radius:11px;padding:8px 12px">\u23F8 Paused '+fd(r.pauseBefore.from)+' \u2013 '+fd(r.pauseBefore.to)+' \u00B7 out of views</div>';
+        if(r.status==='queued'){
+          html+='<div style="margin:0 0 8px;border-radius:13px;padding:12px 13px;border:1.5px dashed var(--border);background:var(--bg);opacity:.8"><span style="font-size:13.5px;color:var(--sub);font-weight:500">'+rfEsc(r.label)+' \u00B7 queued<span style="display:block;font-size:11px;color:var(--muted);font-weight:400;margin-top:1px">'+(r.paidAt?'paid '+fd(r.paidAt)+' \u00B7 ':'')+r.views.toLocaleString()+' views \u00B7 starts when delivery begins</span></span></div>';
+          return;
+        }
         var on=!!(f.round&&f.round.from===r.from&&f.round.cid===r.cid);
-        var name=r.acct?' \u00B7 account top-up':(r.cid&&!cid?' \u00B7 '+rfEsc(rptCampName(r.cid)):'');
-        html+=rfOptBtn(on,'rfPickRound('+i+')',rfEsc(r.label)+(r.current?' \u00B7 running now':'')+name, fd(r.from)+' \u2013 '+(r.current?'today':fd(r.to))+' \u00B7 '+r.views.toLocaleString()+' views','');
+        var sub=r.current
+          ? fd(r.from)+' \u2013 today \u00B7 '+r.used.toLocaleString()+' of '+r.views.toLocaleString()+' views'
+          : fd(r.from)+' \u2013 '+fd(r.to)+' \u00B7 '+r.views.toLocaleString()+' views'+(r.paidAt?' \u00B7 paid '+fd(r.paidAt):'');
+        html+=rfOptBtn(on,'rfPickRound('+i+')',rfEsc(r.label)+(r.current?' \u00B7 running now':''),sub,'');
       });
     }
   }
   if(k==='date'){
-    ttl='\uD83D\uDCC5 Date';
+    ttl=AE_ICONS.date+' Date';
     html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">'
       +rfSmallChip('All time',(f.preset||'all')==='all'&&!f.round,'rfSetPreset(\'all\')')
       +rfSmallChip('Today',f.preset==='today','rfSetPreset(\'today\')')
-      +rfSmallChip('Last 7 days',f.preset==='7d','rfSetPreset(\'7d\')')
+      +rfSmallChip('Yesterday',f.preset==='yday','rfSetPreset(\'yday\')')
+      +rfSmallChip('Last 14 days',f.preset==='14d','rfSetPreset(\'14d\')')
       +rfSmallChip('Last 30 days',f.preset==='30d','rfSetPreset(\'30d\')')
+      +rfSmallChip('Last month',f.preset==='lastmonth','rfSetPreset(\'lastmonth\')')
+      +rfSmallChip('This year',f.preset==='thisyear','rfSetPreset(\'thisyear\')')
+      +rfSmallChip('Last year',f.preset==='lastyear','rfSetPreset(\'lastyear\')')
       +rfSmallChip('Custom',f.preset==='custom','rfSetPreset(\'custom\')')
       +'</div>';
     if(f.preset==='custom') html+=rfCalHTML();
   }
   if(k==='loc'||k==='svc'){
     var field=k==='loc'?'location':'service', key=k==='loc'?'locations':'services';
-    ttl=k==='loc'?'\uD83D\uDCCD Location':'\uD83D\uDC88 Service';
+    ttl=k==='loc'?AE_ICONS.loc+' Location':AE_ICONS.srv+' Service';
     var opts2=rfDistinct(field);
     if(!opts2.length) html+='<div style="font-size:12px;color:var(--muted)">Nothing recorded on these leads yet.</div>';
     html+='<div style="display:flex;flex-wrap:wrap;gap:8px">';
@@ -12519,7 +12762,7 @@ function rfToggleCamp(cid){
 function rfRoundReset(){ var f=window._rptFilters; f.round=null; if(f.preset==='round'){ f.preset='all'; f.from=''; f.to=''; } }
 function rfRoundOff(){ rfRoundReset(); closeSheet('rptFilterSh'); render(); }
 function rfPickRound(i){
-  var r=(window._rfRounds.list||[])[i]; if(!r) return;
+  var r=(window._rfRounds.list||[])[i]; if(!r||r.status==='queued') return;
   var f=window._rptFilters;
   f.round={label:r.label,cid:r.cid,from:r.from};
   f.from=r.from; f.to=r.current?rptYmd(new Date()):r.to; f.preset='round';
@@ -12535,12 +12778,17 @@ function rfSetPreset(k){
     window._rfCal={ m:base.slice(0,7), a:'', b:'' };
     renderRptFilter(); return;
   }
-  var now=new Date(), fromD=new Date();
+  var now=new Date(), fromD=new Date(), toD=new Date();
   if(k==='all'){ f.from=''; f.to=''; }
   else{
+    if(k==='yday'){ fromD.setDate(fromD.getDate()-1); toD.setDate(toD.getDate()-1); }
     if(k==='7d')  fromD.setDate(fromD.getDate()-6);
+    if(k==='14d') fromD.setDate(fromD.getDate()-13);
     if(k==='30d') fromD.setDate(fromD.getDate()-29);
-    f.from=rptYmd(fromD); f.to=rptYmd(now);
+    if(k==='lastmonth'){ fromD=new Date(now.getFullYear(),now.getMonth()-1,1); toD=new Date(now.getFullYear(),now.getMonth(),0); }
+    if(k==='thisyear'){ fromD=new Date(now.getFullYear(),0,1); }
+    if(k==='lastyear'){ fromD=new Date(now.getFullYear()-1,0,1); toD=new Date(now.getFullYear()-1,11,31); }
+    f.from=rptYmd(fromD); f.to=rptYmd(toD);
   }
   closeSheet('rptFilterSh'); render();
 }
@@ -12685,15 +12933,15 @@ function clientReportsHTML(){
 
   // ── Revenue cards (2-up) ──
   h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px">';
-  h += '<div style="background:linear-gradient(135deg,#d1fae5,#a7f3d0);border-radius:14px;padding:16px">'
-    +    '<div style="font-size:10px;font-weight:500;color:#065f46;letter-spacing:.06em;text-transform:uppercase">Total Revenue</div>'
-    +    '<div style="font-size:22px;font-weight:600;color:#065f46;margin-top:4px;letter-spacing:-.02em">'+fmtCad(totalRevenue)+'</div>'
-    +    '<div style="font-size:11px;color:#047857;margin-top:2px">'+dealsWithValue.length+' deal'+(dealsWithValue.length===1?'':'s')+' with value</div>'
+  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:16px">'
+    +    '<div style="font-size:10px;font-weight:500;color:var(--sub);letter-spacing:.06em;text-transform:uppercase">Total Revenue</div>'
+    +    '<div style="font-size:22px;font-weight:700;margin-top:4px;letter-spacing:-.02em;background:linear-gradient(90deg,#4000f3,#e65afc);-webkit-background-clip:text;background-clip:text;color:transparent">'+fmtCad(totalRevenue)+'</div>'
+    +    '<div style="font-size:11px;color:var(--sub);margin-top:2px">'+dealsWithValue.length+' deal'+(dealsWithValue.length===1?'':'s')+' with value</div>'
     +  '</div>';
-  h += '<div style="background:linear-gradient(135deg,#dbeafe,#bfdbfe);border-radius:14px;padding:16px">'
-    +    '<div style="font-size:10px;font-weight:500;color:#1e3a8a;letter-spacing:.06em;text-transform:uppercase">Avg Deal Size</div>'
-    +    '<div style="font-size:22px;font-weight:600;color:#1e3a8a;margin-top:4px;letter-spacing:-.02em">'+fmtCad(avgDealSize)+'</div>'
-    +    '<div style="font-size:11px;color:#1e40af;margin-top:2px">revenue ÷ deals closed</div>'
+  h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:16px">'
+    +    '<div style="font-size:10px;font-weight:500;color:var(--sub);letter-spacing:.06em;text-transform:uppercase">Avg Deal Size</div>'
+    +    '<div style="font-size:22px;font-weight:600;color:var(--text);margin-top:4px;letter-spacing:-.02em">'+fmtCad(avgDealSize)+'</div>'
+    +    '<div style="font-size:11px;color:var(--sub);margin-top:2px">revenue ÷ deals closed</div>'
     +  '</div>';
   h += '</div>';
 
@@ -12704,16 +12952,18 @@ function clientReportsHTML(){
   ls.forEach(function(l){ var b=_rptSrcBucket(l.src); _srcCnt[b]=(_srcCnt[b]||0)+1; });
   var _srcArr=Object.keys(_srcCnt).map(function(k){return [k,_srcCnt[k]];}).sort(function(a,b){return b[1]-a[1];});
   if(tot && _srcArr.length){
-    var _PAL=['#16a34a','#2563eb','#f59e0b','#8b5cf6','#0ea5e9','#ef4444','#0d9488','#64748b'];
-    var _segs='', _off=25, _legend='';
+    // import-10: brand gradient segments (purple to pink), one gradient per slice.
+    var _GP=[['#4000f3','#7a2df6'],['#7a2df6','#b43ef9'],['#b43ef9','#e65afc'],['#e65afc','#f3a0fd'],['#f3a0fd','#f8ccfe'],['#c9c2dd','#e4defa']];
+    var _segs='', _off=25, _legend='', _defs='';
     _srcArr.forEach(function(sv,i){
-      var p=sv[1]/tot*100, col=_PAL[i%_PAL.length];
+      var p=sv[1]/tot*100, gp=_GP[i%_GP.length];
       var o=((_off%100)+100)%100;
-      _segs+='<circle r="15.915" cx="21" cy="21" fill="none" stroke="'+col+'" stroke-width="6.5" stroke-dasharray="'+p.toFixed(2)+' '+(100-p).toFixed(2)+'" stroke-dashoffset="'+o.toFixed(2)+'"></circle>';
+      _defs+='<linearGradient id="rptgd'+i+'" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="'+gp[0]+'"/><stop offset="100%" stop-color="'+gp[1]+'"/></linearGradient>';
+      _segs+='<circle r="15.915" cx="21" cy="21" fill="none" stroke="url(#rptgd'+i+')" stroke-width="6.5" stroke-dasharray="'+p.toFixed(2)+' '+(100-p).toFixed(2)+'" stroke-dashoffset="'+o.toFixed(2)+'"></circle>';
       _off-=p;
       _legend+='<div style="display:flex;align-items:center;gap:8px;padding:4px 0">'
-        +'<span style="width:10px;height:10px;border-radius:3px;background:'+col+';flex-shrink:0"></span>'
-        +'<span style="flex:1;min-width:0;font-size:12.5px;font-weight:600;color:var(--text)">'+sv[0]+'</span>'  /* bucket names are a fixed list, never user text */
+        +'<span style="width:10px;height:10px;border-radius:3px;background:linear-gradient(135deg,'+gp[0]+','+gp[1]+');flex-shrink:0"></span>'
+        +'<span style="flex:1;min-width:0;font-size:12.5px;font-weight:500;color:var(--text)">'+sv[0]+'</span>'  /* bucket names are a fixed list, never user text */
         +'<span style="font-size:12.5px;font-weight:600;color:var(--text)">'+sv[1]+'</span>'
         +'<span style="font-size:11px;color:var(--sub);width:38px;text-align:right">'+Math.round(p)+'%</span>'
         +'</div>';
@@ -12722,7 +12972,7 @@ function clientReportsHTML(){
       +'<div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:12px">\uD83E\uDDED Where your leads come from</div>'
       +'<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">'
       +'<div style="position:relative;width:118px;height:118px;flex-shrink:0;margin:0 auto">'
-      +'<svg viewBox="0 0 42 42" style="width:118px;height:118px">'+_segs+'</svg>'
+      +'<svg viewBox="0 0 42 42" style="width:118px;height:118px"><defs>'+_defs+'</defs>'+_segs+'</svg>'
       +'<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">'
       +'<span style="font-size:20px;font-weight:600;color:var(--text);line-height:1.1">'+tot+'</span>'
       +'<span style="font-size:10px;color:var(--sub)">leads</span></div></div>'
