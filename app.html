@@ -3705,9 +3705,13 @@ body.impersonating .ls-topbar{padding-top:8px}
         <span><span style="display:block;font-size:14px;font-weight:600;color:var(--text)">&#x1F4E7; Bulk Email</span><span style="display:block;font-size:12px;color:var(--sub);margin-top:1px">Allow bulk email campaigns from this account</span></span>
         <input type="checkbox" id="bsetEmail" checked style="width:20px;height:20px;accent-color:var(--green)">
       </label>
-      <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 15px;border:1.5px solid var(--border);border-radius:13px;margin-bottom:14px;cursor:pointer">
+      <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 15px;border:1.5px solid var(--border);border-radius:13px;margin-bottom:9px;cursor:pointer">
         <span><span style="display:block;font-size:14px;font-weight:600;color:var(--text)">&#x26A1; Conversion Engine</span><span style="display:block;font-size:12px;color:var(--sub);margin-top:1px">Allow automated follow-up plans from this account</span></span>
         <input type="checkbox" id="bsetEngine" style="width:20px;height:20px;accent-color:var(--green)">
+      </label>
+      <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 15px;border:1.5px solid var(--border);border-radius:13px;margin-bottom:14px;cursor:pointer">
+        <span><span style="display:block;font-size:14px;font-weight:600;color:var(--text)">&#x1F4DE; Bulk AI Calling</span><span style="display:block;font-size:12px;color:var(--sub);margin-top:1px">AI calls a selected list, one at a time &mdash; a signed agreement is required the first time</span></span>
+        <input type="checkbox" id="bsetCalls" style="width:20px;height:20px;accent-color:var(--green)">
       </label>
       <div style="font-size:11.5px;color:var(--sub);line-height:1.55;margin-bottom:16px">&#x1F319; Bulk texts only go out between <b>8&nbsp;AM and 9&nbsp;PM</b> in each lead&#39;s own timezone &mdash; anything due outside that waits for the morning. The 200-per-day limit always applies.</div>
       <button class="btn btn-primary" onclick="saveBulkSettings()" style="width:100%;justify-content:center">Save settings</button>
@@ -4696,7 +4700,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-08 import-4';
+var APP_VERSION = 'v2026-10-08 import-6';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -8094,11 +8098,13 @@ function leadsHTML(){
   var _showBSms = window._isAdviuzStaff || (_bp && _bp.sms_enabled===true);
   var _showBEm  = window._isAdviuzStaff || (_bp && _bp.email_enabled===true);
   var _showBCE = window._isAdviuzStaff || (_bp && _bp.engine_enabled===true);
+  var _showBCall = window._isAdviuzStaff || (_bp && _bp.calls_enabled===true);
   var _bTileCss = 'flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px;border-radius:12px;border:1.5px solid var(--border);background:var(--white);color:var(--text);font-size:13px;font-weight:500;cursor:pointer;font-family:var(--f)';
-  var bulkTiles = (window._isPartnerMode || anySel || (!_showBSms && !_showBEm && !_showBCE)) ? '' :
-    '<div style="display:flex;gap:8px;padding:10px 16px 2px">'
+  var bulkTiles = (window._isPartnerMode || anySel || (!_showBSms && !_showBEm && !_showBCE && !_showBCall)) ? '' :
+    '<div style="display:flex;gap:8px;padding:10px 16px 2px;flex-wrap:wrap">'
     + (_showBSms ? '<button onclick="openBulkWiz(\'sms\')" style="'+_bTileCss+'">\uD83D\uDCAC Bulk SMS</button>' : '')
     + (_showBEm ? '<button onclick="openBulkWiz(\'email\')" style="'+_bTileCss+'">\uD83D\uDCE7 Bulk Email</button>' : '')
+    + (_showBCall ? '<button onclick="openBulkCallsWiz()" style="'+_bTileCss+';font-size:12.5px">\uD83D\uDCDE AI Calls</button>' : '')
     + (_showBCE ? '<button onclick="openConvEngine()" style="'+_bTileCss+';font-size:12.5px">\u26A1 Conversion Engine</button>' : '')
     + '</div>';
   // ops-1: one-tap stage chips. Counts respect the partner scope (and search)
@@ -9062,16 +9068,10 @@ async function loadBulkPrefs(force){
 async function openBulkSettings(){
   var pf=await loadBulkPrefs(true)||{};
   var t=function(id,on){ var el=document.getElementById(id); if(el) el.checked=(on===true); };
-  t('bsetSms', pf.sms_enabled); t('bsetEmail', pf.email_enabled); t('bsetEngine', pf.engine_enabled);
+  t('bsetSms', pf.sms_enabled); t('bsetEmail', pf.email_enabled); t('bsetEngine', pf.engine_enabled); t('bsetCalls', pf.calls_enabled);
   openSheet('bulkSetSh');
 }
-async function saveBulkSettings(){
-  if(!window._clientId){ showToast('Only client accounts have these settings'); return; }
-  var pf={
-    sms_enabled: !!(document.getElementById('bsetSms')||{}).checked,
-    email_enabled: !!(document.getElementById('bsetEmail')||{}).checked,
-    engine_enabled: !!(document.getElementById('bsetEngine')||{}).checked
-  };
+async function _persistBulkPrefs(pf){
   try{
     var r=await sbFetch('/rest/v1/client_prefs',{ method:'POST',
       headers:{ Prefer:'return=representation,resolution=merge-duplicates' },
@@ -9080,7 +9080,38 @@ async function saveBulkSettings(){
     window._bulkPrefs=pf;
     showToast('Bulk settings saved');
     closeSheet('bulkSetSh');
+    if(curTab==='leads'){ var c=document.getElementById('content'); if(c) c.innerHTML=leadsHTML(); }
   }catch(e){ showToast('Could not save \u2014 try again'); }
+}
+async function saveBulkSettings(){
+  if(!window._clientId){ showToast('Only client accounts have these settings'); return; }
+  var pf={
+    sms_enabled: !!(document.getElementById('bsetSms')||{}).checked,
+    email_enabled: !!(document.getElementById('bsetEmail')||{}).checked,
+    engine_enabled: !!(document.getElementById('bsetEngine')||{}).checked,
+    calls_enabled: !!(document.getElementById('bsetCalls')||{}).checked
+  };
+  // import-6: turning Bulk AI Calling ON needs the signed agreement first.
+  var wasOn=!!((window._bulkPrefs||{}).calls_enabled);
+  if(pf.calls_enabled && !wasOn && !window._isAdviuzStaff){
+    try{
+      var r0=await sbFetch('/functions/v1/bulk-calls?action=agreement-status',{method:'POST',body:'{}'});
+      var j0=await r0.json().catch(function(){return{};});
+      if(!(j0&&j0.signed)){
+        if(j0&&j0.terms){
+          window._bcaOnDone=function(ok){
+            window._bcaOnDone=null;
+            if(ok){ _persistBulkPrefs(pf); }
+            else { var cb=document.getElementById('bsetCalls'); if(cb)cb.checked=false; showToast('Bulk AI Calling stays off until the agreement is signed'); }
+          };
+          bcaOpenSheet(j0);
+          return;
+        }
+        showToast((j0&&j0.error)||'Could not check the agreement \u2014 try again'); return;
+      }
+    }catch(e){ showToast('Could not check the agreement \u2014 try again'); return; }
+  }
+  _persistBulkPrefs(pf);
 }
 
 // ═══ LEAD ADDING — shared source list + team permission (client_prefs.lead_add) ═══
@@ -25489,12 +25520,75 @@ async function helpAiSend(){
 // ═══════════════════════════════════════
 var _bkc = null;
 function openBulkCallsWiz(){
-  // Staff-only rollout (Ajax 2026-09-27): clients keep the old Launch AI
-  // Campaign flow until the client rollout is approved. Backend enforces too.
-  if (!window._isAdviuzStaff) { try { openBulkSheet('ai'); } catch(_e){} return; }
+  // import-5 (Ajax 2026-10-08): Bulk AI Calling is a gated feature. Staff pass
+  // straight through; a client account must SIGN the Bulk AI Calling Agreement
+  // once (typed name = e-signature, confirmation copy emailed) before the
+  // wizard opens. The server enforces the same gate, so an old app build
+  // cannot slip past it.
+  if (!window._isAdviuzStaff) { bcaGate(); return; }
+  _bkcOpenWizard();
+}
+function _bkcOpenWizard(){
   _bkc = { step:1, camps:null, campaign_id:'', service:'', location:'', stages:[], temps:[], notDays:0, cooldown:3, gap:3, sunday:false, purpose:'book', note:'', preview:null, sel:{}, poll:null, busy:false };
   openSheet('bkcSh');
   bkcLoadCamps();
+}
+async function bcaGate(){
+  if(window._isPartnerMode===true || window._activeRole==='partner'){ showToast('Bulk AI Calling is not available for partner accounts'); return; }
+  // import-6: the feature must first be switched ON in Bulk Actions settings
+  // (same rule as Bulk SMS / Email / Conversion Engine tiles).
+  try{
+    var pf0=await loadBulkPrefs(); pf0=pf0||{};
+    if(pf0.calls_enabled!==true){ showToast('Turn on Bulk AI Calling in the Bulk Actions settings first'); return; }
+  }catch(_e){}
+  showToast('Checking Bulk AI Calling access…');
+  try{
+    var r=await sbFetch('/functions/v1/bulk-calls?action=agreement-status',{method:'POST',body:'{}'});
+    var j=await r.json().catch(function(){return{};});
+    if(j&&j.signed){ _bkcOpenWizard(); return; }
+    if(j&&j.terms){ bcaOpenSheet(j); return; }
+    showToast((j&&j.error)||'Could not check access — try again');
+  }catch(e){ showToast('Could not check access — try again'); }
+}
+function bcaOpenSheet(info){
+  if(document.getElementById('bcaOv')) return;
+  var terms=String((info&&info.terms)||'');
+  var biz=String((info&&info.business)||'your business');
+  var ov=document.createElement('div');
+  ov.id='bcaOv';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:flex-end';
+  ov.onclick=function(e){ if(e.target===ov){ ov.remove(); if(window._bcaOnDone){ var cb=window._bcaOnDone; window._bcaOnDone=null; cb(false); } } };
+  ov.innerHTML='<div style="background:var(--white);border-radius:18px 18px 0 0;width:100%;max-height:92vh;display:flex;flex-direction:column">'
+    +'<div style="padding:10px 0 0;text-align:center"><div style="width:36px;height:4px;border-radius:2px;background:var(--border);margin:0 auto"></div></div>'
+    +'<div style="padding:14px 18px 8px"><div style="font-size:17px;font-weight:700;color:var(--text)">Bulk AI Calling Agreement</div>'
+    +'<div style="font-size:12px;color:var(--sub);margin-top:3px;line-height:1.5">One-time sign-off for '+sanitize(biz)+'. A signed copy is emailed to you for your records.</div></div>'
+    +'<div style="margin:6px 18px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px;overflow-y:auto;flex:1;min-height:120px;font-size:12px;color:var(--text);line-height:1.6;white-space:pre-wrap">'+sanitize(terms)+'</div>'
+    +'<div style="padding:10px 18px 0">'
+    +'<label style="display:flex;align-items:flex-start;gap:9px;font-size:12.5px;color:var(--text);line-height:1.5;cursor:pointer;margin-bottom:10px"><input type="checkbox" id="bcaChk" style="margin-top:2px;width:17px;height:17px;accent-color:#4000f3">I have read and agree to the Bulk AI Calling Agreement on behalf of my business.</label>'
+    +'<input id="bcaName" class="fipt" placeholder="Type your full name to sign" style="width:100%;box-sizing:border-box;padding:12px;border:1.5px solid var(--border);border-radius:10px;font-family:var(--f);font-size:14px;margin-bottom:10px">'
+    +'</div>'
+    +'<div style="display:flex;gap:10px;padding:4px 18px calc(16px + env(safe-area-inset-bottom))">'
+    +'<button onclick="document.getElementById(\'bcaOv\').remove();if(window._bcaOnDone){var _c=window._bcaOnDone;window._bcaOnDone=null;_c(false);}" style="flex:1;padding:13px;border-radius:12px;background:var(--white);border:1.5px solid #cfd8e3;font-family:var(--f);font-size:14px;font-weight:700;color:var(--text);cursor:pointer">Not now</button>'
+    +'<button id="bcaBtn" onclick="bcaSign(this)" style="flex:1.6;padding:13px;border-radius:12px;background:linear-gradient(90deg,#4000f3,#e65afc);border:none;font-family:var(--f);font-size:14px;font-weight:700;color:#fff;cursor:pointer">Agree &amp; Sign</button>'
+    +'</div></div>';
+  document.body.appendChild(ov);
+}
+async function bcaSign(btn){
+  var chk=document.getElementById('bcaChk');
+  var nm=(document.getElementById('bcaName')||{}).value||'';
+  if(!chk||!chk.checked){ showToast('Please tick the agreement box first'); return; }
+  if(String(nm).trim().length<3){ showToast('Type your full name to sign'); return; }
+  if(btn){ btn.disabled=true; btn.textContent='Signing…'; }
+  try{
+    var r=await sbFetch('/functions/v1/bulk-calls?action=agree',{method:'POST',body:JSON.stringify({signed_name:String(nm).trim()})});
+    var j=await r.json().catch(function(){return{};});
+    if(j&&j.signed){
+      var ov=document.getElementById('bcaOv'); if(ov)ov.remove();
+      showToast(j.emailed?'✅ Signed — a copy was emailed to you':'✅ Signed');
+      if(window._bcaOnDone){ var _c2=window._bcaOnDone; window._bcaOnDone=null; _c2(true); }
+      else _bkcOpenWizard();
+    } else { showToast((j&&j.error)||'Could not sign — try again'); if(btn){ btn.disabled=false; btn.textContent='Agree & Sign'; } }
+  }catch(e){ showToast('Could not sign — try again'); if(btn){ btn.disabled=false; btn.textContent='Agree & Sign'; } }
 }
 function bkcClose(){ if(_bkc && _bkc.poll){ clearInterval(_bkc.poll); _bkc.poll=null; } closeSheet('bkcSh'); }
 async function bkcLoadCamps(){
