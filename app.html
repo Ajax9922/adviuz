@@ -4696,7 +4696,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-07 import-3';
+var APP_VERSION = 'v2026-10-08 import-4';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -11232,6 +11232,41 @@ function markDone(id){
 // same field patch (incl. clearing meeting_outcome / visit_locked_at /
 // meeting_prompt_sent_at — the hub hides the appointment card otherwise),
 // same confirmation text, same timeline note. One booking path, no drift.
+// ── import-4: website time-change requests (demo-reschedule fn) ──
+async function wrsLoad(dbId){
+  window._wrsByLead = window._wrsByLead || {};
+  if(window._wrsByLead[String(dbId)] !== undefined) return;
+  window._wrsByLead[String(dbId)] = null; // in flight — stops re-fetch loops
+  try{
+    var r = await sbFetch('/functions/v1/demo-reschedule', { method:'POST', body: JSON.stringify({ action:'list', lead_id: dbId }) });
+    var j = await r.json().catch(function(){ return null; });
+    var item = (j && j.ok && j.items && j.items[0]) ? j.items[0] : null;
+    window._wrsByLead[String(dbId)] = item;
+    if(item){ try{ var sc=document.getElementById('leadScreen'); if(sc && sc.classList.contains('open') && curLid!=null) renderLeadScreen(curLid); }catch(_e){} }
+  }catch(e){ window._wrsByLead[String(dbId)] = null; }
+}
+async function wrsAct(id, action, btn){
+  var msgs={
+    approve_move:'Move the demo to the new time?\n\nThe old calendar event is cancelled (the lead gets a cancellation) and a fresh invite with a new Meet link is emailed.',
+    keep_both:'Keep BOTH demos?\n\nThe new time is booked as an additional meeting with its own invite. The original stays.',
+    keep_original:'Keep the original time?\n\nThe change request is closed and nothing moves. You may want to text the lead so they know.'
+  };
+  if(!confirm(msgs[action]||'Continue?')) return;
+  if(btn){ btn.disabled=true; btn.textContent='Working…'; }
+  try{
+    var r = await sbFetch('/functions/v1/demo-reschedule', { method:'POST', body: JSON.stringify({ action: action, id: id }) });
+    var j = await r.json().catch(function(){ return {}; });
+    if(j && j.ok){
+      showToast(action==='approve_move' ? '✅ Demo moved — new invite sent' : (action==='keep_both' ? '✅ Both demos booked' : 'Kept the original time'));
+      window._wrsByLead = {};
+      try{ await refreshLeads(); }catch(_e){}
+      try{ var sc=document.getElementById('leadScreen'); if(sc && sc.classList.contains('open') && curLid!=null) renderLeadScreen(curLid); }catch(_e){}
+    } else {
+      showToast('Could not do that — '+((j&&j.error)||'try again'));
+      if(btn){ btn.disabled=false; }
+    }
+  }catch(e){ showToast('Could not do that — try again'); if(btn){ btn.disabled=false; } }
+}
 function fuTeamApprove(taskId, btn){
   var t=tasks.find(function(x){return x.id===taskId;}); if(!t) return;
   var lead=leads.find(function(l){return l.id===t.lid;});
@@ -16425,6 +16460,31 @@ function renderLeadScreen(id) {
       +     _tmBtn('\u2705 Approve','fuTeamApprove('+_tmTask.id+',this)','var(--green)')
       +     _tmBtn('\uD83D\uDD52 Reschedule','fuTeamPick('+_tmTask.id+')','var(--blue,#2563eb)')
       +     _tmBtn('\u2715 Cancel','markDone('+_tmTask.id+')','var(--red,#dc2626)')
+      +   '</div>'
+      + '</div></div>';
+  }
+
+  // \uD83D\uDCC5 import-4: website TIME-CHANGE request card (Ajax option B) — a lead
+  //    with an upcoming demo asked for a different time on adviuz.com.
+  //    Three choices: Move / Keep both / Keep original (demo-reschedule fn).
+  var _wrs=(window._wrsByLead||{})[String(l.dbId||'')];
+  if(_wrs===undefined && l.dbId && !(window._isPartnerMode===true||window._activeRole==='partner')){
+    try{ wrsLoad(l.dbId); }catch(_e){}
+  } else if(_wrs && _wrs.id){
+    var _wP=_wrs.payload||{};
+    var _wTz=_wP.timezone||l.timezone||'America/Regina';
+    var _wNew=''; try{ _wNew=fmtApptLocal(_wP.starts_at,_wTz); }catch(_e){}
+    var _wOld=''; try{ if(_wP.current_appointment) _wOld=fmtApptLocal(_wP.current_appointment,_wTz); }catch(_e){}
+    var _wBtn=function(lbl,fn,color){ return '<button onclick="'+fn+'" style="flex:1;padding:9px 4px;border-radius:11px;border:1.5px solid '+color+';background:var(--white);color:'+color+';font-size:12px;font-weight:500;cursor:pointer;font-family:var(--f);white-space:nowrap">'+lbl+'</button>'; };
+    h += '<div style="background:var(--white);padding:12px 16px 2px">'
+      + '<div style="background:#eff6ff;border:1.5px solid var(--blue,#2563eb);border-radius:14px;padding:13px 15px">'
+      +   '<div style="font-size:11px;font-weight:600;color:#1d4ed8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">\uD83D\uDCC5 Wants to change the demo time</div>'
+      +   (_wNew?'<div style="font-size:15px;font-weight:500;color:var(--text);line-height:1.4">New request: '+_wNew+' <span style="font-size:12px;color:var(--sub);font-weight:600">('+tzShortLabel(_wTz)+')</span></div>':'')
+      +   (_wOld?'<div style="font-size:12px;color:var(--sub);margin-top:4px">Currently booked: '+_wOld+'</div>':'')
+      +   '<div style="display:flex;gap:7px;margin-top:11px">'
+      +     _wBtn('\u2705 Move','wrsAct(\''+_wrs.id+'\',\'approve_move\',this)','var(--green)')
+      +     _wBtn('\uD83D\uDDD3 Keep both','wrsAct(\''+_wrs.id+'\',\'keep_both\',this)','var(--blue,#2563eb)')
+      +     _wBtn('\u2715 Keep original','wrsAct(\''+_wrs.id+'\',\'keep_original\',this)','var(--red,#dc2626)')
       +   '</div>'
       + '</div></div>';
   }
