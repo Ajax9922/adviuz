@@ -4700,7 +4700,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-08 import-8';
+var APP_VERSION = 'v2026-10-08 import-9';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -12241,9 +12241,45 @@ function adminBackToCampaigns(){
 // Deal Disqualified per the user's spec.
 // ═══════════════════════════════════════════════════════════════════
 // ── Reports filters (campaign / location / service / date) ─────────────
-window._rptFilters = window._rptFilters || { campaigns:[], locations:[], services:[], preset:'all', from:'', to:'' };
+window._rptFilters = window._rptFilters || { campaigns:[], locations:[], services:[], preset:'all', from:'', to:'', round:null };
 
 function rptYmd(dt){ return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); }
+
+// ── rpt-4 (import-9): tidy buckets for Location / Service chips ──
+// Raw lead fields arrive in many spellings ("toronto", "Toronto, ON",
+// "Ontario - Toronto"); the report filters group them into one chip.
+function rfLocBucket(s){
+  s=String(s||'').toLowerCase().trim();
+  if(!s) return 'Not recorded';
+  if(s.indexOf('toronto')>-1) return 'Toronto';
+  if(s.indexOf('thornhill')>-1||s.indexOf('markham')>-1) return 'Thornhill / Markham';
+  if(s.indexOf('scarborough')>-1) return 'Scarborough';
+  if(s.indexOf('mississauga')>-1) return 'Mississauga';
+  if(s.indexOf('vaughan')>-1) return 'Vaughan';
+  if(s.indexOf('winnipeg')>-1) return 'Winnipeg';
+  if(s.indexOf('north york')>-1) return 'North York';
+  if(s.indexOf('online')>-1) return 'Online consult';
+  if(s.length>28) return 'Other';
+  return s.replace(/_/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase();});
+}
+function rfSrvBucket(s){
+  s=String(s||'').toLowerCase().trim().replace(/_/g,' ');
+  if(!s) return 'Not recorded';
+  if(s.indexOf('diffuse')>-1) return 'Diffuse / overall thinning';
+  if(s.indexOf('thinning')>-1||s.indexOf('shedding')>-1) return 'Thinning / shedding';
+  if(s.indexOf('receding')>-1) return 'Receding hairline';
+  if(s.indexOf('front')>-1&&s.indexOf('hairline')>-1) return 'Front hairline';
+  if(s.indexOf('crown')>-1) return 'Crown';
+  if(s.indexOf('full head')>-1) return 'Full head';
+  if(s.indexOf('part line')>-1||s.indexOf('mid-scalp')>-1) return 'Part line / mid-scalp';
+  if(s.indexOf('tattoo')>-1) return 'Hair Tattoo';
+  if(s.indexOf('bald')>-1||s.indexOf('alopecia')>-1) return 'Bald patches / alopecia';
+  if(s.indexOf('smp')>-1||s.indexOf('micropigmentation')>-1) return 'SMP';
+  if(s.indexOf('scalp')>-1) return 'Scalp condition';
+  if(s.indexOf('consult')>-1) return 'Consultation';
+  if(s.length>28) return 'Other';
+  return s.replace(/\b\w/g,function(c){return c.toUpperCase();});
+}
 
 function rptApplyFilters(arr){
   var f = window._rptFilters || {};
@@ -12254,14 +12290,15 @@ function rptApplyFilters(arr){
       if(f.to   && (!d || d>f.to))   return false;
     }
     if(f.campaigns&&f.campaigns.length){ var cid=String(l.campaign_id||l.campaign||l.campaign_name||''); if(f.campaigns.indexOf(cid)===-1) return false; }
-    if(!advMatch(f.locations, l.location||'')) return false;
-    if(!advMatch(f.services,  l.svc||''))      return false;
+    if(f.locations&&f.locations.length && f.locations.indexOf(rfLocBucket(l.location))===-1) return false;
+    if(f.services&&f.services.length  && f.services.indexOf(rfSrvBucket(l.svc))===-1)       return false;
     return true;
   });
 }
 function rptActiveCount(){
   var f=window._rptFilters||{}; var n=0;
-  if(f.from||f.to) n++;
+  if(f.round) n++;
+  if((f.from||f.to) && !f.round) n++;
   if((f.campaigns||[]).length) n++;
   if((f.locations||[]).length) n++;
   if((f.services||[]).length)  n++;
@@ -12272,111 +12309,298 @@ function rptCampName(cid){
   var c=lists.find(function(x){return String(x.id)===String(cid);});
   return c?(c.name||c.campaign_name||'Campaign'):String(cid);
 }
-// Location / Service lists are scoped to the campaigns picked above, and
-// spelling variants of the same answer are merged into one chip (fields-6).
-function rptDistinct(field, scopeCamps){
-  var camps = scopeCamps || [];
+// Distinct bucket list with counts, scoped to the selected campaigns.
+function rfDistinct(field){
+  var f=window._rptFilters||{}, camps=f.campaigns||[];
   var counts={}, order=[];
   (leads||[]).forEach(function(l){
-    var cid = String(l.campaign_id||l.campaign||l.campaign_name||'');
+    var cid=String(l.campaign_id||l.campaign||l.campaign_name||'');
     if(field!=='campaign' && camps.length && camps.indexOf(cid)===-1) return;
     var v = field==='campaign' ? cid
-          : field==='location' ? (l.location||'')
-          : (l.svc||'');
+          : field==='location' ? rfLocBucket(l.location)
+          : rfSrvBucket(l.svc);
     if(!v) return;
+    if(field!=='campaign' && v==='Not recorded') return;
     if(counts[v]==null){ counts[v]=0; order.push(v); }
     counts[v]++;
   });
-  if(field==='campaign') return order;
-  var byN={}, out=[];
-  order.forEach(function(v){
-    var k=advNorm(v)||v;
-    if(byN[k]==null){ byN[k]=v; out.push(k); }
-    else byN[k]=advPretty(byN[k], v);
-  });
-  return out.map(function(k){ return byN[k]; });
+  order.sort(function(a,b){ return counts[b]-counts[a]; });
+  return order.map(function(v){ return [v, counts[v]]; });
 }
-// When the same answer arrives in two spellings, show the tidier one.
+// Kept for other callers.
 function advPretty(a,b){
   function sc(x){ return (/[A-Z]/.test(x)?2:0) + (/\s/.test(x)?1:0); }
   return sc(b)>sc(a) ? b : a;
 }
 window.advPretty = advPretty;
+
+// ── Campaign No. (flyer top-up windows): "1st campaign", "2nd campaign"… ──
+// One view top-up = one run of the campaign. Window = top-up date until the
+// next top-up (or today for the latest). Loaded from the client's own
+// transactions (RLS lets clients see only their own).
+window._rfRounds = window._rfRounds || { key:'', list:[], loading:false };
+function rfOrd(n){ return n===1?'1st':n===2?'2nd':n===3?'3rd':(n+'th'); }
+function rfRoundScopeCid(){
+  var f=window._rptFilters||{};
+  return (f.campaigns&&f.campaigns.length===1)?String(f.campaigns[0]):'';
+}
+async function rfLoadRounds(force){
+  var cid=rfRoundScopeCid();
+  var clid='';
+  if(cid){
+    var lists=[].concat(((window._adminData&&window._adminData.campaigns)||[]),(window._clientCampaigns||[]));
+    var cp=lists.find(function(x){return String(x.id)===cid;});
+    if(cp&&cp.client_id) clid=String(cp.client_id);
+  }
+  if(!clid && window._clientData && window._clientData.id) clid=String(window._clientData.id);
+  var key=cid+'|'+clid;
+  if(!force && window._rfRounds.key===key) return;
+  if(!cid && !clid){ window._rfRounds={key:key,list:[],loading:false}; return; }
+  window._rfRounds.loading=true; window._rfRounds.key=key;
+  try{
+    var q='/rest/v1/transactions?select=campaign_id,client_id,created_at,views_added,amount_cad&order=created_at.asc&limit=200&views_added=gt.0&';
+    if(cid && clid) q+='or=(campaign_id.eq.'+cid+',and(client_id.eq.'+clid+',campaign_id.is.null))';
+    else if(cid)    q+='campaign_id=eq.'+cid;
+    else            q+='client_id=eq.'+clid;
+    var r=await sbFetch(q);
+    var rows=r.ok?await r.json():[];
+    // group by campaign (null = account-wide top-ups from before per-campaign tracking)
+    var groups={};
+    rows.forEach(function(t){ var g=String(t.campaign_id||''); (groups[g]=groups[g]||[]).push(t); });
+    var out=[];
+    Object.keys(groups).forEach(function(g){
+      groups[g].forEach(function(t,i){
+        var nx=groups[g][i+1];
+        var from=(t.created_at||'').slice(0,10);
+        var to;
+        if(nx){ var d=new Date((nx.created_at||'').slice(0,10)+'T12:00:00'); d.setDate(d.getDate()-1); to=rptYmd(d); }
+        else to=rptYmd(new Date());
+        out.push({ cid:g, label:rfOrd(i+1)+' campaign', current:!nx, from:from, to:to,
+                   views:t.views_added||0, amt:Number(t.amount_cad)||0, acct:!g });
+      });
+    });
+    out.sort(function(a,b){ return a.from<b.from?-1:1; });
+    window._rfRounds.list=out;
+  }catch(e){ window._rfRounds.list=[]; }
+  window._rfRounds.loading=false;
+  if(document.getElementById('rptFilterSh') && document.getElementById('rptFilterSh').classList.contains('open') && window._rfKind==='round') renderRptFilter();
+}
+
+// ── Chip bar shown on top of the Leads report ──
+function rfEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function rfDateLabel(){
+  var f=window._rptFilters||{};
+  if(f.round) return f.round.label;
+  if(f.preset==='custom'&&f.from&&f.to){
+    var m=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var fp=f.from.split('-'),tp=f.to.split('-');
+    return m[+fp[1]-1]+' '+(+fp[2])+' – '+m[+tp[1]-1]+' '+(+tp[2]);
+  }
+  return {all:'All time',today:'Today','7d':'Last 7 days','30d':'Last 30 days',custom:'Custom'}[f.preset||'all']||'All time';
+}
+function rfChip(kind,icon,txt,set){
+  return '<button onclick="openRptFilter(\''+kind+'\')" style="flex-shrink:0;display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:8px 12px;font-size:12px;font-family:var(--f);cursor:pointer;white-space:nowrap;color:var(--text);font-weight:'+(set?'700':'500')+';border:1.5px solid '+(set?'transparent':'var(--border)')+';background:'+(set?'linear-gradient(var(--white),var(--white)) padding-box,linear-gradient(90deg,#4000f3,#e65afc) border-box':'var(--white)')+'">'+icon+' '+rfEsc(txt)+' <span style="color:var(--muted);font-size:9px">\u25BE</span></button>';
+}
+function rfChipBarHTML(){
+  var f=window._rptFilters||{};
+  if(typeof rfLoadRounds==='function') setTimeout(function(){ rfLoadRounds(); },0);
+  var campTxt=!(f.campaigns||[]).length?'All campaigns':(f.campaigns.length===1?rptCampName(f.campaigns[0]):f.campaigns.length+' campaigns');
+  var h='<div style="display:flex;gap:7px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:2px 2px 10px;margin:0 -2px">';
+  h+=rfChip('camp','\uD83D\uDCE3',campTxt,(f.campaigns||[]).length>0);
+  h+=rfChip('round','\uD83D\uDCEC',f.round?f.round.label:'Campaign No.',!!f.round);
+  h+=rfChip('date','\uD83D\uDCC5',f.round?'\u2014':rfDateLabel(),(f.preset||'all')!=='all'&&!f.round);
+  h+=rfChip('loc','\uD83D\uDCCD',(f.locations||[]).length?((f.locations.length===1)?f.locations[0]:f.locations.length+' locations'):'Location',(f.locations||[]).length>0);
+  h+=rfChip('svc','\uD83D\uDC88',(f.services||[]).length?((f.services.length===1)?f.services[0]:f.services.length+' services'):'Service',(f.services||[]).length>0);
+  if(rptActiveCount()>0) h+='<button onclick="rptClearFilters()" style="flex-shrink:0;border-radius:999px;padding:8px 12px;font-size:12px;font-family:var(--f);cursor:pointer;white-space:nowrap;color:var(--sub);font-weight:600;border:1px solid var(--border);background:var(--white)">\u2715 Clear</button>';
+  return h+'</div>';
+}
+
+// ── Per-chip bottom sheet (one sheet, section chosen by the chip) ──
 function ensureRptFilterSheet(){
   if(document.getElementById('rptFilterSh')) return;
   var html='<div class="sheet-ov" id="rptFilterSh" onclick="if(event.target===this)closeSheet(\'rptFilterSh\')" style="z-index:870">'
     +'<div class="sheet" style="max-height:90dvh">'
       +'<div class="sheet-handle"></div>'
-      +'<div class="sheet-head"><div class="sheet-title">&#x1F50E; Filter Reports</div><button class="sheet-x" onclick="closeSheet(\'rptFilterSh\')">&#x2715;</button></div>'
+      +'<div class="sheet-head"><div class="sheet-title" id="rptFilterTitle">Filter</div><button class="sheet-x" onclick="closeSheet(\'rptFilterSh\')">\u2715</button></div>'
       +'<div class="sh-body" id="rptFilterBody" style="padding:14px 16px"></div>'
-      +'<div class="sh-foot"><button class="btn btn-ghost" onclick="rptClearFilters()" style="flex:1">Clear all</button><button class="btn btn-primary" onclick="rptApplyAndClose()" style="flex:2;justify-content:center">Apply</button></div>'
+      +'<div class="sh-foot"><button class="btn btn-ghost" onclick="rptClearFilters()" style="flex:1">Clear all</button><button class="btn btn-primary" onclick="closeSheet(\'rptFilterSh\')" style="flex:2;justify-content:center">Done</button></div>'
     +'</div></div>';
   var w=document.createElement('div'); w.innerHTML=html; document.body.appendChild(w.firstElementChild);
 }
-function openRptFilter(){
+function openRptFilter(kind){
+  window._rfKind=kind||'camp';
   ensureRptFilterSheet();
-  window._rptDraft = JSON.parse(JSON.stringify(window._rptFilters||{campaigns:[],locations:[],services:[],preset:'all',from:'',to:''}));
   renderRptFilter();
   openSheet('rptFilterSh');
+  if(window._rfKind==='round') rfLoadRounds();
+}
+// Repaint the report behind the sheet after every change.
+function rfRepaint(){
+  try{ render(); }catch(e){}
+  renderRptFilter();
+}
+function rfOptBtn(on,act,label,sub,right){
+  return '<button onclick="'+act+'" style="display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;text-align:left;margin:0 0 8px;border-radius:13px;padding:12px 13px;font-family:var(--f);font-size:13.5px;color:var(--text);cursor:pointer;font-weight:'+(on?'700':'500')+';border:1.5px solid '+(on?'transparent':'var(--border)')+';background:'+(on?'linear-gradient(#fff,#fff) padding-box,linear-gradient(90deg,#4000f3,#e65afc) border-box':'#fff')+'">'
+    +'<span>'+label+(sub?'<span style="display:block;font-size:11px;color:var(--sub);font-weight:400;margin-top:1px">'+sub+'</span>':'')+'</span>'
+    +(right?'<span style="font-size:12px;font-weight:600;color:var(--sub);white-space:nowrap">'+right+'</span>':'')+'</button>';
+}
+function rfSmallChip(label,on,act){
+  return '<button onclick="'+act+'" style="padding:8px 13px;border-radius:999px;font-family:var(--f);font-size:12px;cursor:pointer;color:var(--text);font-weight:'+(on?'700':'500')+';border:1.5px solid '+(on?'transparent':'var(--border)')+';background:'+(on?'linear-gradient(#fff,#fff) padding-box,linear-gradient(90deg,#4000f3,#e65afc) border-box':'#fff')+'">'+label+'</button>';
 }
 function renderRptFilter(){
   var box=document.getElementById('rptFilterBody'); if(!box) return;
-  var d=window._rptDraft||(window._rptDraft={campaigns:[],locations:[],services:[],preset:'all',from:'',to:''});
-  function escR(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-  function chip(label,on,onclick){
-    return '<button onclick="'+onclick+'" style="padding:7px 12px;border-radius:9px;border:1.5px solid '+(on?'var(--green)':'var(--border)')+';background:'+(on?'#d9fdd3':'#fff')+';color:var(--text);font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer">'+label+'</button>';
+  var f=window._rptFilters, k=window._rfKind||'camp', html='', ttl='Filter';
+  if(k==='camp'){
+    ttl='\uD83D\uDCE3 Campaign';
+    var opts=rfDistinct('campaign');
+    html+=rfOptBtn(!(f.campaigns||[]).length,'rfCampAll()','All campaigns','', (leads||[]).length+' leads');
+    opts.forEach(function(o){
+      var on=(f.campaigns||[]).indexOf(o[0])!==-1;
+      html+=rfOptBtn(on,'rfToggleCamp(\''+String(o[0]).replace(/'/g,"\\'")+'\')',rfEsc(rptCampName(o[0])),'',o[1]+(o[1]===1?' lead':' leads'));
+    });
+    html+='<div style="font-size:11px;color:var(--muted);padding:4px 2px 0">Tap more than one to combine. Done closes.</div>';
   }
-  var html='';
-  html+='<div style="font-size:12px;font-weight:500;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Date</div>';
-  html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">'
-    +chip('All time',(d.preset||'all')==='all','rptSetPreset(\'all\')')
-    +chip('Today',d.preset==='today','rptSetPreset(\'today\')')
-    +chip('Last 7 days',d.preset==='7d','rptSetPreset(\'7d\')')
-    +chip('Last 30 days',d.preset==='30d','rptSetPreset(\'30d\')')
-    +chip('Custom',d.preset==='custom','rptSetPreset(\'custom\')')
-    +'</div>';
-  if(d.preset==='custom'){
-    html+='<div style="display:flex;gap:8px;margin-bottom:14px">'
-      +'<input type="date" value="'+(d.from||'')+'" onchange="window._rptDraft.from=this.value" style="flex:1;padding:8px;border:1px solid var(--border);border-radius:8px;font-family:var(--f);font-size:13px">'
-      +'<input type="date" value="'+(d.to||'')+'" onchange="window._rptDraft.to=this.value" style="flex:1;padding:8px;border:1px solid var(--border);border-radius:8px;font-family:var(--f);font-size:13px"></div>';
-  } else { html+='<div style="height:4px"></div>'; }
-  function section(title,field,sel){
-    var opts=rptDistinct(field, d.campaigns||[]); if(!opts.length) return '';
-    var s='<div style="font-size:12px;font-weight:500;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin:6px 0 8px">'+title+'</div><div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">';
-    s+=opts.map(function(v){
-      var lbl=field==='campaign'?rptCampName(v):v;
-      var safe=String(v).replace(/'/g,"\\'");
-      return chip(escR(lbl), sel.indexOf(v)!==-1, 'rptToggle(\''+field+'\',\''+safe+'\')');
-    }).join('');
-    return s+'</div>';
+  if(k==='round'){
+    ttl='\uD83D\uDCEC Campaign No.';
+    html+='<div style="font-size:12px;color:var(--sub);margin-bottom:10px;line-height:1.5">Every views top-up starts a new run of the campaign. Pick one and the dates are set for you.</div>';
+    html+=rfOptBtn(!f.round,'rfRoundOff()','All campaigns together','','');
+    var cid=rfRoundScopeCid();
+    if(!cid && !(window._clientData&&window._clientData.id)){
+      html+='<div style="font-size:12px;color:var(--muted);padding:6px 2px">Pick one campaign first (\uD83D\uDCE3 chip) to see its campaign numbers.</div>';
+    } else if(window._rfRounds.loading){
+      html+='<div style="font-size:12px;color:var(--muted);padding:6px 2px">Loading top-up history\u2026</div>';
+    } else if(!window._rfRounds.list.length){
+      html+='<div style="font-size:12px;color:var(--muted);padding:6px 2px">No views top-ups recorded here yet.</div>';
+    } else {
+      var m=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      var fd=function(s){var p=s.split('-');return m[+p[1]-1]+' '+(+p[2]);};
+      window._rfRounds.list.forEach(function(r,i){
+        var on=!!(f.round&&f.round.from===r.from&&f.round.cid===r.cid);
+        var name=r.acct?' \u00B7 account top-up':(r.cid&&!cid?' \u00B7 '+rfEsc(rptCampName(r.cid)):'');
+        html+=rfOptBtn(on,'rfPickRound('+i+')',rfEsc(r.label)+(r.current?' \u00B7 running now':'')+name, fd(r.from)+' \u2013 '+(r.current?'today':fd(r.to))+' \u00B7 '+r.views.toLocaleString()+' views','');
+      });
+    }
   }
-  html+=section('Campaign','campaign',d.campaigns||[]);
-  html+=section('Location','location',d.locations||[]);
-  html+=section('Service','service',d.services||[]);
+  if(k==='date'){
+    ttl='\uD83D\uDCC5 Date';
+    html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">'
+      +rfSmallChip('All time',(f.preset||'all')==='all'&&!f.round,'rfSetPreset(\'all\')')
+      +rfSmallChip('Today',f.preset==='today','rfSetPreset(\'today\')')
+      +rfSmallChip('Last 7 days',f.preset==='7d','rfSetPreset(\'7d\')')
+      +rfSmallChip('Last 30 days',f.preset==='30d','rfSetPreset(\'30d\')')
+      +rfSmallChip('Custom',f.preset==='custom','rfSetPreset(\'custom\')')
+      +'</div>';
+    if(f.preset==='custom') html+=rfCalHTML();
+  }
+  if(k==='loc'||k==='svc'){
+    var field=k==='loc'?'location':'service', key=k==='loc'?'locations':'services';
+    ttl=k==='loc'?'\uD83D\uDCCD Location':'\uD83D\uDC88 Service';
+    var opts2=rfDistinct(field);
+    if(!opts2.length) html+='<div style="font-size:12px;color:var(--muted)">Nothing recorded on these leads yet.</div>';
+    html+='<div style="display:flex;flex-wrap:wrap;gap:8px">';
+    opts2.forEach(function(o){
+      var on=(f[key]||[]).indexOf(o[0])!==-1;
+      html+=rfSmallChip(rfEsc(o[0])+' \u00B7 '+o[1],on,'rfToggleB(\''+key+'\',\''+String(o[0]).replace(/'/g,"\\'")+'\')');
+    });
+    html+='</div><div style="font-size:11px;color:var(--muted);padding:10px 2px 0">Similar spellings are grouped automatically. Tap more than one to combine.</div>';
+  }
+  var t=document.getElementById('rptFilterTitle'); if(t) t.textContent=ttl.replace(/\uD83D[\uDCCB-\uDCFF\uDC88]?\s?/,'').trim()||ttl;
+  if(t) t.innerHTML=ttl;
   box.innerHTML=html;
 }
-function rptSetPreset(k){ window._rptDraft.preset=k; if(k!=='custom'){ window._rptDraft.from=''; window._rptDraft.to=''; } renderRptFilter(); }
-function rptToggle(field,v){
-  var key=field==='campaign'?'campaigns':field==='location'?'locations':'services';
-  var arr=window._rptDraft[key]||(window._rptDraft[key]=[]);
-  var i=arr.indexOf(v); if(i===-1) arr.push(v); else arr.splice(i,1);
+function rfCampAll(){ window._rptFilters.campaigns=[]; if(window._rptFilters.round){rfRoundReset();} window._rfRounds.key=''; rfRepaint(); }
+function rfToggleCamp(cid){
+  var f=window._rptFilters, arr=f.campaigns||(f.campaigns=[]);
+  var i=arr.indexOf(cid); if(i===-1) arr.push(cid); else arr.splice(i,1);
+  if(f.round && f.round.cid && arr.length && arr.indexOf(f.round.cid)===-1) rfRoundReset();
+  window._rfRounds.key='';
+  rfRepaint();
+}
+function rfRoundReset(){ var f=window._rptFilters; f.round=null; if(f.preset==='round'){ f.preset='all'; f.from=''; f.to=''; } }
+function rfRoundOff(){ rfRoundReset(); closeSheet('rptFilterSh'); render(); }
+function rfPickRound(i){
+  var r=(window._rfRounds.list||[])[i]; if(!r) return;
+  var f=window._rptFilters;
+  f.round={label:r.label,cid:r.cid,from:r.from};
+  f.from=r.from; f.to=r.current?rptYmd(new Date()):r.to; f.preset='round';
+  if(r.cid && (f.campaigns||[]).indexOf(r.cid)===-1) f.campaigns=[r.cid];
+  closeSheet('rptFilterSh'); render();
+}
+function rfSetPreset(k){
+  var f=window._rptFilters;
+  rfRoundReset();
+  f.preset=k;
+  if(k==='custom'){
+    var base=f.from||rptYmd(new Date());
+    window._rfCal={ m:base.slice(0,7), a:'', b:'' };
+    renderRptFilter(); return;
+  }
+  var now=new Date(), fromD=new Date();
+  if(k==='all'){ f.from=''; f.to=''; }
+  else{
+    if(k==='7d')  fromD.setDate(fromD.getDate()-6);
+    if(k==='30d') fromD.setDate(fromD.getDate()-29);
+    f.from=rptYmd(fromD); f.to=rptYmd(now);
+  }
+  closeSheet('rptFilterSh'); render();
+}
+// ── One calendar, two taps: first tap = start day, second tap = end day, done. ──
+function rfCalHTML(){
+  var C=window._rfCal||(window._rfCal={m:rptYmd(new Date()).slice(0,7),a:'',b:''});
+  var y=+C.m.slice(0,4), mo=+C.m.slice(5,7);
+  var mN=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var first=new Date(y,mo-1,1), days=new Date(y,mo,0).getDate();
+  var lead0=(first.getDay()+6)%7; // Monday start
+  var h='<div style="border:1px solid var(--border);border-radius:13px;padding:12px">';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
+    +'<button onclick="rfCalNav(-1)" style="border:1px solid var(--border);background:#fff;border-radius:9px;padding:5px 11px;font-size:14px;cursor:pointer;font-family:var(--f)">\u2039</button>'
+    +'<div style="font-size:13.5px;font-weight:700;color:var(--text)">'+mN[mo-1]+' '+y+'</div>'
+    +'<button onclick="rfCalNav(1)" style="border:1px solid var(--border);background:#fff;border-radius:9px;padding:5px 11px;font-size:14px;cursor:pointer;font-family:var(--f)">\u203A</button></div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:2px">';
+  ['M','T','W','T','F','S','S'].forEach(function(w){ h+='<div style="text-align:center;font-size:10px;color:var(--muted);padding:3px 0">'+w+'</div>'; });
+  h+='</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px">';
+  for(var i=0;i<lead0;i++) h+='<div></div>';
+  for(var d=1;d<=days;d++){
+    var ymd=y+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    var isA=C.a===ymd, isB=C.b===ymd;
+    var inR=C.a&&C.b&&ymd>C.a&&ymd<C.b;
+    var st='text-align:center;padding:8px 0;border-radius:9px;font-size:12.5px;cursor:pointer;font-family:var(--f);border:none;color:var(--text);background:'
+      +(isA||isB?'linear-gradient(90deg,#4000f3,#e65afc);color:#fff;font-weight:700':(inR?'#f0e9ff':'#fff'))+';';
+    h+='<button onclick="rfCalPick(\''+ymd+'\')" style="'+st+'">'+d+'</button>';
+  }
+  h+='</div>';
+  var m2=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var pf=function(s){var p=s.split('-');return m2[+p[1]-1]+' '+(+p[2]);};
+  h+='<div style="font-size:12px;color:var(--sub);margin-top:9px;text-align:center">'
+    +(C.a?(C.b?('\u2705 '+pf(C.a)+' \u2192 '+pf(C.b)):('From <b>'+pf(C.a)+'</b> \u2014 now tap the end day')):'Tap the start day, then the end day \u2014 that\u2019s it.')
+    +'</div>';
+  return h+'</div>';
+}
+function rfCalNav(dir){
+  var C=window._rfCal; var y=+C.m.slice(0,4), mo=+C.m.slice(5,7)+dir;
+  if(mo<1){mo=12;y--;} if(mo>12){mo=1;y++;}
+  C.m=y+'-'+String(mo).padStart(2,'0');
   renderRptFilter();
 }
+function rfCalPick(ymd){
+  var C=window._rfCal, f=window._rptFilters;
+  if(!C.a || (C.a&&C.b)){ C.a=ymd; C.b=''; renderRptFilter(); return; }
+  C.b=ymd;
+  if(C.b<C.a){ var t=C.a; C.a=C.b; C.b=t; }
+  rfRoundReset();
+  f.preset='custom'; f.from=C.a; f.to=C.b;
+  closeSheet('rptFilterSh'); render();
+}
+function rfToggleB(key,bucket){
+  var f=window._rptFilters, arr=f[key]||(f[key]=[]);
+  var i=arr.indexOf(bucket); if(i===-1) arr.push(bucket); else arr.splice(i,1);
+  rfRepaint();
+}
 function rptClearFilters(){
-  window._rptFilters={campaigns:[],locations:[],services:[],preset:'all',from:'',to:''};
+  window._rptFilters={campaigns:[],locations:[],services:[],preset:'all',from:'',to:'',round:null};
+  window._rfRounds.key='';
   if(document.getElementById('rptFilterSh')) closeSheet('rptFilterSh');
   render();
-}
-function rptApplyAndClose(){
-  var d=window._rptDraft||{campaigns:[],locations:[],services:[],preset:'all',from:'',to:''};
-  if(d.preset && d.preset!=='all' && d.preset!=='custom'){
-    var now=new Date(), fromD=new Date();
-    if(d.preset==='7d')  fromD.setDate(fromD.getDate()-6);
-    if(d.preset==='30d') fromD.setDate(fromD.getDate()-29);
-    d.from=rptYmd(fromD); d.to=rptYmd(now);
-  } else if(d.preset==='all'){ d.from=''; d.to=''; }
-  window._rptFilters=JSON.parse(JSON.stringify(d));
-  closeSheet('rptFilterSh'); render();
 }
 
 // Tap a report row → jump to the Leads tab, filtered to that stage / bucket.
@@ -12453,12 +12677,8 @@ function clientReportsHTML(){
 
   var h = '<div style="padding:14px 16px">';
 
-  // ── Filters bar (campaign / location / service / date) ──
-  var _af = rptActiveCount();
-  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">';
-  h += '<button onclick="openRptFilter()" style="display:flex;align-items:center;gap:6px;padding:9px 14px;border-radius:10px;border:1.5px solid '+(_af?'var(--green)':'var(--border)')+';background:'+(_af?'#d9fdd3':'var(--white)')+';color:var(--text);font-family:var(--f);font-size:13px;font-weight:500;cursor:pointer">&#x1F50E; Filters'+(_af?' ('+_af+')':'')+'</button>';
-  if(_af) h += '<button onclick="rptClearFilters()" style="padding:9px 12px;border-radius:10px;border:1px solid var(--border);background:var(--white);color:var(--sub);font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer">Clear</button>';
-  h += '</div>';
+  // ── Filter chips (import-9): campaign / campaign no. / date / location / service ──
+  h += rfChipBarHTML();
 
   // Header
   h += '<div style="font-size:22px;font-weight:600;color:var(--text);margin-bottom:14px">Leads Summary</div>';
