@@ -4700,7 +4700,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-08 import-10e';
+var APP_VERSION = 'v2026-10-08 import-10f';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -30696,11 +30696,233 @@ function fqRemove(id){
   renderFqList(window._fqRows);
 }
 
+// ═══════════════════════════════════════
+// CONVERSION-ENGINE CAMPAIGN SCREEN (ce-1, import-10f)
+// Campaigns with NO flyer delivery (view_budget 0, nothing served) are AI
+// Conversion Engine campaigns: flyer stats make no sense there, so the
+// dashboard becomes: funnel hero → live activity → lead sources (with upload)
+// → which-source-makes-money → AI fuel. Approved via ce_campaign_preview.html.
+// Data: leads array (local) + the report-data edge fn (reached/speed/feed),
+// same function the Reports > AI Engine tab uses.
+function _isCeCamp(cp){
+  if (_isLeadsCamp(cp)) return false;
+  var served = (Number(cp.views_used)||0) + (Number(cp.fb_impressions)||0) + (Number(cp.google_impressions)||0) + (Number(cp.total_exposure)||0);
+  return (Number(cp.view_budget)||0) === 0 && served === 0;
+}
+function ceLoad(cid, force){
+  var R = window._ceRep;
+  if (!force && R && R.key === String(cid) && (R.data || R.loading)) return;
+  window._ceRep = { key: String(cid), loading: true, data: (R && R.key === String(cid)) ? R.data : null };
+  sbFetch('/functions/v1/report-data', { method: 'POST', body: JSON.stringify({ campaign_id: String(cid) }) })
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      if (!window._ceRep || window._ceRep.key !== String(cid)) return;
+      window._ceRep = { key: String(cid), loading: false, data: (j && j.ok) ? j : null };
+      if (window._clientDashView === 'detail' && String(window._clientDashCampId) === String(cid)) {
+        var c = document.getElementById('content'); if (c && typeof clientDashHTML === 'function') { var y = c.scrollTop; c.innerHTML = clientDashHTML(); c.scrollTop = y; }
+      }
+    })
+    .catch(function(){ if (window._ceRep && window._ceRep.key === String(cid)) window._ceRep.loading = false; });
+}
+function ceAgo(iso){
+  var ms = Date.now() - new Date(iso).getTime();
+  if (!isFinite(ms) || ms < 0) ms = 0;
+  var m = Math.round(ms / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + ' min ago';
+  var h2 = Math.round(m / 60);
+  if (h2 < 24) return h2 + ' h ago';
+  var d = Math.round(h2 / 24);
+  return d === 1 ? 'yesterday' : d + ' days ago';
+}
+function ceSrcIcon(b){
+  var s = String(b||'').toLowerCase();
+  if (s.indexOf('facebook') > -1 || s.indexOf('fb') === 0 || s.indexOf('instagram') > -1) return '📘';
+  if (s.indexOf('import') > -1 || s.indexOf('file') > -1 || s.indexOf('upload') > -1) return '📄';
+  if (s.indexOf('web') > -1 || s.indexOf('form') > -1 || s.indexOf('site') > -1) return '🌐';
+  if (s.indexOf('adviuz') > -1 || s.indexOf('flyer') > -1 || s.indexOf('qr') > -1) return '📣';
+  if (s.indexOf('call') > -1 || s.indexOf('phone') > -1) return '📞';
+  return '🔗';
+}
+function ceUpload(cid){
+  if (typeof openImportSheet !== 'function') { showToast('Lead import is not available here'); return; }
+  openImportSheet();
+  setTimeout(function(){
+    var s = document.getElementById('impCampaign');
+    if (s) { s.value = String(cid); }
+  }, 60);
+}
+function ceAskConnect(what, campName){
+  var sub = encodeURIComponent('Connect ' + what + ' — ' + campName);
+  var bod = encodeURIComponent('Hi Adviuz team,\n\nPlease connect ' + what + ' as a lead source for my campaign "' + campName + '".\n\nThanks!');
+  try { window.open('mailto:sales@adviuz.ca?subject=' + sub + '&body=' + bod, '_blank'); } catch(_e) {}
+  showToast('Opening your email — we set this up for you');
+}
+function ceGoReports(cid){
+  window._rptFilters = { campaigns: [String(cid)], locations: [], services: [], preset: 'all', from: '', to: '', round: null };
+  if (window._rfRounds) window._rfRounds.key = '';
+  window._aiRep = null;
+  window._rptTab = 'ai';
+  var tb = document.getElementById('tab-reports');
+  if (typeof goTab === 'function' && tb) goTab('reports', tb); else { curTab = 'reports'; render(); }
+}
+function ceSrcSheetHTML(cp){
+  var nm = String(cp.name||'this campaign').replace(/'/g, '');
+  var row = function(ico, title, sub, act){
+    return '<div onclick="' + act + '" style="display:flex;gap:12px;align-items:flex-start;border:1px solid var(--border);border-radius:14px;padding:13px;margin-bottom:9px;cursor:pointer;background:var(--white)">'
+      + '<div style="width:38px;height:38px;border-radius:11px;background:#f4f0ff;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0">' + ico + '</div>'
+      + '<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600;color:var(--text)">' + title + '</div>'
+      + '<div style="font-size:11.5px;color:var(--sub);margin-top:2px;line-height:1.5">' + sub + '</div></div></div>';
+  };
+  return '<div style="font-size:12px;color:var(--sub);margin-bottom:12px;line-height:1.5">Connect a source once — every new lead lands in your list automatically and your AI starts working it within seconds.</div>'
+    + row('📄', 'Upload a file', 'Excel or CSV. Columns are matched and duplicates skipped before anything is imported.', "closeSheet('ceSrcSh');ceUpload('" + cp.id + "')")
+    + row('📘', 'Facebook &amp; Instagram Lead Ads', 'New leads arrive the moment someone submits your form. Adviuz connects this for you — tap to request.', "ceAskConnect('Facebook Lead Ads','" + nm + "')")
+    + row('🌐', 'Website form', 'Your website form feeds leads straight in. Adviuz connects this for you — tap to request.', "ceAskConnect('our website form','" + nm + "')")
+    + row('🔗', 'API &amp; webhooks', 'For any other CRM or app. Coming soon — tap to get on the early list.', "ceAskConnect('the API / webhooks (early access)','" + nm + "')")
+    + row('⚡', 'Zapier / Make', 'Connect thousands of apps without code. Coming soon — tap to get on the early list.', "ceAskConnect('Zapier (early access)','" + nm + "')");
+}
+function ceOpenSrcSheet(cid){
+  var cp = (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(cid); });
+  if (!cp) return;
+  ensureSimpleSheet('ceSrcSh', 'Where do your leads come from?');
+  var b = document.getElementById('ceSrcShBody');
+  if (b) b.innerHTML = ceSrcSheetHTML(cp);
+  openSheet('ceSrcSh');
+}
+function ceCampDetailHTML(cp){
+  ceLoad(cp.id);
+  var rep = (window._ceRep && window._ceRep.key === String(cp.id)) ? window._ceRep.data : null;
+  var active = (cp.status||'').toLowerCase() === 'active';
+  var cls2 = (leads||[]).filter(function(l){ return gfCampaignId(l) === String(cp.id||''); });
+  var tot = cls2.length;
+  var booked = cls2.filter(function(l){ var s = aeStNum(l); return !!l.appointment_at || [5,6,7,8,9,12].indexOf(s) > -1; }).length;
+  var closed = cls2.filter(function(l){ return aeStNum(l) === 9; }).length;
+  var reached = rep ? (rep.leadsHandled||0) : null;
+  var reachedPct = (reached != null && tot) ? Math.round(reached / tot * 100) : null;
+  var spd = (rep && rep.speed && rep.speed.median_s != null) ? aeFmtDur(rep.speed.median_s) : '';
+  var fuCount = (rep && rep.nextDue && rep.nextDue.count) ? rep.nextDue.count : 0;
+
+  var h = '<div style="padding:14px 16px">';
+  h += '<button onclick="clientBackToCampaigns()" style="background:none;border:none;color:var(--sub);font-family:var(--f);font-size:13px;cursor:pointer;padding:0 0 12px 0;display:flex;align-items:center;gap:5px">‹ Campaigns</button>';
+  var _gear2 = '<svg width="18" height="18" fill="none" stroke="var(--text)" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+  h += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
+    + '<div style="font-size:22px;font-weight:600;color:var(--text);letter-spacing:-.01em;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">' + (cp.name||'Campaign') + '</div>'
+    + '<button onclick="openCampSettings(\'' + cp.id + '\')" title="Campaign settings" style="width:40px;height:40px;border-radius:50%;border:1.5px solid var(--border);background:var(--white);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">' + _gear2 + '</button>'
+    + _campToggleSwitch(cp.id, active, false)
+    + '</div>';
+  h += '<div style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:#4000f3;background:linear-gradient(var(--white),var(--white)) padding-box,linear-gradient(90deg,#4000f3,#e65afc) border-box;border:1.5px solid transparent;border-radius:999px;padding:6px 12px;margin-bottom:12px">🤖 AI Conversion Engine · ' + (active ? 'running' : 'paused') + '</div>';
+
+  // ── HERO: the funnel replaces Total Exposure ──
+  h += '<div onclick="ceGoReports(\'' + cp.id + '\')" style="cursor:pointer;background:linear-gradient(118deg,#4000f3 0%,#8b2bf7 55%,#e65afc 100%);border-radius:18px;color:#fff;padding:17px 14px 14px;margin-bottom:12px">'
+    + '<div style="display:flex;align-items:center;gap:7px;font-size:11.5px;color:#efe2ff"><span style="width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 3px rgba(255,255,255,.22)"></span>Your AI is working this campaign<span style="margin-left:auto;font-size:10px;opacity:.85">full report ›</span></div>'
+    + '<div style="display:flex;text-align:center;margin-top:13px">'
+    + '<div style="flex:1;padding:0 3px"><div style="font-size:23px;font-weight:700;letter-spacing:-.5px">' + tot.toLocaleString() + '</div><div style="font-size:9.5px;color:#efe2ff;margin-top:2px;line-height:1.3">Leads in</div></div>'
+    + '<div style="flex:1;border-left:1px solid rgba(255,255,255,.26);padding:0 3px"><div style="font-size:23px;font-weight:700;letter-spacing:-.5px">' + (reached != null ? reached.toLocaleString() : '…') + '</div><div style="font-size:9.5px;color:#efe2ff;margin-top:2px;line-height:1.3">Reached' + (reachedPct != null ? '<br>' + reachedPct + '% of leads' : '') + '</div></div>'
+    + '<div style="flex:1;border-left:1px solid rgba(255,255,255,.26);padding:0 3px"><div style="font-size:23px;font-weight:700;letter-spacing:-.5px">' + booked + '</div><div style="font-size:9.5px;color:#efe2ff;margin-top:2px;line-height:1.3">Appointments' + (reached ? '<br>' + Math.round(booked / Math.max(1, reached) * 100) + '% of reached' : '') + '</div></div>'
+    + '<div style="flex:1;border-left:1px solid rgba(255,255,255,.26);padding:0 3px"><div style="font-size:23px;font-weight:700;letter-spacing:-.5px">' + closed + '</div><div style="font-size:9.5px;color:#efe2ff;margin-top:2px;line-height:1.3">Deals closed</div></div>'
+    + '</div>'
+    + '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:#f3e8ff;margin-top:13px"><span>' + (spd ? '⚡ first touch in ' + spd : '') + '</span><span>' + (fuCount ? 'next follow-ups: ' + fuCount + ' queued' : '') + '</span></div>'
+    + '</div>';
+
+  var card = function(title, em, body){
+    return '<div style="background:var(--white);border:1px solid var(--border);border-radius:16px;padding:15px;margin-bottom:12px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:11px;font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--sub)"><span>' + title + '</span>' + (em ? '<span style="font-weight:500;letter-spacing:0;text-transform:none;color:var(--muted,#9aa1ad)">' + em + '</span>' : '') + '</div>' + body + '</div>';
+  };
+
+  // ── LATEST ACTIVITY (from the same feed the AI Engine report uses) ──
+  var fb2 = '';
+  if (rep && rep.feed && rep.feed.length) {
+    rep.feed.slice(0, 5).forEach(function(f){
+      var who = '<b>' + aeEsc(f.who||'Lead') + '</b>', txt = '';
+      if (f.t === 'c') txt = 'Called ' + who + (f.ds >= 40 ? ' — ' + aeFmtDur(f.ds) + ' conversation' : (f.ds > 0 ? ' — voicemail' : ''));
+      else if (f.t === 'i') txt = 'Answered a call from ' + who;
+      else if (f.t === 's') txt = 'Texted ' + who;
+      else if (f.t === 'e') txt = 'Emailed ' + who;
+      else if (f.t === 'a') txt = 'Wrote the call summary for ' + who;
+      else if (f.t === 'n') txt = 'Added a note on ' + who;
+      else if (f.t === 'f') txt = 'Scheduled a follow-up for ' + who;
+      else txt = 'Worked on ' + who;
+      fb2 += '<div style="display:flex;gap:11px;align-items:flex-start;padding:9px 0;border-bottom:1px solid #f3f1f8">'
+        + '<div style="width:34px;height:34px;border-radius:11px;background:#f4f0ff;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">' + (AE_TI[f.t]||'•') + '</div>'
+        + '<div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--text);line-height:1.45">' + txt + '</div>'
+        + '<div style="font-size:10.5px;color:var(--muted,#9aa1ad);margin-top:1px">' + ceAgo(f.at) + '</div></div></div>';
+    });
+    fb2 += '<div onclick="ceGoReports(\'' + cp.id + '\')" style="cursor:pointer;text-align:center;font-size:12.5px;font-weight:600;padding-top:10px"><span style="background:linear-gradient(90deg,#4000f3,#e65afc);-webkit-background-clip:text;background-clip:text;color:transparent">See everything → Reports</span></div>';
+  } else {
+    fb2 = '<div style="font-size:12px;color:var(--sub);padding:6px 0">' + (window._ceRep && window._ceRep.loading ? 'Loading the latest work…' : 'No AI activity on this campaign yet — it starts the moment leads arrive.') + '</div>';
+  }
+  h += card('Latest activity', 'live', fb2);
+
+  // ── LEAD SOURCES ──
+  var srcMap = {}, srcOrder = [];
+  cls2.forEach(function(l){
+    var b = _rptSrcBucket(l.src);
+    if (!srcMap[b]) { srcMap[b] = { n: 0, last: '', eng: 0, bkd: 0, cls: 0 }; srcOrder.push(b); }
+    var o = srcMap[b]; o.n++;
+    var d = String(l.rawDate||'').slice(0, 10);
+    if (d > o.last) o.last = d;
+    var sn = aeStNum(l);
+    if (sn !== 1) o.eng++;
+    if (!!l.appointment_at || [5,6,7,8,9,12].indexOf(sn) > -1) o.bkd++;
+    if (sn === 9) o.cls++;
+  });
+  srcOrder.sort(function(a, b){ return srcMap[b].n - srcMap[a].n; });
+  var sr = '';
+  var todayY2 = rptYmd(new Date());
+  srcOrder.forEach(function(b){
+    var o = srcMap[b];
+    var ageDays = o.last ? Math.round((new Date(todayY2 + 'T12:00:00') - new Date(o.last + 'T12:00:00')) / 86400000) : null;
+    var health = ageDays == null ? '<span style="color:var(--muted,#9aa1ad)">no leads yet</span>'
+      : ageDays <= 2 ? '<span style="color:#15803d;font-weight:600">● Receiving</span> · last lead ' + (ageDays === 0 ? 'today' : ageDays === 1 ? 'yesterday' : ageDays + ' days ago')
+      : ageDays <= 7 ? '<span style="color:var(--sub)">last lead ' + ageDays + ' days ago</span>'
+      : '<span style="color:#b45309;font-weight:600">● No leads in ' + ageDays + ' days</span>';
+    sr += '<div style="display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid #f3f1f8">'
+      + '<div style="width:38px;height:38px;border-radius:11px;background:#f4f0ff;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0">' + ceSrcIcon(b) + '</div>'
+      + '<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + aeEsc(b) + '</div>'
+      + '<div style="font-size:11px;margin-top:1px">' + health + '</div></div>'
+      + '<div style="text-align:right"><div style="font-size:15px;font-weight:700;background:linear-gradient(90deg,#4000f3,#e65afc);-webkit-background-clip:text;background-clip:text;color:transparent">' + o.n + '</div><div style="font-size:9.5px;color:var(--muted,#9aa1ad)">leads</div></div></div>';
+  });
+  if (!sr) sr = '<div style="font-size:12px;color:var(--sub);padding:4px 0 10px">No leads in this campaign yet — upload a file or connect a source below.</div>';
+  sr += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:11px">'
+    + '<div onclick="ceUpload(\'' + cp.id + '\')" style="cursor:pointer;border:1px dashed #cfc6ec;border-radius:12px;padding:11px 8px;text-align:center;font-size:11.5px;font-weight:600;color:#4000f3;background:#faf9ff"><span style="display:block;font-size:17px;margin-bottom:3px">⬆️</span>Upload leads</div>'
+    + '<div onclick="ceOpenSrcSheet(\'' + cp.id + '\')" style="cursor:pointer;border:1px dashed #cfc6ec;border-radius:12px;padding:11px 8px;text-align:center;font-size:11.5px;font-weight:600;color:#4000f3;background:#faf9ff"><span style="display:block;font-size:17px;margin-bottom:3px">➕</span>Add a source</div></div>';
+  h += card('Lead sources', 'where your leads come from', sr);
+
+  // ── WHICH SOURCE MAKES MONEY ──
+  if (srcOrder.length) {
+    var tb2 = '<table style="width:100%;border-collapse:collapse">'
+      + '<tr><th style="font-size:9.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);text-align:left;padding:2px 0 8px">Source</th>'
+      + '<th style="font-size:9.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);text-align:right;padding:2px 0 8px">Leads</th>'
+      + '<th style="font-size:9.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);text-align:right;padding:2px 0 8px">Engaged</th>'
+      + '<th style="font-size:9.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);text-align:right;padding:2px 0 8px">Booked</th>'
+      + '<th style="font-size:9.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);text-align:right;padding:2px 0 8px">Closed</th></tr>';
+    srcOrder.forEach(function(b){
+      var o = srcMap[b];
+      tb2 += '<tr><td style="font-size:12.5px;color:var(--text);padding:9px 0;border-top:1px solid #f3f1f8;overflow:hidden;text-overflow:ellipsis;max-width:110px;white-space:nowrap">' + ceSrcIcon(b) + ' ' + aeEsc(b) + '</td>'
+        + '<td style="text-align:right;font-size:12.5px;font-weight:600;padding:9px 0;border-top:1px solid #f3f1f8">' + o.n + '</td>'
+        + '<td style="text-align:right;font-size:12.5px;font-weight:600;padding:9px 0;border-top:1px solid #f3f1f8">' + o.eng + ' <span style="font-size:10px;color:var(--sub);font-weight:500">' + (o.n ? Math.round(o.eng / o.n * 100) : 0) + '%</span></td>'
+        + '<td style="text-align:right;font-size:12.5px;font-weight:600;padding:9px 0;border-top:1px solid #f3f1f8">' + o.bkd + '</td>'
+        + '<td style="text-align:right;font-size:12.5px;font-weight:600;padding:9px 0;border-top:1px solid #f3f1f8">' + o.cls + '</td></tr>';
+    });
+    tb2 += '</table><div style="font-size:11px;color:var(--sub);margin-top:9px;line-height:1.5">Engaged = moved past Fresh Lead. Tap the hero above for the full AI report.</div>';
+    h += card('Which source makes money', 'this campaign', tb2);
+  }
+
+  // ── AI FUEL (same card as every campaign) ──
+  h += '<div style="margin:4px 2px 10px">' + _campFuelCardHTML(cp) + '</div>';
+  h += '<div style="height:20px"></div></div>';
+  return h;
+}
+
 function clientCampaignDetailHTML(campId){
   var cp = (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(campId); });
   if (!cp) {
     return '<div style="padding:40px 20px;text-align:center;color:var(--sub)">Campaign not found. <a href="javascript:clientBackToCampaigns()" style="color:var(--green);text-decoration:underline">Back</a></div>';
   }
+
+  // ce-1 (import-10f): AI Conversion Engine campaigns get their own dashboard
+  // (funnel hero + activity + lead sources) — flyer stats make no sense there.
+  if (_isCeCamp(cp)) return ceCampDetailHTML(cp);
 
   var active     = (cp.status||'').toLowerCase() === 'active';
   var viewBudget = Number(cp.view_budget)||0;
