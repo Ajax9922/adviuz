@@ -4700,7 +4700,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-08 import-7';
+var APP_VERSION = 'v2026-10-08 import-8';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -25595,28 +25595,35 @@ async function bkcLoadCamps(){
   var box=document.getElementById('bkcBody'); if(box) box.innerHTML='<div style="text-align:center;padding:40px 0"><div class="ai-spin"></div></div>';
   var camps = [];
   try{
-    if (window._clientCampaigns && window._clientCampaigns.length) camps = window._clientCampaigns;
-    else {
-      // import-7 (Ajax 2026-10-07): staff see every client's campaigns so they
-      // can run rounds for anyone — but the list must SAY whose campaign each
-      // one is, Adviuz's own two first, so a round is never started on the
-      // wrong client by mistake. Clients still only ever see their own.
-      var r=await sbFetch('/rest/v1/campaigns?select=id,name,client_id&status=in.(active,live,running)&order=created_at.desc&limit=100');
-      if(r.ok) camps=await r.json();
-      var bizById={};
-      try{
-        var cr=await sbFetch('/rest/v1/clients?select=id,business_name&limit=200');
-        if(cr.ok){ (await cr.json()).forEach(function(c){ bizById[String(c.id)]=c.business_name||''; }); }
-      }catch(_e2){}
-      var ADV='7d315d20-00af-4e7f-8d79-c89b3f2b5cf7';
-      camps=(camps||[]).map(function(c){
-        var own=String(c.client_id)===ADV;
-        var biz=own?'Adviuz (your own)':(bizById[String(c.client_id)]||'Client');
-        return Object.assign({}, c, { _lbl:(c.name||'Campaign')+' — '+biz, _own:own });
-      }).sort(function(a,b){
-        if(a._own!==b._own) return a._own?-1:1;
-        return String(a._lbl).localeCompare(String(b._lbl));
-      });
+    // import-8 (Ajax 2026-10-07): same law as Bulk SMS — the campaign list is
+    // built from the LEADS ON THIS SCREEN, with counts, so only campaigns that
+    // actually have leads appear (e.g. "Digital Flyers (52)"; AI Conversion
+    // Engine shows up only once it holds leads). Leads without a campaign
+    // can't take bulk AI calls (the engine needs a campaign for the caller ID
+    // and AI minutes), so there is no "No campaign" row here.
+    var counts={};
+    (leads||[]).forEach(function(l){
+      if(!l || !l.dbId) return;
+      var cid=String(l.campaign_id||l.campaign||''); if(!cid) return;
+      counts[cid]=(counts[cid]||0)+1;
+    });
+    var ids=Object.keys(counts);
+    if(ids.length){
+      var nameById={};
+      [].concat(((window._adminData&&window._adminData.campaigns)||[]),(window._clientCampaigns||[])).forEach(function(c){ if(c&&c.id) nameById[String(c.id)]={name:c.name||c.campaign_name||'Campaign', client_id:c.client_id}; });
+      var missing=ids.filter(function(id){ return !nameById[id]; });
+      if(missing.length){
+        try{
+          var r=await sbFetch('/rest/v1/campaigns?id=in.('+missing.join(',')+')&select=id,name,client_id');
+          if(r.ok){ (await r.json()).forEach(function(c){ nameById[String(c.id)]={name:c.name||'Campaign', client_id:c.client_id}; }); }
+        }catch(_e3){}
+      }
+      camps=ids.map(function(id){
+        var inf=nameById[id]||{name:'Campaign'};
+        return { id:id, name:inf.name, client_id:inf.client_id, _n:counts[id], _lbl:inf.name+' ('+counts[id]+')' };
+      }).sort(function(a,b){ return b._n-a._n; });
+    } else if (window._clientCampaigns && window._clientCampaigns.length) {
+      camps = window._clientCampaigns;
     }
   }catch(_e){}
   _bkc.camps = camps||[];
