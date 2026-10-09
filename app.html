@@ -4716,7 +4716,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-09 import-10u';
+var APP_VERSION = 'v2026-10-09 import-10v';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6531,7 +6531,7 @@ async function loadSmsReplies(){
 async function loadCallActs(){
   if(_isPartnerBell()){ window._callActs=[]; return; }
   try{
-    var r = await sbFetch('/rest/v1/lead_activity?activity_type=in.(call,email_received)&order=created_at.desc&limit=30&select=id,lead_id,client_id,activity_type,description,direction,duration_seconds,metadata,created_at');
+    var r = await sbFetch('/rest/v1/lead_activity?activity_type=in.(call,email_received)&or=(direction.eq.inbound,activity_type.eq.email_received)&order=created_at.desc&limit=40&select=id,lead_id,client_id,activity_type,description,direction,duration_seconds,metadata,created_at');
     window._callActs = r.ok ? (await r.json().catch(function(){return [];})) : [];
   }catch(e){ window._callActs = []; }
 }
@@ -6643,6 +6643,20 @@ function _ntfDismiss(key){
   }catch(e){}
   window._ntfItems=(window._ntfItems||[]).filter(function(it){ return it.key!==key; });
   _ntfPaint(); if(typeof updateNotifBadge==='function') updateNotifBadge();
+}
+function _ntfGo(key){
+  var items=window._ntfItems||[], hit=null, parent=null;
+  for(var i=0;i<items.length && !hit;i++){
+    var it=items[i];
+    if(it.key===key){ hit=it; break; }
+    if(it.group){ for(var j=0;j<it.group.length;j++){ if(it.group[j].key===key){ hit=it.group[j]; parent=it; break; } } }
+  }
+  if(!hit) return;
+  // Opening it means it's handled: the card goes away (a stacked message
+  // clears the whole stack, since the full conversation opens).
+  _ntfDismiss(parent?parent.key:key);
+  closeSheet('notifSh');
+  try{ if(hit.on) (new Function(hit.on))(); }catch(e){}
 }
 function _ntfMarkAll(){
   _notifSetSeen();
@@ -6828,7 +6842,7 @@ function _ntfPaint(){
   }
   function rowHtml(it, mb, click){
     var key=String(it.key).replace(/'/g,'');
-    if(click==null) click='closeSheet(\'notifSh\');'+(it.on||'');
+    if(click==null) click="_ntfGo('"+key+"')";
     return '<div onclick="'+click+'" style="display:flex;gap:11px;align-items:flex-start;padding:12px 11px 12px 13px;cursor:pointer;background:'+(it.unread?'#f7f4ff':'var(--white)')+';border:1px solid '+(it.unread?'#e4dcff':'var(--border)')+';border-radius:13px;margin:0 0 '+mb+'px">'
       + _ntfAv(it)
       + '<div style="flex:1;min-width:0;padding-top:1px">'
@@ -6861,6 +6875,7 @@ function _ntfPaint(){
     }
     h+=rowHtml(it,8);
   });
+  h+='<div style="height:calc(26px + env(safe-area-inset-bottom,0px))"></div>';
   body.innerHTML=h;
 }
 async function openNotifPanel(){
