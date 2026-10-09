@@ -4716,7 +4716,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-09 import-10v';
+var APP_VERSION = 'v2026-10-09 import-10w';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6658,6 +6658,19 @@ function _ntfGo(key){
   closeSheet('notifSh');
   try{ if(hit.on) (new Function(hit.on))(); }catch(e){}
 }
+function _ntfClearAll(){
+  var cat=window._ntfCat||'all', d=_ntfDismissed(), keep=[];
+  (window._ntfItems||[]).forEach(function(it){
+    if(cat!=='all' && it.kind!==cat){ keep.push(it); return; }
+    var ks=it.group?it.group.map(function(c){ return c.key; }):[it.key];
+    ks.forEach(function(k){ if(d.indexOf(k)===-1) d.push(k); });
+  });
+  if(d.length>400) d=d.slice(-400);
+  try{ localStorage.setItem('adviuz_ntf_dismissed', JSON.stringify(d)); }catch(e){}
+  window._ntfItems=keep;
+  _ntfPaint(); if(typeof updateNotifBadge==='function') updateNotifBadge();
+  if(typeof showToast==='function') showToast('Notifications cleared');
+}
 function _ntfMarkAll(){
   _notifSetSeen();
   (window._ntfItems||[]).forEach(function(it){ it.unread=false; if(it.group) it.group.forEach(function(c){ c.unread=false; }); });
@@ -6734,7 +6747,10 @@ function _ntfCollect(seen){
     }
     if(prefs.calls===false || ts<cap7) return;
     if(a.direction!=='inbound') return;
-    var who=l?(l.company||l.name||'Inbound call'):'Inbound call';
+    var pn=l?String(l.ph||l.phone||''):'';
+    var nm=l?String(l.company||l.name||''):'';
+    if(/^inbound\s*call/i.test(nm)) nm='';
+    var who=nm||pn||'Inbound call';
     var ai=(a.metadata&&a.metadata.handler==='ai')||/^AI call/i.test(String(a.description||''));
     var secs=a.duration_seconds||0;
     var dur=secs>=60?(Math.floor(secs/60)+'m '+(secs%60)+'s'):(secs+'s');
@@ -6744,7 +6760,7 @@ function _ntfCollect(seen){
     push({key:'cl:'+a.id, kind:'call', ts:ts, unread:ts>seen,
       initial:ini(who), badge:['phonein','green'],
       t:'<b>'+esc(who)+'</b>'+hic,
-      sub:(l&&l.phone)?('<span style="color:#374151;font-weight:600">'+esc(l.phone)+'</span>'):'',
+      sub:(pn&&pn!==who)?('<span style="color:#374151;font-weight:600">'+esc(pn)+'</span>'):'',
       sub2:_ntfDT(ts)+(secs?(' · '+dur):''),
       on:"_notifOpenLeadByDb('"+String(a.lead_id||'')+"')"});
   });
@@ -6819,7 +6835,8 @@ function _ntfPaint(){
   var body=document.getElementById('notifBody'); if(!body) return;
   var items=window._ntfItems||[], cat=window._ntfCat||'all';
   var chips=[['all','All'],['reply','Priority'],['followup','Follow-ups'],['lead','Leads'],['call','Calls'],['meeting','Meetings'],['callnote','Call notes'],['account','Account']];
-  var h='<div style="display:flex;align-items:center;justify-content:flex-end;margin:0 0 6px">'
+  var h='<div style="display:flex;align-items:center;justify-content:flex-end;gap:18px;margin:0 0 6px">'
+    + '<button onclick="_ntfClearAll()" style="border:none;background:none;padding:4px 2px;font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer;color:var(--sub)">Clear all</button>'
     + '<button onclick="_ntfMarkAll()" style="border:none;background:none;padding:4px 2px;font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer;background-image:linear-gradient(118deg,#4000f3,#e65afc);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent">Mark all read</button>'
     + '</div>';
   h+='<div style="display:flex;gap:7px;margin:0 0 12px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px">'+chips.map(function(c){
