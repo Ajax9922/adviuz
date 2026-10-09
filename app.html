@@ -4716,7 +4716,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-09 import-10w';
+var APP_VERSION = 'v2026-10-09 import-10x';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6897,14 +6897,16 @@ function _ntfPaint(){
 }
 async function openNotifPanel(){
   ensureNotifSheet();
-  await loadAdminNotifs();
-  await loadSmsReplies();
-  await loadCallActs();
+  // Open INSTANTLY with whatever is already in memory; fresh data loads
+  // behind the sheet (all three fetches in parallel) and repaints quietly.
   var seen=_notifLastSeen();
   window._ntfItems=_ntfCollect(seen);
   _ntfPaint();
   openSheet('notifSh');
   _notifSetSeen();
+  try{ await Promise.all([loadAdminNotifs(), loadSmsReplies(), loadCallActs()]); }catch(e){}
+  window._ntfItems=_ntfCollect(seen);
+  _ntfPaint();
   // Operator platform notifications marked read on open, best-effort
   if(_isOperatorBell() && _adminNotifUnread()>0){
     try{ sbFetch('/rest/v1/admin_notifications?is_read=eq.false&type=not.in.(sms_reply,sms_optout)',{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({is_read:true})}); }catch(e){}
