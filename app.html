@@ -4716,7 +4716,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-09 import-10n';
+var APP_VERSION = 'v2026-10-09 import-10p';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6431,10 +6431,10 @@ function ensureNotifSettingsSheet(){
       '<div class="sheet" style="max-height:80dvh">'+
         '<div class="sheet-handle"></div>'+
         '<div class="sheet-head">'+
-          '<div class="sheet-title">&#128276; Notification Settings</div>'+
+          '<div class="sheet-title">Notification settings</div>'+
           '<button class="sheet-x" onclick="closeSheet(\'notifSettingsSh\')">&#x2715;</button>'+
         '</div>'+
-        '<div class="sh-body" id="notifSettingsBody" style="padding:6px 16px 24px"></div>'+
+        '<div class="sh-body" id="notifSettingsBody" style="padding:6px 16px calc(32px + env(safe-area-inset-bottom,0px))"></div>'+
       '</div>'+
     '</div>';
   document.body.insertAdjacentHTML('beforeend',html);
@@ -6445,18 +6445,20 @@ function renderNotifSettings(){
   var perm=(typeof Notification!=='undefined')?Notification.permission:'default';
   var pushRow;
   if(perm==='granted'){
-    pushRow='<div style="display:flex;align-items:center;gap:8px;background:var(--greenl,#e7f8f3);border-radius:10px;padding:12px 14px;font-size:13px;color:var(--text);font-weight:600">&#x2705; Push alerts are on for this device.</div>'+
-      '<button onclick="sendTestPush()" style="width:100%;margin-top:10px;padding:12px;border-radius:10px;background:var(--green);border:none;color:#fff;font-family:var(--f);font-size:14px;font-weight:600;cursor:pointer">Send a test alert to this device</button>';
+    pushRow='<div style="display:flex;align-items:center;gap:9px;border:1.5px solid transparent;border-radius:12px;padding:12px 14px;background:linear-gradient(var(--white),var(--white)) padding-box,linear-gradient(118deg,#4000f3,#e65afc) border-box">'+
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8b2bf7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>'+
+        '<span style="font-size:13px;font-weight:600;background:linear-gradient(118deg,#4000f3,#e65afc);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent">Push alerts are on for this device</span></div>'+
+      '<button onclick="sendTestPush()" style="width:100%;margin-top:10px;padding:13px;border-radius:12px;background:linear-gradient(118deg,#4000f3,#8b2bf7,#e65afc);border:none;color:#fff;font-family:var(--f);font-size:14px;font-weight:600;cursor:pointer">Send a test alert to this device</button>';
   } else if(perm==='denied'){
     pushRow='<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:12px 14px;font-size:13px;color:#9a3412">Push alerts are blocked in your browser. Open this app\'s site settings and allow notifications, then reopen this screen.</div>';
   } else {
-    pushRow='<button onclick="if(window.adviuzEnablePush)window.adviuzEnablePush();setTimeout(renderNotifSettings,900)" style="width:100%;padding:12px;border-radius:10px;background:var(--green);border:none;color:#fff;font-family:var(--f);font-size:14px;font-weight:600;cursor:pointer">Turn on push alerts</button>';
+    pushRow='<button onclick="if(window.adviuzEnablePush)window.adviuzEnablePush();setTimeout(renderNotifSettings,900)" style="width:100%;padding:13px;border-radius:12px;background:linear-gradient(118deg,#4000f3,#8b2bf7,#e65afc);border:none;color:#fff;font-family:var(--f);font-size:14px;font-weight:600;cursor:pointer">Turn on push alerts</button>';
   }
   var types=[['leads','New leads'],['calls','New calls'],['sms','New text messages'],['email','New emails'],['followups','Follow-up reminders']];
   var rows=types.map(function(t){
     return '<label style="display:flex;align-items:center;justify-content:space-between;padding:14px 2px;border-bottom:1px solid var(--border);cursor:pointer">'+
       '<span style="font-size:14px;font-weight:600;color:var(--text)">'+t[1]+'</span>'+
-      '<input type="checkbox" '+(p[t[0]]!==false?'checked':'')+' onchange="_notifSetPref(\''+t[0]+'\',this.checked);if(typeof updateNotifBadge===\'function\')updateNotifBadge()" style="width:20px;height:20px;accent-color:var(--green);cursor:pointer">'+
+      '<input type="checkbox" '+(p[t[0]]!==false?'checked':'')+' onchange="_notifSetPref(\''+t[0]+'\',this.checked);if(typeof updateNotifBadge===\'function\')updateNotifBadge()" style="width:20px;height:20px;accent-color:#4000f3;cursor:pointer">'+
     '</label>';
   }).join('');
   body.innerHTML=
@@ -6535,29 +6537,10 @@ function _smsRepliesNew(){
 function _adminNotifUnread(){ return (window._adminNotifs||[]).filter(function(n){ if(n.is_read || n.type==='sms_reply' || n.type==='sms_optout') return false; if(_isPartnerBell() && !_partnerNotifOk(n.type)) return false; return true; }).length; }
 
 function _notifNewCount(){
-  // import-10n: HONEST badge — unseen recent leads + unseen replies + unread
-  // account notices + today's to-dos. Call-log nags count as ONE; missed
-  // (old) follow-ups don't inflate the badge at all.
-  var n=0, seen=_notifLastSeen(), now=Date.now(), cap7=now-7*86400000, cap14=now-14*86400000;
-  var dayStart=new Date(); dayStart.setHours(0,0,0,0); dayStart=dayStart.getTime();
-  var prefs=_notifPrefs();
-  if(prefs.leads!==false){
-    n += (leads||[]).filter(function(l){ var ts=l.created_at?new Date(l.created_at).getTime():0; return ts&&ts>seen&&ts>=cap7; }).length;
-  }
-  if(prefs.sms!==false){
-    n += (window._smsReplies||[]).filter(function(a){ var ts=a.created_at?new Date(a.created_at).getTime():0; return ts&&ts>seen&&ts>=cap14; }).length;
-  }
-  n += _adminNotifUnread();
-  if(!_isPartnerBell()){
-    var acts=_bellActionItems(), wraps=0;
-    acts.forEach(function(a){
-      if(a.kind==='wrapup'){ wraps++; return; }
-      if(a.kind==='followup'){ if(prefs.followups!==false){ var ft=new Date(a.when).getTime(); if(ft>=dayStart) n++; } return; }
-      n++;
-    });
-    if(wraps && prefs.calls!==false) n++;
-  }
-  return n;
+  // import-10o: single source of truth — the badge counts exactly the unread
+  // rows the bell feed would show (dismissed rows excluded).
+  try{ return _ntfCollect(_notifLastSeen()).filter(function(it){ return it.unread; }).length; }
+  catch(e){ return 0; }
 }
 function updateNotifBadge(){
   var n=_notifNewCount();
@@ -6592,8 +6575,8 @@ function ensureNotifSheet(){
   document.body.insertAdjacentHTML('beforeend',html);
 }
 // ══════════════════════════════════════════════════════════════════
-// import-10n: NOTIFICATIONS v2 — priority order, category chips
-// (Communication / Follow-ups / Account), expiry, digests, brand rows.
+// import-10o: NOTIFICATIONS v2.2 — one flat feed sorted by real time,
+// filter chips, pinned live-call card, per-row dismiss, Mark all read.
 // Data loaders & open-handlers unchanged; only collection + painting are new.
 // ══════════════════════════════════════════════════════════════════
 function _ntfAgo(ts){
@@ -6632,74 +6615,102 @@ function _ntfAv(it){
   }
   return '<span style="position:relative;flex-shrink:0;width:42px;height:42px;display:block">'+inner+(it.badge?_ntfBadgeDot(it.badge[0],it.badge[1]):'')+'</span>';
 }
-// Classify everything into one sorted list. Rules: replies/opt-outs & fresh
-// to-dos float up; call-log nags & missed follow-ups collapse into digests;
-// leads older than 7 days and replies older than 14 days drop off.
+// Dismissed rows live on the device so they never come back.
+function _ntfDismissed(){ try{ return JSON.parse(localStorage.getItem('adviuz_ntf_dismissed')||'[]'); }catch(e){ return []; } }
+function _ntfDismiss(key){
+  try{ var d=_ntfDismissed(); if(d.indexOf(key)===-1){ d.push(key); if(d.length>300) d=d.slice(-300); localStorage.setItem('adviuz_ntf_dismissed', JSON.stringify(d)); } }catch(e){}
+  window._ntfItems=(window._ntfItems||[]).filter(function(it){ return it.key!==key; });
+  _ntfPaint(); if(typeof updateNotifBadge==='function') updateNotifBadge();
+}
+function _ntfMarkAll(){
+  _notifSetSeen();
+  (window._ntfItems||[]).forEach(function(it){ it.unread=false; });
+  if(_isOperatorBell()){
+    try{ sbFetch('/rest/v1/admin_notifications?is_read=eq.false&type=not.in.(sms_reply,sms_optout)',{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({is_read:true})}); }catch(e){}
+    (window._adminNotifs||[]).forEach(function(n){ if(n.type!=='sms_reply'&&n.type!=='sms_optout') n.is_read=true; });
+  }
+  _ntfPaint(); if(typeof updateNotifBadge==='function') updateNotifBadge();
+  if(typeof showToast==='function') showToast('All marked read');
+}
+// Human vs AI follow-ups: when the AI is working a lead (its campaign has an
+// AI agent and the lead's AI is not switched off), follow-ups are the AI's
+// job and never nag a human. Missed follow-ups = HUMAN-owned only.
+function _campHasAi(cp){ return !!(cp && (cp.ai_profile || cp.twilio_phone || (cp.settings && cp.settings.ai))); }
+function _fuIsHuman(l){
+  if(!l) return true;
+  if(l.ai_off) return true;
+  var cid=(typeof gfCampaignId==='function')?gfCampaignId(l):(l.campaign_id||'');
+  var all=[].concat(((window._adminData&&window._adminData.campaigns)||[]),(window._clientCampaigns||[]));
+  for(var i=0;i<all.length;i++){ if(all[i]&&String(all[i].id)===String(cid)) return !_campHasAi(all[i]); }
+  return true;
+}
+// ONE flat list, every item stamped with the time it actually happened.
 function _ntfCollect(seen){
   var out=[], now=Date.now(), prefs=_notifPrefs(), esc=_notifEsc;
-  var dayStart=new Date(); dayStart.setHours(0,0,0,0); dayStart=dayStart.getTime();
   var cap14=now-14*86400000, cap7=now-7*86400000;
-  // SMS replies & opt-outs
+  var dis=_ntfDismissed();
+  var byDb={}; (leads||[]).forEach(function(l){ if(l&&l.dbId!=null) byDb[String(l.dbId)]=l; });
+  function push(it){ if(dis.indexOf(it.key)!==-1) return; out.push(it); }
+  function ini(n){ return String(n||'L').charAt(0).toUpperCase(); }
+  // Replies & opt-outs
   if(prefs.sms!==false)(window._smsReplies||[]).forEach(function(a){
     var ts=a.created_at?new Date(a.created_at).getTime():0;
     if(!ts||ts<cap14) return;
     var opt=_smsReplyIsOptOut(a.description);
-    var l=(leads||[]).find(function(x){return String(x.dbId)===String(a.lead_id);});
+    var l=byDb[String(a.lead_id)];
     var who=l?(l.company||l.name||'Lead'):'A lead';
     var txt=String(a.description||'').replace(/^[^:]*:\s*/,'').slice(0,90);
-    out.push({cat:'comm', pri:opt?5:6, ts:ts, unread:ts>seen,
-      initial:String(who).charAt(0).toUpperCase(), badge:[opt?'stop':'msg', opt?'red':''],
+    push({key:'sms:'+a.id, kind:'reply', ts:ts, unread:ts>seen,
+      initial:ini(who), badge:[opt?'stop':'msg', opt?'red':''],
       t: opt ? '<b>'+esc(who)+'</b> opted out (STOP) — messaging to this lead is blocked'
              : '<b>'+esc(who)+'</b> replied: <span style="color:var(--sub)">“'+esc(txt)+'”</span>',
       on:"_notifOpenSms('"+String(a.lead_id||'')+"')"});
   });
-  // Action to-dos
+  // To-dos (each with its REAL time, so old ones sink down the feed)
   if(!_isPartnerBell()){
-    var acts=_bellActionItems(), wraps=[], fuToday=[], fuMissed=[];
-    acts.forEach(function(a){
-      if(a.kind==='wrapup'){ wraps.push(a); return; }
-      if(a.kind==='followup'){ var ft=new Date(a.when).getTime(); if(ft>=dayStart) fuToday.push(a); else fuMissed.push(a); return; }
-      out.push({cat:'comm', pri:4, ts:now, unread:true,
-        initial:String(a.name||'L').charAt(0).toUpperCase(),
-        badge:[a.kind==='deal'?'money':'cal','green'],
-        t: a.kind==='deal' ? '<b>'+esc(a.name)+'</b> — deal closed, add the amount'
-                           : 'How did the meeting with <b>'+esc(a.name)+'</b> go?',
-        on:(a.kind==='deal'?'openDealAmount':'openMeetingOutcome')+"('"+a.dbId+"')"});
-    });
-    if(prefs.followups!==false){
-      fuToday.forEach(function(a){
-        out.push({cat:'follow', pri:4, ts:(new Date(a.when).getTime()||now), unread:true,
-          initial:String(a.name||'L').charAt(0).toUpperCase(), badge:['clock','green'],
-          t:'Follow-up due — <b>'+esc(a.name)+'</b> · '+_wrapFmtWhen(a.when),
+    _bellActionItems().forEach(function(a){
+      var l=byDb[String(a.dbId)]||{};
+      if(a.kind==='wrapup'){
+        if(prefs.calls===false) return;
+        var ts=new Date(l.updated_at||l.created_at||0).getTime()||0;
+        push({key:'wr:'+a.dbId, kind:'call', ts:ts, unread:ts>seen,
+          initial:ini(a.name), badge:['phone',''],
+          t:'Log your call with <b>'+esc(a.name)+'</b>', sub:'How did it go?',
+          on:"openCallWrapup('"+a.dbId+"')"});
+      } else if(a.kind==='deal'){
+        var ts2=new Date(l.updated_at||l.created_at||0).getTime()||0;
+        push({key:'dl:'+a.dbId, kind:'account', ts:ts2, unread:ts2>seen,
+          initial:ini(a.name), badge:['money','green'],
+          t:'<b>'+esc(a.name)+'</b> — deal closed, add the amount',
+          on:"openDealAmount('"+a.dbId+"')"});
+      } else if(a.kind==='meeting'){
+        var ts3=new Date(l.meeting_date||0).getTime()||0;
+        push({key:'mt:'+a.dbId, kind:'meeting', ts:ts3, unread:ts3>seen,
+          initial:ini(a.name), badge:['cal','green'],
+          t:'How did the meeting with <b>'+esc(a.name)+'</b> go?',
+          sub:l.meeting_date?('Meeting was '+_wrapFmtWhen(l.meeting_date)):'',
+          on:"openMeetingOutcome('"+a.dbId+"')"});
+      } else if(a.kind==='followup'){
+        if(prefs.followups===false) return;
+        if(!_fuIsHuman(l)) return; // the AI owns this lead's follow-ups
+        var ts4=new Date(a.when).getTime()||0;
+        push({key:'fu:'+a.dbId+':'+ts4, kind:'followup', ts:ts4, unread:ts4>seen,
+          initial:ini(a.name), badge:['clock','amber'],
+          t:'Follow-up due — <b>'+esc(a.name)+'</b>', sub:_wrapFmtWhen(a.when),
           on:"_notifOpenLeadByDb('"+a.dbId+"')"});
-      });
-      if(fuMissed.length){
-        out.push({cat:'follow', pri:2, ts:now, unread:false, digest:1,
-          icon:'clock', badge:['clock','amber'],
-          t:'<b>'+fuMissed.length+' missed follow-up'+(fuMissed.length>1?'s':'')+'</b>',
-          sub:'Tap to see and reschedule',
-          expand:fuMissed.slice(0,30).map(function(a){ return {n:a.name, s:_wrapFmtWhen(a.when), on:"_notifOpenLeadByDb('"+a.dbId+"')"}; })});
       }
-    }
-    if(prefs.calls!==false && wraps.length){
-      out.push({cat:'comm', pri:3, ts:now, unread:false, digest:1,
-        icon:'phone', badge:['phone',''],
-        t:'<b>'+wraps.length+' call'+(wraps.length>1?'s':'')+'</b> waiting for an outcome',
-        sub:'Each clears once logged',
-        expand:wraps.slice(0,30).map(function(a){ return {n:a.name, s:'log this call', on:"openCallWrapup('"+a.dbId+"')"}; })});
-    }
+    });
   }
-  // New leads — only the last 7 days, max 10
+  // New leads (last 7 days)
   if(prefs.leads!==false){
-    var fresh=(leads||[]).filter(function(l){ var ts=l.created_at?new Date(l.created_at).getTime():0; return ts>=cap7; })
-      .sort(function(a,b){ return new Date(b.created_at).getTime()-new Date(a.created_at).getTime(); }).slice(0,10);
-    fresh.forEach(function(l){
-      var ts=new Date(l.created_at).getTime();
+    (leads||[]).forEach(function(l){
+      var ts=l.created_at?new Date(l.created_at).getTime():0;
+      if(!ts||ts<cap7) return;
       var who=l.company||l.name||'New lead';
-      out.push({cat:'comm', pri:(ts>seen?5:1), ts:ts, unread:ts>seen,
-        initial:String(who).charAt(0).toUpperCase(), badge:['user','green'],
+      push({key:'ld:'+(l.dbId!=null?l.dbId:l.id), kind:'lead', ts:ts, unread:ts>seen,
+        initial:ini(who), badge:['user','green'],
         t:'New lead — <b>'+esc(who)+'</b>',
-        sub:esc(l.stage||'')+(l.src?' · '+esc(l.src):''),
+        sub:esc(l.stage||''),
         on:'_notifOpenLead('+l.id+')'});
     });
   }
@@ -6707,52 +6718,57 @@ function _ntfCollect(seen){
   (window._adminNotifs||[]).forEach(function(nf){
     if(nf.type==='sms_reply' || nf.type==='sms_optout') return;
     if(_isPartnerBell() && !_partnerNotifOk(nf.type)) return;
-    var ts=nf.created_at?new Date(nf.created_at).getTime():now;
-    if(nf.is_read && ts<cap14) return;
+    var ts=nf.created_at?new Date(nf.created_at).getTime():0;
+    if(nf.is_read && ts && ts<cap14) return;
     var safeLink=esc(String(nf.link||'')).replace(/'/g,"\\'");
-    out.push({cat:'account', pri:(nf.is_read?1:4), ts:ts, unread:!nf.is_read,
+    push({key:'ad:'+nf.id, kind:'account', ts:ts||now, unread:!nf.is_read,
       icon:'card', badge:['card', nf.type==='payout_request'?'amber':''],
       t:'<b>'+esc(nf.title||'Notification')+'</b>', sub:esc(nf.body||''),
       on:"_notifOpenAdmin('"+nf.id+"','"+safeLink+"')"});
   });
-  var gr=function(it){ return it.unread?0:(it.digest?1:2); };
-  out.sort(function(a,b){ return gr(a)-gr(b) || (b.pri-a.pri) || (b.ts-a.ts); });
-  return out;
+  out.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
+  return out.slice(0,80);
 }
 window._ntfCat = window._ntfCat || 'all';
 function _ntfSetCat(c){ window._ntfCat=c; _ntfPaint(); }
-function _ntfToggle(i){ window._ntfOpen=window._ntfOpen||{}; window._ntfOpen[i]=!window._ntfOpen[i]; _ntfPaint(); }
 function _ntfPaint(){
   var body=document.getElementById('notifBody'); if(!body) return;
   var items=window._ntfItems||[], cat=window._ntfCat||'all';
-  var chips=[['all','All'],['comm','Communication'],['follow','Follow-ups'],['account','Account']];
-  var h='<div style="display:flex;gap:7px;margin:2px 0 12px;overflow-x:auto;-webkit-overflow-scrolling:touch">'+chips.map(function(c){
+  var chips=[['all','All'],['reply','Replies'],['call','Calls'],['meeting','Meetings'],['followup','Follow-ups'],['lead','Leads'],['account','Account']];
+  var h='<div style="display:flex;align-items:center;justify-content:flex-end;margin:0 0 6px">'
+    + '<button onclick="_ntfMarkAll()" style="border:none;background:none;padding:4px 2px;font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer;background-image:linear-gradient(118deg,#4000f3,#e65afc);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent">Mark all read</button>'
+    + '</div>';
+  h+='<div style="display:flex;gap:7px;margin:0 0 12px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px">'+chips.map(function(c){
     var on=cat===c[0];
     return '<button onclick="_ntfSetCat(\''+c[0]+'\')" style="padding:7px 13px;border-radius:99px;font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;'+(on?'border:1.5px solid transparent;background:linear-gradient(var(--white),var(--white)) padding-box,linear-gradient(118deg,#4000f3,#e65afc) border-box;color:#4000f3':'border:1px solid var(--border);background:var(--white);color:var(--sub)')+'">'+c[1]+'</button>';
   }).join('')+'</div>';
-  var vis=[]; items.forEach(function(it,i){ if(cat==='all'||it.cat===cat) vis.push([it,i]); });
-  if(!vis.length){
+  // Pinned LIVE-call card (the only special card in the feed)
+  var lv=(window._ntfLive&&window._ntfLive.length)?window._ntfLive[0]:null;
+  if(lv){
+    var lwho=_notifEsc(lv.lead_name||lv.name||lv.customer_name||lv.to_name||'a lead');
+    h+='<div onclick="closeSheet(\'notifSh\');goTab(\'calls\',document.getElementById(\'tab-calls\'))" style="display:flex;gap:11px;align-items:center;padding:13px;cursor:pointer;border:1.5px solid transparent;border-radius:13px;margin:0 0 10px;background:linear-gradient(var(--white),var(--white)) padding-box,linear-gradient(118deg,#4000f3,#e65afc) border-box">'
+      +'<span style="width:10px;height:10px;border-radius:50%;background:var(--green);flex-shrink:0;animation:pulse 1.2s infinite"></span>'
+      +'<span style="flex:1;min-width:0;font-size:13.5px;font-family:var(--f);color:var(--text)">Your AI is <b>on a live call</b> with <b>'+lwho+'</b></span>'
+      +'<span style="font-size:12.5px;font-weight:700;background:linear-gradient(118deg,#4000f3,#e65afc);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;flex-shrink:0">Listen ›</span>'
+      +'</div>';
+  }
+  var vis=items.filter(function(it){ return cat==='all'||it.kind===cat; });
+  if(!vis.length && !lv){
     h+='<div style="text-align:center;color:var(--sub);padding:42px 0;font-size:14px">Nothing here — all caught up</div>';
   }
-  var lastG='';
-  vis.forEach(function(p){
-    var it=p[0], i=p[1];
-    var g = it.unread ? 'New' : (it.digest ? 'To do' : 'Earlier');
-    if(g!==lastG){ h+='<div style="font-size:12.5px;font-weight:700;color:var(--text);padding:8px 3px 7px">'+g+'</div>'; lastG=g; }
-    var open=it.expand && (window._ntfOpen||{})[i];
-    h+='<div onclick="'+(it.expand?('_ntfToggle('+i+')'):("closeSheet('notifSh');"+(it.on||'')))+'" style="display:flex;gap:11px;align-items:flex-start;padding:12px 13px;cursor:pointer;background:'+(it.unread?'#f7f4ff':'var(--white)')+';border:1px solid '+(it.unread?'#e4dcff':'var(--border)')+';'+(open?'border-radius:13px 13px 0 0;border-bottom:none;margin:0;':'border-radius:13px;margin:0 0 8px;')+'">'
+  vis.forEach(function(it){
+    var key=String(it.key).replace(/'/g,'');
+    h+='<div onclick="closeSheet(\'notifSh\');'+(it.on||'')+'" style="display:flex;gap:11px;align-items:flex-start;padding:12px 11px 12px 13px;cursor:pointer;background:'+(it.unread?'#f7f4ff':'var(--white)')+';border:1px solid '+(it.unread?'#e4dcff':'var(--border)')+';border-radius:13px;margin:0 0 8px">'
       + _ntfAv(it)
       + '<div style="flex:1;min-width:0;padding-top:1px">'
       +   '<div style="font-size:13.5px;line-height:1.45;color:#1f2937;font-family:var(--f)">'+it.t+'</div>'
       +   (it.sub?'<div style="font-size:12px;color:#9ca3af;margin-top:1px">'+it.sub+'</div>':'')
       + '</div>'
-      + '<div style="font-size:11.5px;color:#9ca3af;flex-shrink:0;padding-top:3px">'+(it.expand?'›':_ntfAgo(it.ts))+'</div>'
+      + '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:7px;flex-shrink:0">'
+      +   '<span style="font-size:11.5px;color:#9ca3af;padding-top:2px">'+_ntfAgo(it.ts)+'</span>'
+      +   '<span onclick="event.stopPropagation();_ntfDismiss(\''+key+'\')" style="width:20px;height:20px;border-radius:50%;background:#eef0f4;color:#9ca3af;font-size:11px;display:flex;align-items:center;justify-content:center">✕</span>'
+      + '</div>'
       + '</div>';
-    if(open){
-      h+='<div style="margin:0 0 8px;padding:2px 14px 9px;background:var(--white);border:1px solid var(--border);border-top:none;border-radius:0 0 13px 13px">'
-        + it.expand.map(function(e){ return '<div onclick="closeSheet(\'notifSh\');'+e.on+'" style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:9px 0;border-bottom:1px solid #f1f2f5;cursor:pointer"><b style="color:var(--text);font-weight:600">'+_notifEsc(e.n)+'</b><span style="color:var(--sub)">'+_notifEsc(e.s)+'</span></div>'; }).join('')
-        + '</div>';
-    }
   });
   body.innerHTML=h;
 }
@@ -6762,11 +6778,10 @@ async function openNotifPanel(){
   await loadSmsReplies();
   var seen=_notifLastSeen();
   window._ntfItems=_ntfCollect(seen);
-  window._ntfOpen={};
   _ntfPaint();
   openSheet('notifSh');
   _notifSetSeen();
-  // Operator platform notifications marked read on open (clears the badge), best-effort
+  // Operator platform notifications marked read on open, best-effort
   if(_isOperatorBell() && _adminNotifUnread()>0){
     try{ sbFetch('/rest/v1/admin_notifications?is_read=eq.false&type=not.in.(sms_reply,sms_optout)',{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({is_read:true})}); }catch(e){}
     (window._adminNotifs||[]).forEach(function(n){ if(n.type!=='sms_reply'&&n.type!=='sms_optout') n.is_read=true; });
@@ -14753,6 +14768,7 @@ async function pbGen(overwrite){
       if(!r || !r.ok) return;
       var d = await r.json().catch(function(){ return {}; });
       var n = (d && d.calls && d.calls.length) || 0;
+      window._ntfLive = (d && d.calls) || []; // import-10o: bell's live-call card
       var pill = document.getElementById('tbLivePill');
       if(pill) pill.style.display = n > 0 ? 'flex' : 'none';
     }catch(e){ /* quiet */ }
