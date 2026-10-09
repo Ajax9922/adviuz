@@ -4716,7 +4716,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-09 import-10p';
+var APP_VERSION = 'v2026-10-09 import-10q';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6618,13 +6618,20 @@ function _ntfAv(it){
 // Dismissed rows live on the device so they never come back.
 function _ntfDismissed(){ try{ return JSON.parse(localStorage.getItem('adviuz_ntf_dismissed')||'[]'); }catch(e){ return []; } }
 function _ntfDismiss(key){
-  try{ var d=_ntfDismissed(); if(d.indexOf(key)===-1){ d.push(key); if(d.length>300) d=d.slice(-300); localStorage.setItem('adviuz_ntf_dismissed', JSON.stringify(d)); } }catch(e){}
+  try{
+    var d=_ntfDismissed(), hit=null;
+    (window._ntfItems||[]).forEach(function(x){ if(x.key===key) hit=x; });
+    var ks=(hit&&hit.group)?hit.group.map(function(c){ return c.key; }):[key];
+    ks.forEach(function(k){ if(d.indexOf(k)===-1) d.push(k); });
+    if(d.length>300) d=d.slice(-300);
+    localStorage.setItem('adviuz_ntf_dismissed', JSON.stringify(d));
+  }catch(e){}
   window._ntfItems=(window._ntfItems||[]).filter(function(it){ return it.key!==key; });
   _ntfPaint(); if(typeof updateNotifBadge==='function') updateNotifBadge();
 }
 function _ntfMarkAll(){
   _notifSetSeen();
-  (window._ntfItems||[]).forEach(function(it){ it.unread=false; });
+  (window._ntfItems||[]).forEach(function(it){ it.unread=false; if(it.group) it.group.forEach(function(c){ c.unread=false; }); });
   if(_isOperatorBell()){
     try{ sbFetch('/rest/v1/admin_notifications?is_read=eq.false&type=not.in.(sms_reply,sms_optout)',{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({is_read:true})}); }catch(e){}
     (window._adminNotifs||[]).forEach(function(n){ if(n.type!=='sms_reply'&&n.type!=='sms_optout') n.is_read=true; });
@@ -6652,20 +6659,35 @@ function _ntfCollect(seen){
   var byDb={}; (leads||[]).forEach(function(l){ if(l&&l.dbId!=null) byDb[String(l.dbId)]=l; });
   function push(it){ if(dis.indexOf(it.key)!==-1) return; out.push(it); }
   function ini(n){ return String(n||'L').charAt(0).toUpperCase(); }
-  // Replies & opt-outs
-  if(prefs.sms!==false)(window._smsReplies||[]).forEach(function(a){
-    var ts=a.created_at?new Date(a.created_at).getTime():0;
-    if(!ts||ts<cap14) return;
-    var opt=_smsReplyIsOptOut(a.description);
-    var l=byDb[String(a.lead_id)];
-    var who=l?(l.company||l.name||'Lead'):'A lead';
-    var txt=String(a.description||'').replace(/^[^:]*:\s*/,'').slice(0,90);
-    push({key:'sms:'+a.id, kind:'reply', ts:ts, unread:ts>seen,
-      initial:ini(who), badge:[opt?'stop':'msg', opt?'red':''],
-      t: opt ? '<b>'+esc(who)+'</b> opted out (STOP) — messaging to this lead is blocked'
-             : '<b>'+esc(who)+'</b> replied: <span style="color:var(--sub)">“'+esc(txt)+'”</span>',
-      on:"_notifOpenSms('"+String(a.lead_id||'')+"')"});
-  });
+  // Replies & opt-outs — several replies from one lead stack into ONE card
+  if(prefs.sms!==false){
+    var reps=[];
+    (window._smsReplies||[]).forEach(function(a){
+      var ts=a.created_at?new Date(a.created_at).getTime():0;
+      if(!ts||ts<cap14) return;
+      var opt=_smsReplyIsOptOut(a.description);
+      var l=byDb[String(a.lead_id)];
+      var who=l?(l.company||l.name||'Lead'):'A lead';
+      var txt=String(a.description||'').replace(/^[^:]*:\s*/,'').replace(/^["“‘']+|["”’']+$/g,'').slice(0,90);
+      var it={key:'sms:'+a.id, kind:'reply', ts:ts, unread:ts>seen, lead:String(a.lead_id||''), opt:opt,
+        initial:ini(who), badge:[opt?'stop':'msg', opt?'red':''],
+        t: opt ? '<b>'+esc(who)+'</b> opted out (STOP) — messaging to this lead is blocked'
+               : '<b>'+esc(who)+'</b> replied: <span style="color:var(--sub)">“'+esc(txt)+'”</span>',
+        on:"_notifOpenSms('"+String(a.lead_id||'')+"')"};
+      if(dis.indexOf(it.key)!==-1) return;
+      reps.push(it);
+    });
+    var byLead={};
+    reps.forEach(function(it){ var k=it.opt?('o'+it.key):it.lead; (byLead[k]=byLead[k]||[]).push(it); });
+    Object.keys(byLead).forEach(function(k){
+      var g=byLead[k]; g.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
+      if(g.length<2){ out.push(g[0]); return; }
+      var top=g[0];
+      out.push({key:'smsg:'+k, kind:'reply', ts:top.ts, unread:g.some(function(x){ return x.unread; }),
+        initial:top.initial, badge:['msg',''], group:g,
+        t:top.t, sub:g.length+' messages · tap to see all', on:''});
+    });
+  }
   // To-dos (each with its REAL time, so old ones sink down the feed)
   if(!_isPartnerBell()){
     _bellActionItems().forEach(function(a){
@@ -6731,6 +6753,8 @@ function _ntfCollect(seen){
 }
 window._ntfCat = window._ntfCat || 'all';
 function _ntfSetCat(c){ window._ntfCat=c; _ntfPaint(); }
+window._ntfOpen = window._ntfOpen || {};
+function _ntfGroupToggle(k){ window._ntfOpen[k]=!window._ntfOpen[k]; _ntfPaint(); }
 function _ntfPaint(){
   var body=document.getElementById('notifBody'); if(!body) return;
   var items=window._ntfItems||[], cat=window._ntfCat||'all';
@@ -6756,9 +6780,10 @@ function _ntfPaint(){
   if(!vis.length && !lv){
     h+='<div style="text-align:center;color:var(--sub);padding:42px 0;font-size:14px">Nothing here — all caught up</div>';
   }
-  vis.forEach(function(it){
+  function rowHtml(it, mb, click){
     var key=String(it.key).replace(/'/g,'');
-    h+='<div onclick="closeSheet(\'notifSh\');'+(it.on||'')+'" style="display:flex;gap:11px;align-items:flex-start;padding:12px 11px 12px 13px;cursor:pointer;background:'+(it.unread?'#f7f4ff':'var(--white)')+';border:1px solid '+(it.unread?'#e4dcff':'var(--border)')+';border-radius:13px;margin:0 0 8px">'
+    if(click==null) click='closeSheet(\'notifSh\');'+(it.on||'');
+    return '<div onclick="'+click+'" style="display:flex;gap:11px;align-items:flex-start;padding:12px 11px 12px 13px;cursor:pointer;background:'+(it.unread?'#f7f4ff':'var(--white)')+';border:1px solid '+(it.unread?'#e4dcff':'var(--border)')+';border-radius:13px;margin:0 0 '+mb+'px">'
       + _ntfAv(it)
       + '<div style="flex:1;min-width:0;padding-top:1px">'
       +   '<div style="font-size:13.5px;line-height:1.45;color:#1f2937;font-family:var(--f)">'+it.t+'</div>'
@@ -6769,6 +6794,22 @@ function _ntfPaint(){
       +   '<span onclick="event.stopPropagation();_ntfDismiss(\''+key+'\')" style="width:20px;height:20px;border-radius:50%;background:#eef0f4;color:#9ca3af;font-size:11px;display:flex;align-items:center;justify-content:center">✕</span>'
       + '</div>'
       + '</div>';
+  }
+  vis.forEach(function(it){
+    var key=String(it.key).replace(/'/g,'');
+    if(it.group){
+      if(window._ntfOpen && window._ntfOpen[it.key]){
+        it.group.forEach(function(c){ h+=rowHtml(c,8); });
+        h+='<div onclick="_ntfGroupToggle(\''+key+'\')" style="text-align:center;font-size:12px;font-weight:600;color:var(--sub);padding:0 0 10px;cursor:pointer">Show less</div>';
+      } else {
+        var sb='background:'+(it.unread?'#f7f4ff':'var(--white)')+';border:1px solid '+(it.unread?'#e4dcff':'var(--border)')+';border-top:none;border-radius:0 0 11px 11px';
+        h+=rowHtml(it,0,'_ntfGroupToggle(\''+key+'\')')
+          + '<div style="height:5px;margin:0 7px;'+sb+'"></div>'
+          + '<div style="height:5px;margin:0 15px 8px;'+sb+'"></div>';
+      }
+      return;
+    }
+    h+=rowHtml(it,8);
   });
   body.innerHTML=h;
 }
