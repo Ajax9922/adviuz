@@ -4716,7 +4716,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-09 import-10r';
+var APP_VERSION = 'v2026-10-09 import-10s';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6528,6 +6528,13 @@ async function loadSmsReplies(){
   }catch(e){ window._smsReplies = []; }
   if(typeof updateNotifBadge==='function') updateNotifBadge();
 }
+async function loadCallActs(){
+  if(_isPartnerBell()){ window._callActs=[]; return; }
+  try{
+    var r = await sbFetch('/rest/v1/lead_activity?activity_type=in.(call,email_received)&order=created_at.desc&limit=30&select=id,lead_id,client_id,activity_type,description,direction,duration_seconds,metadata,created_at');
+    window._callActs = r.ok ? (await r.json().catch(function(){return [];})) : [];
+  }catch(e){ window._callActs = []; }
+}
 function _smsReplyIsOptOut(desc){ return /\b(stop|stopall|unsubscribe|cancel|quit|opt\s*-?\s*out|revoke)\b/i.test(String(desc||'')); }
 function _smsRepliesNew(){
   var seen=_notifLastSeen();
@@ -6590,6 +6597,7 @@ function _ntfAgo(ts){
 function _ntfIcon(kind){
   var P={
     msg:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+    mail:'<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/>',
     phone:'<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 13 13 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 13 13 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
     clock:'<circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/>',
     cal:'<rect x="4" y="5" width="16" height="16" rx="2"/><line x1="16" y1="3" x2="16" y2="7"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="4" y1="11" x2="20" y2="11"/>',
@@ -6688,6 +6696,34 @@ function _ntfCollect(seen){
         t:top.t, sub:g.length+' messages · tap to see all', on:''});
     });
   }
+  // Real call logs (inbound/outbound) + email replies
+  (window._callActs||[]).forEach(function(a){
+    var ts=a.created_at?new Date(a.created_at).getTime():0;
+    if(!ts) return;
+    var l=byDb[String(a.lead_id)];
+    var who=l?(l.company||l.name||'Lead'):'A caller';
+    if(a.activity_type==='email_received'){
+      if(prefs.email===false || ts<cap14) return;
+      push({key:'em:'+a.id, kind:'reply', ts:ts, unread:ts>seen,
+        initial:ini(who), badge:['mail',''],
+        t:'<b>'+esc(who)+'</b> replied by email',
+        sub:esc(String(a.description||'').slice(0,90)),
+        on:"_notifOpenLeadByDb('"+String(a.lead_id||'')+"')"});
+      return;
+    }
+    if(prefs.calls===false || ts<cap7) return;
+    var ai=(a.metadata&&a.metadata.handler==='ai')||/^AI call/i.test(String(a.description||''));
+    var inb=a.direction==='inbound';
+    var vm=/voicemail/i.test(String(a.description||''));
+    var secs=a.duration_seconds||0;
+    var dur=secs>=60?(Math.floor(secs/60)+'m '+(secs%60)+'s'):(secs+'s');
+    var bits=[]; if(l&&l.phone) bits.push(esc(l.phone)); if(secs) bits.push(dur);
+    push({key:'cl:'+a.id, kind:'call', ts:ts, unread:ts>seen,
+      initial:ini(who), badge:['phone', inb?'green':''],
+      t:'<b>'+esc(who)+'</b> — '+(inb?'Inbound':'Outbound')+(ai?' AI':'')+' call'+(vm?' (voicemail)':''),
+      sub:bits.join(' · '),
+      on:"_notifOpenLeadByDb('"+String(a.lead_id||'')+"')"});
+  });
   // To-dos (each with its REAL time, so old ones sink down the feed)
   if(!_isPartnerBell()){
     _bellActionItems().forEach(function(a){
@@ -6695,7 +6731,7 @@ function _ntfCollect(seen){
       if(a.kind==='wrapup'){
         if(prefs.calls===false) return;
         var ts=new Date(l.updated_at||l.created_at||0).getTime()||0;
-        push({key:'wr:'+a.dbId, kind:'call', ts:ts, unread:ts>seen,
+        push({key:'wr:'+a.dbId, kind:'callnote', ts:ts, unread:ts>seen,
           initial:ini(a.name), badge:['phone',''],
           t:'Log your call with <b>'+esc(a.name)+'</b>', sub:'How did it go?',
           on:"openCallWrapup('"+a.dbId+"')"});
@@ -6758,7 +6794,7 @@ function _ntfGroupToggle(k){ window._ntfOpen[k]=!window._ntfOpen[k]; _ntfPaint()
 function _ntfPaint(){
   var body=document.getElementById('notifBody'); if(!body) return;
   var items=window._ntfItems||[], cat=window._ntfCat||'all';
-  var chips=[['all','All'],['reply','Replies'],['call','Calls'],['meeting','Meetings'],['followup','Follow-ups'],['lead','Leads'],['account','Account']];
+  var chips=[['all','All'],['reply','Replies'],['call','Calls'],['callnote','Call notes'],['meeting','Meetings'],['followup','Follow-ups'],['lead','Leads'],['account','Account']];
   var h='<div style="display:flex;align-items:center;justify-content:flex-end;margin:0 0 6px">'
     + '<button onclick="_ntfMarkAll()" style="border:none;background:none;padding:4px 2px;font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer;background-image:linear-gradient(118deg,#4000f3,#e65afc);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent">Mark all read</button>'
     + '</div>';
@@ -6820,6 +6856,7 @@ async function openNotifPanel(){
   ensureNotifSheet();
   await loadAdminNotifs();
   await loadSmsReplies();
+  await loadCallActs();
   var seen=_notifLastSeen();
   window._ntfItems=_ntfCollect(seen);
   _ntfPaint();
