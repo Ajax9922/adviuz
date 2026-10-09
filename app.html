@@ -4716,7 +4716,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-08 import-10i';
+var APP_VERSION = 'v2026-10-08 import-10j';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -25536,9 +25536,26 @@ function openImportSheet(){
   if(sel){
     var camps=[].concat(((window._adminData&&window._adminData.campaigns)||[]),(window._clientCampaigns||[]));
     var seen={}, opts='<option value="">— No campaign —</option>';
-    camps.forEach(function(c){ if(c&&c.id&&!seen[c.id]){ seen[c.id]=1; opts+='<option value="'+c.id+'">'+String(c.name||c.campaign_name||'Campaign').replace(/</g,'&lt;')+'</option>'; } });
+    camps.forEach(function(c){ if(c&&c.id&&!seen[c.id]){ seen[c.id]=1; var _tfx=(typeof _isCeCamp==='function'&&_isCeCamp(c))?' \u00b7 AI Engine':' \u00b7 Flyer'; opts+='<option value="'+c.id+'">'+String(c.name||c.campaign_name||'Campaign').replace(/</g,'&lt;')+_tfx+'</option>'; } });
     sel.innerHTML=opts;
     var ks=Object.keys(seen); sel.value = ks.length===1 ? ks[0] : '';
+    // import-10j: opened from inside a campaign -> that campaign is fixed,
+    // the picker hides, and a banner says where the leads will land.
+    var _lk = window._impLock ? String(window._impLock) : ''; window._impLock = null;
+    var _row = document.getElementById('impCampaignRow');
+    var _oldB = document.getElementById('impLockBanner'); if (_oldB) _oldB.remove();
+    if (_lk && seen[_lk]) {
+      sel.value = _lk;
+      if (_row) {
+        _row.style.display = 'none';
+        var _nm2=''; try{ _nm2=sel.options[sel.selectedIndex].text; }catch(_e){}
+        _row.insertAdjacentHTML('afterend',
+          '<div id="impLockBanner" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:10px 12px;border-radius:11px;border:1.5px solid transparent;background:linear-gradient(var(--white),var(--white)) padding-box,linear-gradient(118deg,#4000f3,#e65afc) border-box">'
+          +'<span style="font-size:10.5px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;background:linear-gradient(118deg,#4000f3,#e65afc);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;flex-shrink:0">Uploading into</span>'
+          +'<span style="font-size:13px;font-weight:600;color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_nm2.replace(/</g,'&lt;')+'</span>'
+          +'</div>');
+      }
+    } else if (_row) { _row.style.display = ''; }
     var req=document.getElementById('impCampaignReq');
     var staff=!!window._staffRole && !_cl;
     if(req) req.innerHTML = staff ? '<span style="color:#dc2626">*</span>' : '<span style="color:var(--sub);font-weight:400">(recommended)</span>';
@@ -30246,7 +30263,7 @@ function _buyableAiCamps(){
     if(typeof _fuelIsFrozen==='function' && _fuelIsFrozen(w)) continue;
     var cid=String(w.campaign_id||''); if(!cid || seen[cid]) continue; seen[cid]=1;
     var cp=(window._clientCampaigns||[]).find(function(c){return String(c.id)===cid;});
-    out.push({id:cid, name:w.campaign_name||(cp&&cp.name)||'Campaign', left:Math.max(0,Number(w.ai_minutes)||0)});
+    out.push({id:cid, name:w.campaign_name||(cp&&cp.name)||'Campaign', left:Math.max(0,Number(w.ai_minutes)||0), ce:!!(cp && typeof _isCeCamp==='function' && _isCeCamp(cp))});
   }
   return out;
 }
@@ -30284,16 +30301,31 @@ function _aiCartEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c
 function _aiCartIncl(p){
   return _aiCartNum(p.sms)+' SMS \u00b7 '+_aiCartNum(p.emails)+' emails \u00b7 '+_aiCartNum(p.ivr_calls)+' call min';
 }
+function aiCartTf(v){ window._aiCartTf=v; _aiCartPaint(); }
 function _aiCartPaint(){
   var body=document.getElementById('aiCartBody'); if(!body) return;
   var keep=body.scrollTop;
   var plans=window._aiPlans||[], camps=_buyableAiCamps(), cart=window._aiCart||{};
   var h='<div style="font-size:12.5px;color:var(--sub);line-height:1.5;margin-bottom:12px">Choose a plan for each campaign you want to top up.</div>';
+  // import-10j: same type chips as the dashboard, so flyer vs AI-Engine
+  // campaigns with similar names never get mixed up while paying.
+  var _hasCe3=camps.some(function(c){return c.ce;}), _hasFl3=camps.some(function(c){return !c.ce;});
+  var _tf3=(_hasCe3&&_hasFl3)?(window._aiCartTf||''):'';
+  if(_hasCe3&&_hasFl3){
+    var _tchip3=function(val,lbl){
+      var on=_tf3===val;
+      return '<button onclick="aiCartTf(\''+val+'\')" style="padding:7px 13px;border-radius:99px;font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;'
+        +(on?'border:1.5px solid transparent;background:linear-gradient(var(--white),var(--white)) padding-box,linear-gradient(118deg,#4000f3,#e65afc) border-box;color:#4000f3':'border:1px solid var(--border);background:var(--white);color:var(--sub)')
+        +'">'+lbl+'</button>';
+    };
+    h+='<div style="display:flex;gap:7px;margin-bottom:12px;overflow-x:auto;-webkit-overflow-scrolling:touch">'+_tchip3('','All')+_tchip3('flyer','Digital Flyers')+_tchip3('ce','AI Conversion Engine')+'</div>';
+  }
+  var vis=camps.filter(function(c){ if(_tf3==='ce') return c.ce; if(_tf3==='flyer') return !c.ce; return true; });
   if(camps.length>1){
     h+='<div onclick="aiCartChoose(\'all\')" style="display:inline-flex;align-items:center;gap:7px;background:var(--bg);border:1px solid var(--border);border-radius:22px;padding:9px 15px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;margin-bottom:12px">\u26a1 Add the same plan to all campaigns</div>';
   }
   var picked=0, preTax=0;
-  camps.forEach(function(c){
+  vis.forEach(function(c){
     var cid=String(c.id), e=cart[cid]||{plan:0,ap:false};
     var pl=null; if(e.plan) plans.forEach(function(p){ if(Number(p.id)===Number(e.plan)) pl=p; });
     var left=Number(c.left)||0;
@@ -30303,6 +30335,10 @@ function _aiCartPaint(){
       +'<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">'
       +'<div style="font-size:15px;font-weight:600;color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_aiCartEsc(c.name)+'</div>'
       +'<span style="flex:0 0 auto;font-size:10.5px;font-weight:600;border-radius:20px;padding:4px 10px;'+pillCss+'">'+pillTxt+'</span></div>';
+    h+='<div style="margin-top:7px">'+(c.ce
+      ?'<span style="display:inline-flex;padding:3px 9px;border-radius:99px;border:1.5px solid transparent;background:linear-gradient(var(--white),var(--white)) padding-box,linear-gradient(118deg,#4000f3,#e65afc) border-box"><span style="font-size:9.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;background:linear-gradient(118deg,#4000f3,#e65afc);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent">AI Conversion Engine</span></span>'
+      :'<span style="display:inline-flex;padding:3px 9px;border-radius:99px;border:1px solid var(--border);background:var(--bg);font-size:9.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--sub)">Digital Flyer</span>')
+      +'</div>';
     if(!pl){
       h+='<div onclick="aiCartChoose(\''+cid+'\')" style="margin-top:11px;border:1.5px dashed #cbd5e1;border-radius:11px;background:var(--bg);padding:12px;text-align:center;font-size:13.5px;font-weight:600;color:var(--text);cursor:pointer">+ Choose a plan</div>';
     }else{
@@ -30810,11 +30846,9 @@ function ceSrcIcon(b){
 }
 function ceUpload(cid){
   if (typeof openImportSheet !== 'function') { showToast('Lead import is not available here'); return; }
+  // import-10j: the campaign is fixed — openImportSheet hides the picker.
+  window._impLock = String(cid);
   openImportSheet();
-  setTimeout(function(){
-    var s = document.getElementById('impCampaign');
-    if (s) { s.value = String(cid); }
-  }, 60);
 }
 // import-10g: NO email client — an in-app sheet shows support@adviuz.com
 // (one tap to copy) until the real one-tap integration ships.
