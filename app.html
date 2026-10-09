@@ -4716,7 +4716,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-08 import-10h';
+var APP_VERSION = 'v2026-10-08 import-10i';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -30869,7 +30869,52 @@ function ceSrcSheetHTML(cp){
     + row('📘', 'Facebook &amp; Instagram Lead Ads', 'New leads arrive the moment someone submits your form. Adviuz connects this for you — tap to request.', "ceAskConnect('Facebook Lead Ads','" + nm + "')")
     + row('🌐', 'Website form', 'Your website form feeds leads straight in. Adviuz connects this for you — tap to request.', "ceAskConnect('our website form','" + nm + "')")
     + row('🔗', 'API &amp; webhooks', 'For any other CRM or app. Coming soon — tap to get on the early list.', "ceAskConnect('the API / webhooks (early access)','" + nm + "')")
-    + row('⚡', 'Zapier / Make', 'Connect thousands of apps without code. Coming soon — tap to get on the early list.', "ceAskConnect('Zapier (early access)','" + nm + "')");
+    + row('⚡', 'Zapier / Make', 'Connect thousands of apps without code. Tap to see your ready-to-paste links.', "ceOpenHooks('" + cp.id + "')");
+}
+// ── import-10i: per-campaign webhook links (Zapier / Make) ──
+function ceOpenHooks(cid){
+  ensureSimpleSheet('ceHooksSh', 'Your Zapier / Make links');
+  var b = document.getElementById('ceHooksShBody');
+  if (b) b.innerHTML = '<div style="text-align:center;color:var(--sub);font-size:13px;padding:30px 0">Loading your links…</div>';
+  openSheet('ceHooksSh');
+  sbFetch('/rest/v1/leadform_map?campaign_id=eq.'+encodeURIComponent(cid)+'&select=fb_form_id,label,field_map&order=label.asc')
+    .then(function(r){ return r.ok ? r.json() : []; })
+    .then(function(rows){ ceHooksPaint(rows||[]); })
+    .catch(function(){ ceHooksPaint([]); });
+}
+function ceHooksPaint(rows){
+  var b = document.getElementById('ceHooksShBody'); if (!b) return;
+  // Only clean link tokens are shown (16+ random characters) — real Facebook
+  // form-id mappings stay internal.
+  var hooks = (rows||[]).filter(function(m){ return /^[a-z0-9]{16,}$/.test(String(m.fb_form_id||'')); });
+  var h = '';
+  if (!hooks.length) {
+    h = '<div style="text-align:center;padding:18px 8px">'
+      + '<div style="font-size:14px;font-weight:600;color:var(--text)">No links yet for this campaign</div>'
+      + '<div style="font-size:12.5px;color:var(--sub);line-height:1.6;margin-top:6px">Email <strong>support@adviuz.com</strong> and we&rsquo;ll create your personal links &mdash; one for each place your leads come from.</div>'
+      + '</div>';
+  } else {
+    h = '<div style="font-size:12.5px;color:var(--sub);line-height:1.6;margin-bottom:12px">In Zapier or Make, add a <strong>Webhook &rarr; POST</strong> step and paste a link below. Send <strong>full_name</strong>, <strong>phone_number</strong> and <strong>email</strong> &mdash; every lead lands in this campaign within seconds.</div>';
+    hooks.forEach(function(m){
+      var u = 'https://hooks.adviuz.com/' + m.fb_form_id;
+      var src2 = String((m.field_map&&m.field_map.lead_source)||'').trim();
+      h += '<div style="border:1px solid var(--border);border-radius:13px;padding:12px 13px;margin-bottom:9px;background:var(--white)">'
+        +   '<div style="font-size:12.5px;font-weight:600;color:var(--text)">'+(m.label||'Webhook')+(src2?' <span style="font-weight:500;color:var(--sub)">· stamps leads as '+src2+'</span>':'')+'</div>'
+        +   '<div onclick="ceCopyHook(\''+u+'\')" style="display:flex;align-items:center;gap:8px;margin-top:8px;padding:10px 12px;border-radius:10px;cursor:pointer;border:1.5px solid transparent;background:linear-gradient(var(--bg),var(--bg)) padding-box,linear-gradient(118deg,#4000f3,#e65afc) border-box">'
+        +     '<span style="flex:1;min-width:0;font-size:11.5px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+u+'</span>'
+        +     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b2bf7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
+        +   '</div>'
+        + '</div>';
+    });
+    h += '<div style="font-size:11.5px;color:var(--sub);line-height:1.6;margin-top:4px">Want a separate link for another source (website, LinkedIn, another app)? Email <strong>support@adviuz.com</strong> &mdash; each source gets its own link so you can see which one makes you money.</div>';
+  }
+  b.innerHTML = h;
+}
+function ceCopyHook(u){
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(u).then(function(){ showToast('Link copied'); }, function(){ showToast(u); }); return; }
+  } catch(_e) {}
+  showToast(u);
 }
 function ceOpenSrcSheet(cid){
   var cp = (window._clientCampaigns||[]).find(function(x){ return String(x.id)===String(cid); });
