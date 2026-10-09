@@ -4716,7 +4716,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-09 import-10s';
+var APP_VERSION = 'v2026-10-09 import-10u';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6594,11 +6594,18 @@ function _ntfAgo(ts){
   var dd=Math.floor(h/24); if(dd<7) return dd+'d';
   return Math.floor(dd/7)+'w';
 }
+function _ntfDT(ts){
+  var d=new Date(ts), M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var h=d.getHours(), ap=h>=12?'PM':'AM'; h=h%12||12;
+  var mi=d.getMinutes(); if(mi<10) mi='0'+mi;
+  return M[d.getMonth()]+' '+d.getDate()+' · '+h+':'+mi+' '+ap;
+}
 function _ntfIcon(kind){
   var P={
     msg:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
     mail:'<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/>',
     phone:'<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 13 13 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 13 13 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+    phonein:'<polyline points="16 3 16 8 21 8"/><line x1="22" y1="2" x2="16" y2="8"/><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 13 13 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 13 13 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
     clock:'<circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/>',
     cal:'<rect x="4" y="5" width="16" height="16" rx="2"/><line x1="16" y1="3" x2="16" y2="7"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="4" y1="11" x2="20" y2="11"/>',
     stop:'<line x1="12" y1="7" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
@@ -6696,32 +6703,35 @@ function _ntfCollect(seen){
         t:top.t, sub:g.length+' messages · tap to see all', on:''});
     });
   }
-  // Real call logs (inbound/outbound) + email replies
+  // Inbound call log (outbound calls stay off the bell) + email replies
   (window._callActs||[]).forEach(function(a){
     var ts=a.created_at?new Date(a.created_at).getTime():0;
     if(!ts) return;
     var l=byDb[String(a.lead_id)];
-    var who=l?(l.company||l.name||'Lead'):'A caller';
     if(a.activity_type==='email_received'){
+      var ew=l?(l.company||l.name||'Lead'):'A lead';
       if(prefs.email===false || ts<cap14) return;
       push({key:'em:'+a.id, kind:'reply', ts:ts, unread:ts>seen,
-        initial:ini(who), badge:['mail',''],
-        t:'<b>'+esc(who)+'</b> replied by email',
+        initial:ini(ew), badge:['mail',''],
+        t:'<b>'+esc(ew)+'</b> replied by email',
         sub:esc(String(a.description||'').slice(0,90)),
         on:"_notifOpenLeadByDb('"+String(a.lead_id||'')+"')"});
       return;
     }
     if(prefs.calls===false || ts<cap7) return;
+    if(a.direction!=='inbound') return;
+    var who=l?(l.company||l.name||'Inbound call'):'Inbound call';
     var ai=(a.metadata&&a.metadata.handler==='ai')||/^AI call/i.test(String(a.description||''));
-    var inb=a.direction==='inbound';
-    var vm=/voicemail/i.test(String(a.description||''));
     var secs=a.duration_seconds||0;
     var dur=secs>=60?(Math.floor(secs/60)+'m '+(secs%60)+'s'):(secs+'s');
-    var bits=[]; if(l&&l.phone) bits.push(esc(l.phone)); if(secs) bits.push(dur);
+    var hic=ai
+      ?'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8b2bf7" stroke-width="2.2" stroke-linecap="round" style="vertical-align:-2px;margin-left:5px"><path d="M2 10v4"/><path d="M6 7v10"/><path d="M10 4v16"/><path d="M14 8v8"/><path d="M18 5v14"/><path d="M22 10v4"/></svg>'
+      :'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-left:5px"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.5-6 8-6s8 2 8 6"/></svg>';
     push({key:'cl:'+a.id, kind:'call', ts:ts, unread:ts>seen,
-      initial:ini(who), badge:['phone', inb?'green':''],
-      t:'<b>'+esc(who)+'</b> — '+(inb?'Inbound':'Outbound')+(ai?' AI':'')+' call'+(vm?' (voicemail)':''),
-      sub:bits.join(' · '),
+      initial:ini(who), badge:['phonein','green'],
+      t:'<b>'+esc(who)+'</b>'+hic,
+      sub:(l&&l.phone)?('<span style="color:#374151;font-weight:600">'+esc(l.phone)+'</span>'):'',
+      sub2:_ntfDT(ts)+(secs?(' · '+dur):''),
       on:"_notifOpenLeadByDb('"+String(a.lead_id||'')+"')"});
   });
   // To-dos (each with its REAL time, so old ones sink down the feed)
@@ -6794,7 +6804,7 @@ function _ntfGroupToggle(k){ window._ntfOpen[k]=!window._ntfOpen[k]; _ntfPaint()
 function _ntfPaint(){
   var body=document.getElementById('notifBody'); if(!body) return;
   var items=window._ntfItems||[], cat=window._ntfCat||'all';
-  var chips=[['all','All'],['reply','Replies'],['call','Calls'],['callnote','Call notes'],['meeting','Meetings'],['followup','Follow-ups'],['lead','Leads'],['account','Account']];
+  var chips=[['all','All'],['reply','Priority'],['followup','Follow-ups'],['lead','Leads'],['call','Calls'],['meeting','Meetings'],['callnote','Call notes'],['account','Account']];
   var h='<div style="display:flex;align-items:center;justify-content:flex-end;margin:0 0 6px">'
     + '<button onclick="_ntfMarkAll()" style="border:none;background:none;padding:4px 2px;font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer;background-image:linear-gradient(118deg,#4000f3,#e65afc);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent">Mark all read</button>'
     + '</div>';
@@ -6824,6 +6834,7 @@ function _ntfPaint(){
       + '<div style="flex:1;min-width:0;padding-top:1px">'
       +   '<div style="font-size:13.5px;line-height:1.45;color:#1f2937;font-family:var(--f)">'+it.t+'</div>'
       +   (it.sub?'<div style="font-size:12px;color:#9ca3af;margin-top:1px">'+it.sub+'</div>':'')
+      +   (it.sub2?'<div style="font-size:12px;color:#9ca3af;margin-top:1px">'+it.sub2+'</div>':'')
       + '</div>'
       + '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:7px;flex-shrink:0">'
       +   '<span style="font-size:11.5px;color:#9ca3af;padding-top:2px">'+_ntfAgo(it.ts)+'</span>'
