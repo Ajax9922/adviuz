@@ -4716,7 +4716,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-09 import-10y';
+var APP_VERSION = 'v2026-10-10 import-10za';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -19989,6 +19989,28 @@ async function startAiCall(leadId, phone, agent, firstName){
     }
   } catch(e){ showToast('Error starting AI call'); }
 }
+// import-10z: push deep link — opening the app at /?live=<call_id> (from the
+// "Live call in progress" push) lands straight on the Live Call screen.
+(function(){
+  try{
+    var m = location.search.match(/[?&]live=([^&]+)/);
+    if(!m) return;
+    var liveCid = decodeURIComponent(m[1]);
+    try{ history.replaceState(null, '', location.pathname); }catch(e){}
+    var tries = 0;
+    var t = setInterval(function(){
+      tries++;
+      var ready = (typeof currentUser !== 'undefined') && currentUser && typeof openLiveCall === 'function';
+      if(ready){
+        clearInterval(t);
+        window._liveDetailAllow = 12; // patience: row may still be forming
+        try{ goTab('calls', document.getElementById('tab-calls')); }catch(e){}
+        openLiveCall(liveCid, 'Live call');
+      }
+      if(tries > 120) clearInterval(t);
+    }, 500);
+  }catch(e){}
+})();
 window._aiCsLead = null;
 function closeAiCallSheet(){ var o=document.getElementById('aiCallShOv'); if(o) o.classList.remove('open'); }
 function openAiCallSheet(l){
@@ -42892,6 +42914,13 @@ document.addEventListener('click', function(ev){
       var p = new URLSearchParams(qs);
       var ld = p.get('lead'); var rv = p.get('review'); var sm = p.get('sms');
       var cr = p.get('ca_review'); var cg = p.get('campaign');
+      var lv = p.get('live'); // import-10za: live-call push tap while app is open
+      if (lv && typeof openLiveCall === 'function') {
+        try { goTab('calls', document.getElementById('tab-calls')); } catch (e) {}
+        window._liveDetailAllow = 12;
+        openLiveCall(lv, 'Live call');
+        return;
+      }
       if (sm) window.openSmsByDbId(sm);
       else if (ld) window.openLeadByDbId(ld);
       if (rv) window.openReviewByDbId(rv);
