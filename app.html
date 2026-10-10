@@ -4716,7 +4716,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-10 import-10ze';
+var APP_VERSION = 'v2026-10-10 import-10zf';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6310,11 +6310,12 @@ function mapLead(l, i) {
     svc: l.service || '', note: l.notes || '',
     location: l.location || '',
     ok: l.sms_consent || false,
-    t: timeAgo(l.last_activity_at || l.updated_at || l.created_at),
+    t: timeAgo(l.last_activity_at || l.first_inquiry_at || l.created_at), // inq-date-1: last contact, else original inquiry — never the import date
     created_at: l.created_at || null,
     first_inquiry_at: l.first_inquiry_at || null,
     last_activity_at: l.last_activity_at || null,
     rawDate: l.created_at ? locDate(l.created_at) : locToday(),
+    inqDate: (l.first_inquiry_at||l.created_at) ? locDate(l.first_inquiry_at||l.created_at) : locToday(), // inq-date-1: when they actually inquired
     col: l.color || COLORS[i % COLORS.length],
     partner_id: l.partner_id || null,
     meeting_date: l.meeting_date || null,
@@ -8295,7 +8296,7 @@ function leadsHTML(){
     if(af.managers  && af.managers.length  && af.managers.indexOf(gfManagerId(l))===-1) return false;
     if(af.campaigns && af.campaigns.length && af.campaigns.indexOf(gfCampaignId(l))===-1) return false;
     // drill-2: date window handed over from a report drill-down
-    if(af.dateFrom||af.dateTo){ var _dd=String(l.rawDate||l.created_at||'').slice(0,10);
+    if(af.dateFrom||af.dateTo){ var _dd=String(l.inqDate||l.first_inquiry_at||l.rawDate||l.created_at||'').slice(0,10);
       if(af.dateFrom && (!_dd||_dd<af.dateFrom)) return false;
       if(af.dateTo   && (!_dd||_dd>af.dateTo))   return false; }
     if(!advMatch(af.locations, l.location||'')) return false;
@@ -11846,7 +11847,7 @@ function rptFilterLeads(arr) {
   return arr.filter(function(l) {
     if(!gfLeadInScope(l)) return false;           // honor global client scope
     // leads use l.t (display date) or l.created_at — use raw date string
-    var d = l.rawDate || l.created_at || '';
+    var d = l.inqDate || l.first_inquiry_at || l.rawDate || l.created_at || ''; // inq-date-1
     if (!d) return true; // include if no date
     d = d.slice(0,10);
     return d >= from && d <= to;
@@ -12934,7 +12935,7 @@ function rptApplyFilters(arr){
   var f = window._rptFilters || {};
   return (arr||[]).filter(function(l){
     if(f.from || f.to){
-      var d=(l.rawDate||'').slice(0,10);
+      var d=String(l.inqDate||l.first_inquiry_at||l.rawDate||'').slice(0,10); // inq-date-1
       if(f.from && (!d || d<f.from)) return false;
       if(f.to   && (!d || d>f.to))   return false;
     }
@@ -22715,6 +22716,7 @@ async function doSaveLead(lead) {
     if(saved && saved.id) lead.dbId = saved.id;
     lead.created_at = (saved && saved.created_at) || new Date().toISOString();
     lead.rawDate = locDate(lead.created_at);
+    lead.inqDate = locDate(lead.first_inquiry_at || lead.created_at);
     lead.t = 'just now';
     leads.unshift(lead);
 
@@ -27100,8 +27102,9 @@ async function loadPartnerLeads() {
           stage: l.stage || partnerStageLabel(l.stage_code||'fresh_lead'),
           stage_code: l.stage_code||'fresh_lead',
           note: l.notes||'',
-          t: timeAgo(l.updated_at || l.created_at),
+          t: timeAgo(l.last_activity_at || l.first_inquiry_at || l.created_at),
           rawDate: l.created_at ? locDate(l.created_at) : locToday(),
+          inqDate: (l.first_inquiry_at||l.created_at) ? locDate(l.first_inquiry_at||l.created_at) : locToday(),
           created_at: l.created_at || '',
           first_inquiry_at: l.first_inquiry_at || null,
           col: ['#00a884','#2563eb','#7c3aed','#d97706','#0891b2','#db2777'][name.charCodeAt(0)%6]||'#00a884',
@@ -35110,7 +35113,7 @@ function adAllLeadsHTML() {
     if(af.managers  && af.managers.length  && af.managers.indexOf(gfManagerId(l))===-1) return false;
     if(af.campaigns && af.campaigns.length && af.campaigns.indexOf(gfCampaignId(l))===-1) return false;
     // drill-2: date window handed over from a report drill-down
-    if(af.dateFrom||af.dateTo){ var _dd=String(l.rawDate||l.created_at||'').slice(0,10);
+    if(af.dateFrom||af.dateTo){ var _dd=String(l.inqDate||l.first_inquiry_at||l.rawDate||l.created_at||'').slice(0,10);
       if(af.dateFrom && (!_dd||_dd<af.dateFrom)) return false;
       if(af.dateTo   && (!_dd||_dd>af.dateTo))   return false; }
     if(!advMatch(af.locations, l.location||'')) return false;
