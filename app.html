@@ -4716,7 +4716,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-10 import-10za';
+var APP_VERSION = 'v2026-10-10 import-10zb';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6461,11 +6461,52 @@ function renderNotifSettings(){
       '<input type="checkbox" '+(p[t[0]]!==false?'checked':'')+' onchange="_notifSetPref(\''+t[0]+'\',this.checked);if(typeof updateNotifBadge===\'function\')updateNotifBadge()" style="width:20px;height:20px;accent-color:#4000f3;cursor:pointer">'+
     '</label>';
   }).join('');
+  var liveRow='';
+  if(perm==='granted'){
+    liveRow='<label style="display:flex;align-items:center;justify-content:space-between;padding:14px 2px;border-bottom:1px solid var(--border);cursor:pointer">'+
+      '<span style="min-width:0"><span style="display:block;font-size:14px;font-weight:600;color:var(--text)">Live call alerts</span>'+
+      '<span style="display:block;font-size:11.5px;color:var(--sub);margin-top:1px">Push the moment your AI answers a call — tap to watch live</span></span>'+
+      '<input type="checkbox" id="notifLiveTgl" checked onchange="_notifSetLivePush(this.checked)" style="width:20px;height:20px;accent-color:#4000f3;cursor:pointer;flex-shrink:0;margin-left:12px">'+
+    '</label>';
+  }
   body.innerHTML=
     '<div style="font-size:12px;color:var(--sub);margin:6px 0 14px">Choose what you want to be alerted about. Saved on this device.</div>'+
     pushRow+
     '<div style="font-size:11px;font-weight:500;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin:20px 0 2px">Alert me about</div>'+
+    liveRow+
     rows;
+  if(perm==='granted') _notifLoadLivePush();
+}
+// The live-call toggle lives on THIS DEVICE's push registration row, so each
+// phone/desktop can choose independently. send-push skips "live-" pushes for
+// devices that turned it off.
+async function _notifEndpoint(){
+  try{
+    var reg = await navigator.serviceWorker.getRegistration();
+    var sub = reg ? await reg.pushManager.getSubscription() : null;
+    return sub ? sub.endpoint : '';
+  }catch(e){ return ''; }
+}
+async function _notifLoadLivePush(){
+  try{
+    var ep = await _notifEndpoint(); if(!ep) return;
+    var r = await sbFetch('/rest/v1/push_subscriptions?endpoint=eq.'+encodeURIComponent(ep)+'&select=live_calls&limit=1');
+    var rows = r.ok ? await r.json().catch(function(){return [];}) : [];
+    var tgl = document.getElementById('notifLiveTgl');
+    if(tgl && rows && rows[0]) tgl.checked = rows[0].live_calls !== false;
+  }catch(e){}
+}
+async function _notifSetLivePush(on){
+  try{
+    var ep = await _notifEndpoint();
+    if(!ep){ if(window.showToast)showToast('Turn on push alerts first'); return; }
+    var r = await sbFetch('/rest/v1/push_subscriptions?endpoint=eq.'+encodeURIComponent(ep), {
+      method:'PATCH', headers:{'Prefer':'return=minimal'},
+      body: JSON.stringify({ live_calls: !!on })
+    });
+    if(r && r.ok){ if(window.showToast)showToast(on ? 'Live call alerts on for this device' : 'Live call alerts off for this device'); }
+    else { if(window.showToast)showToast('Could not save — try again'); }
+  }catch(e){ if(window.showToast)showToast('Could not save — try again'); }
 }
 async function sendTestPush(){
   try{
