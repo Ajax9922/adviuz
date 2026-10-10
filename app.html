@@ -4716,7 +4716,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-10 import-10zb';
+var APP_VERSION = 'v2026-10-10 import-10zd';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -7855,7 +7855,7 @@ function advFilterCount(){
   return (af.stages||[]).length+(af.partners||[]).length+(af.telecallers||[]).length+
          (af.managers||[]).length+(af.campaigns||[]).length+
          (af.locations||[]).length+(af.sources||[]).length+(af.services||[]).length+
-         (af.clients||[]).length+
+         (af.clients||[]).length+((af.dateFrom||af.dateTo)?1:0)+
          Object.keys(af).reduce(function(s,k){ return s+(k.indexOf('cf:')===0?(af[k]||[]).length:0); },0);
 }
 // Show/hide the little dot on the header filter button
@@ -8294,6 +8294,10 @@ function leadsHTML(){
     if(af.telecallers && af.telecallers.length && af.telecallers.indexOf(gfTelecallerId(l))===-1) return false;
     if(af.managers  && af.managers.length  && af.managers.indexOf(gfManagerId(l))===-1) return false;
     if(af.campaigns && af.campaigns.length && af.campaigns.indexOf(gfCampaignId(l))===-1) return false;
+    // drill-2: date window handed over from a report drill-down
+    if(af.dateFrom||af.dateTo){ var _dd=String(l.rawDate||l.created_at||'').slice(0,10);
+      if(af.dateFrom && (!_dd||_dd<af.dateFrom)) return false;
+      if(af.dateTo   && (!_dd||_dd>af.dateTo))   return false; }
     if(!advMatch(af.locations, l.location||'')) return false;
     if(af.sources   && af.sources.length   && af.sources.indexOf(srcLabel(l.src||''))===-1) return false;
     if(!advMatch(af.services, l.svc||'')) return false;
@@ -12146,7 +12150,6 @@ function aiEngineHTML(){
   var hlT='<table style="width:100%;border-collapse:collapse">';
   HL.forEach(function(r5){ hlT+='<tr><td style="padding:10px 0;border-bottom:1px solid #f3f1f8;font-size:13px;color:var(--text)">'+r5[0]+'</td><td style="padding:10px 0;border-bottom:1px solid #f3f1f8;text-align:right;font-size:14px;font-weight:650;white-space:nowrap;color:var(--text)">'+(r5[2]?aeGrad(r5[1]):r5[1])+'</td></tr>'; });
   hlT+='</table>';
-  if(rep.calls&&rep.calls.made) hlT+='<div style="font-size:11px;color:var(--sub);margin-top:9px;line-height:1.5">📞 AI calls: '+rep.calls.connected+' of '+rep.calls.made+' connected'+(rep.calls.made?' ('+Math.round(rep.calls.connected/rep.calls.made*100)+'%)':'')+' · total talk '+aeFmtDur(rep.calls.talk_s)+' · '+rep.calls.voicemail+' voicemails · every no-answer gets a retry</div>';
   h+=card('Highlights','',hlT);
   // ── busiest hours ──
   if(rep.hours&&rep.hours.some(function(x){return x>0;})){
@@ -13155,10 +13158,19 @@ function rfToggleCamp(cid){
 function rfRoundReset(){ var f=window._rptFilters; f.round=null; if(f.preset==='round'){ f.preset='all'; f.from=''; f.to=''; } }
 function rfRoundOff(){ rfRoundReset(); closeSheet('rptFilterSh'); render(); }
 function rfPickRound(i){
-  var r=(window._rfRounds.list||[])[i]; if(!r||r.status==='queued') return;
+  var L=window._rfRounds.list||[], r=L[i]; if(!r||r.status==='queued') return;
   var f=window._rptFilters;
   f.round={label:r.label,cid:r.cid,from:r.from};
-  f.from=r.from; f.to=r.current?rptYmd(new Date()):r.to; f.preset='round';
+  // camp-no-2 (import-10zd, Ajax's rule): a campaign owns its leads from its
+  // start until the NEXT campaign begins; the newest campaign keeps collecting
+  // until today (people who call after a campaign finished land in the most
+  // recent one). The 1st campaign also owns older/imported leads.
+  var nxt='';
+  for(var j=i+1;j<L.length;j++){ if(L[j].status!=='queued'&&L[j].from){ nxt=L[j].from; break; } }
+  f.from = (i===0) ? '' : (r.from||'');
+  if(nxt){ var d=new Date(nxt+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()-1); f.to=d.toISOString().slice(0,10); }
+  else { f.to=rptYmd(new Date()); }
+  f.preset='round';
   if(r.cid && (f.campaigns||[]).indexOf(r.cid)===-1) f.campaigns=[r.cid];
   closeSheet('rptFilterSh'); render();
 }
@@ -13251,6 +13263,13 @@ function rptDrill(spec){
   var stages = (spec||'').split('|').filter(Boolean);
   window._advFilters = window._advFilters || {stages:[],execs:[],locations:[],partners:[],sources:[],services:[],clients:[]};
   window._advFilters.stages = stages;
+  // drill-2 (import-10zd): carry the report's campaign + date window into the
+  // Leads list so the drill-down shows the SAME leads the report counted
+  // (before: stage only, so other campaigns' leads appeared in the list).
+  var _rf=window._rptFilters||{};
+  window._advFilters.campaigns=(_rf.campaigns||[]).slice();
+  window._advFilters.dateFrom=_rf.from||'';
+  window._advFilters.dateTo=_rf.to||'';
   var lb = document.getElementById('tab-leads');
   if (lb) goTab('leads', lb); else { curTab='leads'; render(); }
   // Operator only: goTab clears the partner filter (which by default hides
@@ -35090,6 +35109,10 @@ function adAllLeadsHTML() {
     if(af.telecallers && af.telecallers.length && af.telecallers.indexOf(gfTelecallerId(l))===-1) return false;
     if(af.managers  && af.managers.length  && af.managers.indexOf(gfManagerId(l))===-1) return false;
     if(af.campaigns && af.campaigns.length && af.campaigns.indexOf(gfCampaignId(l))===-1) return false;
+    // drill-2: date window handed over from a report drill-down
+    if(af.dateFrom||af.dateTo){ var _dd=String(l.rawDate||l.created_at||'').slice(0,10);
+      if(af.dateFrom && (!_dd||_dd<af.dateFrom)) return false;
+      if(af.dateTo   && (!_dd||_dd>af.dateTo))   return false; }
     if(!advMatch(af.locations, l.location||'')) return false;
     if(af.sources   && af.sources.length   && af.sources.indexOf(srcLabel(l.source||''))===-1) return false;
     if(!advMatch(af.services, l.service||'')) return false;
