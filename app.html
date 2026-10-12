@@ -4717,7 +4717,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-10 import-10zj';
+var APP_VERSION = 'v2026-10-12 import-10zk';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -7286,6 +7286,7 @@ var STAGES=[
   {name:'13. Looking for Partnership',       color:'#8b5cf6'},
   {name:'14. Vendor / Supplier',             color:'#0d9488'},
   {name:'15. Looking for Job',               color:'#a855f7'},
+  {name:'16. DND',                           color:'#334155'},
 ];
 
 function stgColor(n){var s=STAGES.find(function(x){return x.name===n});return s?s.color:'#667781'}
@@ -8044,6 +8045,9 @@ function setQuickStage(stage){
     return; // toast comes from the sheet's save handler
   }
 
+  // dnd-1: moving INTO Not Interested → ask why (chips: budget / location / …)
+  if (stage.indexOf('10.') === 0 && (old||'').indexOf('10.') !== 0 && typeof openNiReason === 'function') openNiReason(l.id);
+
   showToast('Stage updated');
   // If we're inside a lead detail (curLid set), re-render JUST the lead screen
   // so the activity timeline shows the new "Stage Changed" entry. Calling
@@ -8054,6 +8058,51 @@ function setQuickStage(stage){
     render();
   }
   if (typeof amAfterStage === 'function') amAfterStage(l, old, stage);
+}
+
+// ═══ NOT-INTERESTED REASON CHIPS (dnd-1) ═════════════════════════════
+// Opens after a lead is moved into "10. Not Interested": one tap stores WHY
+// (leads.lost_reason) so Reports can show e.g. the out-of-area % per campaign.
+var _niLeadId = null, _niReason = '';
+var NI_REASONS = [
+  ['budget',    '💰 Budget issue'],
+  ['location',  '📍 Location issue'],
+  ['elsewhere', '🏃 Went elsewhere'],
+  ['timing',    '⏳ Bad timing'],
+  ['other',     '✏️ Other']
+];
+function openNiReason(id){
+  _niLeadId = id; _niReason = '';
+  var tx = document.getElementById('niReasonTxt'); if(tx) tx.value = '';
+  renderNiChips();
+  openSheet('niReasonSh');
+}
+function renderNiChips(){
+  var box = document.getElementById('niChips'); if(!box) return;
+  box.innerHTML = NI_REASONS.map(function(r){
+    var on = _niReason === r[0];
+    return '<button onclick="niPick(\''+r[0]+'\')" style="flex-shrink:0;padding:9px 14px;border-radius:20px;border:1.5px solid '+(on?'var(--text)':'var(--border)')+';background:'+(on?'var(--text)':'var(--white)')+';color:'+(on?'var(--white)':'var(--text)')+';font-size:13px;font-weight:500;cursor:pointer;font-family:var(--f);white-space:nowrap">'+r[1]+'</button>';
+  }).join('');
+}
+function niPick(k){ _niReason = (_niReason===k ? '' : k); renderNiChips(); }
+function saveNiReason(){
+  var l = leads.find(function(x){ return x.id===_niLeadId; });
+  var txt = String(((document.getElementById('niReasonTxt')||{}).value)||'').trim();
+  if(!_niReason && !txt){ closeSheet('niReasonSh'); return; }
+  var reason = _niReason || 'other';
+  if(l){
+    l.lost_reason = reason;
+    if(l.dbId){
+      sbFetch('/rest/v1/leads?id=eq.'+l.dbId, { method:'PATCH', body:JSON.stringify({ lost_reason:reason, updated_at:new Date().toISOString() }) }).catch(function(){});
+      var lbl = (NI_REASONS.find(function(r){ return r[0]===reason; })||['','Other'])[1].replace(/^[^ ]+ /,'');
+      if(typeof logActivity === 'function'){
+        logActivity({ lead_id:l.id, db_lead_id:l.dbId, client_id:window._clientId||null, type:'note',
+                      label:'Not interested — reason', body:'📝 Not interested — '+lbl+(txt?(': '+txt):'') });
+      }
+    }
+  }
+  closeSheet('niReasonSh');
+  showToast('Reason saved');
 }
 
 // ── rpt-1: multiple payments per lead ────────────────────────────────
@@ -9795,7 +9844,7 @@ function bwPickCamp(cid){
 }
 // Stages that never receive bulk messages: Not Interested, Lost, Partnership,
 // Vendor/Supplier, Looking for Job. The system ignores them everywhere.
-var BW_EXCLUDE=/^(10|12|13|14|15)\./;
+var BW_EXCLUDE=/^(10|12|13|14|15|16)\./;  /* dnd-1: 16. DND never gets bulk texts/emails */
 function _bwNoShow(l){
   return l.stage==='5. Meeting Booked' && l.appointment_at && new Date(l.appointment_at).getTime()<Date.now();
 }
@@ -13302,7 +13351,7 @@ function clientReportsHTML(){
   // so the five summary rows are a clean split of Total (percentages sum to 100%):
   // Total = In Process + Disqualified + Meeting Done + Deals Closed.
   var inProcess = ls.filter(function(l){
-    return !stageOneOf(l, ['6. Meeting Done','9. Deal Closed','10. Not Interested','12. Visited — Not Closed','15. Looking for Job']);
+    return !stageOneOf(l, ['6. Meeting Done','9. Deal Closed','10. Not Interested','12. Visited — Not Closed','15. Looking for Job','16. DND']);
   }).length;
 
   // rpt-3 (Ajax 2026-10-05): Meetings Done = EVERY lead that actually had the
@@ -13396,7 +13445,7 @@ function clientReportsHTML(){
 
   // ── PIPELINE STATUS (where every lead currently sits) ──
   h += '<div style="font-size:11px;font-weight:500;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:6px 2px 8px">Pipeline Status</div>';
-  var _exclProc = ['6. Meeting Done','9. Deal Closed','10. Not Interested','12. Visited — Not Closed','15. Looking for Job'];
+  var _exclProc = ['6. Meeting Done','9. Deal Closed','10. Not Interested','12. Visited — Not Closed','15. Looking for Job','16. DND'];
   var inProcessStages = STAGES.map(function(s){return s.name;}).filter(function(n){return _exclProc.indexOf(n)===-1;}).join('|');
   var pipelineRows = [
     {label:'Total Leads',       n:tot,           pct:'100.00%', col:'var(--text)', drill:''},
@@ -13417,6 +13466,28 @@ function clientReportsHTML(){
       +  '</div>';
   });
   h += '</div>';
+
+  // ── NOT-INTERESTED REASONS (dnd-1): why leads were lost + out-of-area % ──
+  var _rsnLbl = { budget:'Budget issue', location:'Out of area', elsewhere:'Went elsewhere', timing:'Bad timing', other:'Other' };
+  var _rsnCnt = {};
+  ls.forEach(function(l){ if(l.lost_reason) _rsnCnt[l.lost_reason] = (_rsnCnt[l.lost_reason]||0)+1; });
+  var _rsnKeys = Object.keys(_rsnCnt).sort(function(a,b){ return _rsnCnt[b]-_rsnCnt[a]; });
+  if(_rsnKeys.length){
+    var _oo = _rsnCnt.location || 0;
+    h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:18px">'
+      +  '<div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px">🚫 Why leads said no</div>'
+      +  '<div style="font-size:11.5px;color:var(--sub);margin-bottom:10px">Out of area: <b style="color:var(--text)">'+_oo+' of '+tot+'</b> ('+(tot?((_oo/tot)*100).toFixed(1):'0.0')+'%) — use this to tighten the ad targeting</div>'
+      +  _rsnKeys.map(function(k){
+           var n = _rsnCnt[k];
+           var lbl = _rsnLbl[k] || String(k).replace(/[<>&]/g,'');
+           return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--border)">'
+             + '<span style="flex:1;font-size:12.5px;color:var(--text)">'+lbl+'</span>'
+             + '<span style="font-size:12.5px;font-weight:600;color:var(--text)">'+n+'</span>'
+             + '<span style="font-size:11px;color:var(--sub);width:40px;text-align:right">'+Math.round(n/(tot||1)*100)+'%</span>'
+             + '</div>';
+         }).join('')
+      +  '</div>';
+  }
 
   // ── LEADS BREAKDOWN (per-stage) ──
   h += '<div style="font-size:22px;font-weight:600;color:var(--text);margin-bottom:14px">Leads Breakdown</div>';
@@ -19603,6 +19674,9 @@ function lsSetStage(stage){
       meta:       { from:oldStage, to:stage }
     });
   }
+
+  // dnd-1: moving INTO Not Interested → ask why (chips: budget / location / …)
+  if (stage.indexOf('10.') === 0 && (oldStage||'').indexOf('10.') !== 0 && typeof openNiReason === 'function') openNiReason(l.id);
 
   if (isClosed) {
     // Open the deal-value sheet — saveDealValueAndClose / skipDealValueAndClose
@@ -26211,7 +26285,13 @@ function matchStageName(stageName) {
     'vendor':                 '14. Vendor / Supplier',
     'supplier':               '14. Vendor / Supplier',
     'job':                    '15. Looking for Job',
-    'looking for job':        '15. Looking for Job'
+    'looking for job':        '15. Looking for Job',
+    'dnd':                    '16. DND',
+    'do not disturb':         '16. DND',
+    'do not contact':         '16. DND',
+    'do not call':            '16. DND',
+    'opted out':              '16. DND',
+    'unsubscribed':           '16. DND'
   };
   var key = stageName.toLowerCase().trim();
   if (alias[key]) return alias[key];
@@ -41598,6 +41678,25 @@ document.addEventListener('click', function(ev){
       <button class="sheet-x" onclick="closeSheet('quickStageSh')">&#x2715;</button>
     </div>
     <div class="sh-body" id="quickStageList" style="padding:14px 16px"></div>
+  </div>
+</div>
+
+<!-- ══ NOT-INTERESTED REASON SHEET (dnd-1) — chips + optional note ═══ -->
+<div class="sheet-ov" id="niReasonSh" onclick="if(event.target===this)closeSheet('niReasonSh')" style="z-index:775">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <div class="sheet-title">Why not interested?</div>
+      <button class="sheet-x" onclick="closeSheet('niReasonSh')">&#x2715;</button>
+    </div>
+    <div class="sh-body" style="padding:14px 16px">
+      <div id="niChips" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>
+      <textarea id="niReasonTxt" class="finp" rows="2" placeholder="Or type the reason&hellip;" style="width:100%;resize:none"></textarea>
+      <div style="display:flex;gap:10px;margin-top:14px">
+        <button class="btn btn-ghost" onclick="closeSheet('niReasonSh')" style="flex:1">Skip</button>
+        <button class="btn btn-blue" onclick="saveNiReason()" style="flex:2;justify-content:center">Save Reason</button>
+      </div>
+    </div>
   </div>
 </div>
 
