@@ -26827,7 +26827,7 @@ function aoHome(){
     h+='<div class="ao-card ao-camp"><input type="checkbox" class="ao-cb" style="margin-top:2px"'+(_ao.sel[r.id]?' checked':'')+' onchange="aoSel(\''+r.id+'\',this.checked)">'
       +'<div style="flex:1;min-width:0" onclick="if(!event.target.closest(\'button\'))aoOpenReport(\''+r.id+'\')">'
       +'<div class="ao-row" style="align-items:flex-start;gap:8px"><div class="ao-b" style="flex:1;min-width:0">'+_aoE(r.name||'Call round')+'</div><span class="ao-pill '+st[1]+'">'+st[0]+'</span></div>'
-      +'<div class="ao-t">Campaign: '+_aoE(r.campaign_name)+' · '+(AO_GOAL[r.purpose]||'')+' · '+(r.status==='scheduled'?('Starts '+_aoDT(r.scheduled_for)):_aoDate(r.created_at))+'</div>'
+      +'<div class="ao-t">Campaign: '+_aoE(r.campaign_name)+' · '+(AO_GOAL[r.purpose]||'')+' · '+(r.status==='scheduled'?('<b style="color:var(--blue);font-weight:600">Starts '+_aoLongDT(r.scheduled_for)+'</b>'):_aoDate(r.created_at))+'</div>'
       +'<div class="ao-t" style="color:'+(ml?'var(--sub)':'var(--red)')+'">'+ml+' AI min left in '+_aoE(r.campaign_name)+'</div>'
       +(r.status!=='scheduled'?'<div class="bkc-bar" style="margin:8px 0 4px"><i style="width:'+pct+'%"></i></div>':'')
       +'<div class="ao-stats"><span><b>'+(r.called||0)+'</b>/'+(r.total||0)+' called</span><span><b>'+(r.connected||0)+'</b> talked</span><span><b>'+(r.booked||0)+'</b> booked</span><span><b>'+(r.minutes_used||0)+'</b> min used</span>'+(r.following?'<span><b>'+r.following+'</b> in follow-up</span>':'')+'</div>'
@@ -26886,17 +26886,14 @@ function aoCtl(op, ids){
   else if(op==='cancel') _aoConfirm('Cancel this call round?','Nobody has been called yet. It will be removed from the list.','Cancel round',run,true);
   else run();
 }
-function aoResched(id){
-  var ov=document.createElement('div'); ov.className='sheet-ov open'; ov.style.zIndex='9990';
-  var d=new Date(Date.now()+86400000); var ds=d.toISOString().slice(0,10);
-  ov.innerHTML='<div class="sheet" style="max-height:70vh"><div class="sheet-handle"></div><div class="sheet-head"><div class="sheet-title">Change start time</div><button class="sheet-x">&#x2715;</button></div>'
-    +'<div class="sh-body" style="padding:12px 16px calc(28px + env(safe-area-inset-bottom,16px))"><div class="ao-lbl">Start date</div><input type="date" id="aoRsD" class="ao-inp" value="'+ds+'"><div class="ao-lbl" style="margin-top:10px">Start time (your time)</div><input type="time" id="aoRsT" class="ao-inp" value="15:00">'
-    +'<button class="ao-btn ao-prim" data-ok style="margin-top:14px">Save</button></div></div>';
-  ov.addEventListener('click',async function(e){ if(e.target===ov||e.target.closest('.sheet-x')) ov.remove();
-    if(e.target.closest('[data-ok]')){ var v=document.getElementById('aoRsD').value+'T'+document.getElementById('aoRsT').value; var t=new Date(v); if(isNaN(t)){ showToast('Pick a date and time'); return; } ov.remove(); var r=await _aoPost('control',{op:'reschedule',run_ids:[id],scheduled_for:t.toISOString()}); showToast(r.error||'Start time changed'); await aoLoadList(); aoHome(); } });
-  document.body.appendChild(ov);
+function aoResched(id, curIso){
+  var r=_aoRuns().find(function(x){ return x.id===id; })||{};
+  aoSchedSheet('Change start time', curIso||r.scheduled_for, null, async function(iso){
+    var d=await _aoPost('control',{op:'reschedule',run_ids:[id],scheduled_for:iso, client_id:r.client_id||undefined});
+    if(d.error){ showToast(d.error); return; }
+    showToast('🗓 Now starts '+_aoLongDT(iso)); await aoLoadList(); aoHome();
+  });
 }
-
 // ── NEW ROUND WIZARD ──
 function aoNew(){
   if(!_ao.camps.length){ showToast('No campaign with leads on this screen'); return; }
@@ -26977,7 +26974,7 @@ function aoWiz(){
       +'<textarea id="aoNote" class="ao-inp" rows="3" oninput="aoNoteIn(this.value)" placeholder="'+(req?'e.g. We now have Saturday appointments in October.':'e.g. We have new Saturday openings in October — offer them a spot.')+'">'+_aoE(w.note)+'</textarea>';
     h+='<div id="aoNoteErr" class="ao-err"'+(req&&!w.note.trim()?'':' hidden')+'>Write the announcement so the AI knows what to say.</div>';
     h+='<div class="ao-lbl" style="margin-top:12px">Script preview — how the call opens</div><div class="ao-script" id="aoScript">'+aoScript()+'</div>';
-    h+='<div class="ao-t" style="margin-top:6px">The AI first checks it’s speaking to the right person, then uses this opening and adapts to each lead’s history. Your normal everyday calls keep their usual opening.</div>';
+    h+='<div class="ao-t" style="margin-top:6px">The AI first checks it’s speaking to the right person, then names what they inquired about (the lead’s service, or the campaign name when it’s blank) and adapts to each lead’s history. Your normal everyday calls keep their usual opening.</div>';
     h+='<div class="ao-lbl" style="margin-top:12px">If voicemail picks up</div><div class="ao-seg"><button class="'+(w.voicemail==='hangup'?'on':'')+'" onclick="_ao.w.voicemail=\'hangup\';aoWiz()">Hang up</button><button class="'+(w.voicemail==='message'?'on':'')+'" onclick="_ao.w.voicemail=\'message\';aoWiz()">Leave a short message</button></div>';
     h+='<div class="ao-t" style="margin-top:6px">'+(w.voicemail==='hangup'?'Cheapest. Their phone shows a missed call from your number.':'About 20 seconds, counted as 1 minute.')+' Unanswered calls are never charged; voicemails count as 1 minute.</div>';
     h+='<button class="ao-btn ao-prim" id="aoN2" '+(req&&!w.note.trim()?'disabled ':'')+'onclick="aoNext()">Next — When &amp; limits</button>';
@@ -27001,7 +26998,7 @@ function aoWiz(){
     h+='</div><label class="ao-row ao-s" style="gap:8px;margin-top:8px;color:var(--text);cursor:pointer"><input type="checkbox" class="ao-cb"'+(w.d2?' checked':'')+' onchange="_ao.w.d2=this.checked;_ao.openFu=null;aoWiz()"> Also send a second text on day 2</label>';
     h+='<div class="ao-t">Recommended off: two texts in two days makes old leads reply STOP more often.</div>';
     h+='<div class="ao-note ao-note-blue" style="margin-top:8px">Stops the moment they reply, book or opt out. If they text back, the texting AI answers and tries to book. Any follow-up plan they were already in pauses and restarts 7 days after this one ends. Texts and emails follow your usual approval setting.</div>';
-    h+='<div class="ao-est"><b>'+n+' leads</b> · up to '+perDay+' calls a day → about '+days+' calling day'+(days>1?'s':'')+'<br>Expected use ≈ <b>'+est+' min</b> of '+left+' min left'+(est>left?' — <span style="color:var(--red)">not enough minutes, add minutes first</span>':'')+'</div>';
+    h+='<div class="ao-est">'+(n<=perDay?'<b>'+n+' lead'+(n>1?'s':'')+'</b> — all called on the first calling day.':'<b>'+n+' leads</b> — about <b>'+days+' calling days</b> to reach everyone.')+'<br><span class="ao-t">With these hours, gap and daily limit, this round can make at most '+perDay+' calls a day.</span><br>Expected use ≈ <b>'+est+' min</b> of '+left+' min left'+(est>left?' — <span style="color:var(--red)">not enough minutes, add minutes first</span>':'')+'</div>';
     h+='<button class="ao-btn ao-prim" onclick="aoNext()">Next — Review &amp; launch</button>';
   }
   if(w.step===4){
@@ -27016,7 +27013,7 @@ function aoWiz(){
       +_aoKV('If no answer','Day 1 text'+(w.d2?' · Day 2 text':'')+' · Day 3 email · Day 7 final call')
       +_aoKV('Voicemail',w.voicemail==='message'?'Short message':'Hang up')+_aoKV('Minutes left',(Number((w.pv||{}).minutes_left)||0)+' min')+'</div>';
     h+='<div class="ao-card" style="margin-top:12px"><div class="ao-b">Test call first</div><div class="ao-s" style="margin-top:2px">The AI calls you with this exact opening before any lead hears it. Nothing is saved to a lead and no minutes are charged.</div>'
-      +'<div class="ao-row" style="gap:8px;margin-top:9px"><input id="aoTest" class="ao-inp" type="tel" placeholder="Your phone number" value="'+_aoE(w.testNo)+'" oninput="_ao.w.testNo=this.value" style="flex:1"><button class="ao-sm" style="height:42px" onclick="aoTestCall(this)">Call me</button></div>'
+      +'<div class="ao-row" style="gap:8px;margin-top:9px"><input id="aoTestNm" class="ao-inp" placeholder="Your first name" value="'+_aoE(w.testName||'')+'" oninput="_ao.w.testName=this.value" style="flex:1;min-width:0"><input id="aoTest" class="ao-inp" type="tel" placeholder="Your phone number" value="'+_aoE(w.testNo)+'" oninput="_ao.w.testNo=this.value" style="flex:1.3;min-width:0"></div><button class="ao-btn" onclick="aoTestCall(this)">📞 Call me now</button>'
       +(w.tested?'<div class="ao-s" style="color:var(--green);margin-top:6px">✓ Test call placed to '+_aoE(w.testNo)+'</div>':'')+'</div>';
     h+='<button class="ao-btn ao-prim" onclick="aoLaunch(false)">🚀 Launch call round</button>';
     h+='<button class="ao-btn" onclick="aoLaunch(true)" style="margin-top:8px">🗓 Schedule for later</button>';
@@ -27057,15 +27054,16 @@ function aoMulti(key,title){
   document.body.appendChild(ov);
 }
 function _aoBrand(){ return (_ao.w&&_ao.w.pv&&_ao.w.pv.brand)||'your business'; }
+function _aoProd(){ return (_ao.w&&_ao.w.pv&&_ao.w.pv.product)||'their inquiry'; }
 function aoScript(){
-  var w=_ao.w, note=String(w.note||'').trim(), N='<mark>{first name}</mark>', A='<mark>{AI agent name}</mark>', B=_aoE(_aoBrand());
+  var w=_ao.w, note=String(w.note||'').trim(), N='<mark>{first name}</mark>', A='<mark>{AI agent name}</mark>', B=_aoE(_aoBrand()), P='<mark>'+_aoE(_aoProd())+'</mark>';
   var nt=note?'<mark>'+_aoE(/[.!?]$/.test(note)?note:note+'.')+'</mark>':'';
   var open, yes;
-  if(w.purpose==='book'){ open='Hi '+N+', it’s '+A+' calling from '+B+'. You reached out to us a while back — do you have a quick minute?'; yes=(note?'Great. '+nt+' ':'Great. ')+'We have consultation spots open. Would a weekday or a Saturday suit you better?'; }
-  else if(w.purpose==='reengage'){ open='Hi '+N+', it’s '+A+' from '+B+'. You looked into this with us a little while ago, and I just wanted to check in. Are you still thinking about it?'; yes=(note?nt+' ':'')+'Totally fair. Can I ask what’s held you back so far? … If it helps, I can set up a free consultation, no pressure.'; }
-  else { open='Hi '+N+', it’s '+A+' from '+B+'. Quick one — since you asked us about this before, I wanted you to hear it first.'; yes=note?nt+' Would you like me to save you a spot?':'<span class="ao-err">Your announcement goes here — write it above.</span>'; }
+  if(w.purpose==='book'){ open=N+', it’s '+A+' calling from '+B+'. You inquired with us about '+P+' a while back — do you have a quick minute?'; yes=(note?'Great. '+nt+' ':'Great. ')+'We have consultation spots open. Would a weekday or a Saturday suit you better?'; }
+  else if(w.purpose==='reengage'){ open=N+', it’s '+A+' from '+B+'. You inquired with us about '+P+' a while back, and I just wanted to check in. Are you still thinking about it?'; yes=(note?nt+' ':'')+'Totally fair. Can I ask what’s held you back so far? … If it helps, I can set up a free consultation, no pressure.'; }
+  else { open=N+', it’s '+A+' from '+B+'. You inquired with us about '+P+' a while back, and I wanted you to hear this first.'; yes=note?nt+' Would you like me to save you a spot?':'<span class="ao-err">Your announcement goes here — write it above.</span>'; }
   var q=function(who,t,tail){ return '<div class="ao-say"><span class="ao-who">'+who+'</span>“'+t+'”'+(tail?' <span class="ao-t">'+tail+'</span>':'')+'</div>'; };
-  var h=q('First line','Hi, am I speaking with '+N+'?','')+q('Opening',open,'')+q('If they say yes',yes,'');
+  var h=q('First line','Hi, am I speaking with '+N+'?','')+q('Once they say yes',open,'')+q('If they\u2019re interested',yes,'');
   h+='<div class="ao-branch">'+q('If they’re busy','No problem. When is a better time for a two-minute call?','→ books a callback')
     +q('If not interested','Thanks for letting me know, '+N+'. I won’t keep you. Take care!','→ stage 10, all automation stops')
     +q('If they say don’t call','Sorry about that — I’ve taken you off our list. Have a good day.','→ marked do-not-contact')
@@ -27079,7 +27077,7 @@ function _aoFuSteps(){
   if(_ao.w.d2) a.push({day:'Day 2',what:'Second text',note:'Only if they haven’t replied',prev:q('Text','Hi '+N+', '+B+' again. We still have a few consultation spots this week. Want me to hold one for you? Reply STOP to opt out.')});
   a.push({day:'Day 3',what:'Email',note:'Skipped if the lead has no email',prev:'<div class="ao-say"><span class="ao-who">Subject</span>Still thinking about it, '+N+'?</div>'+q('Email','Hi '+N+', I tried calling you a couple of days ago. You reached out to '+B+' a while back, and I’d love to help you take the next step. You can book a free consultation here: {your booking link} — or just reply to this email with any question.')});
   a.push({day:'Day 4–6',what:'Nothing',note:'Give them space',prev:'<div class="ao-s">No calls, texts or emails on these days.</div>'});
-  a.push({day:'Day 7',what:'Final call',note:'No text if missed · then the plan ends',prev:q('Opening','Hi '+N+', it’s {AI agent name} from '+B+'. I’ll keep it quick — I tried you last week and didn’t want you to miss out. Are you still interested?')+'<div class="ao-s">If missed: the round ends for this lead and it stays in its stage.</div>'});
+  a.push({day:'Day 7',what:'Final call',note:'No text if missed · then the plan ends',prev:q('Opening',N+', it’s {AI agent name} from '+B+'. I’ll keep it quick — I tried you last week about '+_aoE(_aoProd())+' and didn’t want you to miss out. Are you still interested?')+'<div class="ao-s">If missed: the round ends for this lead and it stays in its stage.</div>'});
   return a;
 }
 function _aoStartPayload(){
@@ -27092,8 +27090,8 @@ async function aoTestCall(btn){
   if(!(num.length===10||(num.length===11&&num[0]==='1'))){ showToast('Enter a 10-digit phone number'); return; }
   if(btn){ btn.disabled=true; btn.textContent='Calling…'; }
   var camp=_ao.camps.find(function(c){ return String(c.id)===w.campaign_id; })||{};
-  var d=await _aoPost('test-call',{campaign_id:w.campaign_id, client_id:camp.client_id||undefined, to:num, purpose:w.purpose, goal_note:w.note, voicemail:w.voicemail});
-  if(btn){ btn.disabled=false; btn.textContent='Call me'; }
+  var d=await _aoPost('test-call',{campaign_id:w.campaign_id, client_id:camp.client_id||undefined, to:num, name:String(w.testName||'').trim(), purpose:w.purpose, goal_note:w.note, voicemail:w.voicemail});
+  if(btn){ btn.disabled=false; btn.textContent='📞 Call me now'; }
   if(d.error){ showToast(d.error); return; }
   w.tested=true; showToast('📞 Calling '+w.testNo+' now'); aoWiz();
 }
@@ -27107,21 +27105,49 @@ function aoLaunch(sched){
     var d=await _aoPost('start',p);
     w.busy=false;
     if(d.error){ showToast(d.error); return; }
-    showToast(d.scheduled?'🗓 Call round scheduled':(d.live===false?'✅ Call round saved — calls start once calling is switched live':'🚀 Call round launched — '+d.queued+' leads queued'));
+    var hrs='Calls go out '+_aoFmtMin(p.start_min)+'–'+_aoFmtMin(p.end_min)+' in each lead\u2019s own time zone, '+AO_DAYS.filter(function(x){ return p.days.indexOf(x[0])>=0; }).map(function(x){ return x[1]; }).join(', ')+'.';
+    if(!d.scheduled) showToast(d.live===false?'✅ Call round saved — calls start once calling is switched live':'🚀 Call round launched — '+d.queued+' leads queued');
     _ao.view='home'; _ao.w=null; await aoLoadList(); aoHome();
+    if(d.scheduled) aoScheduledDone(d.run_id, p.scheduled_for, hrs+(d.live===false?' (Calling isn\u2019t switched live yet.)':''));
   };
   if(!sched){
     _aoConfirm('Launch “'+p.name+'”?','The AI starts calling '+p.lead_ids.length+' lead'+(p.lead_ids.length>1?'s':'')+' at '+_aoFmtMin(p.start_min)+' their time on the chosen days.'+(w.tested?'':' <b>You haven’t done a test call yet.</b>'),'Launch now',function(){ go(null); });
     return;
   }
+  aoSchedSheet('Schedule call round', null, w.start, function(iso){ go(iso); });
+}
+function _aoLongDT(iso){ var d=new Date(iso); if(isNaN(d)) return ''; return d.toLocaleDateString('en-CA',{weekday:'long',month:'long',day:'numeric'})+' at '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}); }
+// One sheet for picking a start date + time (new schedule and "Change time").
+function aoSchedSheet(title, curIso, defTime, onPick){
+  var base=curIso?new Date(curIso):new Date(Date.now()+86400000);
+  var pad=function(n){ return (n<10?'0':'')+n; };
+  var ds=base.getFullYear()+'-'+pad(base.getMonth()+1)+'-'+pad(base.getDate());
+  var ts=curIso?(pad(base.getHours())+':'+pad(base.getMinutes())):(defTime||'15:00');
   var ov=document.createElement('div'); ov.className='sheet-ov open'; ov.style.zIndex='9990';
-  var ds=new Date(Date.now()+86400000).toISOString().slice(0,10);
-  ov.innerHTML='<div class="sheet" style="max-height:70vh"><div class="sheet-handle"></div><div class="sheet-head"><div class="sheet-title">Schedule call round</div><button class="sheet-x">&#x2715;</button></div>'
-    +'<div class="sh-body" style="padding:12px 16px calc(28px + env(safe-area-inset-bottom,16px))"><div class="ao-lbl">Start date</div><input type="date" id="aoSdD" class="ao-inp" value="'+ds+'">'
-    +'<div class="ao-s" style="margin-top:8px">It starts that day and calls each lead between '+_aoFmtMin(p.start_min)+' and '+_aoFmtMin(p.end_min)+' in their own time zone.</div>'
-    +'<button class="ao-btn ao-prim" data-ok style="margin-top:14px">Schedule</button></div></div>';
+  ov.innerHTML='<div class="sheet" style="max-height:80vh"><div class="sheet-handle"></div><div class="sheet-head"><div class="sheet-title">'+_aoE(title)+'</div><button class="sheet-x">&#x2715;</button></div>'
+    +'<div class="sh-body" style="padding:12px 16px calc(28px + env(safe-area-inset-bottom,16px))">'
+    +'<div class="ao-grid2"><div><div class="ao-lbl">Start date</div><input type="date" id="aoSdD" class="ao-inp" value="'+ds+'"></div><div><div class="ao-lbl">Start time</div><input type="time" id="aoSdT" class="ao-inp" value="'+ts+'"></div></div>'
+    +'<div class="ao-est" id="aoSdSum" style="margin-top:12px"></div>'
+    +'<button class="ao-btn ao-prim" data-ok style="margin-top:12px">Confirm start time</button></div></div>';
+  var sum=function(){ var t=new Date(ov.querySelector('#aoSdD').value+'T'+(ov.querySelector('#aoSdT').value||'00:00')); var el=ov.querySelector('#aoSdSum');
+    if(isNaN(t)){ el.innerHTML='Pick a date and time.'; return null; }
+    if(t.getTime()<Date.now()+60000){ el.innerHTML='<span style="color:var(--red)">That time has already passed — pick a later one.</span>'; return null; }
+    el.innerHTML='🗓 <b>Starts '+_aoLongDT(t.toISOString())+'</b> (your time).<br><span class="ao-t">From then on, calls only go out inside the round\u2019s calling hours, in each lead\u2019s own time zone.</span>'; return t; };
+  ov.addEventListener('input',sum); ov.addEventListener('change',sum);
   ov.addEventListener('click',function(e){ if(e.target===ov||e.target.closest('.sheet-x')) ov.remove();
-    if(e.target.closest('[data-ok]')){ var v=document.getElementById('aoSdD').value; var t=new Date(v+'T00:05:00'); if(isNaN(t)||t.getTime()<Date.now()){ showToast('Pick a future date'); return; } ov.remove(); go(t.toISOString()); } });
+    if(e.target.closest('[data-ok]')){ var t=sum(); if(!t){ showToast('Pick a future date and time'); return; } ov.remove(); onPick(t.toISOString()); } });
+  document.body.appendChild(ov); sum();
+}
+// Clear confirmation after scheduling, with a way to change the time.
+function aoScheduledDone(runId, iso, hours){
+  var ov=document.createElement('div'); ov.className='sheet-ov open'; ov.style.zIndex='9990';
+  ov.innerHTML='<div class="sheet" style="max-height:70vh"><div class="sheet-handle"></div><div class="sheet-head"><div class="sheet-title">Call round scheduled</div><button class="sheet-x">&#x2715;</button></div>'
+    +'<div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom,16px));text-align:center">'
+    +'<div style="font-size:34px">🗓</div><div class="ao-h" style="font-size:16px;margin-top:6px">Starts '+_aoE(_aoLongDT(iso))+'</div>'
+    +'<div class="ao-s" style="margin-top:6px;line-height:1.5">'+_aoE(hours)+'</div>'
+    +'<button class="ao-btn" data-chg style="margin-top:16px">Change time</button><button class="ao-btn ao-prim" data-x>Done</button></div></div>';
+  ov.addEventListener('click',function(e){ if(e.target===ov||e.target.closest('.sheet-x')||e.target.closest('[data-x]')) ov.remove();
+    if(e.target.closest('[data-chg]')){ ov.remove(); aoResched(runId, iso); } });
   document.body.appendChild(ov);
 }
 
