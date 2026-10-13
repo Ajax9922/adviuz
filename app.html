@@ -4717,7 +4717,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-12 import-10zl';
+var APP_VERSION = 'v2026-10-12 import-10zm';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -32475,6 +32475,8 @@ window._bkDraft = null;
 function bkRenderPage(bk, tz){
   var cfg = _bkNormalize(bk, tz);
   window._bkDraft = cfg;
+  window._bkOrig = bk || null; // cal-5: keep raw booking so save preserves keys this page doesn't own
+  var _calOwn = !!(bk && bk.calendar_id && String(bk.calendar_id) !== 'main'); // cal-5
   var _lbl = function(x){ return '<div style="font-size:11px;font-weight:500;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin:14px 0 5px">'+x+'</div>'; };
   var _num = function(id, val, min, max, step, unit){
     return '<div style="display:flex;align-items:center;gap:8px"><input id="'+id+'" type="number" class="cs-in" min="'+min+'" max="'+max+'" step="'+step+'" value="'+val+'" style="margin-bottom:0;width:110px;text-align:center"><span style="font-size:13px;color:var(--sub)">'+unit+'</span></div>';
@@ -32501,6 +32503,14 @@ function bkRenderPage(bk, tz){
     + _lbl('Minimum notice') + _num('bkNotice', cfg.min_notice_hours, 0, 168, 1, 'hours ahead \u2014 nothing sooner than this')
     + _lbl('How far ahead people can book') + _num('bkAhead', cfg.max_days_ahead, 1, 365, 1, 'days')
     + _lbl('Time zone for these hours') + '<select id="bkTz" class="cs-in" style="margin-bottom:0">'+_tzOpts+'</select>'
+    + '<div class="cs-h" style="margin-top:20px">📆 Calendar</div>'
+    + '<div class="cs-note">Running more than one campaign? Choose whether this campaign shares <b>one calendar</b> with your other campaigns — so a time booked or blocked in any of them is busy in all of them — or keeps its <b>own separate calendar</b>.</div>'
+    + _lbl('This campaign books on')
+    + '<select id="bkCal" class="cs-in" style="margin-bottom:0">'
+    +   '<option value="main"'+(_calOwn?'':' selected')+'>Shared calendar — one calendar for all my campaigns</option>'
+    +   '<option value="own"'+(_calOwn?' selected':'')+'>Its own separate calendar</option>'
+    + '</select>'
+    + '<div class="cs-note" style="margin-top:6px">This is followed everywhere — AI calls, AI texts, the website calendar and personal booking links all respect it. Blocked times saved without a campaign apply to every calendar.</div>'
     + '';
 }
 function bkRenderDays(){
@@ -32565,6 +32575,23 @@ function bkCollect(){
     if (wins.length){ anyDay = true; out.hours[d] = wins.map(function(w){ var o={start:w.start,end:w.end}; if(w.weeks&&w.weeks.length) o.weeks=w.weeks; return o; }); }
   }
   if (!anyDay){ showToast('Turn on at least one day'); return null; }
+  // cal-5: carry over booking keys this page doesn't own (details_by_text,
+  // speak_clinic_time, …) so saving hours never wipes them. Legacy days/start/end
+  // are owned (superseded by hours) and stay dropped.
+  (function(){
+    var orig = window._bkOrig || {};
+    var owned = { tz:1, slot_min:1, default_duration_min:1, buffer_min:1, capacity:1, min_notice_hours:1, max_days_ahead:1, hours:1, days:1, start:1, end:1, calendar_id:1 };
+    Object.keys(orig).forEach(function(k){ if (!owned[k] && out[k] === undefined) out[k] = orig[k]; });
+  })();
+  // cal-5: calendar group — 'main' = shared with the client's other campaigns;
+  // the campaign's own id = its own separate calendar. Read everywhere (AI calls,
+  // texts, website feed, booking links).
+  var calEl = document.getElementById('bkCal');
+  if (calEl){
+    out.calendar_id = (calEl.value === 'own' && window._csCampId) ? String(window._csCampId) : 'main';
+  } else if (window._bkOrig && window._bkOrig.calendar_id){
+    out.calendar_id = window._bkOrig.calendar_id;
+  }
   return out;
 }
 
