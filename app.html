@@ -1854,6 +1854,13 @@ textarea.ao-inp{resize:vertical;min-height:72px}
 .ao-ai{align-self:flex-start;background:var(--white);border:1px solid var(--border);border-bottom-left-radius:5px}
 .ao-me{align-self:flex-end;background:linear-gradient(118deg,#4000f3,#8b2bf7);color:#fff;border-bottom-right-radius:5px}
 .ao-line{font-size:14.5px;font-weight:500;line-height:1.5}
+.ao-bub.ao-base{border-color:#8b2bf7;box-shadow:0 0 0 2px rgba(139,43,247,.15)}
+.ao-dnum{display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);margin-bottom:4px}
+.ao-dnum b{font-weight:600;color:#8b2bf7;letter-spacing:0;text-transform:none}
+.ao-dact{display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:9px;border-top:1px solid var(--border)}
+.ao-duse{display:inline-flex;align-items:center;gap:5px;border:0;border-radius:999px;padding:6px 12px;font-size:12.5px;font-weight:600;color:#fff;background:linear-gradient(118deg,#4000f3,#8b2bf7);cursor:pointer}
+.ao-duse .ao-ic{color:#fff;stroke:#fff}
+.ao-dchg{border:0;background:none;padding:6px 4px;font-size:12.5px;font-weight:500;color:var(--sub);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
 .ao-chatfoot{padding:10px 16px calc(14px + env(safe-area-inset-bottom,12px));border-top:1px solid var(--border);background:var(--white)}
 .ao-send{width:44px;height:44px;border-radius:50%;border:0;flex:none;background:linear-gradient(118deg,#4000f3,#e65afc);color:#fff;font-size:20px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
 .ao-send .ao-ic{color:#fff;stroke:#fff;margin-left:-2px}
@@ -27516,41 +27523,44 @@ function aoScript(){
     +q('Only if they hesitate','Where are you at with it now — still thinking about it, or did you go ahead with something else?');
 }
 function aoProdIn(v){ _ao.w.product=v; var s=document.getElementById('aoScript'); if(s) s.innerHTML=aoScript(); }
-// ✨ Offer writer — chat style (Ajax 2026-10-14): the client types the offer roughly, AI shows
-// exactly how the AI caller will say it, the client asks for changes, then Approves.
+// ✨ Offer writer — chat style (Ajax 2026-10-14): the client types the offer roughly, AI shows numbered
+// drafts of exactly how the AI caller will say it; any draft can be used or picked as the one to change.
 function aoAiOffer(){
-  var w=_ao.w, msgs=[], last='', busy=false;
+  var w=_ao.w, msgs=[], drafts=[], base=-1, made=0, busy=false;
   var ov=document.createElement('div'); ov.className='sheet-ov open'; ov.style.zIndex='9990';
-  ov.innerHTML='<div class="sheet" style="height:88vh;max-height:88vh;display:flex;flex-direction:column"><div class="sheet-handle"></div><div class="sheet-head"><div class="sheet-title">✨ Write your offer</div><button class="sheet-x">&#x2715;</button></div>'
+  ov.innerHTML='<div class="sheet" style="height:88vh;max-height:88vh;display:flex;flex-direction:column"><div class="sheet-handle"></div><div class="sheet-head"><div class="sheet-title">✨ Write your offer</div><button class="ao-dchg" data-clear style="margin-left:auto;margin-right:6px">Start over</button><button class="sheet-x">&#x2715;</button></div>'
     +'<div class="ao-chat" id="aoChat"></div>'
     +'<div class="ao-chatfoot"><div class="ao-chips" id="aoQuick" style="margin-bottom:8px"></div>'
-    +'<div class="ao-row" style="gap:8px;align-items:flex-end"><textarea id="aoChatIn" class="ao-inp" rows="1" placeholder="Type your offer…" style="flex:1;min-width:0;min-height:44px;max-height:110px;resize:none"></textarea><button class="ao-send" data-send aria-label="Improve">&#x2191;</button></div>'
-    +'<div class="ao-row" style="gap:8px;margin-top:10px"><button class="ao-btn" data-clear style="margin-top:0;flex:1">Clear</button><button class="ao-btn" data-imp style="margin-top:0;flex:1">✨ Improve</button><button class="ao-btn ao-prim" data-ok style="margin-top:0;flex:1.2" disabled>✅ Approve</button></div></div></div>';
-  var chat=ov.querySelector('#aoChat'), inp=ov.querySelector('#aoChatIn'), ok=ov.querySelector('[data-ok]');
+    +'<div class="ao-row" style="gap:8px;align-items:flex-end"><textarea id="aoChatIn" class="ao-inp" rows="1" placeholder="Type your offer…" style="flex:1;min-width:0;min-height:44px;max-height:110px;resize:none"></textarea><button class="ao-send" data-send aria-label="Send">'+_aoI('send',18)+'</button></div></div></div>';
+  var chat=ov.querySelector('#aoChat'), inp=ov.querySelector('#aoChatIn');
   var hello='Tell me your offer in your own words — rough is fine. For example: “400 off the full package if they book before Oct 31”. I’ll show you exactly how your AI caller will say it.';
-  var draw=function(){
+  var draw=function(keep){
+    var many=drafts.length>1, st=chat.scrollTop;
     chat.innerHTML=msgs.map(function(m){
       if(m.who==='me') return '<div class="ao-bub ao-me">'+_aoE(m.t)+'</div>';
       if(m.who==='typing') return '<div class="ao-bub ao-ai"><span class="ao-dots"><i></i><i></i><i></i></span></div>';
-      if(m.line) return '<div class="ao-bub ao-ai"><div class="ao-who">How your AI caller will say it</div><div class="ao-line">“'+_aoE(m.t)+'”</div>'+(m.t===last?'<div class="ao-t" style="margin-top:6px">Happy with it? Tap <b>Approve</b>. Or tell me what to change.</div>':'')+'</div>';
+      if(m.di!=null){ var d=drafts[m.di], on=m.di===base;
+        return '<div class="ao-bub ao-ai'+(many&&on?' ao-base':'')+'">'+_aoDraftLbl(d,d.n,on,many)+'<div class="ao-line">“'+_aoE(d.text)+'”</div>'+_aoDraftFoot(m.di,on,many)+'</div>'; }
       return '<div class="ao-bub ao-ai">'+_aoE(m.t)+'</div>';
     }).join('');
-    ov.querySelector('#aoQuick').innerHTML=last?['Shorter','Friendlier','Add urgency','Mention free consultation'].map(function(c){ return '<button class="bkc-chip" data-q="'+_aoE(c)+'">'+c+'</button>'; }).join(''):'';
-    inp.placeholder=last?'Tell me what to change…':'Type your offer…';
-    ok.disabled=!last||busy; chat.scrollTop=chat.scrollHeight;
+    ov.querySelector('#aoQuick').innerHTML=drafts.length?['Shorter','Friendlier','Add urgency','Mention free consultation'].map(function(c){ return '<button class="bkc-chip" data-q="'+_aoE(c)+'">'+c+'</button>'; }).join(''):'';
+    inp.placeholder=drafts.length?(many?'Change the highlighted draft…':'Tell me what to change…'):'Type your offer…';
+    chat.scrollTop=keep?st:chat.scrollHeight;
   };
-  var reset=function(){ msgs=[{who:'ai',t:hello}]; last=''; if(String(w.note||'').trim()){ last=String(w.note).trim(); msgs.push({who:'ai',t:'Here’s your current line:'},{who:'ai',line:true,t:last}); } draw(); };
+  var reset=function(){ msgs=[{who:'ai',t:hello}]; drafts=[]; base=-1; made=0;
+    if(String(w.note||'').trim()){ drafts.push({text:String(w.note).trim(), cur:true}); base=0; msgs.push({who:'ai',t:'This is how your AI caller will say it now. Tap “Use this” to keep it, or tell me what to change.'},{who:'ai',di:0}); }
+    draw(); };
   var send=async function(text){
     text=String(text||'').trim(); if(busy) return;
-    var first=!last, offer=first?text:(msgs.find(function(m){ return m.who==='me'; })||{t:last}).t;
-    if(!text){ if(first){ showToast('Type your offer first'); inp.focus(); return; } text='Make it sound more natural and persuasive'; }
+    var prev=base>=0?drafts[base]:null, first=!prev, offer=first?text:(msgs.find(function(m){ return m.who==='me'; })||{t:prev.text}).t;
+    if(!text){ showToast(first?'Type your offer first':'Type what to change'); inp.focus(); return; }
     if(first && text.length<3){ showToast('Type your offer first'); return; }
-    msgs.push({who:'me',t:text},{who:'typing'}); busy=true; inp.value=''; draw();
+    msgs.push({who:'me',t:text+(prev&&drafts.length>1?'  ('+(prev.cur?'current version':'Draft '+prev.n)+')':'')},{who:'typing'}); busy=true; inp.value=''; draw();
     try{
-      var r=await sbFetch('/functions/v1/outreach-offer-ai',{method:'POST',body:JSON.stringify({offer:offer, product:w.product||'', brand:_aoBrand(), previous:first?'':last, instruction:first?'':text})});
+      var r=await sbFetch('/functions/v1/outreach-offer-ai',{method:'POST',body:JSON.stringify({offer:offer, product:w.product||'', brand:_aoBrand(), previous:first?'':prev.text, instruction:first?'':text})});
       var d=await r.json().catch(function(){ return {}; });
       msgs.pop();
-      if(d.line){ last=d.line; msgs.push({who:'ai',line:true,t:d.line}); }
+      if(d.line){ drafts.push({text:d.line, n:++made}); base=drafts.length-1; msgs.push({who:'ai',di:base}); }
       else msgs.push({who:'ai',t:d.error||'I couldn’t write that just now — try again.'});
     }catch(e){ msgs.pop(); msgs.push({who:'ai',t:'I couldn’t reach the AI — check your connection and try again.'}); }
     busy=false; draw();
@@ -27559,10 +27569,11 @@ function aoAiOffer(){
   inp.addEventListener('keydown',function(e){ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); send(inp.value); } });
   ov.addEventListener('click',function(e){
     if(e.target===ov||e.target.closest('.sheet-x')) ov.remove();
-    if(e.target.closest('[data-send]')||e.target.closest('[data-imp]')) send(inp.value);
+    if(e.target.closest('[data-send]')) send(inp.value);
     var q=e.target.closest('[data-q]'); if(q) send(q.getAttribute('data-q'));
-    if(e.target.closest('[data-clear]')){ reset(); inp.value=''; inp.focus(); }
-    if(e.target.closest('[data-ok]')&&last){ w.note=last; ov.remove(); aoWiz(); showToast('✅ Offer approved'); }
+    if(e.target.closest('[data-clear]')&&!busy){ reset(); inp.value=''; inp.focus(); }
+    var u=e.target.closest('[data-use-i]'); if(u&&!busy){ var d=drafts[+u.getAttribute('data-use-i')]; if(d){ w.note=d.text; ov.remove(); aoWiz(); showToast('✅ Offer saved'); } }
+    var b=e.target.closest('[data-base-i]'); if(b&&!busy){ base=+b.getAttribute('data-base-i'); draw(true); inp.focus(); }
   });
   document.body.appendChild(ov); reset(); setTimeout(function(){ inp.focus(); },250);
 }
@@ -27636,42 +27647,53 @@ function aoFuEdit(k){
   });
   document.body.appendChild(ov); grow(); draw();
 }
-// ✨ AI chat for the follow-up text / email: ask in your own words, see the result, change it, then Use it.
+// ✨ AI chat for the follow-up text / email: ask in your own words, see numbered drafts, pick any one.
+// Each draft has "Use this" (puts it in the editor) and "Change this one" (chips / typed changes edit that draft).
+function _aoDraftFoot(i, isBase, many){
+  return '<div class="ao-dact"><button class="ao-duse" data-use-i="'+i+'">'+_aoI('check',14)+'Use this</button>'
+    +(many&&!isBase?'<button class="ao-dchg" data-base-i="'+i+'">Change this one</button>':'')+'</div>';
+}
+function _aoDraftLbl(d, n, isBase, many){
+  return '<div class="ao-dnum">'+(d.cur?'Your current version':'Draft '+n)+(many&&isBase?' <b>· changes go here</b>':'')+'</div>';
+}
 function aoAiWrite(kind, key, curText, curSubj, onUse){
-  var w=_ao.w, msgs=[], last=null, busy=false, isE=kind==='email';
+  var w=_ao.w, msgs=[], drafts=[], base=-1, busy=false, isE=kind==='email';
   var ov=document.createElement('div'); ov.className='sheet-ov open'; ov.style.zIndex='9991';
   ov.innerHTML='<div class="sheet" style="height:88vh;max-height:88vh;display:flex;flex-direction:column"><div class="sheet-handle"></div><div class="sheet-head"><div class="sheet-title">Write with AI</div><button class="sheet-x">&#x2715;</button></div>'
     +'<div class="ao-chat" id="aoAwC"></div>'
     +'<div class="ao-chatfoot"><div class="ao-chips" id="aoAwQ" style="margin-bottom:8px"></div>'
-    +'<div class="ao-row" style="gap:8px;align-items:flex-end"><textarea id="aoAwIn" class="ao-inp" rows="1" placeholder="What should it say?" style="flex:1;min-width:0;min-height:44px;max-height:110px;resize:none"></textarea><button class="ao-send" data-send aria-label="Send">'+_aoI('send',18)+'</button></div>'
-    +'<button class="ao-btn ao-prim ao-icbtn" data-use disabled style="margin-top:10px">'+_aoI('check',17)+'Use this '+(isE?'email':'text')+'</button></div></div>';
-  var chat=ov.querySelector('#aoAwC'), inp=ov.querySelector('#aoAwIn'), use=ov.querySelector('[data-use]'), brand=_aoBrand();
+    +'<div class="ao-row" style="gap:8px;align-items:flex-end"><textarea id="aoAwIn" class="ao-inp" rows="1" placeholder="What should it say?" style="flex:1;min-width:0;min-height:44px;max-height:110px;resize:none"></textarea><button class="ao-send" data-send aria-label="Send">'+_aoI('send',18)+'</button></div></div></div>';
+  var chat=ov.querySelector('#aoAwC'), inp=ov.querySelector('#aoAwIn'), brand=_aoBrand();
   var fill=function(t){ return _aoE(t).replace(/\{name\}/g,'Alex').replace(/\{business\}/g,_aoE(brand)).replace(/\{book_link\}/g,'<u>booking link</u>').replace(/\n/g,'<br>'); };
-  var draw=function(){
+  var draw=function(keep){
+    var many=drafts.length>1, st=chat.scrollTop;
     chat.innerHTML=msgs.map(function(m){
       if(m.who==='me') return '<div class="ao-bub ao-me">'+_aoE(m.t)+'</div>';
       if(m.who==='typing') return '<div class="ao-bub ao-ai"><span class="ao-dots"><i></i><i></i><i></i></span></div>';
-      if(m.res) return '<div class="ao-bub ao-ai" style="max-width:92%"><div class="ao-who">'+(isE?'Email':'Text message')+'</div>'+(isE&&m.res.subject?'<div style="font-weight:600;margin-bottom:6px">'+fill(m.res.subject)+'</div>':'')+'<div>'+fill(m.res.text)+'</div></div>';
+      if(m.di!=null){ var d=drafts[m.di], on=m.di===base;
+        return '<div class="ao-bub ao-ai'+(many&&on?' ao-base':'')+'" style="max-width:92%">'+_aoDraftLbl(d,d.n,on,many)
+          +(isE&&d.subject?'<div style="font-weight:600;margin-bottom:6px">'+fill(d.subject)+'</div>':'')+'<div>'+fill(d.text)+'</div>'+_aoDraftFoot(m.di,on,many)+'</div>'; }
       return '<div class="ao-bub ao-ai">'+_aoE(m.t)+'</div>';
     }).join('');
-    ov.querySelector('#aoAwQ').innerHTML=last?['Shorter','Friendlier','Mention free consultation','More urgent'].map(function(c){ return '<button class="bkc-chip" data-q="'+_aoE(c)+'">'+c+'</button>'; }).join(''):'';
-    inp.placeholder=last?'Tell me what to change…':'What should it say?';
-    use.disabled=!last||busy; chat.scrollTop=chat.scrollHeight;
+    ov.querySelector('#aoAwQ').innerHTML=drafts.length?['Shorter','Friendlier','Mention free consultation','More urgent'].map(function(c){ return '<button class="bkc-chip" data-q="'+_aoE(c)+'">'+c+'</button>'; }).join(''):'';
+    inp.placeholder=drafts.length?(many?'Change the highlighted draft…':'Tell me what to change…'):'What should it say?';
+    chat.scrollTop=keep?st:chat.scrollHeight;
   };
   msgs=[{who:'ai',t:'Tell me what you want this '+(isE?'email':'text')+' to say — rough is fine. For example: “remind them we have Saturday spots and a free consultation”. I’ll write it for you.'}];
-  if(String(curText||'').trim()) last={text:curText, subject:curSubj};
+  var made=0;
+  if(String(curText||'').trim()){ drafts.push({text:curText, subject:curSubj||'', cur:true}); base=0; msgs.push({who:'ai',di:0}); }
   var send=async function(text){
     text=String(text||'').trim(); if(busy) return; if(!text){ showToast('Type what you want'); inp.focus(); return; }
-    msgs.push({who:'me',t:text},{who:'typing'}); busy=true; inp.value=''; draw();
-    var first=!msgs.some(function(m){ return m.res; });
+    var prev=base>=0?drafts[base]:null, first=!prev;
+    msgs.push({who:'me',t:text+(prev&&drafts.length>1?'  ('+(prev.cur?'current version':'Draft '+prev.n)+')':'')},{who:'typing'}); busy=true; inp.value=''; draw();
     try{
-      var _call=function(){ return Promise.race([sbFetch('/functions/v1/outreach-offer-ai',{method:'POST',body:JSON.stringify({kind:kind, day:key==='t2'?'2':(isE?'3':'1'), brief:text, product:w.product||'', brand:brand, previous:first?'':(last?(isE?('Subject: '+(last.subject||'')+'\n\n'+last.text):last.text):''), instruction:first?'':text})}), new Promise(function(_,rej){ setTimeout(function(){ rej(new Error('timeout')); },35000); })]); };
+      var _call=function(){ return Promise.race([sbFetch('/functions/v1/outreach-offer-ai',{method:'POST',body:JSON.stringify({kind:kind, day:key==='t2'?'2':(isE?'3':'1'), brief:text, product:w.product||'', brand:brand, previous:first?'':(isE?('Subject: '+(prev.subject||'')+'\n\n'+prev.text):prev.text), instruction:first?'':text})}), new Promise(function(_,rej){ setTimeout(function(){ rej(new Error('timeout')); },35000); })]); };
       var r=await _call();
       if(r.status===401 && typeof refreshSession==='function'){ await refreshSession(); r=await _call(); }
       var d=await r.json().catch(function(){ return {}; });
       msgs.pop();
       if(r.status===401) d={error:'Your login timed out. Close this, pull down to refresh the app, and try again.'};
-      if(d.text||d.body){ last={text:d.text||d.body, subject:d.subject||''}; msgs.push({who:'ai',res:last}); }
+      if(d.text||d.body){ drafts.push({text:d.text||d.body, subject:d.subject||'', n:++made}); base=drafts.length-1; msgs.push({who:'ai',di:base}); }
       else msgs.push({who:'ai',t:d.error||'I couldn’t write that just now — try again.'});
     }catch(e){ msgs.pop(); msgs.push({who:'ai',t:'That took too long — please try again.'}); }
     busy=false; draw();
@@ -27681,7 +27703,8 @@ function aoAiWrite(kind, key, curText, curSubj, onUse){
     if(e.target===ov||e.target.closest('.sheet-x')) ov.remove();
     if(e.target.closest('[data-send]')) send(inp.value);
     var q=e.target.closest('[data-q]'); if(q) send(q.getAttribute('data-q'));
-    if(e.target.closest('[data-use]')&&last){ ov.remove(); onUse(last.text, last.subject); }
+    var u=e.target.closest('[data-use-i]'); if(u&&!busy){ var d=drafts[+u.getAttribute('data-use-i')]; if(d){ ov.remove(); onUse(d.text, d.subject); } }
+    var b=e.target.closest('[data-base-i]'); if(b&&!busy){ base=+b.getAttribute('data-base-i'); draw(true); inp.focus(); }
   });
   document.body.appendChild(ov); draw(); setTimeout(function(){ inp.focus(); },250);
 }
