@@ -1728,6 +1728,8 @@ textarea.ao-inp{resize:vertical;min-height:72px}
 .ao-bal-solid,.ao-bal-ghost{flex:1;min-width:0;min-height:48px;padding:13px 8px;border-radius:11px;font-family:var(--f);font-size:13.5px;font-weight:600;cursor:pointer;white-space:nowrap}
 .ao-bal-solid{background:#fff;color:#15121a;border:none}
 .ao-bal-ghost{background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.6)}
+.ao-crow{display:flex;align-items:center;gap:12px;padding:13px 14px;border-bottom:1px solid var(--border);cursor:pointer}
+.ao-crow:last-child{border-bottom:none}.ao-crow.on{background:#faf7ff}
 .ao-cc{background:var(--white);border:1.5px solid var(--border);border-radius:14px;padding:16px;margin-bottom:10px;cursor:pointer}
 .ao-cc.sel{border-color:var(--green)}
 .ao-cc-dot{width:9px;height:9px;border-radius:50%;flex:none}
@@ -27195,8 +27197,14 @@ function aoWiz(){
   if(w.step===1){
     h+=_aoHead('Who to call');
     var camp=_ao.camps.find(function(c){ return String(c.id)===w.campaign_id; });
-    h+='<div class="ao-lbl">Campaign</div><button class="ao-pick" onclick="aoPickCamp()"><span>'+(camp?_aoE(camp.name)+' <span class="ao-s">('+camp.n+' leads)</span>':'Choose campaign…')+'</span><span class="ao-s">&#x25BE;</span></button>';
-    if(!w.campaign_id){ b.innerHTML=h; return; }
+    if(!w.campaign_id || w.pickCamp){
+      // Inline campaign list (Ajax 2026-10-14): search + type filter + radio list, pick one.
+      h+='<div class="ao-lbl">Choose a campaign</div>'
+        +'<div class="ao-search" style="margin-bottom:10px"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="aoCq" type="search" placeholder="Search campaigns…" value="'+_aoE(w.campQ||'')+'" oninput="_ao.w.campQ=this.value;_aoCampList()" autocomplete="off"></div>'
+        +'<div id="aoCampF"></div><div id="aoCampL"></div>';
+      b.innerHTML=h; _aoCampList(); return;
+    }
+    h+='<div class="ao-lbl">Campaign</div><div class="ao-pick" style="cursor:default"><span>'+_aoE(camp?camp.name:'')+(camp?' <span class="ao-s">('+camp.n+' leads)</span>':'')+'</span><button class="ao-link" onclick="_ao.w.pickCamp=true;aoWiz()">Change</button></div>';
     if(w.loading||!w.pv){ b.innerHTML=h+'<div style="text-align:center;padding:30px 0"><div class="ai-spin"></div><div class="ao-s" style="margin-top:8px">Checking every lead against the safety rules…</div></div>'; return; }
     if(w.pv.has_number===false) h+='<div class="ao-note ao-note-red">This campaign has no calling number and AI agent yet. Contact Adviuz to set one up.</div>';
     var tc=w.pv.temp_counts||{};
@@ -27307,6 +27315,20 @@ function aoNoteIn(v){
   var w=_ao.w; w.note=v; var s=document.getElementById('aoScript'); if(s) s.innerHTML=aoScript();
   if(w.purpose==='offer'){ var b=document.getElementById('aoN2'); if(b) b.disabled=!v.trim(); var e=document.getElementById('aoNoteErr'); if(e) e.hidden=!!v.trim(); }
 }
+function _aoCampList(){
+  var w=_ao.w, fEl=document.getElementById('aoCampF'), lEl=document.getElementById('aoCampL'); if(!fEl||!lEl) return;
+  var q=String(w.campQ||'').trim().toLowerCase(), ty=w.campT||'';
+  var all=_ao.camps.map(function(c){ var m=_aoCampMeta(c.id,c.name); return {id:String(c.id),name:c.name,n:c.n,type:m.type}; });
+  var bySearch=all.filter(function(c){ return !q||String(c.name).toLowerCase().indexOf(q)>=0; });
+  var tc={fly:0,ce:0}; bySearch.forEach(function(c){ tc[c.type]++; });
+  fEl.innerHTML=(tc.fly&&tc.ce)||ty?'<div class="ao-fchips" style="margin-bottom:6px"><button class="ao-fchip'+(!ty?' on':'')+'" onclick="_ao.w.campT=\'\';_aoCampList()">All <i>'+bySearch.length+'</i></button><button class="ao-fchip'+(ty==='fly'?' on':'')+'" onclick="_ao.w.campT=\'fly\';_aoCampList()">Digital Flyers <i>'+tc.fly+'</i></button><button class="ao-fchip'+(ty==='ce'?' on':'')+'" onclick="_ao.w.campT=\'ce\';_aoCampList()">AI Conversion Engine <i>'+tc.ce+'</i></button></div>':'';
+  var list=bySearch.filter(function(c){ return !ty||c.type===ty; });
+  lEl.innerHTML=list.length?'<div class="ao-ulist">'+list.map(function(c){ var on=c.id===w.campaign_id;
+      return '<label class="ao-crow'+(on?' on':'')+'"><input type="radio" name="aoCampPick" class="ao-cb" value="'+_aoE(c.id)+'"'+(on?' checked':'')+' onchange="aoCampChosen(this.value)"><span style="flex:1;min-width:0"><span class="ao-nm" style="display:block">'+_aoE(c.name)+'</span><span class="ao-t">'+(c.type==='ce'?'AI Conversion Engine':'Digital Flyers')+' · '+c.n+' lead'+(c.n===1?'':'s')+'</span></span></label>'; }).join('')+'</div>'
+    :'<div class="ao-empty">No campaign matches.</div>';
+  lEl.innerHTML+='<div class="ao-t" style="margin-top:8px">Only campaigns with leads are listed.</div>';
+}
+function aoCampChosen(id){ var w=_ao.w; w.pickCamp=false; if(id!==w.campaign_id){ w.campaign_id=id; w.name=''; aoLoadPreview(); } else aoWiz(); }
 function aoPickCamp(){
   var cur=_ao.w.campaign_id, pick=cur;
   var ov=document.createElement('div'); ov.className='sheet-ov open'; ov.style.zIndex='9990';
