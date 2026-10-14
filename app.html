@@ -26505,9 +26505,19 @@ async function _impDbDedupe(){
       var r2=await sbFetch('/rest/v1/leads?client_id=eq.'+clientId+'&select=email,do_not_contact,email_opt_out&email=in.('+encodeURIComponent(ch2)+')&limit=1000');
       if(r2.ok){ (await r2.json()).forEach(function(row){ if(!row.email) return; var k=String(row.email).toLowerCase(), no=row.do_not_contact===true||row.email_opt_out===true; if(no||!existEm[k]) existEm[k]=no?'dnc':'exists'; }); }
     }
+    // imp-scrub-2: the permanent do-not-contact list — people who opted out
+    // earlier stay blocked even if their lead card was deleted since.
+    try{
+      var qp=I.ready.filter(function(l){ return l.ph&&!exist[l.ph]; }).map(function(l){ return l.ph; });
+      var qe=I.ready.filter(function(l){ return l.em&&!existEm[l.em]; }).map(function(l){ return l.em; });
+      for(var z=0;z<Math.max(qp.length,qe.length);z+=500){
+        var rs=await sbFetch('/rest/v1/rpc/upload_suppressed',{method:'POST',body:JSON.stringify({p_client:clientId,p_phones:qp.slice(z,z+500),p_emails:qe.slice(z,z+500)})});
+        if(rs.ok){ (await rs.json()).forEach(function(x){ if(x.kind==='phone') exist[x.val]='dnc'; else existEm[String(x.val).toLowerCase()]='dnc'; }); }
+      }
+    }catch(_e){ console.warn('[import dnc]',_e&&_e.message); }
     var kept=[]; I.skipped=I.skipped||[];
     I.ready.forEach(function(l){
-      var hit=(l.ph&&exist[l.ph])||(!l.ph&&l.em&&existEm[l.em])||'';
+      var hit=((l.ph&&exist[l.ph]==='dnc')||(l.em&&existEm[l.em]==='dnc'))?'dnc':((l.ph&&exist[l.ph])||(!l.ph&&l.em&&existEm[l.em])||'');
       if(hit){ if(hit==='dnc') I.dnc++; else I.dups++; I.skipped.push({row:l.row,why:hit}); }
       else kept.push(l);
     });
@@ -32553,6 +32563,12 @@ function fqRemove(id){
 // Data: leads array (local) + the report-data edge fn (reached/speed/feed),
 // same function the Reports > AI Engine tab uses.
 function _isCeCamp(cp){
+  // ce-kind-1 (Ajax 2026-10-14): an explicit type always wins. settings.kind =
+  // 'ai_engine' | 'digital_flyers', set when the campaign is created. Older
+  // campaigns without it fall back to the guess below.
+  var _k = cp && cp.settings && cp.settings.kind;
+  if (_k === 'ai_engine') return true;
+  if (_k === 'digital_flyers') return false;
   if (_isLeadsCamp(cp)) return false;
   var served = (Number(cp.views_used)||0) + (Number(cp.fb_impressions)||0) + (Number(cp.google_impressions)||0) + (Number(cp.total_exposure)||0);
   return (Number(cp.view_budget)||0) === 0 && served === 0;
