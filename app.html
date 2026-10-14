@@ -1690,6 +1690,9 @@ textarea.ao-inp{resize:vertical;min-height:72px}
 .ao-track{height:20px;background:var(--bg);border-radius:6px;overflow:hidden}
 .ao-track i{display:block;height:100%;background:#8b5cf6;border-radius:6px}
 .ao-fun b{text-align:right;font-weight:600}
+.imp-campbtn{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border:1.5px solid #cfd6de;border-radius:12px;background:var(--white);font-family:var(--f);font-size:14px;color:var(--text);cursor:pointer;text-align:left}
+.imp-campbtn span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.imp-tpl{display:block;margin:10px auto 0;border:0;background:none;font-family:var(--f);font-size:13px;font-weight:600;color:#4000f3;cursor:pointer}
 .ao-tap{cursor:pointer;-webkit-tap-highlight-color:transparent}.ao-tap:active{opacity:.6}
 .ao-fun.ao-tap b,.ao-kvl{color:#4000f3!important;white-space:nowrap}
 .ao-fun{grid-template-columns:118px 1fr 40px}
@@ -3541,15 +3544,17 @@ textarea.ao-inp{resize:vertical;min-height:72px}
       </div>
       <div class="fg" id="impCampaignRow" style="margin-bottom:12px">
         <label class="flbl">Campaign <span id="impCampaignReq" style="color:var(--sub);font-weight:400">(recommended)</span></label>
-        <select class="fsel" id="impCampaign" onchange="if(window._imp&&window._imp.ready.length){window._imp.checking=true;_impPaint();_impDbDedupe();}"><option value="">&#x2014; No campaign &#x2014;</option></select>
+        <select class="fsel" id="impCampaign" style="display:none" onchange="_impCampLbl();if(window._imp&&window._imp.ready.length){window._imp.checking=true;_impPaint();_impDbDedupe();}"><option value="">&#x2014; No campaign &#x2014;</option></select>
+        <button type="button" class="imp-campbtn" id="impCampBtn" onclick="impCampPick()"><span id="impCampLbl">&#x2014; No campaign &#x2014;</span><span style="color:var(--sub)">&#x25BE;</span></button>
       </div>
       <div class="imp-zone" id="impZone" onclick="document.getElementById('fileInp').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="handleDrop(event)">
         <div class="imp-icon">&#x1F4CA;</div>
         <div class="imp-title">Drop file or tap to browse</div>
-        <div class="imp-sub">CSV or Excel (.xlsx)<br>Columns: Name, Phone, Email, Company, Source, Notes</div>
+        <div class="imp-sub">CSV or Excel (.xlsx)<br>Columns: Name, Phone, Email, <b>Lead date</b>, City, Service, Notes</div>
         <button class="btn btn-primary" style="margin-top:14px;justify-content:center;background:linear-gradient(118deg,#4000f3,#8b2bf7,#e65afc);border:none;color:#fff">Choose File</button>
       </div>
       <input type="file" id="fileInp" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleFileSelect(this)">
+      <button type="button" class="imp-tpl" onclick="impTemplate()">&#x2B07;&#xFE0F; Download a sample sheet</button>
       <div id="impPreview" style="display:none;margin-top:14px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px">
           <div style="font-size:14px;font-weight:500;color:var(--text)">Preview</div>
@@ -3580,7 +3585,7 @@ textarea.ao-inp{resize:vertical;min-height:72px}
         </label>
         <div style="background:var(--bluel);border-radius:10px;padding:11px;font-size:12px;color:var(--blue);line-height:1.5">&#x1F916; Imported leads never get automatic AI calls or texts. When you&#x2019;re ready, use <strong>AI Outreach</strong> or the <strong>Conversion Engine</strong> to start reaching out.</div>
       </div>
-      <div style="margin-top:12px;background:var(--amberl);border-radius:10px;padding:11px;font-size:12px;color:#92400e"><strong>Required:</strong> Name + a phone or email &nbsp;&#x2022;&nbsp; <strong>Optional:</strong> Company, Source, Notes, Province</div>
+      <div style="margin-top:12px;background:var(--amberl);border-radius:10px;padding:11px;font-size:12px;color:#92400e"><strong>Required:</strong> Name, a phone or email, and <strong>Lead date</strong> (the day they first inquired) &nbsp;&#x2022;&nbsp; <strong>Optional:</strong> City, Service, Company, Notes, Province, Source</div>
     </div>
     <div class="sh-foot">
       <button class="btn btn-ghost" onclick="closeSheet('importSh')" style="flex:1">Cancel</button>
@@ -7920,6 +7925,7 @@ function srcLabel(s){
   // web-src-1: website submissions keep their real label for everyone.
   var _raw = String(s||'').trim();
   if (_raw==='Website Form' || _raw==='Website Appointment') return _raw;
+  if (/^(uploaded|import)$/i.test(_raw)) return 'Uploaded';
   if (window._staffRole !== 'client') return s || 'Manual';
   var v = String(s||'').trim().toLowerCase();
   return (v==='' || v==='manual' || v==='manual entry' || v==='walk-in' || v==='walkin' || v==='other')
@@ -7933,6 +7939,7 @@ function _rptSrcBucket(raw){
   var k=String(raw||'').trim().toLowerCase();
   if(k==='website form') return 'Website Form';
   if(k==='website appointment') return 'Website Appointment';
+  if(k==='uploaded'||k==='import') return 'Uploaded';
   if(k===''||k==='manual'||k==='manual entry'||k==='walk-in'||k==='walkin'||k==='other') return 'Manually Added';
   return 'Adviuz';
 }
@@ -26290,6 +26297,7 @@ function openImportSheet(){
     if(req) req.innerHTML = staff ? '<span style="color:#dc2626">*</span>' : '<span style="color:var(--sub);font-weight:400">(recommended)</span>';
   }
   window._imp={ready:[],badRows:0,dups:0,checking:false};
+  _impCampLbl();
   var fi=document.getElementById('fileInp'); if(fi) fi.value='';
   var pv=document.getElementById('impPreview'); if(pv) pv.style.display='none';
   var op=document.getElementById('impOptions'); if(op) op.style.display='none';
@@ -26351,6 +26359,45 @@ function _impNormPhone(s){
   if(d.length===11&&d.charAt(0)==='1') return '+'+d;
   return d?null:'';  // null = present but invalid; '' = empty
 }
+// imp-date-1 (Ajax 2026-10-14): every uploaded lead needs the day they first inquired.
+// It becomes first_inquiry_at, which the AI call rounds use for Canada's 6-month rule.
+// Works out whether the file writes dates month-first (5/31/2026) or day-first (31/5/2026).
+function _impDateOrder(vals){
+  var md=0, dm=0;
+  vals.forEach(function(v){ var m=String(v||'').trim().match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/); if(!m) return; if(+m[1]>12) dm++; else if(+m[2]>12) md++; });
+  return dm>md?'dm':'md';
+}
+function _impDate(v, order){
+  var t=String(v||'').trim(); if(!t) return null;
+  var y,mo,d,m;
+  if((m=t.match(/^(\d{4})[\-\/.](\d{1,2})[\-\/.](\d{1,2})/))){ y=+m[1]; mo=+m[2]; d=+m[3]; }
+  else if((m=t.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/))){ y=+m[3]; if(y<100) y+=2000; if(order==='dm'){ d=+m[1]; mo=+m[2]; } else { mo=+m[1]; d=+m[2]; } }
+  else if(/^\d{5}(\.\d+)?$/.test(t)){ var x=new Date(Date.UTC(1899,11,30)+Math.floor(+t)*86400000); y=x.getUTCFullYear(); mo=x.getUTCMonth()+1; d=x.getUTCDate(); }
+  else { var p=new Date(t); if(isNaN(p.getTime())) return null; y=p.getFullYear(); mo=p.getMonth()+1; d=p.getDate(); }
+  if(!(mo>=1&&mo<=12&&d>=1&&d<=31&&y>=2000)) return null;
+  var dt=new Date(y,mo-1,d,12,0,0); if(dt.getMonth()!==mo-1) return null;        // e.g. 31 Feb
+  if(dt.getTime()>Date.now()+86400000) return null;                               // no future dates
+  return dt.toISOString();
+}
+function _impNeedDate(){
+  window._imp={ready:[],badRows:0,dups:0,checking:false,needDate:true};
+  _impPaint();
+  showToast('Add a "Lead date" column — the day each lead first inquired');
+}
+function impTemplate(){
+  var rows=[['Name','Phone','Email','Lead date','City','Service','Notes'],['Jane Smith','416-555-0199','jane@example.com','2026-09-15','Toronto','Hair tattoo','Asked about price']];
+  var csv=rows.map(function(r){ return r.map(function(v){ return '"'+String(v).replace(/"/g,'""')+'"'; }).join(','); }).join('\n');
+  var b=new Blob(['\ufeff'+csv],{type:'text/csv'}), u=URL.createObjectURL(b), a=document.createElement('a'); a.href=u; a.download='adviuz-upload-sample.csv'; a.click(); setTimeout(function(){ URL.revokeObjectURL(u); },500);
+}
+function _impCampLbl(){
+  var sel=document.getElementById('impCampaign'), lb=document.getElementById('impCampLbl'); if(!sel||!lb) return;
+  var o=sel.options[sel.selectedIndex]; lb.textContent=o?o.text:'\u2014 No campaign \u2014';
+}
+function impCampPick(){
+  var sel=document.getElementById('impCampaign'); if(!sel) return;
+  var opts=[].map.call(sel.options,function(o){ return [o.value,o.text]; });
+  _aoPickSheet('Upload into which campaign?', opts, sel.value, function(v){ sel.value=v; sel.dispatchEvent(new Event('change')); });
+}
 var _IMP_PROV_TZ={AB:'America/Edmonton',BC:'America/Vancouver',MB:'America/Winnipeg',NB:'America/Halifax',NL:'America/St_Johns',NS:'America/Halifax',NT:'America/Yellowknife',NU:'America/Iqaluit',ON:'America/Toronto',PE:'America/Halifax',QC:'America/Toronto',SK:'America/Regina',YT:'America/Whitehorse'};
 function _impIngest(rows){
   if(!rows||rows.length<2){ showToast('That file needs a header row plus at least one lead'); return; }
@@ -26366,8 +26413,12 @@ function _impIngest(rows){
   var cNote=col(['notes','note','comments','comment','message','remarks']);
   var cSvc=col(['service','interest','interested in','treatment']);
   var cProv=col(['province','prov','state','region']);
+  var cLoc=col(['city','location','town','area']);
+  var cDate=col(['lead date','original lead date','inquiry date','enquiry date','date of inquiry','first inquiry','date','original date','created','created at','created_at','created time','created_time','date created','submitted','submitted at','date added','date submitted','timestamp']);
   if(cName<0&&cFirst<0&&cComp<0){ showToast('No Name column found — the first row must have headers like Name, Phone, Email'); return; }
-  var ready=[],bad=0,seenPh={},seenEm={};
+  if(cDate<0){ _impNeedDate(); return; }
+  var dOrder=_impDateOrder(rows.slice(1).map(function(r){ return r&&r[cDate]!=null?String(r[cDate]):''; }));
+  var ready=[],bad=0,badDate=0,seenPh={},seenEm={};
   for(var i=1;i<rows.length;i++){
     var r=rows[i]; if(!r||!r.join('').trim()) continue;
     function gv(ix){ return ix>=0&&r[ix]!=null?String(r[ix]).trim():''; }
@@ -26377,14 +26428,17 @@ function _impIngest(rows){
     var em=gv(cEmail).toLowerCase();
     if(em&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) em='';
     if((!nm&&!comp)||ph===null||(!ph&&!em)){ bad++; continue; }   // needs a name/company + one valid way to reach them
+    var dt=_impDate(gv(cDate), dOrder);
+    if(!dt){ badDate++; continue; }                                // lead date is required (6-month calling rule)
     if(ph&&seenPh[ph]){ bad++; continue; }                        // duplicate inside the file
     if(!ph&&em&&seenEm[em]){ bad++; continue; }
     if(ph)seenPh[ph]=1; if(em)seenEm[em]=1;
     var prov=gv(cProv).toUpperCase().slice(0,2);
     if(!_IMP_PROV_TZ[prov]) prov='';
-    ready.push({name:nm||comp,company:comp||null,ph:ph,em:em||null,src:gv(cSrc)||'Import',note:gv(cNote)||null,svc:gv(cSvc)||null,prov:prov});
+    var os=gv(cSrc), nt=gv(cNote);
+    ready.push({name:nm||comp,company:comp||null,ph:ph,em:em||null,src:'Uploaded',note:((os?'Original source: '+os:'')+(os&&nt?'\n':'')+nt)||null,svc:gv(cSvc)||null,prov:prov,loc:gv(cLoc)||null,dt:dt});
   }
-  window._imp={ready:ready,badRows:bad,dups:0,checking:true};
+  window._imp={ready:ready,badRows:bad,badDate:badDate,dOrder:dOrder,dups:0,checking:true,fileName:(window._imp&&window._imp.fileName)||''};
   _impPaint();
   _impDbDedupe();
 }
@@ -26433,12 +26487,20 @@ function _impPaint(){
   if(op)op.style.display='block';
   if(cb)cb.textContent=I.ready.length+' lead'+(I.ready.length!==1?'s':'');
   var bits=[];
-  if(I.checking) bits.push('⏳ Checking for leads already in your account…');
+  if(I.checking) bits.push('🔍 Checking for leads already in your account…');
   if(I.dups) bits.push('\u{1F501} '+I.dups+' already in your account — skipped');
+  if(I.needDate) bits.push('📅 <b>This file has no “Lead date” column.</b> Add one with the day each lead first inquired (for example 2026-09-15), then choose the file again. Tap “Download a sample sheet” to see the layout.');
   if(I.badRows) bits.push('⚠️ '+I.badRows+' row'+(I.badRows!==1?'s':'')+' skipped (missing name, or no valid phone/email)');
+  if(I.badDate) bits.push('📅 '+I.badDate+' row'+(I.badDate!==1?'s':'')+' skipped — the lead date is missing, unreadable or in the future');
+  if(I.ready.length){
+    var ts=I.ready.map(function(l){ return l.dt; }).sort(), old=I.ready.filter(function(l){ return new Date(l.dt).getTime()<Date.now()-183*86400000; }).length;
+    var fd=function(x){ return new Date(x).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}); };
+    bits.push('📅 Lead dates: '+fd(ts[0])+(ts.length>1&&fd(ts[0])!==fd(ts[ts.length-1])?' – '+fd(ts[ts.length-1]):'')+(I.dOrder==='dm'?' <span style="color:var(--sub)">(read as day/month/year)</span>':''));
+    if(old) bits.push('⏳ <b>'+old+' lead'+(old!==1?'s':'')+' inquired more than 6 months ago.</b> They will be uploaded, but AI calls will skip them (Canada’s 6-month rule).');
+  }
   if(sm){ sm.style.display=bits.length?'block':'none'; sm.innerHTML=bits.join('<br>'); }
   if(btn){ btn.textContent=I.checking?'Checking…':'Import '+I.ready.length+' Lead'+(I.ready.length!==1?'s':''); btn.disabled=I.checking||I.ready.length===0; }
-  if(rw)rw.innerHTML=I.ready.slice(0,3).map(function(l,i){return(i?'<div style="height:1px;background:var(--border);margin:8px 0"></div>':'')+'<div style="font-size:13px;font-weight:600;color:var(--text)">'+sanitize(l.name)+(l.company&&l.company!==l.name?' · '+sanitize(l.company):'')+'</div><div style="font-size:12px;color:var(--sub)">'+sanitize(l.ph||'—')+(l.em?' · '+sanitize(l.em):'')+'</div>'}).join('')+(I.ready.length?'<div style="text-align:center;font-size:12px;color:var(--sub);margin-top:8px">'+I.ready.length+' leads ready</div>':'<div style="text-align:center;font-size:12px;color:var(--sub)">Nothing left to import</div>');
+  if(rw)rw.innerHTML=I.ready.slice(0,3).map(function(l,i){return(i?'<div style="height:1px;background:var(--border);margin:8px 0"></div>':'')+'<div style="font-size:13px;font-weight:600;color:var(--text)">'+sanitize(l.name)+(l.company&&l.company!==l.name?' · '+sanitize(l.company):'')+'</div><div style="font-size:12px;color:var(--sub)">'+sanitize(l.ph||'—')+(l.em?' · '+sanitize(l.em):'')+' · inquired '+new Date(l.dt).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'})+(l.loc?' · '+sanitize(l.loc):'')+'</div>'}).join('')+(I.ready.length?'<div style="text-align:center;font-size:12px;color:var(--sub);margin-top:8px">'+I.ready.length+' leads ready</div>':'<div style="text-align:center;font-size:12px;color:var(--sub)">Nothing left to import</div>');
 }
 async function confirmImport(){
   var I=window._imp;
@@ -26461,7 +26523,8 @@ async function confirmImport(){
         return {
           name:l.name, company:l.company, phone:l.ph||'', email:l.em,
           stage:'1. Fresh Lead', stage_code:'fresh_lead',
-          source:l.src||'Import', service:l.svc, notes:l.note,
+          source:l.src||'Uploaded', service:l.svc, notes:l.note,
+          first_inquiry_at:l.dt||null, location:l.loc||null,
           sms_consent:true, call_consent:true, email_consent:true,
           color:COLORS[(p+done)%COLORS.length],
           client_id:window._clientId||null,
