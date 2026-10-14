@@ -1692,6 +1692,11 @@ textarea.ao-inp{resize:vertical;min-height:72px}
 .ao-fun b{text-align:right;font-weight:600}
 .imp-campbtn{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border:1.5px solid #cfd6de;border-radius:12px;background:var(--white);font-family:var(--f);font-size:14px;color:var(--text);cursor:pointer;text-align:left}
 .imp-campbtn span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.imp-ckbox{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:8px}
+.imp-ckh{font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px}
+.imp-ck{display:flex;justify-content:space-between;gap:10px;padding:5px 0;font-size:12.5px;color:var(--text);border-top:1px solid var(--border)}
+.imp-ck:first-of-type{border-top:0}
+.imp-ck b{font-weight:600;white-space:nowrap}
 .imp-tpl{display:block;margin:10px auto 0;border:0;background:none;font-family:var(--f);font-size:13px;font-weight:600;color:#4000f3;cursor:pointer}
 .ao-tap{cursor:pointer;-webkit-tap-highlight-color:transparent}.ao-tap:active{opacity:.6}
 .ao-fun.ao-tap b,.ao-kvl{color:#4000f3!important;white-space:nowrap}
@@ -4992,7 +4997,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-13 import-10zo';
+var APP_VERSION = 'v2026-10-14 import-10zp';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -26398,6 +26403,31 @@ function impCampPick(){
   var opts=[].map.call(sel.options,function(o){ return [o.value,o.text]; });
   _aoPickSheet('Upload into which campaign?', opts, sel.value, function(v){ sel.value=v; sel.dispatchEvent(new Event('change')); });
 }
+// imp-scrub-1 (2026-10-14): list cleaning before upload. Free checks only —
+// bad/fake numbers, toll-free lines, duplicates, people already in the account,
+// people who asked not to be contacted, email typos. Every skipped row keeps
+// its reason so the client can download and fix them.
+var _IMP_CA_AC={204:1,226:1,236:1,249:1,250:1,257:1,263:1,289:1,306:1,343:1,354:1,365:1,367:1,368:1,382:1,387:1,403:1,416:1,418:1,428:1,431:1,437:1,438:1,450:1,460:1,468:1,474:1,506:1,514:1,519:1,548:1,579:1,581:1,584:1,587:1,604:1,613:1,639:1,647:1,672:1,683:1,705:1,709:1,742:1,753:1,778:1,780:1,782:1,807:1,819:1,825:1,867:1,873:1,879:1,902:1,905:1,942:1};
+var _IMP_TF={800:1,833:1,844:1,855:1,866:1,877:1,888:1};
+var _IMP_EM_FIX={'gmial.com':'gmail.com','gmai.com':'gmail.com','gmail.co':'gmail.com','gmail.con':'gmail.com','gamil.com':'gmail.com','gnail.com':'gmail.com','gmail.cm':'gmail.com','hotmial.com':'hotmail.com','hotmail.co':'hotmail.com','hotmail.con':'hotmail.com','yahoo.co':'yahoo.com','yaho.com':'yahoo.com','yahoo.con':'yahoo.com','outlook.co':'outlook.com','outlok.com':'outlook.com','iclod.com':'icloud.com','icloud.co':'icloud.com'};
+// '' = fine; otherwise the reason this number can't be used.
+function _impPhoneProblem(e164){
+  var d=String(e164||'').replace(/\D/g,''); if(d.length!==11) return 'bad';
+  var ac=d.substr(1,3), ex=d.substr(4,3), ln=d.substr(7);
+  if(/^[01]/.test(ac)||/^[01]/.test(ex)) return 'bad';                 // not a real North American number
+  if(/^(\d)\1{9}$/.test(d.slice(1))||d.slice(1)==='1234567890'||d.slice(1)==='0123456789') return 'fake';
+  if(ex==='555'&&/^01\d\d$/.test(ln)) return 'fake';                  // 555-01xx = fictional (TV/movie) numbers
+  if(_IMP_TF[+ac]) return 'tollfree';                                 // business line — can't receive texts
+  return '';
+}
+var _IMP_WHY={missing:'Missing name, or no phone/email',badphone:'Phone number is not a real number',fake:'Looks like a fake/test number',tollfree:'Toll-free business line (can\u2019t get texts)',date:'Lead date missing, unreadable or in the future',dupfile:'Listed twice in this file',exists:'Already in your account',dnc:'Asked not to be contacted'};
+function impSkippedCsv(){
+  var I=window._imp||{}; var sk=I.skipped||[]; if(!sk.length){ showToast('Nothing was skipped'); return; }
+  var head=(I.hdrRaw||[]).concat(['Why it was skipped']);
+  var rows=[head].concat(sk.map(function(x){ return (x.row||[]).concat([_IMP_WHY[x.why]||x.why]); }));
+  var csv=rows.map(function(r){ return r.map(function(v){ return '"'+String(v==null?'':v).replace(/"/g,'""')+'"'; }).join(','); }).join('\n');
+  var b=new Blob(['\ufeff'+csv],{type:'text/csv'}), u=URL.createObjectURL(b), a=document.createElement('a'); a.href=u; a.download='skipped-rows'+(I.fileName?'-'+String(I.fileName).replace(/\.[^.]+$/,''):'')+'.csv'; a.click(); setTimeout(function(){ URL.revokeObjectURL(u); },500);
+}
 var _IMP_PROV_TZ={AB:'America/Edmonton',BC:'America/Vancouver',MB:'America/Winnipeg',NB:'America/Halifax',NL:'America/St_Johns',NS:'America/Halifax',NT:'America/Yellowknife',NU:'America/Iqaluit',ON:'America/Toronto',PE:'America/Halifax',QC:'America/Toronto',SK:'America/Regina',YT:'America/Whitehorse'};
 function _impIngest(rows){
   if(!rows||rows.length<2){ showToast('That file needs a header row plus at least one lead'); return; }
@@ -26418,27 +26448,34 @@ function _impIngest(rows){
   if(cName<0&&cFirst<0&&cComp<0){ showToast('No Name column found — the first row must have headers like Name, Phone, Email'); return; }
   if(cDate<0){ _impNeedDate(); return; }
   var dOrder=_impDateOrder(rows.slice(1).map(function(r){ return r&&r[cDate]!=null?String(r[cDate]):''; }));
-  var ready=[],bad=0,badDate=0,seenPh={},seenEm={};
+  var ready=[],skipped=[],seenPh={},seenEm={},emFixed=0,outCa=0;
   for(var i=1;i<rows.length;i++){
     var r=rows[i]; if(!r||!r.join('').trim()) continue;
     function gv(ix){ return ix>=0&&r[ix]!=null?String(r[ix]).trim():''; }
+    function skip(why){ skipped.push({row:r,why:why}); }
     var nm=gv(cName)||((gv(cFirst)+' '+gv(cLast)).trim());
     var comp=gv(cComp);
     var ph=_impNormPhone(gv(cPhone));
-    var em=gv(cEmail).toLowerCase();
+    var em=gv(cEmail).toLowerCase().replace(/\s+/g,'');
+    if(em){ var at=em.lastIndexOf('@'); if(at>0){ var dom=em.slice(at+1); if(_IMP_EM_FIX[dom]){ em=em.slice(0,at+1)+_IMP_EM_FIX[dom]; emFixed++; } } }
     if(em&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) em='';
-    if((!nm&&!comp)||ph===null||(!ph&&!em)){ bad++; continue; }   // needs a name/company + one valid way to reach them
+    var pp=ph?_impPhoneProblem(ph):'';
+    if(pp&&em){ ph=''; pp=''; }                                    // bad number but a good email: keep them, email only
+    if(!nm&&!comp){ skip('missing'); continue; }
+    if(ph===null){ if(em){ ph=''; } else { skip('badphone'); continue; } }
+    if(pp){ skip(pp==='bad'?'badphone':pp); continue; }
+    if(!ph&&!em){ skip('missing'); continue; }
     var dt=_impDate(gv(cDate), dOrder);
-    if(!dt){ badDate++; continue; }                                // lead date is required (6-month calling rule)
-    if(ph&&seenPh[ph]){ bad++; continue; }                        // duplicate inside the file
-    if(!ph&&em&&seenEm[em]){ bad++; continue; }
+    if(!dt){ skip('date'); continue; }                              // lead date is required (6-month calling rule)
+    if((ph&&seenPh[ph])||(!ph&&em&&seenEm[em])){ skip('dupfile'); continue; }
     if(ph)seenPh[ph]=1; if(em)seenEm[em]=1;
+    if(ph&&!_IMP_CA_AC[+ph.substr(2,3)]) outCa++;
     var prov=gv(cProv).toUpperCase().slice(0,2);
     if(!_IMP_PROV_TZ[prov]) prov='';
     var os=gv(cSrc), nt=gv(cNote);
-    ready.push({name:nm||comp,company:comp||null,ph:ph,em:em||null,src:'Uploaded',note:((os?'Original source: '+os:'')+(os&&nt?'\n':'')+nt)||null,svc:gv(cSvc)||null,prov:prov,loc:gv(cLoc)||null,dt:dt});
+    ready.push({name:nm||comp,company:comp||null,ph:ph,em:em||null,src:'Uploaded',note:((os?'Original source: '+os:'')+(os&&nt?'\n':'')+nt)||null,svc:gv(cSvc)||null,prov:prov,loc:gv(cLoc)||null,dt:dt,row:r});
   }
-  window._imp={ready:ready,badRows:bad,badDate:badDate,dOrder:dOrder,dups:0,checking:true,fileName:(window._imp&&window._imp.fileName)||''};
+  window._imp={ready:ready,skipped:skipped,emFixed:emFixed,outCa:outCa,hdrRaw:rows[0].map(function(h){ return String(h==null?'':h); }),dOrder:dOrder,dups:0,dnc:0,checking:true,fileName:(window._imp&&window._imp.fileName)||''};
   _impPaint();
   _impDbDedupe();
 }
@@ -26458,19 +26495,20 @@ async function _impDbDedupe(){
     var exist={};
     for(var p=0;p<phones.length;p+=100){
       var chunk=phones.slice(p,p+100).map(function(x){return '"'+x+'"';}).join(',');
-      var rr=await sbFetch('/rest/v1/leads?client_id=eq.'+clientId+'&select=phone&phone=in.('+encodeURIComponent(chunk)+')&limit=1000');
-      if(rr.ok){ (await rr.json()).forEach(function(row){ if(row.phone) exist[row.phone]=1; }); }
+      var rr=await sbFetch('/rest/v1/leads?client_id=eq.'+clientId+'&select=phone,do_not_contact,opted_out_at,ai_call_status&phone=in.('+encodeURIComponent(chunk)+')&limit=1000');
+      if(rr.ok){ (await rr.json()).forEach(function(row){ if(!row.phone) return; var no=row.do_not_contact===true||!!row.opted_out_at||row.ai_call_status==='opted_out'; if(no||!exist[row.phone]) exist[row.phone]=no?'dnc':'exists'; }); }
     }
     var ems=I.ready.filter(function(l){return !l.ph&&l.em;}).map(function(l){return l.em;});
     var existEm={};
     for(var q=0;q<ems.length;q+=100){
       var ch2=ems.slice(q,q+100).map(function(x){return '"'+x+'"';}).join(',');
-      var r2=await sbFetch('/rest/v1/leads?client_id=eq.'+clientId+'&select=email&email=in.('+encodeURIComponent(ch2)+')&limit=1000');
-      if(r2.ok){ (await r2.json()).forEach(function(row){ if(row.email) existEm[String(row.email).toLowerCase()]=1; }); }
+      var r2=await sbFetch('/rest/v1/leads?client_id=eq.'+clientId+'&select=email,do_not_contact,email_opt_out&email=in.('+encodeURIComponent(ch2)+')&limit=1000');
+      if(r2.ok){ (await r2.json()).forEach(function(row){ if(!row.email) return; var k=String(row.email).toLowerCase(), no=row.do_not_contact===true||row.email_opt_out===true; if(no||!existEm[k]) existEm[k]=no?'dnc':'exists'; }); }
     }
-    var kept=[];
+    var kept=[]; I.skipped=I.skipped||[];
     I.ready.forEach(function(l){
-      if((l.ph&&exist[l.ph])||(!l.ph&&l.em&&existEm[l.em])) I.dups++;
+      var hit=(l.ph&&exist[l.ph])||(!l.ph&&l.em&&existEm[l.em])||'';
+      if(hit){ if(hit==='dnc') I.dnc++; else I.dups++; I.skipped.push({row:l.row,why:hit}); }
       else kept.push(l);
     });
     I.ready=kept;
@@ -26486,17 +26524,26 @@ function _impPaint(){
   if(pv)pv.style.display='block';
   if(op)op.style.display='block';
   if(cb)cb.textContent=I.ready.length+' lead'+(I.ready.length!==1?'s':'');
+  // imp-scrub-1: "List check" — what was cleaned out, why, and what needs attention.
   var bits=[];
-  if(I.checking) bits.push('🔍 Checking for leads already in your account…');
-  if(I.dups) bits.push('\u{1F501} '+I.dups+' already in your account — skipped');
   if(I.needDate) bits.push('📅 <b>This file has no “Lead date” column.</b> Add one with the day each lead first inquired (for example 2026-09-15), then choose the file again. Tap “Download a sample sheet” to see the layout.');
-  if(I.badRows) bits.push('⚠️ '+I.badRows+' row'+(I.badRows!==1?'s':'')+' skipped (missing name, or no valid phone/email)');
-  if(I.badDate) bits.push('📅 '+I.badDate+' row'+(I.badDate!==1?'s':'')+' skipped — the lead date is missing, unreadable or in the future');
+  var sk=I.skipped||[], cnt={}; sk.forEach(function(x){ cnt[x.why]=(cnt[x.why]||0)+1; });
+  if(!I.needDate&&(I.ready.length||sk.length)){
+    var row=function(n,txt,col){ return '<div class="imp-ck"><span>'+txt+'</span><b'+(col?' style="color:'+col+'"':'')+'>'+n.toLocaleString()+'</b></div>'; };
+    var h='<div class="imp-ckbox"><div class="imp-ckh">List check'+(I.checking?' <span style="color:var(--sub);font-weight:400">· checking your account…</span>':'')+'</div>';
+    h+=row(I.ready.length,'✅ Ready to upload','var(--green)');
+    ['dnc','exists','dupfile','badphone','fake','tollfree','missing','date'].forEach(function(k){ if(cnt[k]) h+=row(cnt[k],'✖ '+_IMP_WHY[k],'#b91c1c'); });
+    if(I.emFixed) h+=row(I.emFixed,'✏️ Email typos fixed (e.g. gmial → gmail)');
+    if(sk.length) h+='<button type="button" class="imp-tpl" style="margin-top:6px" onclick="impSkippedCsv()">⬇️ Download the '+sk.length+' skipped row'+(sk.length!==1?'s':'')+' (with reasons)</button>';
+    h+='</div>';
+    bits.push(h);
+  }
   if(I.ready.length){
     var ts=I.ready.map(function(l){ return l.dt; }).sort(), old=I.ready.filter(function(l){ return new Date(l.dt).getTime()<Date.now()-183*86400000; }).length;
     var fd=function(x){ return new Date(x).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}); };
     bits.push('📅 Lead dates: '+fd(ts[0])+(ts.length>1&&fd(ts[0])!==fd(ts[ts.length-1])?' – '+fd(ts[ts.length-1]):'')+(I.dOrder==='dm'?' <span style="color:var(--sub)">(read as day/month/year)</span>':''));
     if(old) bits.push('⏳ <b>'+old+' lead'+(old!==1?'s':'')+' inquired more than 6 months ago.</b> They will be uploaded, but AI calls will skip them (Canada’s 6-month rule).');
+    if(I.outCa) bits.push('🌎 '+I.outCa+' number'+(I.outCa!==1?'s are':' is')+' outside Canada (US rules apply to those).');
   }
   if(sm){ sm.style.display=bits.length?'block':'none'; sm.innerHTML=bits.join('<br>'); }
   if(btn){ btn.textContent=I.checking?'Checking…':'Import '+I.ready.length+' Lead'+(I.ready.length!==1?'s':''); btn.disabled=I.checking||I.ready.length===0; }
