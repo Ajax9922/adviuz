@@ -3549,13 +3549,13 @@ textarea.ao-inp{resize:vertical;min-height:72px}
       </div>
       <div class="fg" id="impCampaignRow" style="margin-bottom:12px">
         <label class="flbl">Campaign <span id="impCampaignReq" style="color:var(--sub);font-weight:400">(recommended)</span></label>
-        <select class="fsel" id="impCampaign" style="display:none" onchange="_impCampLbl();if(window._imp&&window._imp.ready.length){window._imp.checking=true;_impPaint();_impDbDedupe();}"><option value="">&#x2014; No campaign &#x2014;</option></select>
+        <select class="fsel" id="impCampaign" style="display:none" onchange="_impCampLbl();if(window._impRows){_impIngest(window._impRows,window._impForce);}"><option value="">&#x2014; No campaign &#x2014;</option></select>
         <button type="button" class="imp-campbtn" id="impCampBtn" onclick="impCampPick()"><span id="impCampLbl">&#x2014; No campaign &#x2014;</span><span style="color:var(--sub)">&#x25BE;</span></button>
       </div>
       <div class="imp-zone" id="impZone" onclick="document.getElementById('fileInp').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="handleDrop(event)">
         <div class="imp-icon">&#x1F4CA;</div>
         <div class="imp-title">Drop file or tap to browse</div>
-        <div class="imp-sub">CSV or Excel (.xlsx)<br>Columns: Name, Phone, Email, <b>Lead date</b>, City, Service, Notes</div>
+        <div class="imp-sub">Any Excel (.xlsx, .xls) or CSV<br>We match the columns for you</div>
         <button class="btn btn-primary" style="margin-top:14px;justify-content:center;background:linear-gradient(118deg,#4000f3,#8b2bf7,#e65afc);border:none;color:#fff">Choose File</button>
       </div>
       <input type="file" id="fileInp" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleFileSelect(this)">
@@ -3569,6 +3569,7 @@ textarea.ao-inp{resize:vertical;min-height:72px}
         <div style="background:var(--bg);border-radius:10px;padding:13px" id="impPreviewRows"></div>
       </div>
       <div id="impOptions" style="display:none;margin-top:14px">
+        <div id="impBasisBox" style="margin-bottom:10px"></div>
         <div style="border:1.5px solid transparent;border-radius:12px;background:linear-gradient(var(--white),var(--white)) padding-box,linear-gradient(118deg,#4000f3,#e65afc) border-box;padding:12px 13px;margin-bottom:10px">
           <div style="font-size:12px;font-weight:600;background:linear-gradient(118deg,#4000f3,#e65afc);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:.02em;margin-bottom:7px">Before you import &#x2014; upload terms</div>
           <div style="font-size:12px;color:var(--text);line-height:1.65">
@@ -3590,7 +3591,7 @@ textarea.ao-inp{resize:vertical;min-height:72px}
         </label>
         <div style="background:var(--bluel);border-radius:10px;padding:11px;font-size:12px;color:var(--blue);line-height:1.5">&#x1F916; Imported leads never get automatic AI calls or texts. When you&#x2019;re ready, use <strong>AI Outreach</strong> or the <strong>Conversion Engine</strong> to start reaching out.</div>
       </div>
-      <div style="margin-top:12px;background:var(--amberl);border-radius:10px;padding:11px;font-size:12px;color:#92400e"><strong>Required:</strong> Name, a phone or email, and <strong>Lead date</strong> (the day they first inquired) &nbsp;&#x2022;&nbsp; <strong>Optional:</strong> City, Service, Company, Notes, Province, Source</div>
+      <div style="margin-top:12px;background:var(--amberl);border-radius:10px;padding:11px;font-size:12px;color:#92400e"><strong>Any Excel or CSV works</strong> &#x2014; we find the columns for you. Each lead needs a name and a phone or email. A <strong>Lead date</strong> (the day they first inquired) lets the AI call them.</div>
     </div>
     <div class="sh-foot">
       <button class="btn btn-ghost" onclick="closeSheet('importSh')" style="flex:1">Cancel</button>
@@ -4997,7 +4998,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-14 import-10zp';
+var APP_VERSION = 'v2026-10-14 import-10zq';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6594,6 +6595,7 @@ function mapLead(l, i) {
     t: timeAgo(l.last_activity_at || l.first_inquiry_at || l.created_at), // inq-date-1: last contact, else original inquiry — never the import date
     created_at: l.created_at || null,
     first_inquiry_at: l.first_inquiry_at || null,
+    basis: l.contact_basis || null, // imp-smart-1: why we may contact them (calling time limit)
     last_activity_at: l.last_activity_at || null,
     rawDate: l.created_at ? locDate(l.created_at) : locToday(),
     inqDate: (l.first_inquiry_at||l.created_at) ? locDate(l.first_inquiry_at||l.created_at) : locToday(), // inq-date-1: when they actually inquired
@@ -8078,6 +8080,7 @@ function renderAdvancedFilter(){
     {key:'execs',     title:'Assigned To (Executive)',  opts:d.execs},
     {key:'locations', title:'Location',                 opts:d.locations},
     {key:'sources',   title:'Source',                   opts:d.sources},
+    {key:'ages',      title:'Lead age (AI calling limit)', opts:_afAgeOpts()},
     {key:'services',  title:'Service',                  opts:d.services}
   ];
   // Clients shouldn't see the internal Partner classification — it's an
@@ -8134,12 +8137,18 @@ function afToggle(key, value, el){
   if(badge){ badge.textContent=arr.length; badge.classList.toggle('on', arr.length>0); }
 }
 
+// imp-smart-1: "Lead age" filter — inside the calling time limit (6 months after an
+// inquiry, 18 after a purchase, none for businesses) vs too old vs date unknown.
+function _afAgeOpts(){
+  var n={ok:0,old:0,unknown:0}; (leads||[]).forEach(function(l){ n[_leadCallWin(l)]++; });
+  return [{value:'ok',label:'\u2705 Fresh \u2014 AI can call',dot:'#16a34a',n:n.ok},{value:'old',label:'\u23F3 Too old \u2014 AI won\u2019t call',dot:'#d97706',n:n.old},{value:'unknown',label:'\u2753 Lead date unknown',dot:'#94a3b8',n:n.unknown}].filter(function(o){ return o.n>0; });
+}
 // Total number of active filter selections across all columns
 function advFilterCount(){
   var af=window._advFilters||{};
   return (af.stages||[]).length+(af.partners||[]).length+(af.telecallers||[]).length+
          (af.managers||[]).length+(af.campaigns||[]).length+
-         (af.locations||[]).length+(af.sources||[]).length+(af.services||[]).length+
+         (af.locations||[]).length+(af.sources||[]).length+(af.services||[]).length+(af.ages||[]).length+
          (af.clients||[]).length+((af.dateFrom||af.dateTo)?1:0)+
          Object.keys(af).reduce(function(s,k){ return s+(k.indexOf('cf:')===0?(af[k]||[]).length:0); },0);
 }
@@ -8633,6 +8642,7 @@ function leadsHTML(){
       if(af.dateTo   && (!_dd||_dd>af.dateTo))   return false; }
     if(!advMatch(af.locations, l.location||'')) return false;
     if(af.sources   && af.sources.length   && af.sources.indexOf(srcLabel(l.src||''))===-1) return false;
+    if(af.ages      && af.ages.length      && af.ages.indexOf(_leadCallWin(l))===-1) return false; // imp-smart-1
     if(!advMatch(af.services, l.svc||'')) return false;
     if(af.clients   && af.clients.length   && af.clients.indexOf(l.company||'')===-1) return false;
     // Custom-field filters (keys shaped "cf:<field_key>")
@@ -26302,6 +26312,8 @@ function openImportSheet(){
     if(req) req.innerHTML = staff ? '<span style="color:#dc2626">*</span>' : '<span style="color:var(--sub);font-weight:400">(recommended)</span>';
   }
   window._imp={ready:[],badRows:0,dups:0,checking:false};
+  window._impBasis='inquiry'; window._impForce=null; window._impDateAll=null; window._impRows=null;
+  _impBasisPaint();
   _impCampLbl();
   var fi=document.getElementById('fileInp'); if(fi) fi.value='';
   var pv=document.getElementById('impPreview'); if(pv) pv.style.display='none';
@@ -26315,10 +26327,17 @@ function handleDrop(e){e.preventDefault();document.getElementById('impZone').cla
 function handleFileSelect(inp){if(inp.files[0])processFile(inp.files[0])}
 function processFile(f){
   if(window._imp) window._imp.fileName=f.name; // import-10d: kept for the consent record
+  window._impForce=null; window._impDateAll=null; window._impRows=null;  // imp-smart-1: fresh choices per file
   var n=f.name.toLowerCase();
   if(n.endsWith('.csv')||n.endsWith('.txt')){
     var r=new FileReader();
-    r.onload=function(e){ _impIngest(_impParseCSV(String(e.target.result||''))); };
+    r.onload=function(e){
+      var txt=String(e.target.result||''), first=txt.split(/\r?\n/)[0]||'';
+      var cnt=function(ch){ return first.split(ch).length-1; };
+      var dl=cnt('\t')>cnt(',')&&cnt('\t')>=cnt(';')?'\t':(cnt(';')>cnt(',')?';':',');   // tab / semicolon files too
+      if(dl!==',') txt=txt.split('\n').map(function(line){ return line.split(dl).map(function(v){ v=v.replace(/\r$/,''); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }).join(','); }).join('\n');
+      _impIngest(_impParseCSV(txt));
+    };
     r.readAsText(f);
   } else if(n.endsWith('.xlsx')||n.endsWith('.xls')){
     if(!window.XLSX){ showToast('Excel reader is still loading — try again in a moment, or save the file as CSV'); return; }
@@ -26326,8 +26345,9 @@ function processFile(f){
     r2.onload=function(e){
       try{
         var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
-        var ws=wb.Sheets[wb.SheetNames[0]];
-        var rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+        // imp-smart-1: a workbook with several tabs → use the tab with the most filled rows
+        var rows=[];
+        wb.SheetNames.forEach(function(sn){ var rr=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:false,defval:''}); var nf=rr.filter(function(x){ return x&&x.join('').trim(); }).length; if(nf>rows.filter(function(x){ return x&&x.join('').trim(); }).length) rows=rr; });
         _impIngest(rows.map(function(r){ return (r||[]).map(function(v){ return v==null?'':String(v); }); }));
       }catch(err){ showToast('Could not read that Excel file: '+err.message); }
     };
@@ -26384,11 +26404,6 @@ function _impDate(v, order){
   if(dt.getTime()>Date.now()+86400000) return null;                               // no future dates
   return dt.toISOString();
 }
-function _impNeedDate(){
-  window._imp={ready:[],badRows:0,dups:0,checking:false,needDate:true};
-  _impPaint();
-  showToast('Add a "Lead date" column — the day each lead first inquired');
-}
 function impTemplate(){
   var rows=[['Name','Phone','Email','Lead date','City','Service','Notes'],['Jane Smith','416-555-0199','jane@example.com','2026-09-15','Toronto','Hair tattoo','Asked about price']];
   var csv=rows.map(function(r){ return r.map(function(v){ return '"'+String(v).replace(/"/g,'""')+'"'; }).join(','); }).join('\n');
@@ -26429,55 +26444,176 @@ function impSkippedCsv(){
   var b=new Blob(['\ufeff'+csv],{type:'text/csv'}), u=URL.createObjectURL(b), a=document.createElement('a'); a.href=u; a.download='skipped-rows'+(I.fileName?'-'+String(I.fileName).replace(/\.[^.]+$/,''):'')+'.csv'; a.click(); setTimeout(function(){ URL.revokeObjectURL(u); },500);
 }
 var _IMP_PROV_TZ={AB:'America/Edmonton',BC:'America/Vancouver',MB:'America/Winnipeg',NB:'America/Halifax',NL:'America/St_Johns',NS:'America/Halifax',NT:'America/Yellowknife',NU:'America/Iqaluit',ON:'America/Toronto',PE:'America/Halifax',QC:'America/Toronto',SK:'America/Regina',YT:'America/Whitehorse'};
-function _impIngest(rows){
-  if(!rows||rows.length<2){ showToast('That file needs a header row plus at least one lead'); return; }
-  var hdr=rows[0].map(function(h){ return String(h||'').trim().toLowerCase().replace(/['"]/g,''); });
-  function col(names){ for(var i=0;i<names.length;i++){ var ix=hdr.indexOf(names[i]); if(ix>=0) return ix; } return -1; }
-  var cName=col(['name','full name','fullname','lead name','contact','contact name','customer name']);
-  var cFirst=col(['first name','firstname','first']);
-  var cLast=col(['last name','lastname','last','surname']);
-  var cPhone=col(['phone','phone number','mobile','cell','telephone','contact number','phone#','tel']);
-  var cEmail=col(['email','e-mail','email address','mail']);
-  var cComp=col(['company','business','business name','company name','clinic','organization']);
-  var cSrc=col(['source','lead source','channel']);
-  var cNote=col(['notes','note','comments','comment','message','remarks']);
-  var cSvc=col(['service','interest','interested in','treatment']);
-  var cProv=col(['province','prov','state','region']);
-  var cLoc=col(['city','location','town','area']);
-  var cDate=col(['lead date','original lead date','inquiry date','enquiry date','date of inquiry','first inquiry','date','original date','created','created at','created_at','created time','created_time','date created','submitted','submitted at','date added','date submitted','timestamp']);
-  if(cName<0&&cFirst<0&&cComp<0){ showToast('No Name column found — the first row must have headers like Name, Phone, Email'); return; }
-  if(cDate<0){ _impNeedDate(); return; }
-  var dOrder=_impDateOrder(rows.slice(1).map(function(r){ return r&&r[cDate]!=null?String(r[cDate]):''; }));
-  var ready=[],skipped=[],seenPh={},seenEm={},emFixed=0,outCa=0;
-  for(var i=1;i<rows.length;i++){
-    var r=rows[i]; if(!r||!r.join('').trim()) continue;
+// imp-smart-1 (Ajax 2026-10-14): "any Excel — the system organizes it".
+// Finds the header row (title rows above it are skipped), matches columns by
+// their names AND by what is inside them (phones, emails, dates, names), lets
+// the client re-point any column, and never blocks on a missing date — those
+// leads are kept but marked "date unknown" so AI calls leave them alone.
+var _IMP_FIELDS=[
+  ['name','Name',['name','full name','fullname','lead name','contact','contact name','customer','customer name','client','client name','patient','patient name','person','your name','prospect','prospect name']],
+  ['first','First name',['first name','firstname','first','fname','given name','forename']],
+  ['last','Last name',['last name','lastname','last','lname','surname','family name']],
+  ['phone','Phone',['phone','phone number','mobile','mobile number','cell','cell phone','cellphone','cell number','telephone','tel','contact number','phone#','phone no','ph','ph no','number','whatsapp','primary phone','home phone','work phone','phone 1','phone1']],
+  ['email','Email',['email','e-mail','e mail','email address','mail','email id','primary email']],
+  ['company','Company',['company','business','business name','company name','clinic','organization','organisation','brokerage','firm','agency']],
+  ['date','Lead date',['lead date','original lead date','inquiry date','enquiry date','date of inquiry','date of enquiry','first inquiry','first contact','date','original date','created','created at','created on','created time','date created','submitted','submitted at','submission date','date added','date submitted','timestamp','received','date received','received at','signup date','sign up date','opt in date','lead created','date time','time']],
+  ['city','City',['city','location','town','area','address city','city town']],
+  ['prov','Province',['province','prov','state','region','province state','state province']],
+  ['svc','Service',['service','services','interest','interested in','treatment','product','inquiry about','enquiry about','service interested','looking for','package']],
+  ['note','Notes',['notes','note','comments','comment','message','remarks','details','description','additional info','question','questions']],
+  ['src','Source',['source','lead source','channel','origin','utm source','platform','how did you hear','referral']]
+];
+function _impNormH(h){ return String(h==null?'':h).toLowerCase().replace(/[_\-.\/:]+/g,' ').replace(/[^a-z0-9# ]/g,'').replace(/\s+/g,' ').trim(); }
+function _impHdrScore(h, keys){
+  var n=_impNormH(h); if(!n) return 0;
+  for(var i=0;i<keys.length;i++){ if(n===keys[i]) return 3; }
+  if(n.length>3) for(var j=0;j<keys.length;j++){ var k=keys[j]; if(k.length>3&&(' '+n+' ').indexOf(' '+k+' ')>-1) return 2; }
+  return 0;
+}
+function _impIsPhone(v){ var t=String(v||''); var d=t.replace(/\D/g,''); return (d.length===10||(d.length===11&&d.charAt(0)==='1'))&&(t.replace(/[^a-z]/gi,'').length<=3); }
+function _impIsEmail(v){ return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(v||'').trim()); }
+function _impIsDate(v){ var t=String(v||'').trim(); if(!t||_impIsPhone(t)) return false; return /^\d{4}[\-\/.]\d{1,2}[\-\/.]\d{1,2}|^\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}|^\d{5}(\.\d+)?$|^[a-z]{3,9}\.? \d{1,2},? \d{4}|^\d{1,2} [a-z]{3,9},? \d{4}/i.test(t); }
+function _impIsNameish(v){ var t=String(v||'').trim(); return /^[A-Za-zÀ-ɏ][A-Za-zÀ-ɏ.'\- ]{1,40}$/.test(t)&&t.split(/\s+/).length<=4; }
+function _impDetect(rows, force){
+  // 1) header row = the row (in the first 10) that looks most like column names
+  var best=-1, bestS=0;
+  for(var r=0;r<Math.min(10,rows.length);r++){
+    var row=rows[r]||[], s=0;
+    row.forEach(function(c){ for(var f=0;f<_IMP_FIELDS.length;f++){ if(_impHdrScore(c,_IMP_FIELDS[f][2])){ s++; break; } } });
+    if(s>bestS){ bestS=s; best=r; }
+  }
+  var hasHdr=best>=0&&bestS>=1, hdrIx=hasHdr?best:-1;
+  var width=0; rows.forEach(function(rw){ if(rw&&rw.length>width) width=rw.length; });
+  var hdr=[]; for(var c=0;c<width;c++){ var hv=hasHdr?String((rows[hdrIx]||[])[c]||'').trim():''; hdr.push(hv||('Column '+String.fromCharCode(65+(c%26))+(c>=26?Math.floor(c/26):''))); }
+  var data=rows.slice(hdrIx+1).filter(function(rw){ return rw&&rw.join('').trim(); });
+  // 2) what is inside each column (first 300 rows)
+  var S=data.slice(0,300), prof=[];
+  for(var c2=0;c2<width;c2++){
+    var n=0,ph=0,em=0,dt=0,nm=0;
+    S.forEach(function(rw){ var v=String(rw[c2]==null?'':rw[c2]).trim(); if(!v) return; n++; if(_impIsPhone(v)) ph++; if(_impIsEmail(v)) em++; if(_impIsDate(v)) dt++; if(_impIsNameish(v)) nm++; });
+    prof.push({n:n,ph:n?ph/n:0,em:n?em/n:0,dt:n?dt/n:0,nm:n?nm/n:0});
+  }
+  // 3) match: header names first (only if the contents don't contradict), then contents
+  var map={}, used={};
+  function take(f,c){ map[f]=c; used[c]=1; }
+  if(force) _IMP_FIELDS.forEach(function(F){ var f=F[0]; if(force.hasOwnProperty(f)){ if(force[f]>=0) take(f,force[f]); else map[f]=-1; } });
+  // exact names first ("First Name" → first name), then names that merely contain a keyword
+  [3,2].forEach(function(need){
+    _IMP_FIELDS.forEach(function(F){
+      var f=F[0]; if(map.hasOwnProperty(f)) return;
+      for(var c=0;c<width;c++){ if(used[c]||!hasHdr) continue; if(_impHdrScore(hdr[c],F[2])<need) continue;
+        var p=prof[c];
+        if(f==='phone'&&p.n&&p.ph<0.3) continue;      // "Number" column full of non-phones
+        if(f==='email'&&p.n&&p.em<0.3) continue;
+        if(f==='date'&&p.n&&p.dt<0.3) continue;
+        take(f,c); break; }
+    });
+  });
+  function byContent(f,key,min){
+    if(map.hasOwnProperty(f)) return;
+    var bc=-1,bs=min; for(var c=0;c<width;c++){ if(used[c]) continue; if(prof[c][key]>bs){ bs=prof[c][key]; bc=c; } }
+    if(bc>=0) take(f,bc);
+  }
+  byContent('email','em',0.5); byContent('phone','ph',0.5); byContent('date','dt',0.6);
+  if(!map.hasOwnProperty('name')&&!map.hasOwnProperty('first')&&!map.hasOwnProperty('company')) byContent('name','nm',0.6);
+  _IMP_FIELDS.forEach(function(F){ if(!map.hasOwnProperty(F[0])) map[F[0]]=-1; });
+  return {map:map,hdr:hdr,data:data,hasHdr:hasHdr,hdrRow:hdrIx};
+}
+function _impIngest(rows, force){
+  if(!rows||!rows.length){ showToast('That file looks empty'); return; }
+  window._impRows=rows;
+  var fileName=(window._imp&&window._imp.fileName)||'';
+  var D=_impDetect(rows, force||window._impForce||null), M=D.map;
+  if(!D.data.length){ showToast('No lead rows found in that file'); return; }
+  if(M.name<0&&M.first<0&&M.company<0&&M.phone<0&&M.email<0){
+    window._imp={ready:[],skipped:[],checking:false,cantRead:true,det:D,fileName:fileName}; _impPaint(); return;
+  }
+  var dOrder=_impDateOrder(M.date>=0?D.data.map(function(r){ return r&&r[M.date]!=null?String(r[M.date]):''; }):[]);
+  var allDate=window._impDateAll||null;          // one date the client picked for everyone
+  var basis=window._impBasis||'inquiry';
+  var ready=[],skipped=[],seenPh={},seenEm={},emFixed=0,outCa=0,noDate=0;
+  for(var i=0;i<D.data.length;i++){
+    var r=D.data[i];
     function gv(ix){ return ix>=0&&r[ix]!=null?String(r[ix]).trim():''; }
     function skip(why){ skipped.push({row:r,why:why}); }
-    var nm=gv(cName)||((gv(cFirst)+' '+gv(cLast)).trim());
-    var comp=gv(cComp);
-    var ph=_impNormPhone(gv(cPhone));
-    var em=gv(cEmail).toLowerCase().replace(/\s+/g,'');
+    var nm=gv(M.name)||((gv(M.first)+' '+gv(M.last)).trim());
+    var comp=gv(M.company);
+    var rawPh=gv(M.phone), ph=_impNormPhone(rawPh);
+    if(ph===null){ var mm=rawPh.match(/(\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}/); if(mm) ph=_impNormPhone(mm[0]); }   // "Cell: 306-555-…" style cells
+    var em=gv(M.email).toLowerCase().replace(/\s+/g,'');
     if(em){ var at=em.lastIndexOf('@'); if(at>0){ var dom=em.slice(at+1); if(_IMP_EM_FIX[dom]){ em=em.slice(0,at+1)+_IMP_EM_FIX[dom]; emFixed++; } } }
     if(em&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) em='';
+    if(!nm&&!comp&&em) nm=em.split('@')[0].replace(/[._\d]+/g,' ').trim().replace(/\b\w/g,function(x){ return x.toUpperCase(); });
     var pp=ph?_impPhoneProblem(ph):'';
     if(pp&&em){ ph=''; pp=''; }                                    // bad number but a good email: keep them, email only
     if(!nm&&!comp){ skip('missing'); continue; }
     if(ph===null){ if(em){ ph=''; } else { skip('badphone'); continue; } }
     if(pp){ skip(pp==='bad'?'badphone':pp); continue; }
     if(!ph&&!em){ skip('missing'); continue; }
-    var dt=_impDate(gv(cDate), dOrder);
-    if(!dt){ skip('date'); continue; }                              // lead date is required (6-month calling rule)
+    var dt=M.date>=0?(_impDate(gv(M.date), dOrder)||_impDate(gv(M.date), dOrder==='md'?'dm':'md')):null;   // mixed-format files
+    if(!dt&&allDate) dt=allDate;
+    if(!dt) noDate++;                                               // kept, but AI calls leave them alone
     if((ph&&seenPh[ph])||(!ph&&em&&seenEm[em])){ skip('dupfile'); continue; }
     if(ph)seenPh[ph]=1; if(em)seenEm[em]=1;
     if(ph&&!_IMP_CA_AC[+ph.substr(2,3)]) outCa++;
-    var prov=gv(cProv).toUpperCase().slice(0,2);
+    var prov=gv(M.prov).toUpperCase().slice(0,2);
     if(!_IMP_PROV_TZ[prov]) prov='';
-    var os=gv(cSrc), nt=gv(cNote);
-    ready.push({name:nm||comp,company:comp||null,ph:ph,em:em||null,src:'Uploaded',note:((os?'Original source: '+os:'')+(os&&nt?'\n':'')+nt)||null,svc:gv(cSvc)||null,prov:prov,loc:gv(cLoc)||null,dt:dt,row:r});
+    var os=gv(M.src), nt=gv(M.note);
+    ready.push({name:nm||comp,company:comp||null,ph:ph,em:em||null,src:'Uploaded',note:((os?'Original source: '+os:'')+(os&&nt?'\n':'')+nt)||null,svc:gv(M.svc)||null,prov:prov,loc:gv(M.city)||null,dt:dt,basis:dt?basis:'unknown',row:r});
   }
-  window._imp={ready:ready,skipped:skipped,emFixed:emFixed,outCa:outCa,hdrRaw:rows[0].map(function(h){ return String(h==null?'':h); }),dOrder:dOrder,dups:0,dnc:0,checking:true,fileName:(window._imp&&window._imp.fileName)||''};
+  window._imp={ready:ready,skipped:skipped,emFixed:emFixed,outCa:outCa,noDate:noDate,det:D,hdrRaw:D.hdr,dOrder:dOrder,dups:0,dnc:0,checking:true,fileName:fileName};
   _impPaint();
   _impDbDedupe();
+}
+// The "Your columns" card: tap a line to point it at a different column.
+function impMapPick(f){
+  var I=window._imp||{}, D=I.det; if(!D) return;
+  var F=_IMP_FIELDS.filter(function(x){ return x[0]===f; })[0]; if(!F) return;
+  var opts=[['-1','— Not in this file —']];
+  D.hdr.forEach(function(h,c){ var smp=''; for(var k=0;k<D.data.length&&k<40;k++){ var v=String((D.data[k]||[])[c]||'').trim(); if(v){ smp=v; break; } } opts.push([String(c),h+(smp?'  ·  e.g. '+smp.slice(0,28):'')]); });
+  _aoPickSheet('Which column has the '+F[1].toLowerCase()+'?', opts, String(D.map[f]), function(v){
+    window._impForce=window._impForce||{}; window._impForce[f]=+v;
+    _impIngest(window._impRows, window._impForce);
+  });
+}
+function impDatePick(){
+  _aoPickSheet('No lead date in this file', [['pick','📅 Pick one date for everyone'],['unknown','❓ Not sure — keep them, but AI won’t call them']], window._impDateAll?'pick':'unknown', function(v){
+    if(v==='unknown'){ window._impDateAll=null; _impIngest(window._impRows, window._impForce); return; }
+    ensureSimpleSheet('impDateSh','When did they inquire?');
+    var b=document.getElementById('impDateShBody');
+    var t=new Date(); var mx=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0');
+    b.innerHTML='<div style="font-size:13px;color:var(--sub);line-height:1.5;margin-bottom:10px">Pick the day these people first asked about your business. If it was over a few days, pick the <b>earliest</b> day.</div>'
+      +'<input type="date" id="impDateInp" class="ao-inp" max="'+mx+'" style="width:100%;margin-bottom:12px">'
+      +'<button class="btn btn-primary" style="width:100%;justify-content:center" onclick="impDateSet()">Use this date</button>';
+    openSheet('impDateSh');
+  });
+}
+function impDateSet(){
+  var v=(document.getElementById('impDateInp')||{}).value; if(!v){ showToast('Pick a date first'); return; }
+  var d=new Date(v+'T12:00:00'); if(isNaN(d.getTime())||d.getTime()>Date.now()+86400000){ showToast('That date is in the future'); return; }
+  window._impDateAll=d.toISOString(); closeSheet('impDateSh');
+  _impIngest(window._impRows, window._impForce);
+}
+// Who are these people? Decides how long AI calls are allowed (Canada Do Not Call exemptions).
+var _IMP_BASIS={inquiry:['Asked about your business','AI may call for 6 months after they asked'],customer:['Bought from you','AI may call for 18 months after they bought'],business:['Businesses (B2B)','Business numbers — no time limit']};
+function impBasisSet(b){ window._impBasis=b; if(window._impRows) _impIngest(window._impRows, window._impForce); else _impBasisPaint(); }
+function _impBasisPaint(){
+  var el=document.getElementById('impBasisBox'); if(!el) return;
+  var cur=window._impBasis||'inquiry';
+  el.innerHTML='<div style="font-size:12.5px;font-weight:600;color:var(--text);margin-bottom:7px">Who are these people?</div>'+Object.keys(_IMP_BASIS).map(function(k){
+    var on=k===cur;
+    return '<div onclick="impBasisSet(\''+k+'\')" style="display:flex;gap:9px;align-items:flex-start;padding:9px 10px;border-radius:10px;cursor:pointer;margin-bottom:5px;border:1.5px solid '+(on?'#8b5cf6':'var(--border)')+';background:'+(on?'#f6f3ff':'var(--white)')+'">'
+      +'<span style="width:16px;height:16px;border-radius:50%;flex-shrink:0;margin-top:1px;border:1.5px solid '+(on?'#4000f3':'#b8c0cc')+';box-shadow:inset 0 0 0 3px #fff;background:'+(on?'#4000f3':'#fff')+'"></span>'
+      +'<span style="font-size:12.5px;line-height:1.4;color:var(--text)">'+_IMP_BASIS[k][0]+'<br><span style="color:var(--sub);font-size:11.5px">'+_IMP_BASIS[k][1]+'</span></span></div>';
+  }).join('');
+}
+// Is this lead still inside the time AI calls are allowed? 'ok' | 'old' | 'unknown'
+function _leadCallWin(l){
+  var b=l&&(l.basis||l.contact_basis)||'inquiry';
+  if(b==='unknown') return 'unknown';
+  if(b==='business'||b==='consent') return 'ok';
+  var ts=new Date(l.first_inquiry_at||l.created_at||'').getTime(); if(!ts) return 'unknown';
+  return ts < Date.now()-(b==='customer'?548:183)*86400000 ? 'old' : 'ok';
 }
 // Checks which phones/emails already exist for this account and drops them.
 async function _impDbDedupe(){
@@ -26536,9 +26672,20 @@ function _impPaint(){
   if(cb)cb.textContent=I.ready.length+' lead'+(I.ready.length!==1?'s':'');
   // imp-scrub-1: "List check" — what was cleaned out, why, and what needs attention.
   var bits=[];
-  if(I.needDate) bits.push('📅 <b>This file has no “Lead date” column.</b> Add one with the day each lead first inquired (for example 2026-09-15), then choose the file again. Tap “Download a sample sheet” to see the layout.');
+  if(I.cantRead) bits.push('🤔 <b>We couldn’t find names, phones or emails in this file.</b> Tap a line below to tell us which column holds them.');
+  // imp-smart-1: show how the columns were matched; tap any line to change it.
+  if(I.det){
+    var Mx=I.det.map, cl=function(f,lbl){ var c=Mx[f]; return '<div class="imp-ck ao-tap" onclick="impMapPick(\''+f+'\')"><span>'+lbl+'</span><b style="color:'+(c>=0?'var(--text)':'var(--sub)')+';font-weight:500;max-width:60%;overflow:hidden;text-overflow:ellipsis">'+(c>=0?sanitize(I.det.hdr[c]):'not in file')+' &#x203A;</b></div>'; };
+    var ch='<div class="imp-ckbox"><div class="imp-ckh">Your columns <span style="color:var(--sub);font-weight:400">· tap to change</span></div>';
+    ch+=(Mx.first>=0&&Mx.name<0)?cl('first','First name')+cl('last','Last name'):cl('name','Name');
+    ch+=cl('phone','Phone')+cl('email','Email')+cl('date','Lead date');
+    ['company','city','svc','note'].forEach(function(f){ if(Mx[f]>=0) ch+=cl(f,{company:'Company',city:'City',svc:'Service',note:'Notes'}[f]); });
+    if(I.det.hdrRow>0) ch+='<div style="font-size:11.5px;color:var(--sub);margin-top:4px">Skipped '+I.det.hdrRow+' title row'+(I.det.hdrRow!==1?'s':'')+' above the column names.</div>';
+    bits.push(ch+'</div>');
+    if(Mx.date<0) bits.push('<div class="imp-ckbox ao-tap" onclick="impDatePick()" style="border-color:#f5c26b;background:#fffbeb"><div class="imp-ckh">📅 No lead date in this file</div><div style="font-size:12px;color:#92400e;line-height:1.5">'+(window._impDateAll?'Using <b>'+new Date(window._impDateAll).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'})+'</b> for everyone. ':'Leads will be kept, but <b>AI won’t call them</b> until a date is known. ')+'<b style="color:#4000f3">Tap to choose &#x203A;</b></div></div>');
+  }
   var sk=I.skipped||[], cnt={}; sk.forEach(function(x){ cnt[x.why]=(cnt[x.why]||0)+1; });
-  if(!I.needDate&&(I.ready.length||sk.length)){
+  if(I.ready.length||sk.length){
     var row=function(n,txt,col){ return '<div class="imp-ck"><span>'+txt+'</span><b'+(col?' style="color:'+col+'"':'')+'>'+n.toLocaleString()+'</b></div>'; };
     var h='<div class="imp-ckbox"><div class="imp-ckh">List check'+(I.checking?' <span style="color:var(--sub);font-weight:400">· checking your account…</span>':'')+'</div>';
     h+=row(I.ready.length,'✅ Ready to upload','var(--green)');
@@ -26552,7 +26699,11 @@ function _impPaint(){
     var ts=I.ready.map(function(l){ return l.dt; }).sort(), old=I.ready.filter(function(l){ return new Date(l.dt).getTime()<Date.now()-183*86400000; }).length;
     var fd=function(x){ return new Date(x).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}); };
     bits.push('📅 Lead dates: '+fd(ts[0])+(ts.length>1&&fd(ts[0])!==fd(ts[ts.length-1])?' – '+fd(ts[ts.length-1]):'')+(I.dOrder==='dm'?' <span style="color:var(--sub)">(read as day/month/year)</span>':''));
-    if(old) bits.push('⏳ <b>'+old+' lead'+(old!==1?'s':'')+' inquired more than 6 months ago.</b> They will be uploaded, but AI calls will skip them (Canada’s 6-month rule).');
+    // imp-smart-1: the calling time limit depends on who they are (inquiry 6 mo, customer 18 mo, business none)
+    old=I.ready.filter(function(l){ return _leadCallWin({basis:l.basis,first_inquiry_at:l.dt})==='old'; }).length;
+    var _lim=(window._impBasis==='customer')?'18 months':'6 months';
+    if(old) bits.push('⏳ <b>'+old+' lead'+(old!==1?'s are':' is')+' older than '+_lim+'.</b> They will be uploaded, but AI calls will skip them (Canada’s Do Not Call rules).');
+    if(I.noDate&&!window._impDateAll&&I.det&&I.det.map.date>=0) bits.push('❓ '+I.noDate+' lead'+(I.noDate!==1?'s have':' has')+' no readable date — kept, but AI won’t call them.');
     if(I.outCa) bits.push('🌎 '+I.outCa+' number'+(I.outCa!==1?'s are':' is')+' outside Canada (US rules apply to those).');
   }
   if(sm){ sm.style.display=bits.length?'block':'none'; sm.innerHTML=bits.join('<br>'); }
@@ -26582,6 +26733,7 @@ async function confirmImport(){
           stage:'1. Fresh Lead', stage_code:'fresh_lead',
           source:l.src||'Uploaded', service:l.svc, notes:l.note,
           first_inquiry_at:l.dt||null, location:l.loc||null,
+          contact_basis:l.basis||'inquiry',
           sms_consent:true, call_consent:true, email_consent:true,
           color:COLORS[(p+done)%COLORS.length],
           client_id:window._clientId||null,
@@ -26614,6 +26766,16 @@ async function confirmImport(){
   else showToast('✅ '+done+' lead'+(done!==1?'s':'')+' imported');
   if(btn){ btn.disabled=true; btn.textContent='Import 0 Leads'; }
   try{ if(typeof refreshLeads==='function') await refreshLeads(); else render(); }catch(e){ render(); }
+  // imp-smart-1: land on the uploaded leads so the client can check them right away
+  // (the filter's "Lead age" section splits fresh / too old / unknown).
+  if(done>0){
+    try{
+      window._advFilters={stages:[],execs:[],locations:[],partners:[],sources:['Uploaded'],services:[],clients:[],campaigns:campId?[String(campId)]:[]};
+      if(typeof goTab==='function') goTab('leads', document.getElementById('tab-leads')); else render();
+      updateFilterDot(); render();
+      setTimeout(function(){ showToast('Showing your uploaded leads \u2014 tap the filter \u25BD for fresh vs too old'); },400);
+    }catch(_e){}
+  }
 }
 function exportCSV(){
   var rows=[['Name','Phone','Email','Stage','Source','Service','Notes','Consent']];
