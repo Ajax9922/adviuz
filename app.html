@@ -4998,7 +4998,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-14 import-10zq';
+var APP_VERSION = 'v2026-10-14 import-10zr';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -26312,7 +26312,7 @@ function openImportSheet(){
     if(req) req.innerHTML = staff ? '<span style="color:#dc2626">*</span>' : '<span style="color:var(--sub);font-weight:400">(recommended)</span>';
   }
   window._imp={ready:[],badRows:0,dups:0,checking:false};
-  window._impBasis='inquiry'; window._impForce=null; window._impDateAll=null; window._impRows=null;
+  window._impBasis='inquiry'; window._impForce=null; window._impDateAll=null; window._impRows=null; window._impStageForce=null; window._impRemoved=null;
   _impBasisPaint();
   _impCampLbl();
   var fi=document.getElementById('fileInp'); if(fi) fi.value='';
@@ -26327,7 +26327,7 @@ function handleDrop(e){e.preventDefault();document.getElementById('impZone').cla
 function handleFileSelect(inp){if(inp.files[0])processFile(inp.files[0])}
 function processFile(f){
   if(window._imp) window._imp.fileName=f.name; // import-10d: kept for the consent record
-  window._impForce=null; window._impDateAll=null; window._impRows=null;  // imp-smart-1: fresh choices per file
+  window._impForce=null; window._impDateAll=null; window._impRows=null; window._impStageForce=null; window._impRemoved=null;  // imp-smart-1: fresh choices per file
   var n=f.name.toLowerCase();
   if(n.endsWith('.csv')||n.endsWith('.txt')){
     var r=new FileReader();
@@ -26435,7 +26435,7 @@ function _impPhoneProblem(e164){
   if(_IMP_TF[+ac]) return 'tollfree';                                 // business line — can't receive texts
   return '';
 }
-var _IMP_WHY={missing:'Missing name, or no phone/email',badphone:'Phone number is not a real number',fake:'Looks like a fake/test number',tollfree:'Toll-free business line (can\u2019t get texts)',date:'Lead date missing, unreadable or in the future',dupfile:'Listed twice in this file',exists:'Already in your account',dnc:'Asked not to be contacted'};
+var _IMP_WHY={missing:'Missing name, or no phone/email',badphone:'Phone number is not a real number',fake:'Looks like a fake/test number',tollfree:'Toll-free business line (can\u2019t get texts)',stageskip:'Marked spam in your sheet',removed:'You removed it in the review',date:'Lead date missing, unreadable or in the future',dupfile:'Listed twice in this file',exists:'Already in your account',dnc:'Asked not to be contacted'};
 function impSkippedCsv(){
   var I=window._imp||{}; var sk=I.skipped||[]; if(!sk.length){ showToast('Nothing was skipped'); return; }
   var head=(I.hdrRaw||[]).concat(['Why it was skipped']);
@@ -26461,7 +26461,8 @@ var _IMP_FIELDS=[
   ['prov','Province',['province','prov','state','region','province state','state province']],
   ['svc','Service',['service','services','interest','interested in','treatment','product','inquiry about','enquiry about','service interested','looking for','package']],
   ['note','Notes',['notes','note','comments','comment','message','remarks','details','description','additional info','question','questions']],
-  ['src','Source',['source','lead source','channel','origin','utm source','platform','how did you hear','referral']]
+  ['src','Source',['source','lead source','channel','origin','utm source','platform','how did you hear','referral']],
+  ['stage','Stage / status',['lead tag','tag','tags','status','lead status','stage','lead stage','deal stage','pipeline stage','sales stage','disposition','outcome','result','label','deal status','crm status']]
 ];
 function _impNormH(h){ return String(h==null?'':h).toLowerCase().replace(/[_\-.\/:]+/g,' ').replace(/[^a-z0-9# ]/g,'').replace(/\s+/g,' ').trim(); }
 function _impHdrScore(h, keys){
@@ -26474,6 +26475,31 @@ function _impIsPhone(v){ var t=String(v||''); var d=t.replace(/\D/g,''); return 
 function _impIsEmail(v){ return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(v||'').trim()); }
 function _impIsDate(v){ var t=String(v||'').trim(); if(!t||_impIsPhone(t)) return false; return /^\d{4}[\-\/.]\d{1,2}[\-\/.]\d{1,2}|^\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}|^\d{5}(\.\d+)?$|^[a-z]{3,9}\.? \d{1,2},? \d{4}|^\d{1,2} [a-z]{3,9},? \d{4}/i.test(t); }
 function _impIsNameish(v){ var t=String(v||'').trim(); return /^[A-Za-zÀ-ɏ][A-Za-zÀ-ɏ.'\- ]{1,40}$/.test(t)&&t.split(/\s+/).length<=4; }
+function _impDistinct(data,c){ var u={},n=0; for(var i=0;i<data.length;i++){ var v=String((data[i]||[])[c]||'').trim().toLowerCase(); if(v&&!u[v]){ u[v]=1; n++; if(n>40) break; } } return n; }
+// imp-stage-1 (Ajax 2026-10-14): read the sheet's own status ("Lead Tag", "Status", "Deal stage"…)
+// and turn it into an Adviuz stage. Won/customers → Deal Closed (18-month calling window);
+// not interested / do not contact → Not Interested, never contacted; spam → not uploaded.
+function _impStageGuess(raw){
+  var v=String(raw||'').toLowerCase().trim();
+  if(!v||v==='null'||v==='(blank)') return '1. Fresh Lead';
+  var has=function(re){ return re.test(v); };
+  if(has(/spam|junk|fake|test lead|wrong number|invalid|duplicate/)) return '__skip__';
+  if(has(/do not (call|contact)|dnc|unsubscrib|opt.?out|\bstop\b|remove me/)) return '16. DND';
+  if(has(/not interested|no interest|declined|lost|dead|unqualified|disqualified|not a fit|not qualified/)) return '10. Not Interested';
+  if(has(/\bwon\b|closed won|deal closed|\bclosed\b|customer|client|existing patient|patient|purchased|bought|\bsold\b|paid|converted|product order|order/)) return '9. Deal Closed';
+  if(has(/visited|showed|show up|consult(ed|ation done)|meeting done|seen/)) return '6. Meeting Done';
+  if(has(/proposal|quote|estimate/)) return '7. Proposal Sent';
+  if(has(/negotiat|price objection|pricing|discount|escalat/)) return '8. Negotiating';
+  if(has(/book|appointment|scheduled|meeting/)) return '5. Meeting Booked';
+  if(has(/can.?t reach|cannot reach|no response|no answer|not connected|voicemail|try again|unreachable|no reply|not reached/)) return '2. Call Not Connected';
+  if(has(/call ?back/)) return '3. Connected - Callback Requested';
+  if(has(/follow|hot|warm|interested|contacted|in progress|working/)) return '4. Follow-up Scheduled';
+  if(has(/future|later|nurture|cold|next year/)) return '11. Future Prospect';
+  if(has(/new|fresh|\blead\b|open|inquiry|enquiry/)) return '1. Fresh Lead';
+  return '1. Fresh Lead';
+}
+function _impStageFor(raw){ var k=String(raw||'').toLowerCase().trim(); var f=window._impStageForce||{}; return f.hasOwnProperty(k)?f[k]:_impStageGuess(raw); }
+var _IMP_JUNK_NM=/^(unavailable|unknown|null|n\/?a|none|-+|\.+|no name|test|caller|inbound.*)$/i;
 function _impDetect(rows, force){
   // 1) header row = the row (in the first 10) that looks most like column names
   var best=-1, bestS=0;
@@ -26506,6 +26532,7 @@ function _impDetect(rows, force){
         if(f==='phone'&&p.n&&p.ph<0.3) continue;      // "Number" column full of non-phones
         if(f==='email'&&p.n&&p.em<0.3) continue;
         if(f==='date'&&p.n&&p.dt<0.3) continue;
+        if(f==='stage'&&_impDistinct(data,c)>40) continue;  // free text, not a status column
         take(f,c); break; }
     });
   });
@@ -26543,7 +26570,9 @@ function _impIngest(rows, force){
     var em=gv(M.email).toLowerCase().replace(/\s+/g,'');
     if(em){ var at=em.lastIndexOf('@'); if(at>0){ var dom=em.slice(at+1); if(_IMP_EM_FIX[dom]){ em=em.slice(0,at+1)+_IMP_EM_FIX[dom]; emFixed++; } } }
     if(em&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) em='';
+    if(_IMP_JUNK_NM.test(nm)) nm='';
     if(!nm&&!comp&&em) nm=em.split('@')[0].replace(/[._\d]+/g,' ').trim().replace(/\b\w/g,function(x){ return x.toUpperCase(); });
+    if(!nm&&!comp&&ph) nm='Unknown';                                 // a phone but no name: keep them — the AI uses its no-name opening
     var pp=ph?_impPhoneProblem(ph):'';
     if(pp&&em){ ph=''; pp=''; }                                    // bad number but a good email: keep them, email only
     if(!nm&&!comp){ skip('missing'); continue; }
@@ -26553,18 +26582,83 @@ function _impIngest(rows, force){
     var dt=M.date>=0?(_impDate(gv(M.date), dOrder)||_impDate(gv(M.date), dOrder==='md'?'dm':'md')):null;   // mixed-format files
     if(!dt&&allDate) dt=allDate;
     if(!dt) noDate++;                                               // kept, but AI calls leave them alone
+    var rawSt=gv(M.stage), st=_impStageFor(rawSt);
+    if(st==='__skip__'){ skip('stageskip'); continue; }
     if((ph&&seenPh[ph])||(!ph&&em&&seenEm[em])){ skip('dupfile'); continue; }
+    if(window._impRemoved&&window._impRemoved[ph||em]){ skip('removed'); continue; }
     if(ph)seenPh[ph]=1; if(em)seenEm[em]=1;
     if(ph&&!_IMP_CA_AC[+ph.substr(2,3)]) outCa++;
     var prov=gv(M.prov).toUpperCase().slice(0,2);
     if(!_IMP_PROV_TZ[prov]) prov='';
     var os=gv(M.src), nt=gv(M.note);
-    ready.push({name:nm||comp,company:comp||null,ph:ph,em:em||null,src:'Uploaded',note:((os?'Original source: '+os:'')+(os&&nt?'\n':'')+nt)||null,svc:gv(M.svc)||null,prov:prov,loc:gv(M.city)||null,dt:dt,basis:dt?basis:'unknown',row:r});
+    ready.push({name:nm||comp,company:comp||null,ph:ph,em:em||null,src:'Uploaded',note:((os?'Original source: '+os:'')+(os&&nt?'\n':'')+nt)||null,svc:gv(M.svc)||null,prov:prov,loc:gv(M.city)||null,dt:dt,basis:!dt?'unknown':(st==='9. Deal Closed'?'customer':basis),stage:st,rawSt:rawSt,noContact:(st==='10. Not Interested'||st==='16. DND'),row:r});
   }
   window._imp={ready:ready,skipped:skipped,emFixed:emFixed,outCa:outCa,noDate:noDate,det:D,hdrRaw:D.hdr,dOrder:dOrder,dups:0,dnc:0,checking:true,fileName:fileName};
   _impPaint();
   _impDbDedupe();
 }
+function impStagePick(enc){
+  var raw=decodeURIComponent(enc), key=(raw==='(blank)'?'':raw).toLowerCase().trim();
+  var cur=_impStageFor(raw==='(blank)'?'':raw);
+  var opts=STAGES.map(function(s){ return [s.name,s.name]; }).concat([['__skip__','✖ Don’t upload these']]);
+  _aoPickSheet('“'+raw+'” becomes…', opts, cur, function(v){
+    window._impStageForce=window._impStageForce||{}; window._impStageForce[key]=v;
+    _impIngest(window._impRows, window._impForce);
+  });
+}
+// imp-review-1 (Ajax 2026-10-14): see every lead before uploading — search, filter, remove.
+function _impRevCat(l){ return l.noContact?'nc':_leadCallWin({basis:l.basis,first_inquiry_at:l.dt}); }
+var _IMP_REV_CH=[['all','All'],['ok','AI can call'],['old','Too old'],['unknown','Date unknown'],['nc','Never contact']];
+function impReview(){
+  var old=document.getElementById('impRevOv'); if(old) old.remove();
+  window._impRev={q:'',ch:'all',lim:150};
+  var ov=document.createElement('div'); ov.className='sheet-ov open'; ov.id='impRevOv'; ov.style.zIndex='9990';
+  ov.innerHTML='<div class="sheet" style="height:92vh;max-height:92vh;display:flex;flex-direction:column"><div class="sheet-handle"></div>'
+    +'<div class="sheet-head"><div class="sheet-title" id="impRevTitle">Review leads</div><button class="sheet-x" onclick="document.getElementById(\'impRevOv\').remove()">&#x2715;</button></div>'
+    +'<div style="padding:4px 16px 8px"><input id="impRevQ" class="ao-inp" placeholder="Search name, phone or email" autocomplete="off" style="width:100%;margin-bottom:8px">'
+    +'<div id="impRevChips" style="display:flex;gap:6px;overflow-x:auto;padding-bottom:2px"></div></div>'
+    +'<div class="sh-body" id="impRevList" style="flex:1;overflow-y:auto;padding:0 16px calc(24px + env(safe-area-inset-bottom,16px))"></div>'
+    +'<div class="sh-foot"><button class="btn btn-primary" style="flex:1;justify-content:center" onclick="document.getElementById(\'impRevOv\').remove()">Done</button></div></div>';
+  ov.addEventListener('click',function(e){ if(e.target===ov) ov.remove(); });
+  document.body.appendChild(ov);
+  var t; document.getElementById('impRevQ').addEventListener('input',function(e){ clearTimeout(t); var v=e.target.value; t=setTimeout(function(){ window._impRev.q=v.trim().toLowerCase(); window._impRev.lim=150; _impRevRender(); },150); });
+  _impRevRender();
+}
+function impRevChip(c){ window._impRev.ch=c; window._impRev.lim=150; _impRevRender(); }
+function impRevMore(){ window._impRev.lim+=300; _impRevRender(); }
+function _impRevRender(){
+  var I=window._imp||{}, R=window._impRev||{q:'',ch:'all',lim:150}, list=document.getElementById('impRevList'); if(!list) return;
+  var cnt={all:I.ready.length,ok:0,old:0,unknown:0,nc:0}; I.ready.forEach(function(l){ cnt[_impRevCat(l)]++; });
+  var ttl=document.getElementById('impRevTitle'); if(ttl) ttl.textContent='Review '+I.ready.length.toLocaleString()+' lead'+(I.ready.length!==1?'s':'');
+  var chips=document.getElementById('impRevChips');
+  if(chips) chips.innerHTML=_IMP_REV_CH.filter(function(c){ return c[0]==='all'||cnt[c[0]]; }).map(function(c){ var on=R.ch===c[0]; return '<button type="button" onclick="impRevChip(\''+c[0]+'\')" style="flex-shrink:0;border:1.5px solid '+(on?'#4000f3':'var(--border)')+';background:'+(on?'#f3f0ff':'var(--white)')+';color:'+(on?'#4000f3':'var(--text)')+';border-radius:20px;padding:6px 11px;font-family:var(--f);font-size:12.5px;cursor:pointer;white-space:nowrap">'+c[1]+' <span style="color:var(--sub)">'+cnt[c[0]]+'</span></button>'; }).join('');
+  var q=R.q, rows=I.ready.filter(function(l){
+    if(R.ch!=='all'&&_impRevCat(l)!==R.ch) return false;
+    if(!q) return true;
+    var qd=q.replace(/\D/g,'');
+    return String(l.name||'').toLowerCase().indexOf(q)>-1||String(l.em||'').indexOf(q)>-1||(qd.length>=3&&String(l.ph||'').indexOf(qd)>-1)||String(l.company||'').toLowerCase().indexOf(q)>-1;
+  });
+  var fd=function(x){ return x?new Date(x).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}):'date unknown'; };
+  var tag={ok:['AI can call','var(--green)'],old:['Too old','#b45309'],unknown:['Date unknown','var(--sub)'],nc:['Never contact','#b91c1c']};
+  var h=rows.slice(0,R.lim).map(function(l){
+    var k=String(l.ph||l.em||''), c=tag[_impRevCat(l)];
+    return '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--border)">'
+      +'<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+sanitize(l.name)+'</div>'
+      +'<div style="font-size:12px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+sanitize(l.ph||'')+(l.ph&&l.em?' · ':'')+sanitize(l.em||'')+'</div>'
+      +'<div style="font-size:11.5px;color:var(--sub);margin-top:2px">'+fd(l.dt)+' · '+sanitize(String(l.stage||'').replace(/^\d+\.\s*/,''))+' · <span style="color:'+c[1]+'">'+c[0]+'</span></div></div>'
+      +'<button type="button" aria-label="Remove" onclick="impRevRemove(\''+encodeURIComponent(k)+'\')" style="flex-shrink:0;width:32px;height:32px;border-radius:50%;border:1px solid var(--border);background:var(--white);color:#b91c1c;font-size:15px;cursor:pointer">&#x2715;</button></div>';
+  }).join('');
+  if(!rows.length) h='<div style="text-align:center;color:var(--sub);font-size:13px;padding:30px 0">No leads match</div>';
+  if(rows.length>R.lim) h+='<button type="button" class="btn btn-ghost" style="width:100%;justify-content:center;margin:12px 0" onclick="impRevMore()">Show more ('+(rows.length-R.lim).toLocaleString()+' left)</button>';
+  list.innerHTML=h;
+}
+function impRevRemove(enc){
+  var k=decodeURIComponent(enc), I=window._imp; if(!I) return;
+  window._impRemoved=window._impRemoved||{}; window._impRemoved[k]=1;
+  var keep=[]; I.ready.forEach(function(l){ if(String(l.ph||l.em||'')===k){ I.skipped.push({row:l.row,why:'removed'}); } else keep.push(l); });
+  I.ready=keep; _impRevRender(); _impPaint();
+}
+
 // The "Your columns" card: tap a line to point it at a different column.
 function impMapPick(f){
   var I=window._imp||{}, D=I.det; if(!D) return;
@@ -26682,6 +26776,17 @@ function _impPaint(){
     ['company','city','svc','note'].forEach(function(f){ if(Mx[f]>=0) ch+=cl(f,{company:'Company',city:'City',svc:'Service',note:'Notes'}[f]); });
     if(I.det.hdrRow>0) ch+='<div style="font-size:11.5px;color:var(--sub);margin-top:4px">Skipped '+I.det.hdrRow+' title row'+(I.det.hdrRow!==1?'s':'')+' above the column names.</div>';
     bits.push(ch+'</div>');
+    // imp-stage-1: the sheet's own statuses → Adviuz stages (tap to change, or "Don't upload")
+    if(Mx.stage>=0){
+      var sc={}, so=[]; I.det.data.forEach(function(rw){ var v=String((rw||[])[Mx.stage]||'').trim()||'(blank)'; if(!sc[v]){ sc[v]=0; so.push(v); } sc[v]++; });
+      so.sort(function(a,b){ return sc[b]-sc[a]; });
+      var sh='<div class="imp-ckbox"><div class="imp-ckh">Stages from your sheet <span style="color:var(--sub);font-weight:400">· “'+sanitize(I.det.hdr[Mx.stage])+'” · tap to change</span></div>';
+      so.forEach(function(v){ var to=_impStageFor(v==='(blank)'?'':v); var lbl=to==='__skip__'?'Don\u2019t upload':to.replace(/^\d+\.\s*/,'');
+        var col=to==='__skip__'||to==='10. Not Interested'||to==='16. DND'?'#b91c1c':(to==='9. Deal Closed'?'var(--green)':'var(--text)');
+        sh+='<div class="imp-ck ao-tap" onclick="impStagePick(\''+encodeURIComponent(v)+'\')"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+sanitize(v)+' <span style="color:var(--sub)">('+sc[v]+')</span></span><b style="color:'+col+';font-weight:500;white-space:nowrap">'+sanitize(lbl)+' &#x203A;</b></div>'; });
+      sh+='<div style="font-size:11.5px;color:var(--sub);line-height:1.5;margin-top:5px">Deal Closed = past customers (AI may call for 18 months). Not Interested and DND are uploaded for your records but <b>never contacted</b>.</div>';
+      bits.push(sh+'</div>');
+    }
     if(Mx.date<0) bits.push('<div class="imp-ckbox ao-tap" onclick="impDatePick()" style="border-color:#f5c26b;background:#fffbeb"><div class="imp-ckh">📅 No lead date in this file</div><div style="font-size:12px;color:#92400e;line-height:1.5">'+(window._impDateAll?'Using <b>'+new Date(window._impDateAll).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'})+'</b> for everyone. ':'Leads will be kept, but <b>AI won’t call them</b> until a date is known. ')+'<b style="color:#4000f3">Tap to choose &#x203A;</b></div></div>');
   }
   var sk=I.skipped||[], cnt={}; sk.forEach(function(x){ cnt[x.why]=(cnt[x.why]||0)+1; });
@@ -26689,20 +26794,24 @@ function _impPaint(){
     var row=function(n,txt,col){ return '<div class="imp-ck"><span>'+txt+'</span><b'+(col?' style="color:'+col+'"':'')+'>'+n.toLocaleString()+'</b></div>'; };
     var h='<div class="imp-ckbox"><div class="imp-ckh">List check'+(I.checking?' <span style="color:var(--sub);font-weight:400">· checking your account…</span>':'')+'</div>';
     h+=row(I.ready.length,'✅ Ready to upload','var(--green)');
-    ['dnc','exists','dupfile','badphone','fake','tollfree','missing','date'].forEach(function(k){ if(cnt[k]) h+=row(cnt[k],'✖ '+_IMP_WHY[k],'#b91c1c'); });
+    ['dnc','exists','dupfile','badphone','fake','tollfree','stageskip','removed','missing','date'].forEach(function(k){ if(cnt[k]) h+=row(cnt[k],'✖ '+_IMP_WHY[k],'#b91c1c'); });
     if(I.emFixed) h+=row(I.emFixed,'✏️ Email typos fixed (e.g. gmial → gmail)');
+    if(I.ready.length&&!I.checking) h+='<button type="button" class="btn btn-ghost" style="width:100%;justify-content:center;margin-top:8px" onclick="impReview()">&#x1F441;&#xFE0F; Review all '+I.ready.length.toLocaleString()+' leads before uploading</button>';
     if(sk.length) h+='<button type="button" class="imp-tpl" style="margin-top:6px" onclick="impSkippedCsv()">⬇️ Download the '+sk.length+' skipped row'+(sk.length!==1?'s':'')+' (with reasons)</button>';
     h+='</div>';
     bits.push(h);
   }
   if(I.ready.length){
-    var ts=I.ready.map(function(l){ return l.dt; }).sort(), old=I.ready.filter(function(l){ return new Date(l.dt).getTime()<Date.now()-183*86400000; }).length;
+    var ts=I.ready.map(function(l){ return l.dt; }).filter(Boolean).sort(), old=I.ready.filter(function(l){ return new Date(l.dt).getTime()<Date.now()-183*86400000; }).length;
     var fd=function(x){ return new Date(x).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}); };
-    bits.push('📅 Lead dates: '+fd(ts[0])+(ts.length>1&&fd(ts[0])!==fd(ts[ts.length-1])?' – '+fd(ts[ts.length-1]):'')+(I.dOrder==='dm'?' <span style="color:var(--sub)">(read as day/month/year)</span>':''));
+    if(ts.length) bits.push('📅 Lead dates: '+fd(ts[0])+(ts.length>1&&fd(ts[0])!==fd(ts[ts.length-1])?' – '+fd(ts[ts.length-1]):'')+(I.dOrder==='dm'?' <span style="color:var(--sub)">(read as day/month/year)</span>':''));
     // imp-smart-1: the calling time limit depends on who they are (inquiry 6 mo, customer 18 mo, business none)
     old=I.ready.filter(function(l){ return _leadCallWin({basis:l.basis,first_inquiry_at:l.dt})==='old'; }).length;
     var _lim=(window._impBasis==='customer')?'18 months':'6 months';
-    if(old) bits.push('⏳ <b>'+old+' lead'+(old!==1?'s are':' is')+' older than '+_lim+'.</b> They will be uploaded, but AI calls will skip them (Canada’s Do Not Call rules).');
+    var nc=I.ready.filter(function(l){ return l.noContact; }).length;
+    old=I.ready.filter(function(l){ return !l.noContact&&_leadCallWin({basis:l.basis,first_inquiry_at:l.dt})==='old'; }).length;
+    if(old) bits.push('⏳ <b>'+old+' lead'+(old!==1?'s are':' is')+' older than '+(I.ready.some(function(l){ return l.basis==='customer'; })?'the time limit (6 months, or 18 for customers)':_lim)+'.</b> They will be uploaded, but AI calls will skip them (Canada’s Do Not Call rules).');
+    if(nc) bits.push('🚫 '+nc+' lead'+(nc!==1?'s are':' is')+' Not Interested / DND — uploaded for your records, never contacted.');
     if(I.noDate&&!window._impDateAll&&I.det&&I.det.map.date>=0) bits.push('❓ '+I.noDate+' lead'+(I.noDate!==1?'s have':' has')+' no readable date — kept, but AI won’t call them.');
     if(I.outCa) bits.push('🌎 '+I.outCa+' number'+(I.outCa!==1?'s are':' is')+' outside Canada (US rules apply to those).');
   }
@@ -26730,7 +26839,9 @@ async function confirmImport(){
       var chunk=I.ready.slice(p,p+50).map(function(l){
         return {
           name:l.name, company:l.company, phone:l.ph||'', email:l.em,
-          stage:'1. Fresh Lead', stage_code:'fresh_lead',
+          stage:l.stage||'1. Fresh Lead', stage_code:'fresh_lead',   // stage name is what the app reads
+          stage_changed_at:l.dt||nowIso,                                     // their stage is history, not today's result
+          human_only:!!l.noContact, do_not_contact:l.stage==='16. DND',     // imp-stage-1: Not Interested / DND are never contacted
           source:l.src||'Uploaded', service:l.svc, notes:l.note,
           first_inquiry_at:l.dt||null, location:l.loc||null,
           contact_basis:l.basis||'inquiry',
