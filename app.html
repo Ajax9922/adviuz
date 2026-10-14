@@ -27263,7 +27263,7 @@ function aoResched(id, curIso){
 function aoNew(){
   if(!_ao.camps.length){ showToast('No campaign with leads on this screen'); return; }
   _ao.view='wiz';
-  _ao.w={ step:1, campaign_id:(_ao.camps.length===1?String(_ao.camps[0].id):''), pv:null, loading:false, temps:['warm'], stages:[], services:[], locations:[], picked:{}, showProt:false, moreF:false,
+  _ao.w={ step:1, campaign_id:(_ao.camps.length===1?String(_ao.camps[0].id):''), pv:null, loading:false, temps:['warm'], stages:[], services:[], locations:[], srcs:[], picked:{}, showProt:false, moreF:false,
     purpose:'book', note:'', product:null, voicemail:'message', start:'15:00', end:'19:30', days:[1,2,3,4,5,6], skip:14, gap:4, cap:40, d2:false, name:'', testNo:'', tested:false, busy:false };
   _ao.openFu=null;
   if(_ao.w.campaign_id) aoLoadPreview(); else aoWiz();
@@ -27277,11 +27277,28 @@ async function aoLoadPreview(){
   w.loading=false;
   if(d.needs_agreement){ try{ localStorage.removeItem('ao_signed_'+String(window._clientId||'')); }catch(_e){} bkcClose(); bcaGate(); return; }
   if(d.error){ showToast(d.error); w.pv={leads:[],temp_counts:{},services:{},locations:{},error:d.error}; aoWiz(); return; }
-  w.pv=d; w.picked={}; w.product=null; w.fu=_aoFuInit(d.fu); w.fuDirty=false; w.fuEdit=null;
+  w.pv=d; w.picked={}; w.srcs=[]; w.product=null; w.fu=_aoFuInit(d.fu); w.fuDirty=false; w.fuEdit=null;
   if(d.cap && d.cap.cap) w.cap=Number(d.cap.cap);
   if(!w.name) w.name=(camp.name||'Call round')+' — '+new Date().toLocaleDateString('en-CA',{month:'short',day:'numeric'});
   aoWiz();
 }
+// Lead source buckets for the Source filter (Ajax 2026-10-14). Clients on a Digital Flyers campaign see
+// Adviuz-generated leads as "Adviuz" (same branding rule as srcLabel); AI Engine campaigns show where the
+// client's own leads came from (uploaded sheet, website, Facebook / Instagram, phone calls…).
+function _aoSrc(raw){
+  var k=String(raw||'').trim().toLowerCase(), w=_ao.w||{}, camp=(_ao.camps||[]).find(function(c){ return String(c.id)===String(w.campaign_id); })||{};
+  var engine=_aoCampMeta(camp.id, camp.name).type==='ce', client=window._staffRole==='client'||window._isClientMode===true;
+  if(/^website/.test(k)) return 'Website';
+  if(/import|upload|excel|csv|sheet/.test(k)) return 'Uploaded';
+  if(k===''||/^manual|walk-?in|^other$/.test(k)) return 'Added by hand';
+  if(client && !engine) return 'Adviuz';
+  if(/^fb|facebook|^ig$|instagram/.test(k)) return 'Facebook / Instagram';
+  if(/inbound|call/.test(k)) return 'Phone calls';
+  if(k==='adviuz') return 'Adviuz';
+  if(k==='direct') return 'Website';
+  return 'Other';
+}
+function aoSrcTog(v){ aoTog('srcs', v); }
 function _aoFiltered(){
   var w=_ao.w; if(!w.pv) return [];
   return (w.pv.leads||[]).filter(function(l){
@@ -27289,6 +27306,7 @@ function _aoFiltered(){
     if(w.stages.length && w.stages.indexOf(String(l.stage_num))<0) return false;
     if(w.services.length && w.services.indexOf(l.service)<0) return false;
     if(w.locations.length && w.locations.indexOf(l.location)<0) return false;
+    if(w.srcs.length && w.srcs.indexOf(_aoSrc(l.source))<0) return false;
     return true;
   });
 }
@@ -27321,7 +27339,11 @@ function aoWiz(){
     var nf=w.stages.length+w.services.length+w.locations.length;
     h+='<div class="ao-lbl" style="margin-top:12px">Temperature</div><div class="ao-chips">'+['hot','warm','cold'].map(function(t){ return '<button class="bkc-chip'+(w.temps.indexOf(t)>=0?' on':'')+'" onclick="aoTog(\'temps\',\''+t+'\')">'+AO_TEMP[t]+' <span class="ao-ct">'+(tc[t]||0)+'</span></button>'; }).join('')
       +'<button class="bkc-chip ao-mf'+(w.moreF||nf?' on':'')+'" onclick="_ao.w.moreF=!_ao.w.moreF;aoWiz()">More filters'+(nf?' · '+nf:'')+' '+(w.moreF?'&#x25B4;':'&#x25BE;')+'</button></div>';
-    h+='<div class="ao-t" style="margin-top:6px;line-height:1.5">Cold = fresh lead or call not connected · Warm = call connected or follow-up scheduled · Hot = meeting done until closing</div>';
+    h+='<div class="ao-t" style="margin-top:6px;line-height:1.5">Cold = fresh, not connected or future prospect · Warm = call connected or follow-up scheduled · Hot = meeting done until closing</div>';
+    var sc={}; (w.pv.leads||[]).forEach(function(l){ var k=_aoSrc(l.source); sc[k]=(sc[k]||0)+1; });
+    var sk=Object.keys(sc).sort(function(a,b){ return sc[b]-sc[a]; });
+    if(sk.length>1||w.srcs.length) h+='<div class="ao-lbl" style="margin-top:12px">Source</div><div class="ao-chips"><button class="bkc-chip'+(w.srcs.length?'':' on')+'" onclick="_ao.w.srcs=[];aoWiz()">All</button>'
+      +sk.map(function(k){ return '<button class="bkc-chip'+(w.srcs.indexOf(k)>=0?' on':'')+'" onclick="aoSrcTog(\''+_aoE(k).replace(/'/g,'')+'\')">'+_aoE(k)+' <span class="ao-ct">'+sc[k]+'</span></button>'; }).join('')+'</div>';
     if(w.moreF){
       h+='<div class="ao-card" style="margin-top:10px;padding:12px">';
       h+='<div class="ao-lbl">Stages</div><div class="ao-chips">'+AO_STAGES.map(function(s){ return '<button class="bkc-chip'+(w.stages.indexOf(s[0])>=0?' on':'')+'" onclick="aoTog(\'stages\',\''+s[0]+'\')">'+s[1]+'</button>'; }).join('')+'</div>';
