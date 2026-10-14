@@ -1698,6 +1698,8 @@ textarea.ao-inp{resize:vertical;min-height:72px}
 .imp-ck:first-of-type{border-top:0}
 .imp-ck b{font-weight:600;white-space:nowrap}
 .imp-tpl{display:block;margin:10px auto 0;border:0;background:none;font-family:var(--f);font-size:13px;font-weight:600;color:#4000f3;cursor:pointer}
+.ce-sbtn{flex-shrink:0;border:1.5px solid #4000f3;background:var(--white);color:#4000f3;border-radius:9px;padding:6px 11px;font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer}
+.ce-sbtn-q{border-color:var(--border);color:var(--sub);font-weight:500}
 .ao-tap{cursor:pointer;-webkit-tap-highlight-color:transparent}.ao-tap:active{opacity:.6}
 .ao-fun.ao-tap b,.ao-kvl{color:#4000f3!important;white-space:nowrap}
 .ao-fun{grid-template-columns:118px 1fr 40px}
@@ -4998,7 +5000,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-14 import-10zr';
+var APP_VERSION = 'v2026-10-14 import-10zs';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -24184,14 +24186,14 @@ function buildLowBalanceEmail(clientName, balance, topupUrl) {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div class="fg" style="margin:0">
             <label class="flbl">Product</label>
-            <select class="fsel" id="nc-product">
+            <select class="fsel" id="nc-product" onchange="ncProductChanged()">
               <option value="digital_flyers">🖼 Digital Flyers</option>
               <option value="lead_packages">👥 Lead Packages</option>
               <option value="sales_engine">📊 Sales Engine</option>
               <option value="ai_sales_engine">🤖 AI Sales Engine</option>
             </select>
           </div>
-          <div class="fg" style="margin:0">
+          <div class="fg" style="margin:0" id="nc-views-wrap">
             <label class="flbl">View Budget</label>
             <select class="fsel" id="nc-views" onchange="ncAutoFill()">
               <option value="200">200 views — $1,000</option>
@@ -24210,7 +24212,21 @@ function buildLowBalanceEmail(clientName, balance, topupUrl) {
         </div>
       </div>
 
-      <div style="padding:16px 18px;border-bottom:1px solid var(--border)">
+      <div id="nc-ai-sec" style="display:none;padding:16px 18px;border-bottom:1px solid var(--border)">
+        <div style="font-size:10px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--sub);margin-bottom:10px">3 · AI Engine</div>
+        <div class="fg" style="margin:0 0 10px"><label class="flbl">Business name the AI says</label>
+          <input class="finp" id="nc-brand" placeholder="e.g. Hair Loss Clinic"></div>
+        <div class="fg" style="margin:0"><label class="flbl">Time zone</label>
+          <select class="fsel" id="nc-tz">
+            <option value="America/Toronto">Eastern (Toronto)</option><option value="America/Winnipeg">Central (Winnipeg)</option>
+            <option value="America/Regina">Saskatchewan (Regina)</option><option value="America/Edmonton">Mountain (Edmonton)</option>
+            <option value="America/Vancouver">Pacific (Vancouver)</option><option value="America/Halifax">Atlantic (Halifax)</option>
+            <option value="America/St_Johns">Newfoundland</option>
+          </select></div>
+        <div style="margin-top:10px;background:var(--bluel);border-radius:10px;padding:10px 12px;font-size:12px;color:var(--blue);line-height:1.5">The campaign opens with a <b>setup checklist</b> (agreement, phone number, AI training, minutes, leads, test call). Nothing reaches any lead until you press <b>Go live</b>.</div>
+      </div>
+
+      <div id="nc-budget-sec" style="padding:16px 18px;border-bottom:1px solid var(--border)">
         <div style="font-size:10px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--sub);margin-bottom:10px">3 · Budget</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div class="fg" style="margin:0">
@@ -24230,7 +24246,7 @@ function buildLowBalanceEmail(clientName, balance, topupUrl) {
         </div>
       </div>
 
-      <div style="padding:16px 18px;border-bottom:1px solid var(--border)">
+      <div id="nc-stage-sec" style="padding:16px 18px;border-bottom:1px solid var(--border)">
         <div style="font-size:10px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--sub);margin-bottom:10px">4 · Workflow stage</div>
         <select class="fsel" id="nc-stage">
           <option value="payment_received">✅ Payment received</option>
@@ -32995,6 +33011,97 @@ function ceOpenSrcSheet(cid){
   if (b) b.innerHTML = ceSrcSheetHTML(cp);
   openSheet('ceSrcSh');
 }
+// ═══════════════════════════════════════
+// AI ENGINE SETUP CHECKLIST (ce-setup-1, Ajax 2026-10-14)
+// One checklist for every AI Engine campaign — same for clients who buy online
+// and for campaigns the Adviuz team sets up. Steps come from real data
+// (campaign_setup_status RPC); only the Adviuz team can tick "test call
+// approved" and press Go live (campaign_setup_mark, staff-only in the DB).
+// Shown on the campaign screen until the campaign is live.
+var CE_STEPS={
+  brand:['Business name & services','Adviuz sets up what the AI says about your business'],
+  agreement:['Sign the Automated Outreach Agreement','Once per business — takes a minute'],
+  number:['Your own phone number','Adviuz sets up a number just for your campaign'],
+  agent:['Your AI receptionist trained','Adviuz trains the AI on your services, prices rules and hours'],
+  minutes:['AI minutes added','Calls and texts use AI minutes'],
+  leads:['Leads added','Upload a sheet, or connect your website / Facebook forms'],
+  test_call:['Test call approved','You hear the AI on a test call and say it’s right']
+};
+function _ceIsStaff(){ return window._isAdviuzStaff===true; }   // Adviuz team — also while viewing as a client
+function ceSetupLoad(cid, force){
+  window._ceSetup=window._ceSetup||{};
+  var S=window._ceSetup[cid];
+  if(!force && S && (S.data||S.loading)) return;
+  window._ceSetup[cid]={loading:true,data:S&&S.data};
+  sbFetch('/rest/v1/rpc/campaign_setup_status',{method:'POST',body:JSON.stringify({p_campaign:cid})})
+    .then(function(r){ return r.ok?r.json():null; })
+    .then(function(j){ window._ceSetup[cid]={loading:false,data:j||null}; _ceSetupRepaint(cid); })
+    .catch(function(){ window._ceSetup[cid]={loading:false,data:null}; });
+}
+function _ceSetupRepaint(cid){
+  var el=document.getElementById('ceSetup-'+cid); if(!el) return;
+  el.outerHTML=ceSetupCardHTML({id:cid});
+}
+function ceSetupCardHTML(cp){
+  var cid=String(cp.id||''); ceSetupLoad(cid);
+  var S=(window._ceSetup||{})[cid], d=S&&S.data;
+  if(!d) return '<div id="ceSetup-'+cid+'"></div>';
+  var staff=_ceIsStaff();
+  if(d.live){
+    return '<div id="ceSetup-'+cid+'" style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--sub);margin:-4px 0 12px">'
+      +'<span style="width:7px;height:7px;border-radius:50%;background:var(--green)"></span>Live since '+new Date(d.live_at).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'})
+      +(staff?' <button onclick="ceSetupMark(\''+cid+'\',\'live\',false)" style="margin-left:auto;border:none;background:none;color:var(--sub);font-family:var(--f);font-size:12px;text-decoration:underline;cursor:pointer">Switch back to setup</button>':'')+'</div>';
+  }
+  var steps=d.steps||[], done=steps.filter(function(s){ return s.done; }).length, all=done===steps.length;
+  var who={adviuz:'Adviuz',client:'You',both:'You + Adviuz'};
+  var h='<div id="ceSetup-'+cid+'" style="background:var(--white);border:1px solid var(--border);border-radius:16px;padding:14px 14px 10px;margin-bottom:12px">'
+    +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><div style="flex:1"><div style="font-size:15px;font-weight:600;color:var(--text)">Set up your AI Engine</div>'
+    +'<div style="font-size:12px;color:var(--sub)">'+done+' of '+steps.length+' done · nothing is sent to your leads until you go live</div></div>'
+    +'<div style="width:42px;height:42px;border-radius:50%;background:conic-gradient(#4000f3 '+Math.round(done/steps.length*360)+'deg,var(--bg) 0);display:flex;align-items:center;justify-content:center"><div style="width:32px;height:32px;border-radius:50%;background:var(--white);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--text)">'+Math.round(done/steps.length*100)+'%</div></div></div>';
+  steps.forEach(function(s){
+    var L=CE_STEPS[s.key]||[s.key,''], act='', sub=L[1];
+    if(s.key==='number'&&s.done) sub=(s.shared?'Using your shared line ':'')+String(s.detail||'')+(s.own_account?' · own Twilio account':(s.shared?'':' · main account'));
+    if(s.key==='brand'&&s.done) sub='The AI says “'+String(s.detail||'')+'”';
+    if(s.key==='minutes'&&s.done) sub=Number(s.detail||0).toLocaleString()+' minutes left';
+    if(s.key==='leads'&&s.done) sub=Number(s.detail||0).toLocaleString()+' leads'+(s.uploaded?' ('+Number(s.uploaded).toLocaleString()+' uploaded)':'');
+    if(s.key==='test_call'&&s.done&&s.at) sub='Approved '+new Date(s.at).toLocaleDateString('en-CA',{month:'short',day:'numeric'});
+    if(!s.done){
+      if(s.key==='agreement'&&!staff) act='<button class="ce-sbtn" onclick="ceSetupSign(\''+cid+'\')">Sign</button>';
+      if(s.key==='minutes') act='<button class="ce-sbtn" onclick="openAddMinutesSheet(\''+cid+'\')">Add</button>';
+      if(s.key==='leads') act='<button class="ce-sbtn" onclick="ceUpload(\''+cid+'\')">Upload</button>';
+      if(s.key==='test_call'&&staff) act='<button class="ce-sbtn" onclick="ceSetupMark(\''+cid+'\',\'test_call\',true)">Mark approved</button>';
+    } else if(s.key==='test_call'&&staff) act='<button class="ce-sbtn ce-sbtn-q" onclick="ceSetupMark(\''+cid+'\',\'test_call\',false)">Undo</button>';
+    h+='<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--border)">'
+      +'<span style="width:22px;height:22px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px;'+(s.done?'background:var(--green);color:#fff':'border:1.5px solid #c6ccd6;color:transparent')+'">✓</span>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:13px;color:var(--text);'+(s.done?'':'font-weight:500')+'">'+L[0]+' <span style="font-size:10.5px;color:var(--sub);font-weight:400">· '+(who[s.who]||'')+'</span></div>'
+      +'<div style="font-size:11.5px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+sanitize(sub)+'</div></div>'+act+'</div>';
+  });
+  if(staff) h+='<button class="btn btn-primary" '+(all?'':'disabled ')+'style="width:100%;justify-content:center;margin-top:8px;'+(all?'':'opacity:.45')+'" onclick="ceSetupGoLive(\''+cid+'\')">'+(all?'Go live':'Go live (finish the steps first)')+'</button>';
+  else h+='<div style="font-size:11.5px;color:var(--sub);text-align:center;padding:8px 0 2px">'+(all?'All set — Adviuz will switch you live shortly.':'We’ll let you know when your AI is ready.')+'</div>';
+  return h+'</div>';
+}
+async function ceSetupMark(cid, step, on){
+  try{
+    var r=await sbFetch('/rest/v1/rpc/campaign_setup_mark',{method:'POST',body:JSON.stringify({p_campaign:cid,p_step:step,p_done:!!on})});
+    var j=await r.json().catch(function(){ return null; });
+    if(!r.ok){ showToast((j&&j.message)||'Could not save that step'); return; }
+    window._ceSetup[cid]={loading:false,data:j}; _ceSetupRepaint(cid);
+    showToast(step==='live'?(on?'✅ Campaign is live':'Back in setup'):(on?'✅ Marked approved':'Step undone'));
+  }catch(e){ showToast('Could not save that step'); }
+}
+function ceSetupGoLive(cid){
+  _aoPickSheet('Switch this campaign live?', [['yes','Yes — go live'],['no','Not yet']], '', function(v){ if(v==='yes') ceSetupMark(cid,'live',true); });
+}
+async function ceSetupSign(cid){
+  try{
+    var r=await sbFetch('/functions/v1/bulk-calls?action=agreement-status',{method:'POST',body:'{}'});
+    var j=await r.json().catch(function(){ return {}; });
+    if(j&&j.signed){ ceSetupLoad(cid,true); return; }
+    if(j&&j.terms&&typeof bcaOpenSheet==='function'){ window._bcaOnDone=function(){ window._bcaOnDone=null; ceSetupLoad(cid,true); }; bcaOpenSheet(j); return; }
+    showToast((j&&j.error)||'Could not open the agreement — try again');
+  }catch(e){ showToast('Could not open the agreement — try again'); }
+}
+
 function ceCampDetailHTML(cp){
   ceLoad(cp.id);
   var rep = (window._ceRep && window._ceRep.key === String(cp.id)) ? window._ceRep.data : null;
@@ -33017,6 +33124,7 @@ function ceCampDetailHTML(cp){
     + _campToggleSwitch(cp.id, active, false)
     + '</div>';
   h += '<div style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:#4000f3;background:linear-gradient(var(--white),var(--white)) padding-box,linear-gradient(90deg,#4000f3,#e65afc) border-box;border:1.5px solid transparent;border-radius:999px;padding:6px 12px;margin-bottom:12px">🤖 AI Conversion Engine · ' + (active ? 'running' : 'paused') + '</div>';
+  h += ceSetupCardHTML(cp);   // ce-setup-1: until the campaign is live
 
   // ── HERO: the funnel replaces Total Exposure ──
   h += '<div onclick="ceGoReports(\'' + cp.id + '\')" style="cursor:pointer;background:linear-gradient(118deg,#4000f3 0%,#8b2bf7 55%,#e65afc 100%);border-radius:18px;color:#fff;padding:17px 14px 14px;margin-bottom:12px">'
@@ -36578,7 +36686,14 @@ function openAddCampaignSheet(prefillClientId, prefillViews, prefillBudget, pref
   if (btn) { btn.textContent = '🚀 Create Campaign'; btn.disabled = false; }
 
   ncAutoFill();
+  ncProductChanged();
   openSheet('addCampaignSh');
+}
+// ce-setup-1: an AI Engine campaign has no views or ad budget — it gets brand + time zone instead.
+function ncProductChanged(){
+  var ai=((document.getElementById('nc-product')||{}).value==='ai_sales_engine');
+  [['nc-views-wrap',!ai],['nc-custom-row',false],['nc-budget-sec',!ai],['nc-stage-sec',!ai],['nc-ai-sec',ai]].forEach(function(x){ var e=document.getElementById(x[0]); if(e&&!(x[0]==='nc-custom-row'&&!ai)) e.style.display=x[1]?'':'none'; });
+  if(!ai) ncAutoFill();
 }
 
 function ncAutoFill() {
@@ -36611,6 +36726,7 @@ async function saveNewCampaign() {
   var clientId = (document.getElementById('nc-client')||{}).value;
   var name     = (document.getElementById('nc-name')||{}).value.trim();
   var product  = (document.getElementById('nc-product')||{}).value || 'digital_flyers';
+  var isAi     = product === 'ai_sales_engine';
   var viewsSel = document.getElementById('nc-views');
   var views    = viewsSel && viewsSel.value !== 'custom'
     ? parseInt(viewsSel.value)
@@ -36619,38 +36735,43 @@ async function saveNewCampaign() {
   var platform = (document.getElementById('nc-platform')||{}).value || 'all';
   var stage    = (document.getElementById('nc-stage')||{}).value || 'payment_received';
   var notes    = (document.getElementById('nc-notes')||{}).value.trim();
+  var brand    = ((document.getElementById('nc-brand')||{}).value||'').trim();
+  var tz       = (document.getElementById('nc-tz')||{}).value || 'America/Toronto';
 
   if (!clientId) { showToast('⚠️ Select a client'); return; }
-  if (!views)    { showToast('⚠️ Set a view budget'); return; }
+  if (isAi && !brand) { showToast('⚠️ Enter the business name the AI should say'); return; }
+  if (!isAi && !views) { showToast('⚠️ Set a view budget'); return; }
 
   var btn = document.getElementById('addCampaignBtn');
   if (btn) { btn.textContent = 'Creating...'; btn.disabled = true; }
 
-  // Auto-generate name if empty
+  var cl = (_adminData.clients||[]).find(function(c){return c.id===clientId;});
   if (!name) {
-    var cl = (_adminData.clients||[]).find(function(c){return c.id===clientId;});
     var mon = new Date().toLocaleString('en-CA',{month:'short',year:'numeric'});
-    name = (cl ? cl.business_name : 'Client') + ' — ' + views + ' Views — ' + mon;
+    name = isAi ? (brand || (cl ? cl.business_name : 'Client')) + ' \u2014 AI Engine'
+                : (cl ? cl.business_name : 'Client') + ' — ' + views + ' Views — ' + mon;
   }
 
   try {
+    // ce-setup-1: only real columns. The old sheet sent budget_total / platform /
+    // product_type / workflow_stage, which don't exist, so every create failed.
+    // The campaign TYPE is now explicit: settings.kind.
+    var body = isAi ? {
+        client_id: clientId, name: name, status: 'active',
+        view_budget: 0, views_used: 0, billing_model: 'views', notes: notes || null,
+        settings: { kind: 'ai_engine', email: { from_name: brand }, ai: { tz: tz }, welcome_on: false, created_via: 'create_campaign_sheet' }   // no welcome texts before Go live
+      } : {
+        client_id: clientId, name: name, status: stage === 'active' ? 'active' : 'pending_setup',   // 'pending' is not an allowed status
+        view_budget: views, views_used: 0,
+        billing_model: product === 'lead_packages' ? 'leads' : 'views',
+        leads_target: product === 'lead_packages' ? views : 0,
+        notes: notes || null,
+        settings: { kind: 'digital_flyers', workflow_stage: stage, budget_total: budget, platform: platform, product: product, created_via: 'create_campaign_sheet' }
+      };
     var res = await sbFetch('/rest/v1/campaigns', {
       method: 'POST',
       headers: {'Prefer':'return=representation'},
-      body: JSON.stringify({
-        client_id:      clientId,
-        name:           name,
-        status:         stage === 'active' ? 'active' : 'pending',
-        view_budget:    views,
-        views_used:     0,
-        budget_total:   budget,
-        budget_spent:   0,
-        platform:       platform,
-        product_type:   product,
-        workflow_stage: stage,
-        notes:          notes || null,
-        created_at:     new Date().toISOString()
-      })
+      body: JSON.stringify(body)
     });
 
     if (!res.ok && res.status !== 201) {
@@ -36662,7 +36783,7 @@ async function saveNewCampaign() {
     var newCamp = Array.isArray(data) ? data[0] : data;
 
     closeSheet('addCampaignSh');
-    showToast('✅ Campaign created — ' + name);
+    showToast('✅ Campaign created — ' + name + (isAi ? ' · setup checklist is on the campaign screen' : ''));
 
     // Reload admin data to show new campaign
     if (_adminLoaded) {
