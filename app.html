@@ -2377,18 +2377,18 @@ textarea.ao-inp{resize:vertical;min-height:72px}
       <div style="display:flex;flex-direction:column;gap:10px">
         <div style="display:flex;align-items:flex-start;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px 14px">
           <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:#fff;background:#64748b;border-radius:20px;padding:3px 10px;flex-shrink:0;margin-top:1px">&#x2744;&#xFE0F; Cold</span>
-          <div style="font-size:12.5px;color:var(--sub);line-height:1.55"><b style="color:var(--text)">Score 0&ndash;3.</b> No real conversation yet &mdash; missed calls, voicemails, or no interest shown so far. Normal for new leads; not a bad lead, just early.</div>
+          <div style="font-size:12.5px;color:var(--sub);line-height:1.55"><b style="color:var(--text)">Fresh lead, call not connected, or future prospect.</b> We haven&rsquo;t had a real conversation yet, or they asked us to check back later.</div>
         </div>
         <div style="display:flex;align-items:flex-start;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px 14px">
           <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:#fff;background:#d97706;border-radius:20px;padding:3px 10px;flex-shrink:0;margin-top:1px">&#x1F324;&#xFE0F; Warm</span>
-          <div style="font-size:12.5px;color:var(--sub);line-height:1.55"><b style="color:var(--text)">Score 4&ndash;6.</b> They engaged &mdash; asked questions, showed some interest, maybe a few objections. Worth a follow-up soon.</div>
+          <div style="font-size:12.5px;color:var(--sub);line-height:1.55"><b style="color:var(--text)">Call connected, follow-up scheduled, or meeting booked.</b> We&rsquo;ve talked and there&rsquo;s a next step. Worth a follow-up soon.</div>
         </div>
         <div style="display:flex;align-items:flex-start;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px 14px">
           <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:#fff;background:var(--green);border-radius:20px;padding:3px 10px;flex-shrink:0;margin-top:1px">&#x1F525; Hot</span>
-          <div style="font-size:12.5px;color:var(--sub);line-height:1.55"><b style="color:var(--text)">Score 7&ndash;10.</b> Strong interest and momentum &mdash; ready to book, negotiating, or asking to move forward. Act on these first.</div>
+          <div style="font-size:12.5px;color:var(--sub);line-height:1.55"><b style="color:var(--text)">Meeting done, proposal sent, or negotiating.</b> They&rsquo;ve met us and we&rsquo;re close to closing. Act on these first.</div>
         </div>
       </div>
-      <div style="font-size:12px;color:var(--sub);line-height:1.55;margin-top:14px">The AI re-scores the lead after every call based on interest, urgency, objections and momentum. This is separate from the sales stage &mdash; the stage tracks <b>where</b> the lead is in your process; the temperature tracks <b>how keen</b> they are right now.</div>
+      <div style="font-size:12px;color:var(--sub);line-height:1.55;margin-top:14px">The temperature comes from the sales stage, so it changes automatically when you move the lead. Closed, not-interested, partner and vendor leads have no temperature. The AI&rsquo;s interest score (out of 10) is still shown on the lead for extra detail.</div>
     </div>
   </div>
 </div>
@@ -6665,7 +6665,7 @@ function leadMatchesQ(l, q){
     l.stage,l.location,l.svc,l.note,l.src,
     (typeof srcLabel==='function'?srcLabel(l.src||''):''),
     l.assignedName,l.campaign_name,l.campaign,
-    (l.ai_score!=null ? (l.ai_score>=7?'hot':l.ai_score>=4?'warm':'cold') : '')
+    leadTemp(l.stage)
   ].filter(Boolean).join(' \u0001 ').toLowerCase();
   var blob = live + ' \u0001 ' + _lsHeavyBlob(l);
   var toks = String(q).toLowerCase().split(/\s+/).filter(Boolean);
@@ -8708,8 +8708,10 @@ function leadsHTML(){
   // ── Task 2: Sorting ──
   vis = vis.slice().sort(function(a,b){
     if(window._leadSort==='hot'){
+      var at=(LEAD_TEMP_UI[leadTemp(a.stage)]||{r:0}).r, bt=(LEAD_TEMP_UI[leadTemp(b.stage)]||{r:0}).r;
+      if(at!==bt) return bt-at; // Hot → Warm → Cold → no temperature
       var as=(a.ai_score==null?-1:a.ai_score), bs=(b.ai_score==null?-1:b.ai_score);
-      if(as!==bs) return bs-as; // hottest first; unscored leads sink to the bottom
+      if(as!==bs) return bs-as; // then by AI interest score
       var ah=a.created_at||a.rawDate||'', bh=b.created_at||b.rawDate||'';
       return ah>bh?-1:(ah<bh?1:0);
     }
@@ -9094,9 +9096,23 @@ function aiTempOf(s){
        : s>=4 ? {w:'Warm', e:'\uD83C\uDF24\uFE0F', bg:'#d97706'}
               : {w:'Cold', e:'\u2744\uFE0F', bg:'#64748b'};
 }
+// Lead temperature — ONE rule for the whole app (Ajax 2026-10-14), by sales stage:
+// Cold = 1 Fresh · 2 Not connected · 11 Future prospect
+// Warm = 3 Callback requested · 4 Follow-up scheduled · 5 Meeting booked
+// Hot  = 6 Meeting done · 7 Proposal sent · 8 Negotiating
+// Other stages (closed, not interested, partner, vendor…) get no temperature.
+var LEAD_TEMP_BY_STAGE={'1':'cold','2':'cold','11':'cold','3':'warm','4':'warm','5':'warm','6':'hot','7':'hot','8':'hot'};
+function leadTemp(stage){
+  var t=String(stage||'').trim().toLowerCase(), m=t.match(/^(\d{1,2})/), n;
+  if(m) n=String(Number(m[1]));
+  else if(/won|closed|lost|not interested|dnd|do not/.test(t)) n='';
+  else if(/not connected/.test(t)) n='2'; else if(/callback/.test(t)) n='3'; else if(/future/.test(t)) n='11';
+  else n=t===''||t==='new'?'1':'';
+  return LEAD_TEMP_BY_STAGE[n]||'';
+}
+var LEAD_TEMP_UI={hot:{w:'Hot', e:'\uD83D\uDD25', bg:'var(--green)', r:3}, warm:{w:'Warm', e:'\uD83C\uDF24\uFE0F', bg:'#d97706', r:2}, cold:{w:'Cold', e:'\u2744\uFE0F', bg:'#64748b', r:1}};
 function aiScoreBadge(l){
-  if(!l || l.ai_score==null || isNaN(l.ai_score)) return '';
-  var s=Number(l.ai_score), t=aiTempOf(s);
+  var t=l&&LEAD_TEMP_UI[leadTemp(l.stage)]; if(!t) return '';
   return '<span onclick="event.stopPropagation();openTempInfo('+l.id+')" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:#fff;background:'+t.bg+';border-radius:20px;padding:2px 9px;line-height:1.3;cursor:pointer">'+t.e+' '+t.w
     +' <span style="width:13px;height:13px;border:1.3px solid rgba(255,255,255,.9);border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;font-style:normal">i</span></span>';
 }
@@ -9105,13 +9121,14 @@ function openTempInfo(localId){
   var box=document.getElementById('tiLead');
   if(box){
     var l=leads.find(function(x){return x.id===localId;});
-    if(l && l.ai_score!=null && !isNaN(l.ai_score)){
-      var s=Number(l.ai_score), t=aiTempOf(s);
+    var t=l&&LEAD_TEMP_UI[leadTemp(l.stage)];
+    if(t){
+      var hasS=l.ai_score!=null && !isNaN(l.ai_score);
       box.innerHTML='<div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:16px">'
-        +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:'+(l.ai_score_reason?'6px':'0')+'">'
+        +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">'
         +'<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:#fff;background:'+t.bg+';border-radius:20px;padding:3px 10px">'+t.e+' '+t.w+'</span>'
-        +'<span style="font-size:13.5px;font-weight:600;color:var(--text)">'+sanitize(l.name||'This lead')+' \u2014 '+s+'/10</span></div>'
-        +(l.ai_score_reason?'<div style="font-size:12.5px;color:var(--sub);line-height:1.55">'+sanitize(l.ai_score_reason)+'</div>':'')
+        +'<span style="font-size:13.5px;font-weight:600;color:var(--text)">'+sanitize(l.name||'This lead')+'</span></div>'
+        +'<div style="font-size:12.5px;color:var(--sub);line-height:1.55">Because the stage is <b style="color:var(--text)">'+sanitize(l.stage||'')+'</b>.'+(hasS?' AI interest score: '+Number(l.ai_score)+'/10'+(l.ai_score_reason?' \u2014 '+sanitize(l.ai_score_reason):''):'')+'</div>'
         +'</div>';
     } else box.innerHTML='';
   }
@@ -10120,14 +10137,14 @@ function _bwNoShow(l){
 }
 var BW_PRESETS=[
   { key:'warm', label:'\uD83C\uDF24\uFE0F Warm leads', noShow:true,
-    stages:['1. Fresh Lead','2. Call Not Connected','3. Connected - Callback Requested','4. Follow-up Scheduled'],
-    hint:'Everyone before a booked meeting, plus no-shows' },
+    stages:['3. Connected - Callback Requested','4. Follow-up Scheduled'],
+    hint:'Call connected or follow-up scheduled, plus no-shows' },
   { key:'hot', label:'\uD83D\uDD25 Hot leads', noShow:false,
     stages:['6. Meeting Done','7. Proposal Sent','8. Negotiating'],
     hint:'Meeting done, proposal sent, negotiating' },
   { key:'cold', label:'\u2744\uFE0F Cold leads', noShow:false,
-    stages:['11. Future Prospect'],
-    hint:'Future prospects' }
+    stages:['1. Fresh Lead','2. Call Not Connected','11. Future Prospect'],
+    hint:'Fresh, call not connected, future prospects' }
 ];
 function _bwPresetActive(pr){
   var b=window._bw;
@@ -10419,7 +10436,7 @@ function bwRender(){
           + '</button>';
       });
       h+='</div>';
-      h+='<div style="font-size:11px;color:var(--sub);line-height:1.5;margin-bottom:4px">Warm = before a booked meeting + no-shows \u00b7 Hot = meeting done / proposal / negotiating \u00b7 Cold = future prospects</div>';
+      h+='<div style="font-size:11px;color:var(--sub);line-height:1.5;margin-bottom:4px">Cold = fresh, not connected, future prospect \u00b7 Warm = call connected, follow-up scheduled, no-shows \u00b7 Hot = meeting done / proposal / negotiating</div>';
 
       // ── Stages (multi) within the chosen scope ──
       h+='<div style="font-size:11px;font-weight:600;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">Sales stages \u00b7 pick one or more</div>';
