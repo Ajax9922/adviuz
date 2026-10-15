@@ -5077,7 +5077,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-15 import-10zz9';
+var APP_VERSION = 'v2026-10-15 import-10zza';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -9351,7 +9351,7 @@ function fmtNum(n) {
 // Natural, clean activity label (no verbose subjects/from-lines)
 function cleanActLabel(a){
   var t=(a.type||'').toLowerCase(), lbl=(a.label||'');
-  if(t==='ai_analysis') return 'AI call';
+  if(t==='ai_analysis') return 'Call notes';
   if(t==='email_received') return 'Email received';
   if(t==='email_opened') return 'Email opened';
   if(t==='sms_received') return 'SMS received';
@@ -9370,6 +9370,14 @@ function _aiGist(body){
   var m=b.match(/What happened:\s*\n?\s*[\u2022\-*]?\s*([^\n]+)/i);
   var g=m?m[1]:b.split('\n').filter(function(x){ return x.trim() && !/^(What|Temperature|Stage)\b/i.test(x.trim()); })[0]||'';
   return g.replace(/^[\u2022\-*\s]+/,'').trim();
+}
+// import-10zza: the call an AI note is about → "Outbound call by team · Voicemail" etc.
+function _aiCallCtx(a, acts){
+  var sid=String(a.call_sid||'').replace(/:analysis$/,''); var c=null;
+  if(sid) c=(acts||[]).find(function(x){ return x && String(x.type||'').toLowerCase()==='call' && String(x.call_sid||'')===sid; });
+  if(!c) return {lbl:'Call notes', meta:''};
+  var inb=(String(c.direction||'').toLowerCase()==='inbound') || /inbound/i.test(c.label||'');
+  return {lbl:(inb?'Inbound call':'Outbound call')+(c.is_ai?' \u00b7 AI':' \u00b7 Team'), meta:callMetaHTML(c)};
 }
 // Outcome + duration suffix for a CALL activity (answered + time, or missed).
 function callMetaHTML(a){
@@ -9558,19 +9566,19 @@ function lRow(l,anySel,forceDetailed,slim){
     // Detailed view → show the 3 most recent events
     lastHTML='<div class="sl-recent">'+actsArr.slice(0,3).map(function(a){
       var lbl=cleanActLabel(a);
-      var _ai=(String(a.type||'').toLowerCase()==='ai_analysis'), _g=_ai?_aiGist(a.body):'';
+      var _ai=(String(a.type||'').toLowerCase()==='ai_analysis'), _g=_ai?_aiGist(a.body):'', _cx=_ai?_aiCallCtx(a,actsArr):null; if(_cx) lbl=_cx.lbl;
       var bd=_ai ? (_g?' — '+esc(_g):'') : ((a.body && String(a.body).trim()) ? ' — '+esc(String(a.body).trim()) : '');
       var t=a.time?'<span class="sl-act-t"> · '+esc(a.time)+'</span>':'';
-      return '<div class="sl-last'+(_ai?' sl-last2':'')+'"><span class="sl-cl"><b>'+esc(lbl)+'</b>'+t+callMetaHTML(a)+bd+'</span></div>';
+      return '<div class="sl-last'+(_ai?' sl-last2':'')+'"><span class="sl-cl"><b>'+esc(lbl)+'</b>'+t+(_cx?_cx.meta:callMetaHTML(a))+bd+'</span></div>';
     }).join('')+'</div>';
   } else {
     var last=actsArr[0];
     if(last){
       var lbl=cleanActLabel(last);
-      var _ai1=(String(last.type||'').toLowerCase()==='ai_analysis'), _g1=_ai1?_aiGist(last.body):'';
+      var _ai1=(String(last.type||'').toLowerCase()==='ai_analysis'), _g1=_ai1?_aiGist(last.body):'', _cx1=_ai1?_aiCallCtx(last,actsArr):null; if(_cx1) lbl=_cx1.lbl;
       var body=_ai1 ? (_g1?' — '+esc(_g1):'') : ((lbl==='Note' && last.body && String(last.body).trim()) ? ' — '+esc(String(last.body).trim()) : '');
       var t=last.time?'<span class="sl-act-t"> · '+esc(last.time)+'</span>':'';
-      lastHTML='<div class="sl-last'+(_ai1?' sl-last2':'')+'"><span class="sl-cl"><b>'+esc(lbl)+'</b>'+t+callMetaHTML(last)+body+'</span></div>';
+      lastHTML='<div class="sl-last'+(_ai1?' sl-last2':'')+'"><span class="sl-cl"><b>'+esc(lbl)+'</b>'+t+(_cx1?_cx1.meta:callMetaHTML(last))+body+'</span></div>';
     } else if(l.note){
       lastHTML='<div class="sl-last"><b>Note</b> — '+esc(l.note)+'</div>';
     }
