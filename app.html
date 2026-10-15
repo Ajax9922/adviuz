@@ -5004,7 +5004,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-14 import-10zu';
+var APP_VERSION = 'v2026-10-15 import-10zv';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6504,13 +6504,15 @@ async function loadLeadsFromDB() {
       cFilter = window._clientId
         ? '&or=(client_id.eq.'+window._clientId+','+svcOr+')'
         : '&or=('+svcOr+')';
-      _limit = 1000;
+      _limit = 20000; // import-10zv: paged, so a business with 1000+ leads shows them all
     } else {
       cFilter = '&client_id=eq.'+window._clientId;
-      _limit = 500;
+      _limit = 20000; // import-10zv: all of the business's leads (paged below)
     }
     // (Telecaller visibility is applied after fetch, by their lead filter)
-    var res = await sbFetch('/rest/v1/leads?select=*'+cFilter+'&or=(source.is.null,source.neq.block)&order=last_activity_at.desc.nullslast,created_at.desc&limit='+_limit); // sort-1: most recent activity first
+    var res = _limit>1000
+      ? await (async function(){ var rows=await _sbAllRows('/rest/v1/leads?select=*'+cFilter+'&or=(source.is.null,source.neq.block)&order=last_activity_at.desc.nullslast,created_at.desc,id.desc', _limit); return rows ? { ok:true, json:async function(){ return rows; } } : { ok:false, json:async function(){ return {}; } }; })()
+      : await sbFetch('/rest/v1/leads?select=*'+cFilter+'&or=(source.is.null,source.neq.block)&order=last_activity_at.desc.nullslast,created_at.desc&limit='+_limit); // sort-1: most recent activity first
     if (!res.ok) {
       var err = await res.json().catch(function(){return{}});
       console.error('[Adviuz] Load leads error:', err);
@@ -29330,12 +29332,23 @@ async function loadClientCampaigns() {
   }
 }
 
+// import-10zv: load ALL of a business's leads in pages of 1000 (was a single page of 300 — after a big
+// upload the newest 300 were all from the sheet and every other campaign looked empty).
+async function _sbAllRows(path, max){
+  var out=[], page=1000; max=max||20000;
+  for(var off=0; off<max; off+=page){
+    var r=await sbFetch(path+(path.indexOf('?')>=0?'&':'?')+'limit='+page+'&offset='+off);
+    if(!r.ok){ if(!off) return null; break; }
+    var rows=await r.json(); out=out.concat(rows||[]);
+    if(!rows||rows.length<page) break;
+  }
+  return out;
+}
 async function loadClientLeads() {
   var cid = window._clientId; if(!cid) return;
   try {
-    var res = await sbFetch('/rest/v1/leads?client_id=eq.'+cid+'&or=(source.is.null,source.neq.block)&order=created_at.desc&limit=300');
-    if (res.ok) {
-      var dbLeads = await res.json();
+    var dbLeads = await _sbAllRows('/rest/v1/leads?client_id=eq.'+cid+'&or=(source.is.null,source.neq.block)&order=created_at.desc,id.desc');
+    if (dbLeads) {
       leads = dbLeads.filter(_notBlockRow).map(mapLead).filter(function(l){
         var s = (l.svc||'').trim().toLowerCase();
         // Hide Adviuz sales/onboarding leads (their "service" is an Adviuz product) from the client's customer list
