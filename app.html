@@ -5077,7 +5077,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-15 import-10zza';
+var APP_VERSION = 'v2026-10-15 import-10zzb';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6441,7 +6441,17 @@ async function sbFetch(path, opts) {
   }
 
   _perfLog(path, _pt0, res);
+  // import-10zzb: texts sent from the hub record WHO sent them
+  try{
+    if(res.ok && path.indexOf('/functions/v1/twilio-sms')===0 && opts.body){
+      var _sb=JSON.parse(opts.body); var _sl=String(_sb.lead_id||'');
+      if(/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(_sl)) setTimeout(function(){ _claimAct(_sl,'sms_sent',null,String(_sb.message||_sb.body||'')); },1500);
+    }
+  }catch(_e){}
   return res;
+}
+function _claimAct(lead,type,sid,text){
+  try{ sbFetch('/rest/v1/rpc/claim_activity',{method:'POST',body:JSON.stringify({p_lead:lead,p_type:type,p_call_sid:sid||null,p_text:text?String(text).slice(0,40):null})}).catch(function(){}); }catch(_e){}
 }
 
 async function callFn(name, body) {
@@ -9377,7 +9387,15 @@ function _aiCallCtx(a, acts){
   if(sid) c=(acts||[]).find(function(x){ return x && String(x.type||'').toLowerCase()==='call' && String(x.call_sid||'')===sid; });
   if(!c) return {lbl:'Call notes', meta:''};
   var inb=(String(c.direction||'').toLowerCase()==='inbound') || /inbound/i.test(c.label||'');
-  return {lbl:(inb?'Inbound call':'Outbound call')+(c.is_ai?' \u00b7 AI':' \u00b7 Team'), meta:callMetaHTML(c)};
+  var who=c.is_ai?'AI':(c.by||'');
+  return {lbl:inb?('Inbound call \u00b7 '+(who?(c.is_ai?'AI':'answered by '+who):'Team')):('Outbound call '+(who?'by '+who:'\u00b7 Team')), meta:callMetaHTML(c)};
+}
+// import-10zzb: "SMS sent by Derek", "Outbound call by AI"
+function _byLbl(a,lbl){
+  var t=String(a&&a.type||'').toLowerCase();
+  if(!a||!a.by||!/^(call|sms_sent|sms|email_sent|email)$/.test(t)) return lbl;
+  if(/^Inbound/i.test(lbl)) return lbl+' \u00b7 '+(a.by==='AI'?'AI':'answered by '+a.by);
+  return lbl+' by '+a.by;
 }
 // Outcome + duration suffix for a CALL activity (answered + time, or missed).
 function callMetaHTML(a){
@@ -9566,7 +9584,7 @@ function lRow(l,anySel,forceDetailed,slim){
     // Detailed view → show the 3 most recent events
     lastHTML='<div class="sl-recent">'+actsArr.slice(0,3).map(function(a){
       var lbl=cleanActLabel(a);
-      var _ai=(String(a.type||'').toLowerCase()==='ai_analysis'), _g=_ai?_aiGist(a.body):'', _cx=_ai?_aiCallCtx(a,actsArr):null; if(_cx) lbl=_cx.lbl;
+      var _ai=(String(a.type||'').toLowerCase()==='ai_analysis'), _g=_ai?_aiGist(a.body):'', _cx=_ai?_aiCallCtx(a,actsArr):null; lbl=_cx?_cx.lbl:_byLbl(a,lbl);
       var bd=_ai ? (_g?' — '+esc(_g):'') : ((a.body && String(a.body).trim()) ? ' — '+esc(String(a.body).trim()) : '');
       var t=a.time?'<span class="sl-act-t"> · '+esc(a.time)+'</span>':'';
       return '<div class="sl-last'+(_ai?' sl-last2':'')+'"><span class="sl-cl"><b>'+esc(lbl)+'</b>'+t+(_cx?_cx.meta:callMetaHTML(a))+bd+'</span></div>';
@@ -9575,7 +9593,7 @@ function lRow(l,anySel,forceDetailed,slim){
     var last=actsArr[0];
     if(last){
       var lbl=cleanActLabel(last);
-      var _ai1=(String(last.type||'').toLowerCase()==='ai_analysis'), _g1=_ai1?_aiGist(last.body):'', _cx1=_ai1?_aiCallCtx(last,actsArr):null; if(_cx1) lbl=_cx1.lbl;
+      var _ai1=(String(last.type||'').toLowerCase()==='ai_analysis'), _g1=_ai1?_aiGist(last.body):'', _cx1=_ai1?_aiCallCtx(last,actsArr):null; lbl=_cx1?_cx1.lbl:_byLbl(last,lbl);
       var body=_ai1 ? (_g1?' — '+esc(_g1):'') : ((lbl==='Note' && last.body && String(last.body).trim()) ? ' — '+esc(String(last.body).trim()) : '');
       var t=last.time?'<span class="sl-act-t"> · '+esc(last.time)+'</span>':'';
       lastHTML='<div class="sl-last'+(_ai1?' sl-last2':'')+'"><span class="sl-cl"><b>'+esc(lbl)+'</b>'+t+(_cx1?_cx1.meta:callMetaHTML(last))+body+'</span></div>';
@@ -16154,6 +16172,7 @@ async function loadLeadActivity(localId, dbId) {
         id:           row.id,
         call_note:    row.call_note || null,
         is_ai:        !!(row.metadata && (row.metadata.handler === 'ai' || row.metadata.ai === true)),
+        by:           row.actor_name || ((row.metadata && (row.metadata.handler === 'ai' || row.metadata.ai === true)) ? 'AI' : ''), // import-10zzb
         via:          (row.metadata && (row.metadata.from_number || row.metadata.line)) || '',
         // follow-3: the phone network counts a voicemail pickup as "answered",
         // so raw duration lies. Truth order (same as the Inbox): manual
@@ -18621,7 +18640,7 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
       // Top row — status badge + direction/duration | time
       h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px">';
       h += '<div style="display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap">';
-      h += '<span style="font-size:10px;font-weight:600;padding:3px 8px;border-radius:20px;background:'+(isAI?'#ede9fe':'#f3f4f6')+';color:'+(isAI?'#7c3aed':'#4b5563')+';white-space:nowrap">'+(isAI?'🤖 AI':'👤 Human')+(function(){ var v=item.via; if(!v){ try{ v=_campPhoneFor(typeof lsGetLead==='function'?lsGetLead():null); }catch(e){ v=''; } } var d=String(v||'').replace(/\D/g,''); return d.length>=4 ? ' \u00b7 '+d.slice(-4) : ''; })()+'</span>';
+      h += '<span style="font-size:10px;font-weight:600;padding:3px 8px;border-radius:20px;background:'+(isAI?'#ede9fe':'#f3f4f6')+';color:'+(isAI?'#7c3aed':'#4b5563')+';white-space:nowrap">'+(isAI?'🤖 AI':'👤 '+sanitize(item.by||'Human'))+(function(){ var v=item.via; if(!v){ try{ v=_campPhoneFor(typeof lsGetLead==='function'?lsGetLead():null); }catch(e){ v=''; } } var d=String(v||'').replace(/\D/g,''); return d.length>=4 ? ' \u00b7 '+d.slice(-4) : ''; })()+'</span>';
       h += '<span style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;background:'+stColBg+';color:'+stCol+';letter-spacing:.02em;white-space:nowrap">'+dirArrow+' '+statusTxt+'</span>';
       h += '<span style="font-size:11px;color:#6b7280;font-weight:600;white-space:nowrap">'+channel+(isIn?'Incoming':'Outgoing')+(durTxt?' \u00b7 '+durTxt:'')+'</span>';
       h += '</div>';
@@ -18749,7 +18768,7 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
         var _tg = item.sender_tag;
         var _tBg = _tg==='AI' ? '#ede9fe' : _tg==='Automated' ? '#f3f4f6' : '#eff6ff';
         var _tCo = _tg==='AI' ? '#7c3aed' : _tg==='Automated' ? '#4b5563' : '#2563eb';
-        var _tTx = _tg==='AI' ? '\uD83E\uDD16 AI' : _tg==='Automated' ? '\u2699\uFE0F Automated' : '\uD83D\uDC64 Human';
+        var _tTx = _tg==='AI' ? '\uD83E\uDD16 AI' : _tg==='Automated' ? '\u2699\uFE0F Automated' : '\uD83D\uDC64 '+sanitize(item.by||'Human');
         h += '<div style="margin-top:5px"><span style="font-size:10px;font-weight:600;padding:3px 8px;border-radius:20px;background:'+_tBg+';color:'+_tCo+';white-space:nowrap">'+_tTx+'</span></div>';
       }
       var _smsKey='sm_'+String(item.id||(l.id+'_'+i));
@@ -23881,6 +23900,7 @@ function _makeCall(l) {
           if (res.ok && res.body && res.body[0] && res.body[0].id) {
             _actRowId = res.body[0].id;
             console.log('[Call] lead_activity saved, id:', _actRowId, 'call_sid:', callSid);
+            if (callSid) _claimAct(l.dbId, 'call', callSid, null); // import-10zzb: who made the call
           } else {
             var msg = (res.body && res.body.message) ? res.body.message : ('HTTP ' + res.status);
             console.error('[Call] lead_activity save FAILED:', msg, res.body);
@@ -29531,7 +29551,7 @@ async function preloadActivity() {
         var dir=(row.direction||'').toLowerCase();
         var isInbound=dir==='inbound'||type==='sms_received'||type==='email_received';
         if(type==='call') label=isInbound?'📞 Inbound Call':'📞 Outbound Call';
-        return {sender_tag:(type==='sms_sent')?'Human':'', via:(row.metadata&&(row.metadata.from_number||row.metadata.line))||'', is_ai:!!(row.metadata&&(row.metadata.handler==='ai'||row.metadata.ai===true)), voicemail:(function(){ var o=(row.metadata&&row.metadata.outcome_override)||''; if(o==='voicemail') return true; if(o==='answered'||o==='missed') return false; if(row.metadata&&row.metadata.voicemail===true) return true; return /voicemail/i.test(row.description||''); })(), transcript:(row.metadata&&row.metadata.transcript)||'', type:type,label:label,time:row.created_at,body:body,rec:!!row.recording_url,recording_url:row.recording_url||null,dur:durStr,duration_seconds:durSec,call_sid:row.call_sid||null,direction:dir,callType:isInbound?'inbound':'outbound',isInbound:isInbound,summary:row.ai_summary||row.summary||null,id:row.id,call_note:row.call_note||null,email_subject:emailSubj,email_body:emailBody,email_id:(row.metadata&&row.metadata.email_id)?String(row.metadata.email_id):'',email_from:(row.metadata&&row.metadata.from)?String(row.metadata.from):''};
+        return {by:row.actor_name||((row.metadata&&(row.metadata.handler==='ai'||row.metadata.ai===true))?'AI':''), sender_tag:(type==='sms_sent')?'Human':'', via:(row.metadata&&(row.metadata.from_number||row.metadata.line))||'', is_ai:!!(row.metadata&&(row.metadata.handler==='ai'||row.metadata.ai===true)), voicemail:(function(){ var o=(row.metadata&&row.metadata.outcome_override)||''; if(o==='voicemail') return true; if(o==='answered'||o==='missed') return false; if(row.metadata&&row.metadata.voicemail===true) return true; return /voicemail/i.test(row.description||''); })(), transcript:(row.metadata&&row.metadata.transcript)||'', type:type,label:label,time:row.created_at,body:body,rec:!!row.recording_url,recording_url:row.recording_url||null,dur:durStr,duration_seconds:durSec,call_sid:row.call_sid||null,direction:dir,callType:isInbound?'inbound':'outbound',isInbound:isInbound,summary:row.ai_summary||row.summary||null,id:row.id,call_note:row.call_note||null,email_subject:emailSubj,email_body:emailBody,email_id:(row.metadata&&row.metadata.email_id)?String(row.metadata.email_id):'',email_from:(row.metadata&&row.metadata.from)?String(row.metadata.from):''};
       });
       // outcome-1: drop the flagless shell row of an AI call (see lead-screen loader).
       norm1 = norm1.filter(function(a){
