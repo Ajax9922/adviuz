@@ -275,6 +275,8 @@ body.call-mini-open .topbar{padding-top:calc(env(safe-area-inset-top,0px) + 68px
 .sl .sl-fld-empty{color:var(--muted);font-weight:400}
 .sl .sl-last{margin:11px 15px 0;padding:8px 11px;background:var(--bg);border-radius:8px;font-size:11.5px;color:var(--sub);line-height:1.4;position:relative;z-index:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sl .sl-last b{color:var(--text);font-weight:500}
+.sl .sl-last.sl-last2{white-space:normal}
+.sl .sl-last2 .sl-cl{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .sl .sl-act-t{color:var(--muted);font-weight:400}
 .sl .sl-actions{display:flex;gap:6px;margin:12px 15px 0;padding-top:12px;border-top:1px solid var(--border);position:relative;z-index:1}
 .sl .sl-act{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px 8px;border-radius:10px;font-family:var(--f);font-size:12px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:var(--white);color:var(--text);transition:transform .08s,background .12s}
@@ -5075,7 +5077,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-15 import-10zz8';
+var APP_VERSION = 'v2026-10-15 import-10zz9';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -9349,7 +9351,7 @@ function fmtNum(n) {
 // Natural, clean activity label (no verbose subjects/from-lines)
 function cleanActLabel(a){
   var t=(a.type||'').toLowerCase(), lbl=(a.label||'');
-  if(t==='ai_analysis') return '\uD83E\uDD16 AI notes';
+  if(t==='ai_analysis') return 'AI call';
   if(t==='email_received') return 'Email received';
   if(t==='email_opened') return 'Email opened';
   if(t==='sms_received') return 'SMS received';
@@ -9362,6 +9364,13 @@ function cleanActLabel(a){
   return lbl||'Activity';
 }
 
+// import-10zz9: one-line gist of an AI call note ("What happened" first point) for lead cards
+function _aiGist(body){
+  var b=String(body||''); if(!b.trim()) return '';
+  var m=b.match(/What happened:\s*\n?\s*[\u2022\-*]?\s*([^\n]+)/i);
+  var g=m?m[1]:b.split('\n').filter(function(x){ return x.trim() && !/^(What|Temperature|Stage)\b/i.test(x.trim()); })[0]||'';
+  return g.replace(/^[\u2022\-*\s]+/,'').trim();
+}
 // Outcome + duration suffix for a CALL activity (answered + time, or missed).
 function callMetaHTML(a){
   if(!a || (a.type||'').toLowerCase()!=='call') return '';
@@ -9549,17 +9558,19 @@ function lRow(l,anySel,forceDetailed,slim){
     // Detailed view → show the 3 most recent events
     lastHTML='<div class="sl-recent">'+actsArr.slice(0,3).map(function(a){
       var lbl=cleanActLabel(a);
-      var bd=(a.body && String(a.body).trim()) ? ' — '+esc(String(a.body).trim()) : '';
+      var _ai=(String(a.type||'').toLowerCase()==='ai_analysis'), _g=_ai?_aiGist(a.body):'';
+      var bd=_ai ? (_g?' — '+esc(_g):'') : ((a.body && String(a.body).trim()) ? ' — '+esc(String(a.body).trim()) : '');
       var t=a.time?'<span class="sl-act-t"> · '+esc(a.time)+'</span>':'';
-      return '<div class="sl-last"><b>'+esc(lbl)+'</b>'+t+callMetaHTML(a)+bd+'</div>';
+      return '<div class="sl-last'+(_ai?' sl-last2':'')+'"><span class="sl-cl"><b>'+esc(lbl)+'</b>'+t+callMetaHTML(a)+bd+'</span></div>';
     }).join('')+'</div>';
   } else {
     var last=actsArr[0];
     if(last){
       var lbl=cleanActLabel(last);
-      var body=(lbl==='Note' && last.body && String(last.body).trim()) ? ' — '+esc(String(last.body).trim()) : '';
+      var _ai1=(String(last.type||'').toLowerCase()==='ai_analysis'), _g1=_ai1?_aiGist(last.body):'';
+      var body=_ai1 ? (_g1?' — '+esc(_g1):'') : ((lbl==='Note' && last.body && String(last.body).trim()) ? ' — '+esc(String(last.body).trim()) : '');
       var t=last.time?'<span class="sl-act-t"> · '+esc(last.time)+'</span>':'';
-      lastHTML='<div class="sl-last"><b>'+esc(lbl)+'</b>'+t+callMetaHTML(last)+body+'</div>';
+      lastHTML='<div class="sl-last'+(_ai1?' sl-last2':'')+'"><span class="sl-cl"><b>'+esc(lbl)+'</b>'+t+callMetaHTML(last)+body+'</span></div>';
     } else if(l.note){
       lastHTML='<div class="sl-last"><b>Note</b> — '+esc(l.note)+'</div>';
     }
