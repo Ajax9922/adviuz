@@ -1790,6 +1790,10 @@ textarea.ao-inp{resize:vertical;min-height:72px}
 .ao-tl-txt{font-size:13.5px;line-height:1.5;color:var(--text);margin-top:6px;white-space:pre-wrap;word-wrap:break-word}
 .ao-tl-txt.clamp{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}
 .ao-crow{display:flex;align-items:center;gap:12px;padding:13px 14px;border-bottom:1px solid var(--border);cursor:pointer}
+/* import-10zt: "Who are you calling?" cards */
+.ao-audc{display:flex;align-items:center;gap:12px;width:100%;padding:14px;margin-top:10px;border:1px solid var(--border);border-radius:14px;background:var(--surface,var(--bg));font-family:var(--f);color:var(--text);cursor:pointer;text-align:left}
+.ao-audc:active{transform:scale(.99)}
+.ao-audi{font-size:22px;width:30px;text-align:center;flex:none}
 .ao-crow:last-child{border-bottom:none}.ao-crow.on{background:#faf7ff}
 .ao-cc{background:var(--white);border:1.5px solid var(--border);border-radius:14px;padding:16px;margin-bottom:10px;cursor:pointer}
 .ao-cc.sel{border-color:var(--green)}
@@ -5000,7 +5004,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-14 import-10zs';
+var APP_VERSION = 'v2026-10-14 import-10zt';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -27673,16 +27677,16 @@ function aoNew(){
   if(!_ao.camps.length){ showToast('No campaign with leads on this screen'); return; }
   _ao.view='wiz';
   _ao.w={ step:1, campaign_id:(_ao.camps.length===1?String(_ao.camps[0].id):''), pv:null, loading:false, temps:['warm'], stages:[], services:[], locations:[], srcs:[], picked:{}, showProt:false, moreF:false,
-    purpose:'book', note:'', product:null, voicemail:'message', start:'15:00', end:'19:30', days:[1,2,3,4,5,6], skip:14, gap:4, cap:40, d2:false, name:'', testNo:'', tested:false, busy:false };
+    purpose:'book', note:'', product:null, voicemail:'message', start:'15:00', end:'19:30', days:[1,2,3,4,5,6], skip:14, gap:4, cap:40, d2:false, name:'', testNo:'', tested:false, busy:false, aud:'' };
   _ao.openFu=null;
-  if(_ao.w.campaign_id) aoLoadPreview(); else aoWiz();
+  aoWiz(); // import-10zt: "Who are you calling?" comes first, then the preview loads
 }
 async function aoLoadPreview(){
   var w=_ao.w; w.loading=true; w.pv=null; aoWiz();
   var camp=_ao.camps.find(function(c){ return String(c.id)===w.campaign_id; })||{};
   var d;
-  if(_ao.pvP && _ao.pvP.cid===w.campaign_id && w.skip===14){ d=await _ao.pvP.p; _ao.pvP=null; }
-  else d=await _aoPost('preview',{campaign_id:w.campaign_id, client_id:camp.client_id||undefined, cooldown_days:w.skip});
+  if(_ao.pvP && _ao.pvP.cid===w.campaign_id && w.skip===14 && w.aud==='leads'){ d=await _ao.pvP.p; _ao.pvP=null; }
+  else d=await _aoPost('preview',{campaign_id:w.campaign_id, client_id:camp.client_id||undefined, cooldown_days:w.skip, audience:w.aud||'leads'});
   w.loading=false;
   if(d.needs_agreement){ try{ localStorage.removeItem('ao_signed_'+String(window._clientId||'')); }catch(_e){} bkcClose(); bcaGate(); return; }
   if(d.error){ showToast(d.error); w.pv={leads:[],temp_counts:{},services:{},locations:{},error:d.error}; aoWiz(); return; }
@@ -27742,13 +27746,21 @@ function aoWiz(){
       b.innerHTML=h; _aoCampList(); return;
     }
     h+='<div class="ao-lbl">Campaign</div><div class="ao-pick" style="cursor:default"><span>'+_aoE(camp?camp.name:'')+(camp?' <span class="ao-s">('+camp.n+' leads)</span>':'')+'</span><button class="ao-link" onclick="_ao.w.pickCamp=true;aoWiz()">Change</button></div>';
+    if(!w.aud){
+      h+='<div class="ao-lbl" style="margin-top:14px">Who are you calling?</div>'
+        +'<button class="ao-audc" onclick="aoAud(\'leads\')"><span class="ao-audi">🆕</span><span style="flex:1;min-width:0;text-align:left"><span class="ao-nm" style="display:block">Leads</span><span class="ao-t" style="display:block;line-height:1.45">People who inquired but haven’t bought yet. The AI reminds them they inquired a while back.</span></span><span class="ao-chev">&#x203A;</span></button>'
+        +'<button class="ao-audc" onclick="aoAud(\'customers\')"><span class="ao-audi">⭐</span><span style="flex:1;min-width:0;text-align:left"><span class="ao-nm" style="display:block">Existing customers</span><span class="ao-t" style="display:block;line-height:1.45">People who already bought (Deal Closed). The AI calls to check in — never “you inquired”. Up to 18 months after their purchase.</span></span><span class="ao-chev">&#x203A;</span></button>';
+      b.innerHTML=h; return;
+    }
+    h+='<div class="ao-lbl" style="margin-top:10px">Calling</div><div class="ao-pick" style="cursor:default"><span>'+(w.aud==='customers'?'⭐ Existing customers':'🆕 Leads')+'</span><button class="ao-link" onclick="aoAud(\'\')">Change</button></div>';
     if(w.loading||!w.pv){ b.innerHTML=h+'<div style="text-align:center;padding:30px 0"><div class="ai-spin"></div><div class="ao-s" style="margin-top:8px">Checking every lead against the safety rules…</div></div>'; return; }
     if(w.pv.has_number===false) h+='<div class="ao-note ao-note-red">This campaign has no calling number and AI agent yet. Contact Adviuz to set one up.</div>';
     var tc=w.pv.temp_counts||{};
     var nf=w.stages.length+w.services.length+w.locations.length;
-    h+='<div class="ao-lbl" style="margin-top:12px">Temperature</div><div class="ao-chips">'+['hot','warm','cold'].map(function(t){ return '<button class="bkc-chip'+(w.temps.indexOf(t)>=0?' on':'')+'" onclick="aoTog(\'temps\',\''+t+'\')">'+AO_TEMP[t]+' <span class="ao-ct">'+(tc[t]||0)+'</span></button>'; }).join('')
+    if(w.aud==='customers') h+='<div class="ao-note ao-note-blue" style="margin-top:12px;line-height:1.55">Only <b>Deal Closed</b> customers are listed'+(w.pv.customers?'':' — this campaign has none yet. Mark leads as Deal Closed, or upload your customer list and choose “Existing customers”')+'. Customers whose purchase was over 18 months ago are protected.</div>';
+    else h+='<div class="ao-lbl" style="margin-top:12px">Temperature</div><div class="ao-chips">'+['hot','warm','cold'].map(function(t){ return '<button class="bkc-chip'+(w.temps.indexOf(t)>=0?' on':'')+'" onclick="aoTog(\'temps\',\''+t+'\')">'+AO_TEMP[t]+' <span class="ao-ct">'+(tc[t]||0)+'</span></button>'; }).join('')
       +'<button class="bkc-chip ao-mf'+(w.moreF||nf?' on':'')+'" onclick="_ao.w.moreF=!_ao.w.moreF;aoWiz()">More filters'+(nf?' · '+nf:'')+' '+(w.moreF?'&#x25B4;':'&#x25BE;')+'</button></div>';
-    h+='<div class="ao-t" style="margin-top:6px;line-height:1.5">Cold = fresh, not connected or future prospect · Warm = call connected or follow-up scheduled · Hot = meeting done until closing</div>';
+    if(w.aud!=='customers') h+='<div class="ao-t" style="margin-top:6px;line-height:1.5">Cold = fresh, not connected or future prospect · Warm = call connected or follow-up scheduled · Hot = meeting done until closing</div>';
     var sc={}; (w.pv.leads||[]).forEach(function(l){ var k=_aoSrc(l.source); sc[k]=(sc[k]||0)+1; });
     var sk=Object.keys(sc).sort(function(a,b){ return sc[b]-sc[a]; });
     if(sk.length>1||w.srcs.length) h+='<div class="ao-lbl" style="margin-top:12px">Source</div><div class="ao-chips"><button class="bkc-chip'+(w.srcs.length?'':' on')+'" onclick="_ao.w.srcs=[];aoWiz()">All</button>'
@@ -27777,15 +27789,20 @@ function aoWiz(){
     h+=_aoHead('Goal');
     var req=w.purpose==='offer';
     if(w.product==null) w.product=String((w.pv&&w.pv.product)||'');
-    h+='<div class="ao-lbl">What is this calling round for?</div><div class="ao-chips">'+['book','offer'].map(function(g){ return '<button class="bkc-chip ao-icchip'+(w.purpose===g?' on':'')+'" onclick="_ao.w.purpose=\''+g+'\';aoWiz()">'+_aoI(g==='book'?'cal':'gift',16)+AO_GOAL[g]+'</button>'; }).join('')+'</div>';
+    h+='<div class="ao-lbl">What is this calling round for?</div><div class="ao-chips">'+['book','offer'].map(function(g){ return '<button class="bkc-chip ao-icchip'+(w.purpose===g?' on':'')+'" onclick="_ao.w.purpose=\''+g+'\';aoWiz()">'+_aoI(g==='book'?'cal':'gift',16)+_aoGoalLbl(g)+'</button>'; }).join('')+'</div>';
     if(req){
       h+='<div class="ao-lbl" style="margin-top:14px">Your offer</div>'
         +'<textarea id="aoNote" class="ao-inp" rows="3" oninput="aoNoteIn(this.value)" placeholder="e.g. $400 off the full package if you book before October 31">'+_aoE(w.note)+'</textarea>'
         +'<div class="ao-row" style="gap:8px;margin-top:8px;flex-wrap:wrap"><button class="ao-sm ao-icbtn" style="gap:6px" onclick="aoAiOffer()">'+_aoI('spark',15)+'Write it with AI</button><span class="ao-t">Chat with AI: type it roughly, see exactly how your AI caller will say it, then approve.</span></div>'
         +'<div id="aoNoteErr" class="ao-err"'+(w.note.trim()?' hidden':'')+'>Write your offer so the AI knows what to say.</div>';
     }
+    if(w.aud==='customers'){
+      h+='<div class="ao-note ao-note-blue" style="margin-top:16px;line-height:1.55">The AI calls as your clinic checking in: “it’s been a little while since your last visit — how has everything been going?” It never says they inquired and never offers a free consultation like to a new lead. If they want to come back in, it books them.'+(w.purpose==='offer'?' It mentions your offer when it fits.':'')+'</div>';
+      h+='<div class="ao-note ao-note-blue" style="margin-top:8px">If voicemail picks up, the AI hangs up (1 minute). No follow-up texts or emails are sent to customers. Calls nobody answers are never charged.</div>';
+    } else {
     h+='<div class="ao-note ao-note-blue" style="margin-top:16px;line-height:1.55">Your AI keeps its normal call. Leads who already met you (meeting done, proposal sent, negotiating) get a follow-up call about their decision instead of “you inquired”. Want to hear it? Use <b>Call me now</b> on the last step.</div>';
     h+='<div class="ao-note ao-note-blue" style="margin-top:8px">If voicemail picks up, the AI leaves a short message. It counts as 1 minute. Calls nobody answers are never charged.</div>';
+    }
     h+='<button class="ao-btn ao-prim" id="aoN2" '+(req&&!w.note.trim()?'disabled ':'')+'onclick="aoNext()">Next — When &amp; limits</button>';
   }
   if(w.step===3){
@@ -27806,7 +27823,9 @@ function aoWiz(){
       +'<div class="ao-prow"><span>Gap between calls</span>'+_aoStepper('gap',w.gap+' min',w.gap<=3,w.gap>=10)+'</div>'
       +'<div class="ao-prow" style="border-bottom:0"><span>Calls per day '+_aoInfoBtn('aoCapInfo()')+'</span><span class="ao-capv">'+w.cap+' <i>Auto</i></span></div></div>';
     // Follow-up
-    var fs=_aoFuSteps(), ic={t1:'chat',t2:'chat',e3:'mail'};
+    var fs=w.aud==='customers'?[]:_aoFuSteps(), ic={t1:'chat',t2:'chat',e3:'mail'};
+    if(w.aud==='customers') h+='<div class="ao-sec"><div class="ao-sech">'+_aoI('send')+'<span>If they don’t answer</span></div><div class="ao-s" style="line-height:1.5">Nothing else is sent — customers get no follow-up texts or emails from this round.</div></div>';
+    else {
     h+='<div class="ao-sec"><div class="ao-sech">'+_aoI('send')+'<span>If they don’t answer</span>'+_aoInfoBtn('aoFuHowInfo()')+'</div>';
     fs.forEach(function(f,i){
       var fn=f.key?'aoFuEdit(\''+f.key+'\')':(f.day==='Day 7'?'aoFinalInfo()':'');
@@ -27814,6 +27833,7 @@ function aoWiz(){
       h+='<button class="ao-furow" '+(fn?'onclick="'+fn+'"':'disabled')+'><span class="ao-fuic">'+_aoI(f.key?ic[f.key]:'phone',17)+'</span><span style="flex:1;min-width:0;text-align:left"><span class="ao-nm" style="display:block">'+f.day+' · '+(f.key==='e3'?'Email':(f.key?'Text':'Final call'))+'</span><span class="ao-t" style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(f.key?_aoE(String((w.fu||{})[f.key]||'').replace(/\{name\}/g,'Alex').replace(/\{business\}/g,_aoBrand()).replace(/\{book_link\}/g,'link').replace(/\s+/g,' ')):'Last try, then the plan ends')+'</span></span><span class="ao-t">'+(f.key?'Edit':'View')+'</span>'+_aoI('chev',16)+'</button>';
     });
     h+='<div class="ao-prow" style="border-bottom:0;padding-top:12px"><span>Second text on day 2 '+_aoInfoBtn('aoD2Info()')+'</span><button class="ao-switch'+(w.d2?' on':'')+'" onclick="_ao.w.d2=!_ao.w.d2;aoWiz()" aria-label="Second text on day 2"></button></div></div>';
+    }
     // Estimate
     h+='<div class="ao-estbar"><div><b>'+(n<=perDay?'1 day':'~'+days+' days')+'</b><span>to call '+n+' lead'+(n===1?'':'s')+'</span></div><div><b>~'+est+' min</b><span>of '+left+' min left</span></div></div>'
       +(est>left?'<div class="ao-note ao-note-red" style="margin-top:8px">Not enough AI minutes for this round — top up first.</div>':'');
@@ -27826,15 +27846,15 @@ function aoWiz(){
     var R=function(ic,k,v,fn){ return '<div class="ao-rrow"'+(fn?' onclick="'+fn+'" style="cursor:pointer"':'')+'><span class="ao-fuic">'+_aoI(ic,17)+'</span><span class="ao-rk">'+k+'</span><span class="ao-rv">'+v+'</span>'+(fn?_aoI('chev',15):'')+'</div>'; };
     h+='<div class="ao-lbl">Name this call round</div><input class="ao-inp" value="'+_aoE(w.name)+'" oninput="_ao.w.name=this.value" maxlength="80">';
     h+='<div class="ao-sec" style="margin-top:12px;padding:4px 14px">'
-      +R('users','Leads',_aoPickedIds().length+' selected')
-      +R(w.purpose==='offer'?'gift':'cal','Goal',AO_GOAL[w.purpose]+(w.purpose==='offer'&&w.note?' · <span class="ao-link" style="font-weight:500">View</span>':''), w.purpose==='offer'&&w.note?'aoOfferInfo()':'')
+      +R('users',w.aud==='customers'?'Customers':'Leads',_aoPickedIds().length+' selected')
+      +R(w.purpose==='offer'?'gift':'cal','Goal',_aoGoalLbl(w.purpose)+(w.purpose==='offer'&&w.note?' · <span class="ao-link" style="font-weight:500">View</span>':''), w.purpose==='offer'&&w.note?'aoOfferInfo()':'')
       +R('clock','Hours',_aoFmtMin(_aoHM(w.start))+'–'+_aoFmtMin(_aoHM(w.end))+' · '+AO_DAYS.filter(function(d){ return w.days.indexOf(d[0])>=0; }).map(function(d){ return d[1].charAt(0); }).join(' '))
       +R('gauge','Pace','up to '+w.cap+'/day · '+w.gap+' min gap')
-      +R('send','If no answer','Text · Email · Final call')
+      +R('send','If no answer',w.aud==='customers'?'Nothing sent':'Text · Email · Final call')
       +R('phone','Calling from',_aoE(fp||camp4.name||''))
       +R('coin','AI minutes left',(Number((w.pv||{}).minutes_left)||0)+' min')+'</div>';
     h+='<div class="ao-sec"><div class="ao-sech">'+_aoI('phone')+'<span>Test call first</span>'+_aoInfoBtn('aoTestInfo()')+'</div>'
-      +'<div class="ao-seg">'+[['','New lead'],['6','After meeting'],['7','Proposal sent']].map(function(o){ return '<button class="'+((w.testStage||'')===o[0]?'on':'')+'" onclick="_ao.w.testStage=\''+o[0]+'\';aoWiz()">'+o[1]+'</button>'; }).join('')+'</div>'
+      +(w.aud==='customers'?'<div class="ao-s" style="margin-bottom:4px">You’ll hear the customer check-in call.</div>':'<div class="ao-seg">'+[['','New lead'],['6','After meeting'],['7','Proposal sent']].map(function(o){ return '<button class="'+((w.testStage||'')===o[0]?'on':'')+'" onclick="_ao.w.testStage=\''+o[0]+'\';aoWiz()">'+o[1]+'</button>'; }).join('')+'</div>')
       +'<div class="ao-row" style="gap:8px;margin-top:10px"><input id="aoTestNm" class="ao-inp" placeholder="Your first name" value="'+_aoE(w.testName||'')+'" oninput="_ao.w.testName=this.value" style="flex:1;min-width:0"><input id="aoTest" class="ao-inp" type="tel" placeholder="Your phone" value="'+_aoE(w.testNo)+'" oninput="_ao.w.testNo=this.value" style="flex:1.2;min-width:0"></div>'
       +'<button class="ao-btn ao-icbtn" onclick="aoTestCall(this)">'+_aoI('phone',17)+'Call me now</button>'
       +(w.tested?'<div class="ao-s" style="color:var(--green);margin-top:6px">✓ Test call placed to '+_aoE(w.testNo)+'</div>':'')+'</div>';
@@ -27886,7 +27906,11 @@ function _aoCampList(){
     :'<div class="ao-empty">No campaign matches.</div>';
   lEl.innerHTML+='<div class="ao-t" style="margin-top:8px">Only campaigns with leads are listed.</div>';
 }
-function aoCampChosen(id){ var w=_ao.w; w.pickCamp=false; if(id!==w.campaign_id){ w.campaign_id=id; w.name=''; aoLoadPreview(); } else aoWiz(); }
+function aoCampChosen(id){ var w=_ao.w; w.pickCamp=false; if(id!==w.campaign_id){ w.campaign_id=id; w.name=''; w.aud=''; w.pv=null; } aoWiz(); }
+// import-10zt (Ajax 2026-10-14): a round is either for leads (people who inquired) or for existing customers (Deal Closed).
+function aoAud(a){ var w=_ao.w; w.aud=a; w.pv=null; w.stages=[]; w.services=[]; w.locations=[]; w.srcs=[]; w.picked={}; w.purpose='book'; w.note=''; w.testStage='';
+  w.temps = a==='customers' ? [] : ['warm']; if(!a){ aoWiz(); return; } aoLoadPreview(); }
+function _aoGoalLbl(g){ return (_ao.w&&_ao.w.aud==='customers'&&g==='book') ? 'Check in' : AO_GOAL[g]; }
 function aoPickCamp(){
   var cur=_ao.w.campaign_id, pick=cur;
   var ov=document.createElement('div'); ov.className='sheet-ov open'; ov.style.zIndex='9990';
@@ -28173,14 +28197,14 @@ function aoFuReset(k){ var d=_aoFuInit(null), w=_ao.w; w.fu[k]=d[k]; if(k==='e3'
 function _aoStartPayload(){
   var w=_ao.w, camp=_ao.camps.find(function(c){ return String(c.id)===w.campaign_id; })||{};
   return { campaign_id:w.campaign_id, client_id:camp.client_id||undefined, name:String(w.name||'').trim(), lead_ids:_aoPickedIds(), purpose:w.purpose, goal_note:String(w.note||'').trim(),
-    voicemail:'message', product_line:String(w.product||'').trim(), start_min:_aoHM(w.start), end_min:_aoHM(w.end), days:w.days.slice(), cooldown_days:w.skip, gap_min:w.gap, d2_text:!!w.d2, fu:(w.fuDirty?w.fu:undefined) };
+    voicemail:'message', product_line:String(w.product||'').trim(), start_min:_aoHM(w.start), end_min:_aoHM(w.end), days:w.days.slice(), cooldown_days:w.skip, gap_min:w.gap, d2_text:w.aud==='customers'?false:!!w.d2, fu:(w.fuDirty&&w.aud!=='customers'?w.fu:undefined), audience:w.aud||'leads' };
 }
 async function aoTestCall(btn){
   var w=_ao.w, num=String(w.testNo||'').replace(/\D/g,'');
   if(!(num.length===10||(num.length===11&&num[0]==='1'))){ showToast('Enter a 10-digit phone number'); return; }
   if(btn){ btn.disabled=true; btn.textContent='Calling…'; }
   var camp=_ao.camps.find(function(c){ return String(c.id)===w.campaign_id; })||{};
-  var d=await _aoPost('test-call',{campaign_id:w.campaign_id, client_id:camp.client_id||undefined, to:num, name:String(w.testName||'').trim(), purpose:w.purpose, goal_note:w.note, product_line:String(w.product||'').trim(), voicemail:'message', test_stage:w.testStage||''});
+  var d=await _aoPost('test-call',{campaign_id:w.campaign_id, client_id:camp.client_id||undefined, to:num, name:String(w.testName||'').trim(), purpose:w.purpose, goal_note:w.note, product_line:String(w.product||'').trim(), voicemail:'message', test_stage:w.aud==='customers'?'':(w.testStage||''), audience:w.aud||'leads'});
   if(btn){ btn.disabled=false; btn.innerHTML=_aoI('phone',17)+'Call me now'; }
   if(d.error){ showToast(d.error); return; }
   w.tested=true; showToast('📞 Calling '+w.testNo+' now'); aoWiz();
