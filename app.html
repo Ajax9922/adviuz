@@ -1775,7 +1775,8 @@ textarea.ao-inp{resize:vertical;min-height:72px}
 .ao-cchev{flex:none;color:var(--muted);display:flex;transition:transform .2s}.ao-call.open .ao-cchev{transform:rotate(90deg)}
 .ao-cdet{background:var(--bg);border-radius:12px;padding:12px;margin:0 0 12px}
 .ao-cdet-k{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);margin-bottom:4px}
-.ao-cdet-t{font-size:13.5px;line-height:1.55;color:var(--text)}
+.ao-cdet-t{font-size:13.5px;line-height:1.55;color:var(--text);white-space:pre-line}
+.ao-cdet-audio{display:block;width:100%;height:40px;margin-top:12px}
 .ao-cdet-act{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
 .ao-cdet-act .ao-sm{gap:6px}
 .ao-sm-pri{background:linear-gradient(118deg,#4000f3,#8b2bf7);border-color:transparent;color:#fff}
@@ -5088,7 +5089,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-15 import-10zzc';
+var APP_VERSION = 'v2026-10-19 import-10zzd';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -27786,7 +27787,9 @@ function _aoPoll(){
   _ao.poll=setInterval(function(){
     var sh=document.getElementById('bkcSh'); if(!sh||!sh.classList.contains('open')){ clearInterval(_ao.poll); _ao.poll=null; return; }
     if(_ao.view==='home'){ aoLoadList().then(function(){ if(_ao.view==='home') aoRender(); }); }
-    else if(_ao.view==='report' && _ao.rep && _ao.rep.run){ aoLoadReport(_ao.rep.run.id, true); }
+    else if(_ao.view==='report' && _ao.rep && _ao.rep.run){
+      var _au=sh.querySelector('audio.ao-cdet-audio'); if(_au && !_au.paused && !_au.ended) return; // import-10zzd: don't interrupt a recording
+      aoLoadReport(_ao.rep.run.id, true); }
   }, 20000);
 }
 
@@ -28792,8 +28795,19 @@ function _aoCallsDraw(){
     var id=c.lead_id+'|'+c.at, o=_ao.openCall===id, none={no_answer:'Nobody picked up — nothing was charged.',bad_number:'This number doesn’t work.',voicemail:'The AI left a voicemail.',short:'They picked up and hung up within 30 seconds.'}[c.result];
     return '<div class="ao-call'+(o?' open':'')+'"><button class="ao-fuhead" onclick="aoCallTap('+i+')"><span style="flex:1;min-width:0;text-align:left"><span class="ao-nm" style="display:block">'+_aoE(c.name)+(c.phase==='final'?' <span class="ao-t">· day-7 call</span>':'')+'</span><span class="ao-t">'+_aoDT(c.at)+(c.duration_sec?' · '+Math.floor(c.duration_sec/60)+':'+String(c.duration_sec%60).padStart(2,'0'):'')+' · '+c.minutes+' min charged</span></span><span class="ao-pill '+(cls[c.result]||'ao-p-grey')+'">'+_aoE(c.label)+'</span><span class="ao-cchev">'+_aoI('chev',16)+'</span></button>'
       +(o?'<div class="ao-cdet"><div class="ao-cdet-k">Call summary</div><div class="ao-cdet-t">'+(_aoE(c.summary)||(none||'No summary for this call.'))+'</div>'
-        +'<div class="ao-cdet-act">'+(c.recording?'<a class="ao-sm" href="'+_aoE(c.recording)+'" target="_blank" rel="noopener">'+_aoI('play',15)+'Listen</a>':'')+'<button class="ao-sm ao-sm-pri" onclick="aoCallLead('+i+')">'+_aoI('user',15)+'View lead</button></div></div>':'')+'</div>';
+        +'<div class="ao-cdet-act">'+(c.recording?'<button class="ao-sm" onclick="aoPlayRec(this,'+i+')">'+_aoI('play',15)+'Listen</button>':'')+'<button class="ao-sm ao-sm-pri" onclick="aoCallLead('+i+')">'+_aoI('user',15)+'View lead</button></div></div>':'')+'</div>';
   }).join('');
+}
+// import-10zzd: play the recording right here (no new tab)
+function aoPlayRec(btn,i){
+  var c=(_ao.repList||[])[i]; if(!c||!c.recording) return;
+  var box=btn.closest('.ao-cdet'); if(!box) return;
+  var old=box.querySelector('audio'); if(old){ try{ old.play(); }catch(_e){} return; }
+  var a=document.createElement('audio'); a.controls=true; a.preload='auto'; a.src=c.recording; a.className='ao-cdet-audio';
+  box.insertBefore(a, box.querySelector('.ao-cdet-act'));
+  btn.style.display='none';
+  var p=a.play(); if(p&&p.catch) p.catch(function(){});
+  a.addEventListener('error',function(){ if(typeof showToast==='function') showToast('Recording isn\u2019t ready yet \u2014 try again in a minute'); });
 }
 // Tap a number anywhere in the report → jump to the calls list with that filter on.
 function aoCallsShow(k, allTime, stay){
