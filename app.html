@@ -5090,7 +5090,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-19 import-10zze';
+var APP_VERSION = 'v2026-10-20 import-10zzf';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6680,6 +6680,9 @@ async function loadLeadsFromDB() {
 
 // calendar-1: blocked-time placeholders are calendar entries, not leads — never list them.
 function _notBlockRow(r){ return String((r&&r.source)||'')!=='block'; }
+// import-10zzf: names that came through as "????" (non-English letters lost when the sheet was saved)
+function _nmBad(n){ return /\?{2,}/.test(String(n||'')); }
+function _nmShow(n,fb){ var t=String(n||'').trim(); if(!t) return fb||''; if(_nmBad(t)){ var k=t.replace(/[?\-]+/g,' ').replace(/\s+/g,' ').trim(); return k?k+' (name unreadable)':'Name unreadable'; } return t; }
 function mapLead(l, i) {
   // Resolve stage display name: DB may store stage_code (e.g. 'fresh_lead') instead of stage name
   var stageName = l.stage || partnerStageLabel(l.stage_code || 'fresh_lead');
@@ -9508,7 +9511,7 @@ function lRow(l,anySel,forceDetailed,slim){
   var isSel=selIds.has(l.id);
   var rail=stgColor(l.stage);
   var company=(l.company||'').trim();
-  var person =(l.name||'').trim();
+  var person =_nmShow(l.name,'');
   var title, sub;
   if(company && person && company.toLowerCase()!==person.toLowerCase()){ title=company; sub=person; }
   else { title = company || person || 'Unnamed'; sub=''; }
@@ -27040,6 +27043,9 @@ function _impRevRender(){
   }).join('');
   if(!rows.length) h='<div style="text-align:center;color:var(--sub);font-size:13px;padding:30px 0">No leads match</div>';
   if(rows.length>R.lim) h+='<button type="button" class="btn btn-ghost" style="width:100%;justify-content:center;margin:12px 0" onclick="impRevMore()">Show more ('+(rows.length-R.lim).toLocaleString()+' left)</button>';
+  // import-10zzf: names whose letters were lost when the sheet was saved
+  var _bad=(I.ready||[]).filter(function(l){ return _nmBad(l.name); }).length;
+  if(_bad) h='<div class="ao-note ao-note-amber" style="margin:8px 0;line-height:1.5"><b>'+_bad+' name'+(_bad===1?'':'s')+' came through as ????.</b> The letters weren\u2019t English and were lost when the sheet was saved. Save the sheet as <b>CSV UTF-8</b> and upload again, or fix these names after upload. Until then the AI won\u2019t say their name.</div>'+h;
   list.innerHTML=h;
 }
 function impRevRemove(enc){
@@ -27823,7 +27829,10 @@ async function aoLoadList(){
   _ao.lists=out;
 }
 // Back from a lead opened inside the wizard → reopen AI Calls where we left it.
-function aoResumeSheet(){ if(!_ao) return; openSheet('bkcSh'); aoRender(); _aoPoll(); }
+function aoResumeSheet(){ if(!_ao) return;
+  try{ var pv=_ao.w&&_ao.w.pv; if(pv&&pv.leads){ var m={}; (leads||[]).forEach(function(x){ if(x&&x.dbId) m[String(x.dbId)]=x; });
+    pv.leads.forEach(function(r){ var x=m[String(r.lead_id)]; if(x&&x.name) r.name=x.name; }); } }catch(_e){} // import-10zzf
+  openSheet('bkcSh'); aoRender(); _aoPoll(); }
 function _aoRuns(){ var a=[]; Object.keys(_ao.lists).forEach(function(k){ (_ao.lists[k].runs||[]).forEach(function(r){ a.push(r); }); }); return a.sort(function(x,y){ return String(y.created_at).localeCompare(String(x.created_at)); }); }
 function _aoLive(){ var k=Object.keys(_ao.lists); for(var i=0;i<k.length;i++){ if(_ao.lists[k[i]].live===true) return true; } return false; }
 function _aoStatus(r){
@@ -28187,10 +28196,10 @@ function aoWiz(){
     h+='<div class="ao-card" style="padding:6px 12px;margin-top:12px">';
     h+='<label class="ao-listhead"><input type="checkbox" class="ao-cb" onchange="aoPickAll(this.checked)"'+(selN&&selN===ok.length?' checked':'')+'><span style="flex:1"><b>'+selN+'</b> of '+ok.length+' selected</span><span class="ao-t">'+list.length+' match</span></label>';
     if(!ok.length) h+='<div class="ao-s" style="padding:14px 2px">No callable leads match these filters.</div>';
-    ok.forEach(function(l){ h+='<div class="ao-lead"><label class="ao-cbw"><input type="checkbox" class="ao-cb" onchange="aoPick(\''+l.lead_id+'\',this.checked)"'+(w.picked[l.lead_id]!==false?' checked':'')+'></label><div class="ao-leadtap" onclick="aoLeadInfo(\''+l.lead_id+'\')"><div class="ao-nm">'+_aoE(l.name)+'</div><div class="ao-t">'+_aoE(l.stage||'—')+' · '+AO_TEMP[l.temp]+(l.location&&l.location!=='Not set'?' · '+_aoE(l.location):'')+'</div></div><span class="ao-chev" onclick="aoLeadInfo(\''+l.lead_id+'\')">&#x203A;</span></div>'; });
+    ok.forEach(function(l){ h+='<div class="ao-lead"><label class="ao-cbw"><input type="checkbox" class="ao-cb" onchange="aoPick(\''+l.lead_id+'\',this.checked)"'+(w.picked[l.lead_id]!==false?' checked':'')+'></label><div class="ao-leadtap" onclick="aoLeadInfo(\''+l.lead_id+'\')"><div class="ao-nm">'+_aoE(_nmShow(l.name,'Lead'))+'</div><div class="ao-t">'+_aoE(l.stage||'—')+' · '+AO_TEMP[l.temp]+(l.location&&l.location!=='Not set'?' · '+_aoE(l.location):'')+'</div></div><span class="ao-chev" onclick="aoLeadInfo(\''+l.lead_id+'\')">&#x203A;</span></div>'; });
     if(prot.length){
       h+='<button class="ao-collapse" onclick="_ao.w.showProt=!_ao.w.showProt;aoWiz()"><span style="display:inline-flex;align-items:center;gap:8px"><span style="color:var(--sub)">'+_bi(_BI.shield,16)+'</span>'+prot.length+' protected — won’t be called</span><span>'+(w.showProt?'&#x25B4;':'&#x25BE;')+'</span></button>';
-      if(w.showProt) prot.forEach(function(l){ h+='<div class="ao-lead" onclick="aoLeadInfo(\''+l.lead_id+'\')"><span style="width:26px;display:flex;justify-content:center;color:var(--sub)">'+_bi(_BI.shield,15)+'</span><div class="ao-leadtap" style="opacity:.7"><div class="ao-nm">'+_aoE(l.name)+'</div><div class="ao-t">'+_aoE(l.reason)+'</div></div><span class="ao-chev">&#x203A;</span></div>'; });
+      if(w.showProt) prot.forEach(function(l){ h+='<div class="ao-lead" onclick="aoLeadInfo(\''+l.lead_id+'\')"><span style="width:26px;display:flex;justify-content:center;color:var(--sub)">'+_bi(_BI.shield,15)+'</span><div class="ao-leadtap" style="opacity:.7"><div class="ao-nm">'+_aoE(_nmShow(l.name,'Lead'))+'</div><div class="ao-t">'+_aoE(l.reason)+'</div></div><span class="ao-chev">&#x203A;</span></div>'; });
     }
     h+='</div>';
     h+='<div class="ao-stick"><button class="ao-btn ao-prim" '+(selN&&w.pv.has_number!==false?'':'disabled ')+'onclick="aoNext()">Next — Goal ('+selN+')</button></div><div class="ao-stick-end"></div>';
