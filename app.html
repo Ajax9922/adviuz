@@ -5096,7 +5096,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-24 import-10zzg';
+var APP_VERSION = 'v2026-10-24 import-10zzh';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -7714,7 +7714,7 @@ var callLog=[];
 var leadAct={};
 var nxtId=leads.length+1, nxtTid=tasks.length+1;
 var leadView='detailed'; // 'compact' or 'detailed'
-window._leadSort = 'newest'; // 'newest' | 'oldest' | 'opened' | 'name'
+window._leadSort = 'recent'; // 'recent' | 'newest' | 'oldest' | 'opened' | 'name' | 'hot'
 window._advFilters = { stages:[], execs:[], locations:[], partners:[], sources:[], services:[], clients:[] };
 var curTab='leads', fuSeg='today', fuTypeFilter='', curLid=null, fuLid=null;
 var callIv=null, callSec=0, muted=false;
@@ -7964,11 +7964,12 @@ function renderCtrlBar(){
   var filterBtn='<button class="cb-btn'+(fOn?' on':'')+'" onclick="if(typeof openGlobalFilter===\'function\')openGlobalFilter()" title="Filter">'+fSvg+(fOn?'<span class="cb-dot"></span>':'')+'</button>';
   var actions='';
   if(curTab==='leads'){
-    if(!window._leadSort) window._leadSort='newest';
+    if(!window._leadSort) window._leadSort='recent';
     if(!window._leadView) window._leadView='compact';
     var sel=function(v){return window._leadSort===v?' selected':'';};
     var sortSel='<select class="cb-sort" onchange="window._leadSort=this.value;render()">'
-      +'<option value="newest"'+sel('newest')+'>Newest</option>'
+      +'<option value="recent"'+sel('recent')+'>Latest activity</option>'
+      +'<option value="newest"'+sel('newest')+'>Newest leads</option>'
       +'<option value="oldest"'+sel('oldest')+'>Oldest</option>'
       +'<option value="opened"'+sel('opened')+'>\uD83D\uDC41 Opened email</option>'
       +'<option value="hot"'+sel('hot')+'>\uD83D\uDD25 Hottest first</option>'
@@ -8860,6 +8861,7 @@ function leadsHTML(){
   var anySel=selIds.size>0;
 
   // ── Task 2: Sorting ──
+  if((window._leadSort||'recent')==='recent') vis.forEach(function(l){ l._tms=_touchMs(l); });
   vis = vis.slice().sort(function(a,b){
     if(window._leadSort==='hot'){
       var at=(LEAD_TEMP_UI[leadTemp(a.stage)]||{r:0}).r, bt=(LEAD_TEMP_UI[leadTemp(b.stage)]||{r:0}).r;
@@ -8870,6 +8872,12 @@ function leadsHTML(){
       return ah>bh?-1:(ah<bh?1:0);
     }
     if(window._leadSort==='name') return (a.company||a.name||'').toLowerCase().localeCompare((b.company||b.name||'').toLowerCase());
+    if((window._leadSort||'recent')==='recent'){
+      var ta=a._tms, tb=b._tms;
+      if(ta!==tb) return tb-ta; // last real contact first
+      var ac=a.created_at||a.rawDate||'', bc=b.created_at||b.rawDate||'';
+      return ac>bc?-1:(ac<bc?1:0);
+    }
     if(window._leadSort==='opened'){
       var om=window._openByDb||{};
       var ao=om[a.dbId]||'', bo=om[b.dbId]||'';
@@ -8886,6 +8894,13 @@ function leadsHTML(){
 
   // ── Task 2: Group rendered rows by date (skip grouping for Name sort) ──
   function leadDateLabel(l){
+    if((window._leadSort||'recent')==='recent'){
+      if(!l._tms) return 'No contact yet';
+      var dt=new Date(l._tms), td=new Date(); var k=function(x){ return x.getFullYear()+'-'+x.getMonth()+'-'+x.getDate(); };
+      if(k(dt)===k(td)) return 'Today';
+      var yd=new Date(td.getTime()-864e5); if(k(dt)===k(yd)) return 'Yesterday';
+      return dt.toLocaleDateString('en-CA',{month:'long',day:'numeric',year:'numeric'});
+    }
     if(l.rawDate){ var d=new Date(l.rawDate+'T12:00:00'); if(!isNaN(d)) return d.toLocaleDateString('en-CA',{month:'long',day:'numeric',year:'numeric'}); }
     return l.t||'Earlier';
   }
@@ -9082,13 +9097,13 @@ function lfReactSheet(){
     try{ (new Function(r[3]))(); }catch(_e){}
   });
 }
-var _LF_SORT=[['newest','Newest first'],['oldest','Oldest first'],['hot','Hottest first'],['opened','Opened an email'],['name','Name A–Z']];
+var _LF_SORT=[['recent','Latest activity'],['newest','Newest leads first'],['oldest','Oldest first'],['hot','Hottest first'],['opened','Opened an email'],['name','Name A–Z']];
 function lfSortSheet(){
   var ov=document.createElement('div'); ov.className='sheet-ov open'; ov.style.zIndex='880';
   ov.innerHTML='<div class="sheet" style="max-height:70vh;display:flex;flex-direction:column"><div class="sheet-handle"></div>'
     +'<div class="sheet-head"><div class="sheet-title">Sort leads</div><button class="sheet-x" data-x aria-label="Close">&#x2715;</button></div>'
     +'<div class="sh-body" style="padding:4px 16px calc(28px + env(safe-area-inset-bottom,0px));overflow-y:auto">'
-    +_LF_SORT.map(function(o){ var on=(window._leadSort||'newest')===o[0]; return '<button class="lf-opt'+(on?' on':'')+'" data-v="'+o[0]+'"><span class="lf-ck r"></span><span style="flex:1">'+o[1]+'</span></button>'; }).join('')
+    +_LF_SORT.map(function(o){ var on=(window._leadSort||'recent')===o[0]; return '<button class="lf-opt'+(on?' on':'')+'" data-v="'+o[0]+'"><span class="lf-ck r"></span><span style="flex:1">'+o[1]+'</span></button>'; }).join('')
     +'</div></div>';
   document.body.appendChild(ov);
   ov.addEventListener('click',function(e){
@@ -9542,9 +9557,10 @@ function lRow(l,anySel,forceDetailed,slim){
   var _createdD = l.created_at ? new Date(l.created_at) : null;
   var _isReturning = _firstD && _createdD && !isNaN(_firstD) && !isNaN(_createdD) && (_createdD - _firstD > 36*3600*1000);
   var _origLbl = (_firstD && !isNaN(_firstD)) ? _firstD.toLocaleDateString('en-CA',{month:'short',day:'numeric'}) : '';
+  var _tAt=(window._touchAt||{})[String(l.dbId||'')]; var _tLbl=_tAt?timeAgo(new Date(_tAt).toISOString()):(l.t||''); // import-10zzh: last real contact
   var timeHTML = _isReturning
-    ? '<span class="sl-back" title="Returning lead">\u21A9 '+esc(l.t||'')+'</span>'
-    : '<span>'+esc(l.t||'')+'</span>';
+    ? '<span class="sl-back" title="Returning lead">\u21A9 '+esc(_tLbl)+'</span>'
+    : '<span>'+esc(_tLbl)+'</span>';
 
   var topRow='<div class="sl-top-row">'
     +'<div class="sl-top-left">'+cb+stgBadge(l.stage)+aiScoreBadge(l)+'</div>'
@@ -29553,8 +29569,34 @@ function _loadEngaged(){
       .catch(function(){});
   }catch(_e){ return Promise.resolve(); }
 }
+// import-10zzh: last REAL contact per lead (they replied / called / emailed, a real conversation,
+// a callback or booking, or a team member acted). System notes never move a lead up.
+function _touchMs(l){
+  var m=window._touchAt, v=m&&m[String(l.dbId||'')];
+  if(v) return v;
+  if(srcLabel(l.src||'')==='Uploaded') return 0;
+  var d=l.first_inquiry_at||l.created_at; var t=d?Date.parse(d):0; return isNaN(t)?0:t;
+}
+function _loadTouch(){
+  try{
+    return sbFetch('/rest/v1/rpc/lead_touch_map',{method:'POST',body:JSON.stringify({p_client:window._clientId||null})})
+      .then(function(r){ return r.ok?r.json():[]; })
+      .then(function(a){ var m={}; (Array.isArray(a)?a:[]).forEach(function(x){ if(x&&x.lead_id){ var t=Date.parse(x.at); if(!isNaN(t)) m[String(x.lead_id)]=t; } });
+        var sig=Object.keys(m).length+':'+Object.keys(m).reduce(function(x,k){ return x>m[k]?x:m[k]; },0);
+        var changed=(sig!==window._touchSig); window._touchAt=m; window._touchSig=sig;
+        if(changed && (window._leadSort||'recent')==='recent' && typeof render==='function' && typeof curTab!=='undefined' && curTab==='leads') render(); })
+      .catch(function(){});
+  }catch(_e){ return Promise.resolve(); }
+}
+// Keep "Latest activity" fresh: re-check every minute while the Leads tab is open and visible.
+setInterval(function(){
+  if(document.hidden || typeof curTab==='undefined' || curTab!=='leads' || !window._touchAt) return;
+  _loadTouch();
+}, 60000);
+document.addEventListener('visibilitychange', function(){ if(!document.hidden && window._touchAt && typeof curTab!=='undefined' && curTab==='leads') _loadTouch(); });
 async function preloadActivity() {
   _loadEngaged();
+  _loadTouch();
   try {
     leadAct = {};
     window._ibEmailsLoaded=false;  // clear stale activity so a prior panel's data can't bleed onto reused local ids
