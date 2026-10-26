@@ -5096,7 +5096,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-26 import-10zzi';
+var APP_VERSION = 'v2026-10-26 import-10zzj';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6570,6 +6570,7 @@ async function loadAllPartners() {
 }
 
 async function loadLeadsFromDB() {
+  try{ if(typeof _loadTouch==='function') window._touchP=_loadTouch(); }catch(_e){} // import-10zzj: fetch the order alongside the leads
   try {
     // Find this user's client via client_members table
     var memberRes = await sbFetch('/rest/v1/client_members?select=client_id,role,clients(id,business_name)&user_id=eq.'+currentUser.id+'&limit=1');
@@ -6621,6 +6622,7 @@ async function loadLeadsFromDB() {
       return null;
     }
     var data = await res.json();
+    try{ _touchRestore(); if(!window._touchAt && window._touchP) await window._touchP; }catch(_e){} // import-10zzj: first open waits for the order (already loading in parallel)
     console.log('[Adviuz] Loaded', data.length, 'leads by client_id');
     // Telecaller: keep only leads matching their lead filter (location/stage/service/campaign)
     if (window._isTelecaller && window._telecallerScope) {
@@ -29570,7 +29572,13 @@ function _loadEngaged(){
 }
 // import-10zzh: last REAL contact per lead (they replied / called / emailed, a real conversation,
 // a callback or booking, or a team member acted). System notes never move a lead up.
+function _touchKey(){ return 'adv_touch_'+(window._clientId||'all'); }
+function _touchRestore(){ // import-10zzj: last known order shows instantly on open (no jump)
+  if(window._touchAt||window._touchTried) return; window._touchTried=true;
+  try{ var c=localStorage.getItem(_touchKey()); if(c){ var o=JSON.parse(c); if(o&&typeof o==='object') window._touchAt=o; } }catch(_e){}
+}
 function _touchMs(l){
+  if(!window._touchAt) _touchRestore();
   var m=window._touchAt, v=m&&m[String(l.dbId||'')];
   if(v) return v;
   if(srcLabel(l.src||'')==='Uploaded') return 0;
@@ -29583,6 +29591,7 @@ function _loadTouch(){
       .then(function(a){ var m={}; (Array.isArray(a)?a:[]).forEach(function(x){ if(x&&x.lead_id){ var t=Date.parse(x.at); if(!isNaN(t)) m[String(x.lead_id)]=t; } });
         var sig=Object.keys(m).length+':'+Object.keys(m).reduce(function(x,k){ return x>m[k]?x:m[k]; },0);
         var changed=(sig!==window._touchSig); window._touchAt=m; window._touchSig=sig;
+        try{ localStorage.setItem(_touchKey(), JSON.stringify(m)); }catch(_e){}
         if(changed && (window._leadSort||'recent')==='recent' && typeof render==='function' && typeof curTab!=='undefined' && curTab==='leads') render(); })
       .catch(function(){});
   }catch(_e){ return Promise.resolve(); }
@@ -29840,7 +29849,9 @@ async function _sbAllRows(path, max){
 async function loadClientLeads() {
   var cid = window._clientId; if(!cid) return;
   try {
+    var _tp = (typeof _loadTouch==='function') ? _loadTouch() : null; // import-10zzj
     var dbLeads = await _sbAllRows('/rest/v1/leads?client_id=eq.'+cid+'&or=(source.is.null,source.neq.block)&order=created_at.desc,id.desc');
+    try{ _touchRestore(); if(!window._touchAt && _tp) await _tp; }catch(_e){}
     if (dbLeads) {
       leads = dbLeads.filter(_notBlockRow).map(mapLead).filter(function(l){
         var s = (l.svc||'').trim().toLowerCase();
