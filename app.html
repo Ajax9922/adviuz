@@ -5096,7 +5096,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-27 import-10zzq';
+var APP_VERSION = 'v2026-10-27 import-10zzr';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6755,6 +6755,8 @@ function mapLead(l, i) {
     ai_summary:      l.ai_summary || '',
     ai_facts:        Array.isArray(l.ai_facts) ? l.ai_facts : [],
     human_only:      l.human_only === true,
+    do_not_contact:  l.do_not_contact === true,   // dnd-2: texted STOP / said wrong number or not interested
+    opted_out_at:    l.opted_out_at || null,
     ai_off:          (l.ai_off && typeof l.ai_off === 'object') ? l.ai_off : {}
   };
 }
@@ -17933,6 +17935,10 @@ function apHoldResume(localId){
       else showToast('❌ Could not resume');
     }).catch(function(){ showToast('❌ Could not resume'); });
 }
+function apStopInfo(localId){
+  var l = leads.find(function(x){ return x.id === localId; }); if (!l) return;
+  showToast(l.opted_out_at ? '\u26D4 They texted STOP \u2014 the AI won\u2019t contact them. If they text START, contact opens again.' : '\u26D4 They asked not to be contacted \u2014 the AI won\u2019t reach out. Your team can still call or text by hand.');
+}
 async function amSaveAndOpenPb(){
   try{ await saveCampSettings(); }catch(e){}
   setTimeout(function(){ if (typeof openPlaybook === 'function') openPlaybook(); }, 250);
@@ -18379,17 +18385,20 @@ function renderLeadScreen(id) {
     // Campaign off -> switch shows OFF and tapping it opens the campaign's
     // AI Employee page (the real place to turn it on) instead of flipping a
     // lead flag that would do nothing.
-    var _apEffOn = !_apMasterOff && !l.human_only && !((typeof _apOffList==='function') && _apOffList(l).length >= 5);
+    // dnd-2: an opted-out lead (STOP, wrong number, not interested) is never contacted by the AI.
+    var _apStop = l.do_not_contact === true;
+    var _apEffOn = !_apStop && !_apMasterOff && !l.human_only && !((typeof _apOffList==='function') && _apOffList(l).length >= 5);
     var _apPartial = _apEffOn && (typeof _apOffList==='function') && _apOffList(l).length > 0;
-    var _apClick = _apMasterOff ? ('apGoToAiSettings(\''+String((_camp&&_camp.id)||'')+'\')') : ('openApSheet('+l.id+')');
+    var _apClick = _apStop ? 'apStopInfo('+l.id+')' : _apMasterOff ? ('apGoToAiSettings(\''+String((_camp&&_camp.id)||'')+'\')') : ('openApSheet('+l.id+')');
     var _apSub;
-    if (_apMasterOff) _apSub = 'OFF \u2014 Autopilot is off for this whole campaign';
+    if (_apStop) _apSub = l.opted_out_at ? 'OFF \u2014 they texted STOP. No automatic calls, texts or emails.' : 'OFF \u2014 they asked not to be contacted. No automatic calls, texts or emails.';
+    else if (_apMasterOff) _apSub = 'OFF \u2014 Autopilot is off for this whole campaign';
     else _apSub = apSummary(l);
     h += '<div onclick="'+_apClick+'" style="background:var(--white);padding:12px 16px;margin-bottom:4px;display:flex;align-items:center;gap:10px;cursor:pointer">'
       + '<div style="font-size:20px;flex-shrink:0">\ud83e\udd16</div>'
       + '<div style="flex:1;min-width:0"><div style="font-weight:500;font-size:14px;color:var(--text)">AI Autopilot for this lead</div>'
       + '<div style="font-size:12px;color:var(--sub)">'+_apSub+'</div>'
-      + (_apMasterOff ? '<div style="font-size:11.5px;color:#8a6116;background:#fff7e6;border:1px solid #f2d49b;border-radius:8px;padding:6px 9px;margin-top:6px;line-height:1.45">\u26a0\ufe0f Tap here to open Campaign settings \u2192 AI Employee and turn Autopilot on for the whole campaign.</div>' : '')
+      + (!_apStop && _apMasterOff ? '<div style="font-size:11.5px;color:#8a6116;background:#fff7e6;border:1px solid #f2d49b;border-radius:8px;padding:6px 9px;margin-top:6px;line-height:1.45">\u26a0\ufe0f Tap here to open Campaign settings \u2192 AI Employee and turn Autopilot on for the whole campaign.</div>' : '')
       + '</div>'
       + '<div style="width:44px;height:26px;border-radius:20px;background:'+(_apEffOn?(_apPartial?'var(--amber)':'var(--green)'):'var(--border)')+';position:relative;flex-shrink:0;transition:background .15s"><div style="position:absolute;top:3px;'+(_apEffOn?'right:3px':'left:3px')+';width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)"></div></div>'
       + '</div>';
@@ -18446,7 +18455,11 @@ function renderLeadScreen(id) {
     h += '</div>';
     h += '<div style="min-width:0;overflow:hidden">';
     h += '<div style="font-size:11px;font-weight:500;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px">Follow-up</div>';
-    h += '<input type="datetime-local" id="lsFuDatetime" value="'+dtDef+'" oninput="window._lsFuTouched=true" onblur="lsFuBlur('+l.id+')" style="width:100%;border:1.5px solid var(--border);border-radius:9px;padding:10px 6px;font-family:var(--f);font-size:11px;color:var(--text);outline:none;background:var(--white);min-width:0;box-sizing:border-box">';
+    // dnd-2: empty until a person picks a date (it used to pre-fill "tomorrow 10 AM", which looked booked)
+    h += '<div style="position:relative">';
+    h += '<input type="datetime-local" id="lsFuDatetime" value="" oninput="window._lsFuTouched=true;this.style.color=this.value?\'var(--text)\':\'transparent\';var _hn=document.getElementById(\'lsFuHint\');if(_hn)_hn.style.display=this.value?\'none\':\'\'" onblur="lsFuBlur('+l.id+')" style="width:100%;min-height:40px;border:1.5px solid var(--border);border-radius:9px;padding:10px 6px;font-family:var(--f);font-size:11px;color:transparent;outline:none;background:var(--white);min-width:0;box-sizing:border-box">';
+    h += '<span id="lsFuHint" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--sub);font-size:12px">Pick a date</span>';
+    h += '</div>';
     h += '</div>';
     h += '</div>';
   } else {
@@ -18455,7 +18468,7 @@ function renderLeadScreen(id) {
     h += '<select class="ld-stage-sel" id="lsStageSelect" onchange="lsSetStage(this.value)" style="border-color:'+stgC+';color:'+stgC+';width:100%">'+_stageOpts+'</select>';
     h += '<div style="font-size:11px;font-weight:500;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin:16px 0 8px">Follow-up Date</div>';
     h += '<div style="display:flex;gap:8px">';
-    h += '<input type="datetime-local" id="lsFuDatetime" value="'+dtDef+'" style="flex:1;min-width:0;border:1.5px solid var(--border);border-radius:9px;padding:10px 12px;font-family:var(--f);font-size:14px;color:var(--text);outline:none;background:var(--white);box-sizing:border-box">';
+    h += '<input type="datetime-local" id="lsFuDatetime" value="" style="flex:1;min-width:0;border:1.5px solid var(--border);border-radius:9px;padding:10px 12px;font-family:var(--f);font-size:14px;color:var(--text);outline:none;background:var(--white);box-sizing:border-box">';
     h += '<button onclick="lsQuickSaveFu('+l.id+')" style="flex-shrink:0;padding:10px 18px;border-radius:9px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:13px;font-weight:500;cursor:pointer">Save</button>';
     h += '</div>';
   }
