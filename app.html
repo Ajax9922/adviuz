@@ -5096,7 +5096,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-26 import-10zzk';
+var APP_VERSION = 'v2026-10-27 import-10zzl';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -10472,9 +10472,53 @@ function ceActivate(){
     .catch(function(){ c.busy=false; showToast('Failed \u2014 try again'); ceLoad(); });
 }
 
+// import-10zzl: DRAFTS for Re-activate leads — an unfinished AI call round or text / email
+// outreach is kept (on this device right away, and in the account so it follows you).
+var _odT={};
+function _odScope(){ return String(window._clientId||'staff'); }
+function _odKey(kind){ return 'od_'+_odScope()+'_'+kind; }
+function _odSave(kind, data){
+  clearTimeout(_odT[kind]);
+  _odT[kind]=setTimeout(function(){
+    var row={ scope:_odScope(), kind:kind, data:data, updated_at:new Date().toISOString() };
+    try{ localStorage.setItem(_odKey(kind), JSON.stringify(row)); }catch(_e){}
+    try{ sbFetch('/rest/v1/outreach_drafts?on_conflict=user_id,scope,kind',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(row)}).catch(function(){}); }catch(_e){}
+  }, 800);
+}
+function _odLoad(kind){
+  var loc=null; try{ loc=JSON.parse(localStorage.getItem(_odKey(kind))||'null'); }catch(_e){}
+  return sbFetch('/rest/v1/outreach_drafts?scope=eq.'+encodeURIComponent(_odScope())+'&kind=eq.'+kind+'&select=data,updated_at&limit=1')
+    .then(function(r){ return r.ok?r.json():[]; })
+    .then(function(a){ var srv=(Array.isArray(a)&&a[0])||null;
+      if(srv && loc && String(loc.updated_at)>String(srv.updated_at)) return loc;
+      return srv||loc; })
+    .catch(function(){ return loc; });
+}
+function _odClear(kind){
+  clearTimeout(_odT[kind]);
+  try{ localStorage.removeItem(_odKey(kind)); }catch(_e){}
+  try{ sbFetch('/rest/v1/outreach_drafts?scope=eq.'+encodeURIComponent(_odScope())+'&kind=eq.'+kind,{method:'DELETE'}).catch(function(){}); }catch(_e){}
+}
+function _odAgo(iso){ try{ return timeAgo(iso); }catch(_e){ return ''; } }
+function _bwDraftOf(b){ return { step:b.step, msg:b.msg, subj:b.subj, camp:b.camp, svcs:b.svcs, locs:b.locs, stages:b.stages, excluded:b.excluded, noShow:!!b.noShow, at:b.at||'' }; }
+function _bwAutoSave(){ var b=window._bw; if(!b || window._bwDraftOffer || !b.camp) return; _odSave('bw_'+b.channel, _bwDraftOf(b)); }
+function bwDraftResume(){
+  var d=window._bwDraftOffer, b=window._bw; if(!d||!b) return;
+  var keep=b.channel; Object.assign(b, d.data||{}); b.channel=keep; b.schedOpen=false;
+  window._bwDraftOffer=null;
+  if(b.step===2 && typeof _bwLoadTpls==='function') _bwLoadTpls();
+  bwRender(); showToast('Draft opened');
+}
+function bwDraftDiscard(){ var b=window._bw; window._bwDraftOffer=null; if(b) _odClear('bw_'+b.channel); bwRender(); showToast('Draft deleted'); }
+
 function openBulkWiz(channel){
   if(channel==='email' && window._isTelecaller){ showToast('Not available for telecaller accounts'); return; }
   window._bw={ channel:channel, step:1, msg:'', subj:'', camp:'', svcs:{}, locs:{}, stages:{}, excluded:{}, schedOpen:false, at:'' };
+  window._bwDraftOffer=null;
+  _odLoad('bw_'+channel).then(function(d){
+    var b=window._bw; if(!d||!d.data||!d.data.camp||!b||b.channel!==channel||b.step!==1) return;
+    window._bwDraftOffer=d; bwRender();
+  });
   if(channel==='email' && isClientMode() && window._myEmailId===undefined){
     window._myEmailId=null;
     sbFetch('/rest/v1/rpc/my_email_settings',{method:'POST',body: JSON.stringify({ p_client: window._clientId||null })}).then(function(r){ return r.ok?r.json():null; })
@@ -10921,7 +10965,16 @@ function bwRender(){
     }
   }
 
+  if(window._bwDraftOffer && b.step===1){
+    var _dd=window._bwDraftOffer.data||{}, _dn=_dd.msg?String(_dd.msg).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().slice(0,90):'';
+    h='<div style="background:#f6f3ff;border:1px solid #e3dcff;border-radius:14px;padding:12px 14px;margin-bottom:14px">'
+      +'<div style="font-size:13.5px;font-weight:600;color:var(--text)">You have a draft</div>'
+      +'<div style="font-size:12px;color:var(--sub);margin-top:2px;line-height:1.5">Saved '+_odAgo(window._bwDraftOffer.updated_at)+' · step '+(Number(_dd.step)||1)+' of 3'+(_dn?'<br>“'+sanitize(_dn)+(String(_dd.msg).length>90?'…':'')+'”':'')+'</div>'
+      +'<div style="display:flex;gap:8px;margin-top:10px"><button class="btn" onclick="bwDraftResume()" style="flex:2;justify-content:center;background:var(--white);border:1.5px solid #4000f3;color:#4000f3;font-weight:600">Continue draft</button>'
+      +'<button class="btn" onclick="bwDraftDiscard()" style="flex:1;justify-content:center;background:var(--white);border:1px solid var(--border);color:var(--sub)">Delete</button></div></div>'+h;
+  }
   box.innerHTML=h;
+  _bwAutoSave();
   if(b.step===2){
     var defMsg = b.msg || (b.channel==='sms'
       ? 'Hi [Customer Name], just following up on your enquiry with [Business Name]. Is there a good time to chat today?'
@@ -10930,7 +10983,8 @@ function bwRender(){
     b.msg = defMsg;
     var _ed=document.getElementById('bwMsg');
     var _cnt=function(){ var cc=document.getElementById('bwChr'); if(cc&&_ed) cc.textContent=csSerialize(_ed).length+' chars'; };
-    if(_ed){ _ed.addEventListener('input', _cnt); }
+    if(_ed){ _ed.addEventListener('input', _cnt); _ed.addEventListener('input', function(){ bwSaveDraft(); _bwAutoSave(); }); }
+    var _sj=document.getElementById('bwSubj'); if(_sj) _sj.addEventListener('input', function(){ bwSaveDraft(); _bwAutoSave(); });
     _cnt();
   }
 }
@@ -10976,6 +11030,7 @@ async function bwLaunch(schedIso){
     }catch(e){}
   }
   closeSheet('bulkWizSh');
+  if(made) _odClear('bw_'+b.channel); // import-10zzl: sent — the draft is done
   if(made){
     // 6. Straight to the right report so they can watch it happen.
     window._rptTab=(b.channel==='sms')?'sms':'email';
@@ -27945,13 +28000,52 @@ function aoHome(){
       +'<button class="ao-switch'+(on?' on':'')+'" onclick="aoMaster(\''+cid+'\','+(on?'false':'true')+')" aria-label="Master switch for AI calling"></button></div>';
     if(!on) h+='<div class="ao-note ao-note-red">AI calling is off. Turning it back on does not restart call rounds by itself — resume each one you want.</div>';
   });
-  h+='<button class="ao-btn ao-prim" onclick="aoNew()" style="margin:0 0 14px">+ New call round</button>';
+  h+='<div id="aoDraft"></div><button class="ao-btn ao-prim" onclick="aoNew()" style="margin:0 0 14px">+ New call round</button>';
   // search + sort
   h+='<div class="ao-row" style="gap:8px;margin-bottom:10px"><div class="ao-search"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="aoQ" type="search" placeholder="Search call rounds…" value="'+_aoE(_ao.q||'')+'" oninput="_ao.q=this.value;_aoRenderRounds()" autocomplete="off"></div>'
     +'<button class="ao-iconbtn'+((_ao.sort||'new')!=='new'?' on':'')+'" onclick="aoSortSheet()" aria-label="Sort"><svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 6h13M3 12h9M3 18h5"/><path d="M18 8v12M15 17l3 3 3-3"/></svg></button></div>';
   h+='<div id="aoFilt"></div><div id="aoRounds"></div>';
   b.innerHTML=h;
   _aoRenderRounds();
+  _aoDraftCard();
+}
+// import-10zzl: an unfinished call round set-up is kept as a draft
+function _aoDraftOf(w){
+  var o={}; ['step','campaign_id','temps','stages','services','locations','srcs','picked','moreF','purpose','note','product','voicemail','start','end','days','skip','gap','cap','d2','name','aud','fu','fuDirty'].forEach(function(k){ if(w[k]!==undefined) o[k]=w[k]; });
+  return o;
+}
+function _aoDraftAuto(){
+  var w=_ao&&_ao.w; if(!w || _ao.view!=='wiz' || w._noDraft) return;
+  if(!(w.campaign_id && (w.step>1 || w.aud || w.fuDirty || w.name))) return;
+  _odSave('ao', _aoDraftOf(w));
+}
+// typing in a round's fields (name, note, messages) also keeps the draft current
+document.addEventListener('input', function(e){
+  try{ if(_ao && _ao.view==='wiz' && e.target && e.target.closest && e.target.closest('#bkcBody')) setTimeout(_aoDraftAuto, 50); }catch(_e){}
+}, true);
+function _aoDraftCard(){
+  _odLoad('ao').then(function(d){
+    var el=document.getElementById('aoDraft'); if(!el || _ao.view!=='home') return;
+    _ao.draft=d||null;
+    if(!d||!d.data||!d.data.campaign_id){ el.innerHTML=''; return; }
+    var x=d.data, camp=(_ao.camps||[]).find(function(c){ return String(c.id)===String(x.campaign_id); });
+    if(!camp){ el.innerHTML=''; return; }
+    el.innerHTML='<div style="background:#f6f3ff;border:1px solid #e3dcff;border-radius:14px;padding:12px 14px;margin:0 0 10px">'
+      +'<div style="font-size:13.5px;font-weight:600;color:var(--text)">Draft: '+_aoE(x.name||camp.name||'Call round')+'</div>'
+      +'<div style="font-size:12px;color:var(--sub);margin-top:2px">Step '+(Number(x.step)||1)+' of 4 · saved '+_odAgo(d.updated_at)+(x.fuDirty?' · your edited messages are kept':'')+'</div>'
+      +'<div style="display:flex;gap:8px;margin-top:10px"><button class="ao-btn" onclick="aoDraftResume()" style="flex:2;margin:0;border-color:#4000f3;color:#4000f3;font-weight:600">Continue draft</button>'
+      +'<button class="ao-btn" onclick="aoDraftDiscard()" style="flex:1;margin:0">Delete</button></div></div>';
+  });
+}
+function aoDraftDiscard(){ _odClear('ao'); _ao.draft=null; var el=document.getElementById('aoDraft'); if(el) el.innerHTML=''; showToast('Draft deleted'); }
+async function aoDraftResume(){
+  var d=_ao.draft; if(!d||!d.data) return;
+  aoNew(); var w=_ao.w; if(!w) return;
+  var x=d.data;
+  Object.assign(w, x, { pv:null, loading:false, busy:false, tested:false, testNo:'', fuEdit:null, pickCamp:false });
+  w._restore={ step:Number(x.step)||1, picked:x.picked||{}, srcs:x.srcs||[], product:x.product==null?null:x.product, fu:x.fu||null, fuDirty:!!x.fuDirty };
+  if(w.campaign_id && w.aud){ w.step=1; await aoLoadPreview(); }
+  else { delete w._restore; aoWiz(); }
 }
 // Filters work together: picking a business line only offers the types it has, and the other way round.
 function _aoRenderRounds(){
@@ -28123,6 +28217,7 @@ async function aoLoadPreview(){
   if(d.needs_agreement){ try{ localStorage.removeItem('ao_signed_'+String(window._clientId||'')); }catch(_e){} bkcClose(); bcaGate(); return; }
   if(d.error){ showToast(d.error); w.pv={leads:[],temp_counts:{},services:{},locations:{},error:d.error}; aoWiz(); return; }
   w.pv=d; w.picked={}; w.srcs=[]; w.product=null; w.fu=_aoFuInit(d.fu); w.fuDirty=false; w.fuEdit=null;
+  if(w._restore){ var _r=w._restore; delete w._restore; w.picked=_r.picked; w.srcs=_r.srcs; w.product=_r.product; if(_r.fu){ w.fu=_r.fu; w.fuDirty=_r.fuDirty; } w.step=_r.step; } // import-10zzl: continue a draft
   if(d.cap && d.cap.cap) w.cap=Number(d.cap.cap);
   if(!w.name) w.name=(camp.name||'Call round')+' — '+new Date().toLocaleDateString('en-CA',{month:'short',day:'numeric'});
   aoWiz();
@@ -28166,6 +28261,7 @@ function aoNext(){ _ao.w.step++; aoWiz(); var b=_aoBody(); if(b) b.scrollTop=0; 
 var AO_TEMP={hot:'<span style="display:inline-flex;align-items:center;gap:5px">'+_bi(_BI.flame,13)+'Hot</span>',warm:'<span style="display:inline-flex;align-items:center;gap:5px">'+_bi(_BI.sun,13)+'Warm</span>',cold:'<span style="display:inline-flex;align-items:center;gap:5px">'+_bi(_BI.snow,13)+'Cold</span>'};
 function aoWiz(){
   var w=_ao.w, b=_aoBody(); if(!b||!w) return;
+  try{ _aoDraftAuto(); }catch(_e){}
   var h='';
   if(w.step===1){
     h+=_aoHead('Who to call');
@@ -28666,6 +28762,7 @@ function aoLaunch(sched){
     var d=await _aoPost('start',p);
     w.busy=false;
     if(d.error){ showToast(d.error); return; }
+    w._noDraft=true; _odClear('ao'); // import-10zzl: launched — the draft is done
     var hrs='Calls go out '+_aoFmtMin(p.start_min)+'–'+_aoFmtMin(p.end_min)+' in each lead\u2019s own time zone, '+AO_DAYS.filter(function(x){ return p.days.indexOf(x[0])>=0; }).map(function(x){ return x[1]; }).join(', ')+'.';
     if(!d.scheduled) showToast(d.live===false?'✅ Call round saved — calls start once calling is switched live':'🚀 Call round launched — '+d.queued+' leads queued');
     _ao.view='home'; _ao.w=null; await aoLoadList(); aoHome();
