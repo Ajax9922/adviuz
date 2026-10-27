@@ -5096,7 +5096,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-27 import-10zzr';
+var APP_VERSION = 'v2026-10-27 import-10zzs';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -29005,7 +29005,8 @@ function _aoCalc(d){
     if(['talked','booked','callback','not_interested','opted_out'].indexOf(r)>=0) f.talked++;
     if(r==='booked'||r==='callback') f.interested++;
     if(r==='booked') f.booked++;
-    if(r==='voicemail') m.voicemail+=mn; else if(r==='short') m.short+=mn; else m.talk+=mn;
+    if(r==='voicemail') m.voicemail+=mn; else if(r==='short') m.short+=mn; else if(['talked','booked','callback','not_interested','opted_out'].indexOf(r)>=0) m.talk+=mn;
+    if(c.opted_out_later) res.opted_out_later=(res.opted_out_later||0)+1; // rpt-1: opted out after the call (STOP text / said no on a callback)
     var k=String(c.at||'').slice(0,10); if(k) day[k]=(day[k]||0)+mn; });
   return { calls:calls, funnel:f, minutes:m, results:res, by_day:Object.keys(day).sort().map(function(k){ return {day:k,minutes:day[k]}; }) };
 }
@@ -29067,7 +29068,7 @@ function aoReport(){
   var fun=function(l,v,last,k){ return '<div class="ao-fun ao-tap" onclick="aoCallsShow(\''+k+'\')"><span>'+l+'</span><div class="ao-track"><i style="width:'+Math.round((v||0)/max*100)+'%'+(last?';background:var(--green)':'')+'"></i></div><b>'+(v||0)+' ›</b></div>'; };
   h+='<div class="ao-card"><div class="ao-lbl">Results</div>'+fun('Called',f.called,0,'all')+fun('Answered',f.answered,0,'answered')+fun('Real conversation',f.talked,0,'talked')+fun('Interested',f.interested,0,'interested')+fun('Booked',f.booked,true,'booked')+'</div>';
   h+='<div class="ao-card"><div class="ao-lbl">Highlights</div>'+_aoKV('Minutes per booking',f.booked?(used/f.booked).toFixed(1)+' min':'—')+_aoKV('Average call',f.called?(used/f.called).toFixed(1)+' min':'—')
-    +_aoKVl('Callbacks booked',res.callback||0,'callback')+_aoKVl('Voicemails',res.voicemail||0,'voicemail')+_aoKVl('Not interested',res.not_interested||0,'not_interested')+_aoKVl('Opted out',res.opted_out||0,'opted_out')+_aoKV('In follow-up now',d.following||0)+_aoKV('Left to call',(d.left||0)+' leads')+'</div>';
+    +_aoKVl('Callbacks booked',res.callback||0,'callback')+_aoKVl('Voicemails',res.voicemail||0,'voicemail')+_aoKVl('Not interested',res.not_interested||0,'not_interested')+_aoKVl('Opted out',(res.opted_out||0)+(res.opted_out_later||0),'opted_out')+_aoKV('In follow-up now',d.following||0)+_aoKV('Left to call',(d.left||0)+' leads')+'</div>';
   if(C.by_day.length) h+='<div class="ao-card"><div class="ao-lbl">Minutes per day</div>'+_aoChart(C.by_day)+'</div>';
   _ao.repCalls=C.calls;
   h+='<div class="ao-card" id="aoCallsCard" style="padding:6px 14px 8px"><div class="ao-lbl" style="padding-top:8px">Calls · '+_aoE(_aoRangeLabel(_ao.range))+'</div>';
@@ -29088,8 +29089,9 @@ function aoReport(){
 // ── Calls list inside the report: filter chips + search + sort; only this list redraws while typing.
 var AO_CF=[['all','All'],['booked','Booked'],['interested','Interested'],['callback','Callback'],['talked','Real conversation'],['answered','Answered'],['voicemail','Voicemail'],['short','Short pick-up'],['not_interested','Not interested'],['no_answer','No answer'],['opted_out','Opted out'],['bad_number','Bad number']];
 var AO_CSORT=[['new','Newest first'],['old','Oldest first'],['long','Longest call'],['az','Name A–Z']];
-function _aoCfOk(k, r){
+function _aoCfOk(k, r, c){
   if(k==='all') return true;
+  if(k==='opted_out') return r==='opted_out' || !!(c&&c.opted_out_later);
   if(k==='answered') return ['no_answer','bad_number','calling'].indexOf(r)<0;
   if(k==='talked') return ['talked','booked','callback','not_interested','opted_out'].indexOf(r)>=0;
   if(k==='interested') return r==='booked'||r==='callback';
@@ -29098,17 +29100,17 @@ function _aoCfOk(k, r){
 function _aoCallsDraw(){
   var box=document.getElementById('aoCallList'), fc=document.getElementById('aoCf'); if(!box) return;
   var all=_ao.repCalls||[], k=_ao.cf||'all', q=String(_ao.cq||'').trim().toLowerCase(), so=_ao.cs||'new';
-  fc.innerHTML=AO_CF.map(function(x){ var n=0; for(var i=0;i<all.length;i++) if(_aoCfOk(x[0],all[i].result)) n++;
+  fc.innerHTML=AO_CF.map(function(x){ var n=0; for(var i=0;i<all.length;i++) if(_aoCfOk(x[0],all[i].result,all[i])) n++;
     return (n||x[0]===k)?'<button class="ao-fchip'+(k===x[0]?' on':'')+'" onclick="aoCallsShow(\''+x[0]+'\',0,1)">'+x[1]+' <i>'+n+'</i></button>':''; }).join('');
   var sb=document.getElementById('aoCsBtn'); if(sb) sb.classList.toggle('on',so!=='new');
-  var list=all.filter(function(c){ return _aoCfOk(k,c.result) && (!q||String(c.name||'').toLowerCase().indexOf(q)>=0); });
+  var list=all.filter(function(c){ return _aoCfOk(k,c.result,c) && (!q||String(c.name||'').toLowerCase().indexOf(q)>=0); });
   list.sort(function(a,b){ if(so==='old') return String(a.at).localeCompare(String(b.at)); if(so==='long') return (b.duration_sec||0)-(a.duration_sec||0); if(so==='az') return String(a.name||'').localeCompare(String(b.name||'')); return String(b.at).localeCompare(String(a.at)); });
   _ao.repList=list;
   if(!list.length){ box.innerHTML='<div class="ao-s" style="padding:14px 0 10px;text-align:center">No calls match.'+(k!=='all'||q?' <button class="ao-link" onclick="_ao.cq=\'\';aoCallsShow(\'all\',0,1);var i=document.getElementById(\'aoCq\');if(i)i.value=\'\'">Show all</button>':'')+'</div>'; return; }
   var cls={booked:'ao-p-green',callback:'ao-p-blue',voicemail:'ao-p-amber',opted_out:'ao-p-red',bad_number:'ao-p-red'};
   box.innerHTML=list.map(function(c,i){
     var id=c.lead_id+'|'+c.at, o=_ao.openCall===id, none={no_answer:'Nobody picked up — nothing was charged.',bad_number:'This number doesn’t work.',voicemail:'The AI left a voicemail.',short:'They picked up and hung up within 30 seconds.'}[c.result];
-    return '<div class="ao-call'+(o?' open':'')+'"><button class="ao-fuhead" onclick="aoCallTap('+i+')"><span style="flex:1;min-width:0;text-align:left"><span class="ao-nm" style="display:block">'+_aoE(c.name)+(c.phase==='final'?' <span class="ao-t">· day-7 call</span>':'')+'</span><span class="ao-t">'+_aoDT(c.at)+(c.duration_sec?' · '+Math.floor(c.duration_sec/60)+':'+String(c.duration_sec%60).padStart(2,'0'):'')+' · '+c.minutes+' min charged</span></span><span class="ao-pill '+(cls[c.result]||'ao-p-grey')+'">'+_aoE(c.label)+'</span><span class="ao-cchev">'+_aoI('chev',16)+'</span></button>'
+    return '<div class="ao-call'+(o?' open':'')+'"><button class="ao-fuhead" onclick="aoCallTap('+i+')"><span style="flex:1;min-width:0;text-align:left"><span class="ao-nm" style="display:block">'+_aoE(c.name)+(c.phase==='final'?' <span class="ao-t">· day-7 call</span>':'')+(c.opted_out_later?' <span class="ao-t" style="color:#be123c">· opted out later</span>':'')+'</span><span class="ao-t">'+_aoDT(c.at)+(c.duration_sec?' · '+Math.floor(c.duration_sec/60)+':'+String(c.duration_sec%60).padStart(2,'0'):'')+' · '+c.minutes+' min charged</span></span><span class="ao-pill '+(cls[c.result]||'ao-p-grey')+'">'+_aoE(c.label)+'</span><span class="ao-cchev">'+_aoI('chev',16)+'</span></button>'
       +(o?'<div class="ao-cdet"><div class="ao-cdet-k">Call summary</div><div class="ao-cdet-t">'+(_aoE(c.summary)||(none||'No summary for this call.'))+'</div>'
         +'<div class="ao-cdet-act">'+(c.recording?'<button class="ao-sm" onclick="aoPlayRec(this,'+i+')">'+_aoI('play',15)+'Listen</button>':'')+'<button class="ao-sm ao-sm-pri" onclick="aoCallLead('+i+')">'+_aoI('user',15)+'View lead</button></div></div>':'')+'</div>';
   }).join('');
