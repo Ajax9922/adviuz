@@ -5096,7 +5096,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-27 import-10zzp';
+var APP_VERSION = 'v2026-10-27 import-10zzq';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -17875,6 +17875,64 @@ function amSettingsInner(){
   h += '<div class="cs-note" style="margin-top:10px">You can always turn the AI back on for one lead from its AI Autopilot sheet. This only affects leads that reach Meeting Done from now on.</div>';
   return h;
 }
+// hp-1 (import-10zzq): how long the AI pauses when a person calls or texts a lead.
+// Campaign setting settings.ai.human_pause = '1h'|'2h'|'4h'|'day'(default)|'off'.
+var _hpVal = 'day';
+var HP_OPTS = [
+  ['1h',  '1 hour',  ''],
+  ['2h',  '2 hours', ''],
+  ['4h',  '4 hours', ''],
+  ['day', 'Rest of the day', 'Until midnight, clinic time. The AI picks the lead up again tomorrow.'],
+  ['off', 'Don’t pause', 'The AI keeps working even while your team is calling or texting.']
+];
+function hpSettingsHTML(cp){
+  var a = (cp && cp.settings && cp.settings.ai) || {};
+  _hpVal = HP_OPTS.some(function(o){ return o[0] === a.human_pause; }) ? a.human_pause : 'day';
+  return '<div class="cs-h" style="margin-top:20px">🤝 When your team calls or texts a lead</div>'
+    + '<div class="cs-note">Pause the AI for that lead so it doesn’t talk over your team. While paused, the AI won’t call or text them — and if they call back, your team’s phone rings first. Nobody picks up in 30 seconds? The AI answers.</div>'
+    + '<div id="hpSetBox">' + hpSettingsInner() + '</div>';
+}
+function hpSettingsInner(){
+  return HP_OPTS.map(function(o){
+    var on = _hpVal === o[0];
+    return '<div onclick="hpPick(\''+o[0]+'\')" style="display:flex;gap:10px;align-items:flex-start;border:1.5px solid '+(on?'#4000f3':'var(--border)')+';background:'+(on?'#faf8ff':'var(--white)')+';border-radius:12px;padding:11px 12px;margin-top:8px;cursor:pointer">'
+      + '<div style="width:18px;height:18px;border-radius:50%;border:2px solid '+(on?'#4000f3':'#c7c2d6')+';flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center">'+(on?'<div style="width:8px;height:8px;border-radius:50%;background:#4000f3"></div>':'')+'</div>'
+      + '<div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600;color:var(--text)">'+o[1]+(o[0]==='day'?' <span style="font-size:10px;font-weight:700;background:var(--amberl);color:#92400e;padding:2px 7px;border-radius:999px;margin-left:4px">DEFAULT</span>':'')+'</div>'
+      + (o[2] ? '<div style="font-size:12px;color:var(--sub);margin-top:2px;line-height:1.4">'+o[2]+'</div>' : '')
+      + '</div></div>';
+  }).join('');
+}
+function hpPick(k){ _hpVal = k; var b = document.getElementById('hpSetBox'); if (b) b.innerHTML = hpSettingsInner(); }
+
+// Lead screen: "AI paused until … — X called" strip under the AI Autopilot card.
+function _apHoldLoad(l){
+  if (!l || !l.dbId) return;
+  sbFetch('/rest/v1/lead_human_hold?lead_id=eq.'+encodeURIComponent(l.dbId)+'&until=gt.'+encodeURIComponent(new Date().toISOString())+'&select=until,by_name,mode,via&limit=1')
+    .then(function(r){ return r.ok ? r.json() : []; })
+    .then(function(j){
+      var box = document.getElementById('apHold_'+l.id); if (!box) return;
+      var hd = j && j[0]; if (!hd){ box.innerHTML = ''; return; }
+      var u = new Date(hd.until);
+      var when = hd.mode === 'day' ? 'for the rest of today' : ('until '+u.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit',hour12:true}));
+      var who = hd.by_name ? _smsEsc(String(hd.by_name)) : 'Your team';
+      var what = hd.via === 'text' ? ' texted' : ' called';
+      box.innerHTML = '<div style="background:#fffbeb;border-top:1px solid #f2d49b;border-bottom:1px solid #f2d49b;padding:10px 16px;margin:-4px 0 4px;display:flex;align-items:center;gap:10px">'
+        + '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b45309" stroke-width="1.8" stroke-linecap="round" style="flex-shrink:0"><circle cx="12" cy="12" r="9"/><line x1="10" y1="9" x2="10" y2="15"/><line x1="14" y1="9" x2="14" y2="15"/></svg>'
+        + '<div style="flex:1;min-width:0;font-size:12.5px;color:#92400e;line-height:1.4"><b>AI paused '+when+'</b> — '+who+what+'. Their calls ring your team first.</div>'
+        + '<button type="button" onclick="apHoldResume('+l.id+')" style="flex-shrink:0;border:1px solid #f2d49b;background:#fff;color:#92400e;border-radius:999px;padding:6px 11px;font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer">Resume AI now</button>'
+        + '</div>';
+    }).catch(function(){});
+}
+function apHoldResume(localId){
+  var l = (typeof leads!=='undefined' && leads.find) ? leads.find(function(x){ return x.id === localId; }) : null;
+  if (!l || !l.dbId) return;
+  sbFetch('/rest/v1/rpc/lead_hold_clear',{method:'POST',body:JSON.stringify({p_lead:l.dbId})})
+    .then(function(r){ return r.ok ? r.json() : false; })
+    .then(function(ok){
+      if (ok === true){ var b = document.getElementById('apHold_'+l.id); if (b) b.innerHTML = ''; showToast('🤖 AI resumed for this lead'); }
+      else showToast('❌ Could not resume');
+    }).catch(function(){ showToast('❌ Could not resume'); });
+}
 async function amSaveAndOpenPb(){
   try{ await saveCampSettings(); }catch(e){}
   setTimeout(function(){ if (typeof openPlaybook === 'function') openPlaybook(); }, 250);
@@ -18335,6 +18393,8 @@ function renderLeadScreen(id) {
       + '</div>'
       + '<div style="width:44px;height:26px;border-radius:20px;background:'+(_apEffOn?(_apPartial?'var(--amber)':'var(--green)'):'var(--border)')+';position:relative;flex-shrink:0;transition:background .15s"><div style="position:absolute;top:3px;'+(_apEffOn?'right:3px':'left:3px')+';width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25)"></div></div>'
       + '</div>';
+    // hp-1: short pause after a person called/texted (only matters while Autopilot is on)
+    if (_apEffOn){ h += '<div id="apHold_'+l.id+'"></div>'; _apHoldLoad(l); }
   }
 
   // ══ SECTION 2 — COMMUNICATION & CALL (moved up to just under the lead info) ══
@@ -34904,7 +34964,8 @@ function csOpenPage(page){
         +   '<option value="review"'+(((_ai.approvals||{}).email==='auto')?'':' selected')+'>Review first \u2014 I approve each one</option>'
         +   '<option value="auto"'+(((_ai.approvals||{}).email==='auto')?' selected':'')+'>Automatic \u2014 send without asking</option>'
         + '</select>')
-      + amSettingsHTML(cp);
+      + amSettingsHTML(cp)
+      + hpSettingsHTML(cp);
   }
   _csFooter(page);
   var b = document.querySelector('#campSettingsSh .sh-body'); if (b) b.scrollTop = 0;
@@ -35306,6 +35367,8 @@ async function saveCampSettings(){
     // am-1: AI after the meeting
     if (document.getElementById('amSetBox')) s.ai.after_meeting = amCollect();
     else if (cp.settings && cp.settings.ai && cp.settings.ai.after_meeting) s.ai.after_meeting = cp.settings.ai.after_meeting;
+    // hp-1: pause the AI when a person calls/texts a lead
+    if (document.getElementById('hpSetBox')) s.ai.human_pause = _hpVal;
     // Preserve EVERY other AI setting this tab doesn't own (address, intro, and anything added
     // later) — never let a save on this tab wipe them.
     (function(){
