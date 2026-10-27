@@ -5096,7 +5096,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-27 import-10zzl';
+var APP_VERSION = 'v2026-10-27 import-10zzm';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -10472,51 +10472,66 @@ function ceActivate(){
     .catch(function(){ c.busy=false; showToast('Failed \u2014 try again'); ceLoad(); });
 }
 
-// import-10zzl: DRAFTS for Re-activate leads — an unfinished AI call round or text / email
-// outreach is kept (on this device right away, and in the account so it follows you).
+// import-10zzl/10zzm: DRAFTS for Re-activate leads — every unfinished AI call round or text /
+// email outreach is kept (on this device right away, and in the account so it follows you).
+// Each draft has its own id, so a person can keep several.
 var _odT={};
 function _odScope(){ return String(window._clientId||'staff'); }
-function _odKey(kind){ return 'od_'+_odScope()+'_'+kind; }
-function _odSave(kind, data){
-  clearTimeout(_odT[kind]);
-  _odT[kind]=setTimeout(function(){
-    var row={ scope:_odScope(), kind:kind, data:data, updated_at:new Date().toISOString() };
-    try{ localStorage.setItem(_odKey(kind), JSON.stringify(row)); }catch(_e){}
-    try{ sbFetch('/rest/v1/outreach_drafts?on_conflict=user_id,scope,kind',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(row)}).catch(function(){}); }catch(_e){}
+function _odKey(kind){ return 'odm_'+_odScope()+'_'+kind; }
+function _odNewId(){ try{ return crypto.randomUUID(); }catch(_e){ return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){ var r=Math.random()*16|0; return (c==='x'?r:(r&3|8)).toString(16); }); } }
+function _odLocal(kind){ try{ var o=JSON.parse(localStorage.getItem(_odKey(kind))||'{}'); return (o&&typeof o==='object')?o:{}; }catch(_e){ return {}; } }
+function _odLocalSet(kind,m){ try{ localStorage.setItem(_odKey(kind), JSON.stringify(m)); }catch(_e){} }
+function _odSave(kind, id, data){
+  if(!id) return;
+  var k=kind+':'+id; clearTimeout(_odT[k]);
+  _odT[k]=setTimeout(function(){
+    var row={ id:id, scope:_odScope(), kind:kind, data:data, updated_at:new Date().toISOString() };
+    var m=_odLocal(kind); m[id]=row; _odLocalSet(kind,m);
+    try{ sbFetch('/rest/v1/outreach_drafts?on_conflict=id',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(row)}).catch(function(){}); }catch(_e){}
   }, 800);
 }
-function _odLoad(kind){
-  var loc=null; try{ loc=JSON.parse(localStorage.getItem(_odKey(kind))||'null'); }catch(_e){}
-  return sbFetch('/rest/v1/outreach_drafts?scope=eq.'+encodeURIComponent(_odScope())+'&kind=eq.'+kind+'&select=data,updated_at&limit=1')
-    .then(function(r){ return r.ok?r.json():[]; })
-    .then(function(a){ var srv=(Array.isArray(a)&&a[0])||null;
-      if(srv && loc && String(loc.updated_at)>String(srv.updated_at)) return loc;
-      return srv||loc; })
-    .catch(function(){ return loc; });
+// All drafts of a kind, newest first (account + this device merged; the newer copy wins).
+function _odList(kind){
+  var loc=_odLocal(kind);
+  return sbFetch('/rest/v1/outreach_drafts?scope=eq.'+encodeURIComponent(_odScope())+'&kind=eq.'+kind+'&select=id,data,updated_at&order=updated_at.desc&limit=50')
+    .then(function(r){ return r.ok?r.json():null; })
+    .catch(function(){ return null; })
+    .then(function(a){
+      var by={};
+      if(Array.isArray(a)){
+        a.forEach(function(x){ by[x.id]=x; });
+        // a draft only on this device that the account no longer has was deleted elsewhere — drop it, unless it is brand new
+        Object.keys(loc).forEach(function(id){ var x=loc[id]; if(!by[id] && Date.now()-new Date(x.updated_at).getTime()<120000) by[id]=x; else if(by[id] && String(x.updated_at)>String(by[id].updated_at)) by[id]=x; });
+      } else by=loc;
+      return Object.keys(by).map(function(id){ return by[id]; }).filter(function(x){ return x && x.data; })
+        .sort(function(p,q){ return String(q.updated_at).localeCompare(String(p.updated_at)); });
+    });
 }
-function _odClear(kind){
-  clearTimeout(_odT[kind]);
-  try{ localStorage.removeItem(_odKey(kind)); }catch(_e){}
-  try{ sbFetch('/rest/v1/outreach_drafts?scope=eq.'+encodeURIComponent(_odScope())+'&kind=eq.'+kind,{method:'DELETE'}).catch(function(){}); }catch(_e){}
+function _odDel(kind, id){
+  if(!id) return;
+  clearTimeout(_odT[kind+':'+id]);
+  var m=_odLocal(kind); delete m[id]; _odLocalSet(kind,m);
+  try{ sbFetch('/rest/v1/outreach_drafts?id=eq.'+encodeURIComponent(id),{method:'DELETE'}).catch(function(){}); }catch(_e){}
 }
 function _odAgo(iso){ try{ return timeAgo(iso); }catch(_e){ return ''; } }
 function _bwDraftOf(b){ return { step:b.step, msg:b.msg, subj:b.subj, camp:b.camp, svcs:b.svcs, locs:b.locs, stages:b.stages, excluded:b.excluded, noShow:!!b.noShow, at:b.at||'' }; }
-function _bwAutoSave(){ var b=window._bw; if(!b || window._bwDraftOffer || !b.camp) return; _odSave('bw_'+b.channel, _bwDraftOf(b)); }
+function _bwAutoSave(){ var b=window._bw; if(!b || window._bwDraftOffer || !b.camp) return; if(!b.draftId) b.draftId=_odNewId(); _odSave('bw_'+b.channel, b.draftId, _bwDraftOf(b)); }
 function bwDraftResume(){
   var d=window._bwDraftOffer, b=window._bw; if(!d||!b) return;
-  var keep=b.channel; Object.assign(b, d.data||{}); b.channel=keep; b.schedOpen=false;
+  var keep=b.channel; Object.assign(b, d.data||{}); b.channel=keep; b.schedOpen=false; b.draftId=d.id;
   window._bwDraftOffer=null;
   if(b.step===2 && typeof _bwLoadTpls==='function') _bwLoadTpls();
   bwRender(); showToast('Draft opened');
 }
-function bwDraftDiscard(){ var b=window._bw; window._bwDraftOffer=null; if(b) _odClear('bw_'+b.channel); bwRender(); showToast('Draft deleted'); }
+function bwDraftDiscard(){ var b=window._bw, d=window._bwDraftOffer; window._bwDraftOffer=null; if(b&&d) _odDel('bw_'+b.channel, d.id); bwRender(); showToast('Draft deleted'); }
 
 function openBulkWiz(channel){
   if(channel==='email' && window._isTelecaller){ showToast('Not available for telecaller accounts'); return; }
   window._bw={ channel:channel, step:1, msg:'', subj:'', camp:'', svcs:{}, locs:{}, stages:{}, excluded:{}, schedOpen:false, at:'' };
   window._bwDraftOffer=null;
-  _odLoad('bw_'+channel).then(function(d){
-    var b=window._bw; if(!d||!d.data||!d.data.camp||!b||b.channel!==channel||b.step!==1) return;
+  _odList('bw_'+channel).then(function(all){
+    var d=(all||[]).find(function(x){ return x.data && x.data.camp; });
+    var b=window._bw; if(!d||!b||b.channel!==channel||b.step!==1||b.draftId) return;
     window._bwDraftOffer=d; bwRender();
   });
   if(channel==='email' && isClientMode() && window._myEmailId===undefined){
@@ -11030,7 +11045,7 @@ async function bwLaunch(schedIso){
     }catch(e){}
   }
   closeSheet('bulkWizSh');
-  if(made) _odClear('bw_'+b.channel); // import-10zzl: sent — the draft is done
+  if(made && b.draftId) _odDel('bw_'+b.channel, b.draftId); // import-10zzl: sent — the draft is done
   if(made){
     // 6. Straight to the right report so they can watch it happen.
     window._rptTab=(b.channel==='sms')?'sms':'email';
@@ -28017,32 +28032,45 @@ function _aoDraftOf(w){
 function _aoDraftAuto(){
   var w=_ao&&_ao.w; if(!w || _ao.view!=='wiz' || w._noDraft) return;
   if(!(w.campaign_id && (w.step>1 || w.aud || w.fuDirty || w.name))) return;
-  _odSave('ao', _aoDraftOf(w));
+  if(!w.draftId) w.draftId=_odNewId();
+  _odSave('ao', w.draftId, _aoDraftOf(w));
 }
 // typing in a round's fields (name, note, messages) also keeps the draft current
 document.addEventListener('input', function(e){
   try{ if(_ao && _ao.view==='wiz' && e.target && e.target.closest && e.target.closest('#bkcBody')) setTimeout(_aoDraftAuto, 50); }catch(_e){}
 }, true);
+function _aoDraftsOk(){ return (_ao.drafts||[]).filter(function(d){ return d.data && d.data.campaign_id && (_ao.camps||[]).some(function(c){ return String(c.id)===String(d.data.campaign_id); }); }); }
+function _aoDraftItem(d, top){
+  var x=d.data||{}, camp=(_ao.camps||[]).find(function(c){ return String(c.id)===String(x.campaign_id); })||{};
+  return '<div style="background:#f6f3ff;border:1px solid #e3dcff;border-radius:14px;padding:12px 14px;margin:0 0 10px">'
+    +'<div style="font-size:13.5px;font-weight:600;color:var(--text)">'+(top?'Draft: ':'')+_aoE(x.name||camp.name||'Call round')+'</div>'
+    +'<div style="font-size:12px;color:var(--sub);margin-top:2px">'+(top?'':_aoE(camp.name||'')+' · ')+'Step '+(Number(x.step)||1)+' of 4 · saved '+_odAgo(d.updated_at)+(x.fuDirty?' · edited messages kept':'')+'</div>'
+    +'<div style="display:flex;gap:8px;margin-top:10px"><button class="ao-btn" onclick="aoDraftResume(\''+_aoE(d.id)+'\')" style="flex:2;margin:0;border-color:#4000f3;color:#4000f3;font-weight:600">Continue draft</button>'
+    +'<button class="ao-btn" onclick="aoDraftDiscard(\''+_aoE(d.id)+'\')" style="flex:1;margin:0">Delete</button></div></div>';
+}
+function _aoDraftPaintTop(){
+  var el=document.getElementById('aoDraft'); if(!el) return;
+  var ok=_aoDraftsOk();
+  el.innerHTML=(ok.length && _ao.filter!=='drafts') ? _aoDraftItem(ok[0], true) : '';
+}
 function _aoDraftCard(){
-  _odLoad('ao').then(function(d){
-    var el=document.getElementById('aoDraft'); if(!el || _ao.view!=='home') return;
-    _ao.draft=d||null;
-    if(!d||!d.data||!d.data.campaign_id){ el.innerHTML=''; return; }
-    var x=d.data, camp=(_ao.camps||[]).find(function(c){ return String(c.id)===String(x.campaign_id); });
-    if(!camp){ el.innerHTML=''; return; }
-    el.innerHTML='<div style="background:#f6f3ff;border:1px solid #e3dcff;border-radius:14px;padding:12px 14px;margin:0 0 10px">'
-      +'<div style="font-size:13.5px;font-weight:600;color:var(--text)">Draft: '+_aoE(x.name||camp.name||'Call round')+'</div>'
-      +'<div style="font-size:12px;color:var(--sub);margin-top:2px">Step '+(Number(x.step)||1)+' of 4 · saved '+_odAgo(d.updated_at)+(x.fuDirty?' · your edited messages are kept':'')+'</div>'
-      +'<div style="display:flex;gap:8px;margin-top:10px"><button class="ao-btn" onclick="aoDraftResume()" style="flex:2;margin:0;border-color:#4000f3;color:#4000f3;font-weight:600">Continue draft</button>'
-      +'<button class="ao-btn" onclick="aoDraftDiscard()" style="flex:1;margin:0">Delete</button></div></div>';
+  _odList('ao').then(function(list){
+    if(_ao.view!=='home') return;
+    _ao.drafts=list||[];
+    _aoDraftPaintTop();
+    _aoRenderRounds();
   });
 }
-function aoDraftDiscard(){ _odClear('ao'); _ao.draft=null; var el=document.getElementById('aoDraft'); if(el) el.innerHTML=''; showToast('Draft deleted'); }
-async function aoDraftResume(){
-  var d=_ao.draft; if(!d||!d.data) return;
+function aoDraftDiscard(id){
+  _odDel('ao', id);
+  _ao.drafts=(_ao.drafts||[]).filter(function(d){ return d.id!==id; });
+  _aoDraftPaintTop(); _aoRenderRounds(); showToast('Draft deleted');
+}
+async function aoDraftResume(id){
+  var d=(_ao.drafts||[]).find(function(x){ return x.id===id; }); if(!d||!d.data) return;
   aoNew(); var w=_ao.w; if(!w) return;
   var x=d.data;
-  Object.assign(w, x, { pv:null, loading:false, busy:false, tested:false, testNo:'', fuEdit:null, pickCamp:false });
+  Object.assign(w, x, { pv:null, loading:false, busy:false, tested:false, testNo:'', fuEdit:null, pickCamp:false, draftId:d.id });
   w._restore={ step:Number(x.step)||1, picked:x.picked||{}, srcs:x.srcs||[], product:x.product==null?null:x.product, fu:x.fu||null, fuDirty:!!x.fuDirty };
   if(w.campaign_id && w.aud){ w.step=1; await aoLoadPreview(); }
   else { delete w._restore; aoWiz(); }
@@ -28073,10 +28101,17 @@ function _aoRenderRounds(){
     +(tc.fly||ty==='fly'?'<button class="ao-fchip'+(ty==='fly'?' on':'')+'" onclick="_ao.ftype=\'fly\';_aoRenderRounds()">Digital Flyers <i>'+tc.fly+'</i></button>':'')
     +(tc.ce||ty==='ce'?'<button class="ao-fchip'+(ty==='ce'?' on':'')+'" onclick="_ao.ftype=\'ce\';_aoRenderRounds()">AI Conversion Engine <i>'+tc.ce+'</i></button>':'')
     +'</div>';
-  fh+='<div class="ao-row" style="margin:6px 0 4px"><div class="ao-utabs">'+[['all','All'],['active','Active'],['sched','Scheduled'],['done','Finished']].map(function(t){ return '<button class="'+(f===t[0]?'on':'')+'" onclick="_ao.filter=\''+t[0]+'\';_aoRenderRounds()">'+t[1]+(cnt[t[0]]?' <i>'+cnt[t[0]]+'</i>':'')+'</button>'; }).join('')+'</div>'
+  fh+='<div class="ao-row" style="margin:6px 0 4px"><div class="ao-utabs">'+[['all','All'],['active','Active'],['sched','Scheduled'],['done','Finished']].concat(_aoDraftsOk().length||f==='drafts'?[['drafts','Drafts ('+_aoDraftsOk().length+')']]:[]).map(function(t){ return '<button class="'+(f===t[0]?'on':'')+'" onclick="_ao.filter=\''+t[0]+'\';_aoRenderRounds()">'+t[1]+(cnt[t[0]]?' <i>'+cnt[t[0]]+'</i>':'')+'</button>'; }).join('')+'</div>'
     +(runs.length?'<button class="ao-link" style="font-weight:500" onclick="_ao.selMode=!_ao.selMode;if(!_ao.selMode)_ao.sel={};_aoRenderRounds()">'+(_ao.selMode?'Done':'Select')+'</button>':'')+'</div>';
   fEl.innerHTML=fh;
   var h='';
+  _aoDraftPaintTop();
+  if(f==='drafts'){ // import-10zzm: every saved draft, newest first
+    var ds=_aoDraftsOk();
+    h=ds.length ? '<div class="ao-lbl" style="margin:12px 0 8px 2px">Drafts ('+ds.length+')</div>'+ds.map(function(d){ return _aoDraftItem(d,false); }).join('')
+      : '<div class="ao-empty" style="margin-top:10px">No drafts. A call round you start setting up is saved here until you launch it.</div>';
+    lEl.innerHTML=h; return;
+  }
   if(!all.length) h='<div class="ao-empty" style="margin-top:10px">No call rounds yet.<br>Tap <b>+ New call round</b> to pick leads, choose the goal and launch.</div>';
   else if(!runs.length) h='<div class="ao-empty" style="margin-top:10px">No call rounds match.'+(q||ty||ln?'<br><button class="ao-link" onclick="_ao.q=\'\';_ao.ftype=\'\';_ao.fline=\'\';aoHome()">Clear search and filters</button>':'')+'</div>';
   else {
@@ -28762,7 +28797,7 @@ function aoLaunch(sched){
     var d=await _aoPost('start',p);
     w.busy=false;
     if(d.error){ showToast(d.error); return; }
-    w._noDraft=true; _odClear('ao'); // import-10zzl: launched — the draft is done
+    w._noDraft=true; if(w.draftId) _odDel('ao', w.draftId); // import-10zzl: launched — the draft is done
     var hrs='Calls go out '+_aoFmtMin(p.start_min)+'–'+_aoFmtMin(p.end_min)+' in each lead\u2019s own time zone, '+AO_DAYS.filter(function(x){ return p.days.indexOf(x[0])>=0; }).map(function(x){ return x[1]; }).join(', ')+'.';
     if(!d.scheduled) showToast(d.live===false?'✅ Call round saved — calls start once calling is switched live':'🚀 Call round launched — '+d.queued+' leads queued');
     _ao.view='home'; _ao.w=null; await aoLoadList(); aoHome();
