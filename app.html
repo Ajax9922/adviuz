@@ -5096,7 +5096,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-27 import-10zzm';
+var APP_VERSION = 'v2026-10-27 import-10zzn';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -28666,6 +28666,51 @@ function _aoFuBody(f){
   var d=_aoFuInit(null), edited=w.fu[f.key]!==d[f.key]||(f.key==='e3'&&w.fu.s3!==d.s3);
   return '<div class="ao-script" style="margin:2px 0 6px">'+f.prev+'</div><div class="ao-row" style="gap:8px;margin-bottom:10px"><button class="ao-sm" onclick="aoFuEdit(\''+f.key+'\')">✏️ Edit</button>'+(edited?'<span class="ao-t">Edited</span>':'')+'</div>';
 }
+// import-10zzn: "Reply STOP to opt out." always sits on its own last line of a text.
+function _aoStopLine(t){
+  var x=String(t||'').replace(/[ \t]*[,;\-–—]?\s*(?:or\s+)?(?:just\s+|please\s+)?(?:reply|text)\s+stop(?:\s+(?:to\s+)?(?:opt[\s-]*out|unsubscribe|end))?[.!]?/gi,'');
+  x=x.replace(/\s+(?:or|and)\s*$/i,'').replace(/[ \t]+\n/g,'\n').replace(/\s+$/,'');
+  if(/[A-Za-z0-9)]$/.test(x)) x+='.';
+  return x ? x+'\n\nReply STOP to opt out.' : '';
+}
+// import-10zzn: send a follow-up text / email as a TEST to your own phone or inbox.
+function aoFuTest(kind, text, subject){
+  var w=_ao.w||{}, isE=kind==='email', me=window._clientData||{}, brand=_aoBrand();
+  var camp=(_ao.camps||[]).find(function(c){ return String(c.id)===String(w.campaign_id); })||{};
+  var key='ao_test_to_'+(isE?'email':'sms'), saved=''; try{ saved=localStorage.getItem(key)||''; }catch(_e){}
+  var def=saved||(isE?(me.email||((typeof currentUser!=='undefined'&&currentUser&&currentUser.email)||'')):(w.testNo||me.phone||''));
+  var first=String(w.testName||me.contact_name||'').trim().split(/\s+/)[0]||'Alex';
+  var pz=function(t){ return String(t||'').replace(/\{name\}/g,first).replace(/\{business\}/g,brand).replace(/\{book_link\}/g,'(your booking link)'); };
+  var ov=document.createElement('div'); ov.className='sheet-ov open'; ov.style.zIndex='9992';
+  ov.innerHTML='<div class="sheet"><div class="sheet-handle"></div><div class="sheet-head"><div class="sheet-title">Send a test '+(isE?'email':'text')+'</div><button class="sheet-x">&#x2715;</button></div>'
+    +'<div class="sh-body" style="padding:6px 16px calc(28px + env(safe-area-inset-bottom))">'
+    +'<div class="ao-s" style="margin-bottom:10px;line-height:1.5">'+(isE?'It goes out from '+_aoE(brand)+'’s real email address, with “[Test]” in the subject.':'It goes out from '+_aoE(brand)+'’s real business number and uses one text from the balance.')+' {first name} shows as “'+_aoE(first)+'”.</div>'
+    +'<input id="aoFtTo" class="ao-inp" type="'+(isE?'email':'tel')+'" placeholder="'+(isE?'Your email address':'Your phone number')+'" value="'+_aoE(def)+'">'
+    +'<button class="ao-btn ao-prim ao-icbtn" data-go style="margin-top:12px">'+_aoI(isE?'mail':'send',17)+'Send test</button></div></div>';
+  ov.addEventListener('click', async function(e){
+    if(e.target===ov||e.target.closest('.sheet-x')){ ov.remove(); return; }
+    var go=e.target.closest('[data-go]'); if(!go) return;
+    var to=String(ov.querySelector('#aoFtTo').value||'').trim();
+    if(isE){ if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(to)){ showToast('Enter an email address'); return; } }
+    else { var dg=to.replace(/\D/g,''); if(!(dg.length===10||(dg.length===11&&dg[0]==='1'))){ showToast('Enter a 10-digit phone number'); return; } }
+    go.disabled=true; go.textContent='Sending…';
+    try{
+      var r, d;
+      if(isE){
+        r=await sbFetch('/functions/v1/client-email',{ method:'POST', body: JSON.stringify({ client_id:camp.client_id||window._clientId||null, lead_id:null, campaign_id:w.campaign_id||null, to:to, subject:'[Test] '+pz(subject), message:pz(text) }) });
+        d=await r.json().catch(function(){return{};});
+        if(r.ok&&!(d&&d.ok===false)&&!(d&&d.error)){ try{ localStorage.setItem(key,to); }catch(_e){} ov.remove(); showToast('Test email sent — check your inbox'); return; }
+      } else {
+        r=await sbFetch('/functions/v1/twilio-sms',{ method:'POST', body: JSON.stringify({ to:to, message:pz(text), lead_id:'', client_id:camp.client_id||window._clientId||'', campaign_id:w.campaign_id||null, purpose:'test' }) });
+        d=await r.json().catch(function(){return{};});
+        if(r.ok&&!d.error){ try{ localStorage.setItem(key,to); }catch(_e){} ov.remove(); showToast('Test text sent — check your phone'); return; }
+      }
+      showToast('Could not send: '+((d&&d.error)||('HTTP '+r.status)));
+    }catch(_e){ showToast('Could not send the test'); }
+    go.disabled=false; go.innerHTML=_aoI(isE?'mail':'send',17)+'Send test';
+  });
+  document.body.appendChild(ov); setTimeout(function(){ var i=ov.querySelector('#aoFtTo'); if(i) i.focus(); },250);
+}
 // Edit a follow-up text / email like a message window: preview on top (what the lead sees),
 // typing box at the bottom with ✨ Write with AI and Save (Ajax 2026-10-14).
 function aoFuEdit(k){
@@ -28678,7 +28723,7 @@ function aoFuEdit(k){
     +(isE?'<div id="aoEdPv" hidden></div>':'')
     +(isE?'<input id="aoEdS" class="ao-inp" maxlength="140" placeholder="Subject" value="'+_aoE(w.fu.s3)+'" style="margin-bottom:8px">':'')
     +'<textarea id="aoEdT" class="ao-inp ao-ed-ta" maxlength="'+(isE?4000:480)+'" placeholder="Type your '+(isE?'email':'message')+'…">'+_aoE(w.fu[k])+'</textarea>'
-    +'<div class="ao-row" style="gap:6px;margin:8px 0 2px;overflow-x:auto"><button class="ao-tok" data-ins="{name}">+ First name</button><button class="ao-tok" data-ins="{business}">+ Business</button>'+(isE?'<button class="ao-tok" data-ins="{book_link}">+ Booking link</button>':'')+'<span class="ao-t" id="aoEdCnt" style="margin-left:auto;white-space:nowrap"></span></div>'
+    +'<div class="ao-row" style="gap:6px;margin:8px 0 2px;flex-wrap:wrap"><button class="ao-tok" data-ins="{name}">+ First name</button><button class="ao-tok" data-ins="{business}">+ Business</button>'+(isE?'<button class="ao-tok" data-ins="{book_link}">+ Booking link</button>':'')+'<button class="ao-tok" data-test style="color:#4000f3;border-color:#d9d0ff;display:inline-flex;align-items:center;gap:5px">'+_aoI(isE?'mail':'send',13)+'Send test</button><span class="ao-t" id="aoEdCnt" style="margin-left:auto;white-space:nowrap"></span></div>'
     +'<div class="ao-row" style="gap:8px;margin-top:8px"><button class="ao-btn ao-icbtn" data-ai style="margin:0;flex:1">'+_aoI('spark',17)+(isE?'AI':'Write with AI')+'</button>'+(isE?'<button class="ao-btn ao-icbtn" data-pv style="margin:0;flex:1">'+_aoI('mail',17)+'Preview</button>':'')+'<button class="ao-btn ao-prim ao-icbtn" data-save style="margin:0;flex:1">'+_aoI('check',17)+'Save</button></div>'
     +'</div></div>';
   var ta=ov.querySelector('#aoEdT'), sj=ov.querySelector('#aoEdS'), pv=ov.querySelector('#aoEdPv'), cnt=ov.querySelector('#aoEdCnt'), last=ta;
@@ -28687,7 +28732,7 @@ function aoFuEdit(k){
   var draw=function(){
     var t=ta.value;
     if(isE){ pv.innerHTML='<div class="ao-pvlbl">What Alex will see</div><div class="ao-mail"><div class="ao-mail-h"><div class="ao-mail-av">'+_aoE(brand.charAt(0)||'A')+'</div><div style="min-width:0"><div class="ao-nm">'+_aoE(brand)+'</div><div class="ao-t">to Alex</div></div></div><div class="ao-mail-s">'+fill(sj?sj.value:'')+'</div><div class="ao-mail-b">'+fill(t)+'</div></div>'; cnt.textContent=''; }
-    else { var out=t.trim(); if(out && !/\bSTOP\b/.test(out)) out+=' Reply STOP to opt out.';
+    else { var out=_aoStopLine(t.trim());
       pv.innerHTML='<div class="ao-pvlbl">'+_aoE(brand)+' · Text message</div><div class="ao-sms-b">'+(fill(out)||'<span class="ao-t">Your text appears here</span>')+'</div><div class="ao-t" style="margin:6px 4px 0">Example with the name Alex</div>';
       var n=out.replace(/\{name\}/g,'Alex').replace(/\{business\}/g,brand).length; cnt.textContent=n+' chars · '+(n<=160?'1 text':Math.ceil(n/153)+' texts'); }
   };
@@ -28700,10 +28745,11 @@ function aoFuEdit(k){
     var ins=e.target.closest('[data-ins]'); if(ins){ var el=last||ta, v=ins.getAttribute('data-ins'), a=el.selectionStart==null?el.value.length:el.selectionStart, b=el.selectionEnd==null?a:el.selectionEnd; el.value=el.value.slice(0,a)+v+el.value.slice(b); el.focus(); el.selectionStart=el.selectionEnd=a+v.length; grow(); draw(); return; }
     if(e.target.closest('[data-reset]')){ var d=_aoFuInit(null); setText(d[k], isE?d.s3:''); return; }
     if(e.target.closest('[data-pv]')){ draw(); aoInfo('Email preview', pv.innerHTML); return; }
+    if(e.target.closest('[data-test]')){ var tt=ta.value.trim(); if(tt.length<10){ showToast('The message is too short'); return; } aoFuTest(isE?'email':'sms', isE?tt:_aoStopLine(tt), sj?sj.value:''); return; }
     if(e.target.closest('[data-ai]')){ aoAiWrite(isE?'email':'sms', k, ta.value, sj?sj.value:'', setText); return; }
     if(e.target.closest('[data-save]')){
       var t=ta.value.trim(); if(t.length<10){ showToast('The message is too short'); return; }
-      if(!isE && !/\bSTOP\b/.test(t)) t=t.replace(/\s*$/,'')+' Reply STOP to opt out.';
+      if(!isE) t=_aoStopLine(t);
       w.fu[k]=t; if(isE && sj && sj.value.trim()) w.fu.s3=sj.value.trim();
       w.fuDirty=true; ov.remove(); showToast('Saved'); aoWiz();
     }
