@@ -5096,7 +5096,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-27 import-10zzn';
+var APP_VERSION = 'v2026-10-27 import-10zzo';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -28316,6 +28316,8 @@ function aoWiz(){
       b.innerHTML=h; return;
     }
     h+='<div class="ao-lbl" style="margin-top:10px">Calling</div><div class="ao-pick" style="cursor:default"><span style="display:inline-flex;align-items:center;gap:9px"><span style="color:#4000f3">'+_bi(w.aud==='customers'?_BI.star:_BI.userplus,17)+'</span>'+(w.aud==='customers'?'Existing customers':'Leads')+'</span><button class="ao-link" onclick="aoAud(\'\')">Change</button></div>';
+    // import-10zzo: name the round right at the start (also editable on the last step and after launch)
+    h+='<div class="ao-lbl" style="margin-top:14px">Name this call round</div><input class="ao-inp" maxlength="80" placeholder="e.g. Hair Loss — Fall reactivation" value="'+_aoE(w.name||'')+'" oninput="_ao.w.name=this.value;_ao.w.nameSet=true">';
     if(w.loading||!w.pv){ b.innerHTML=h+'<div style="text-align:center;padding:30px 0"><div class="ai-spin"></div><div class="ao-s" style="margin-top:8px">Checking every lead against the safety rules…</div></div>'; return; }
     if(w.pv.has_number===false) h+='<div class="ao-note ao-note-red">This campaign has no calling number and AI agent yet. Contact Adviuz to set one up.</div>';
     // import-10zzc: the whole campaign at a glance
@@ -28946,6 +28948,34 @@ function aoRangePick(k){
     if(e.target.closest('[data-ok]')){ var a=ov.querySelector('#aoRgF').value, z=ov.querySelector('#aoRgT').value; if(!a||!z){ showToast('Pick both dates'); return; } if(a>z){ var t=a; a=z; z=t; } _ao.range={k:'custom',from:a,to:z}; ov.remove(); aoReport(); } });
   document.body.appendChild(ov);
 }
+// import-10zzo: rename a call round after it has started
+function aoRename(id){
+  var d=_ao.rep, r=(d&&d.run&&d.run.id===id)?d.run:(_aoRuns().find(function(x){ return x.id===id; })||{});
+  var ov=document.createElement('div'); ov.className='sheet-ov open'; ov.style.zIndex='9990';
+  ov.innerHTML='<div class="sheet"><div class="sheet-handle"></div><div class="sheet-head"><div class="sheet-title">Rename call round</div><button class="sheet-x">&#x2715;</button></div>'
+    +'<div class="sh-body" style="padding:6px 16px calc(28px + env(safe-area-inset-bottom))">'
+    +'<input id="aoRnIn" class="ao-inp" maxlength="80" value="'+_aoE(r.name||'')+'">'
+    +'<button class="ao-btn ao-prim" data-go style="margin-top:12px">Save name</button></div></div>';
+  ov.addEventListener('click', async function(e){
+    if(e.target===ov||e.target.closest('.sheet-x')){ ov.remove(); return; }
+    var go=e.target.closest('[data-go]'); if(!go) return;
+    var nm=String(ov.querySelector('#aoRnIn').value||'').trim();
+    if(!nm){ showToast('Enter a name'); return; }
+    go.disabled=true; go.textContent='Saving…';
+    try{
+      var res=await sbFetch('/rest/v1/rpc/rename_call_round',{method:'POST',body:JSON.stringify({p_run:id,p_name:nm})});
+      var j=await res.json().catch(function(){ return null; });
+      if(!res.ok){ showToast((j&&j.message)||'Could not rename'); go.disabled=false; go.textContent='Save name'; return; }
+      var saved=typeof j==='string'?j:nm;
+      if(d&&d.run&&d.run.id===id) d.run.name=saved;
+      _aoRuns().forEach(function(x){ if(x.id===id) x.name=saved; });
+      try{ if(_ao.repCache&&_ao.repCache[id]&&_ao.repCache[id].run) _ao.repCache[id].run.name=saved; }catch(_e){}
+      ov.remove(); showToast('Renamed');
+      if(_ao.view==='report') aoReport(); else if(_ao.view==='home') _aoRenderRounds();
+    }catch(_e){ showToast('Could not rename'); go.disabled=false; go.textContent='Save name'; }
+  });
+  document.body.appendChild(ov); setTimeout(function(){ var i=ov.querySelector('#aoRnIn'); if(i){ i.focus(); i.select(); } },250);
+}
 function aoReport(){
   var d=_ao.rep, b=_aoBody(); if(!d||!b) return;
   var r=d.run, st=_aoStatus(Object.assign({},r,{left:d.left,following:d.following})), left=Number(d.minutes_left||0);
@@ -28954,6 +28984,7 @@ function aoReport(){
   var used=Number(m.total||0), avg=f.called?(used/f.called):1.6, max=Math.max(1,f.called||0);
   var h='<div class="ao-dhead"><div class="ao-row" style="gap:8px"><span class="ao-pill '+st[1]+'">'+st[0]+'</span>'+(/^\[DEMO\]/.test(r.name||'')?'<span class="ao-demo">Demo</span>':'')+'</div>'
     +'<div class="ao-t" style="margin-top:6px">'+_aoE(d.campaign_name)+' · '+((r.purpose==='offer'||r.purpose==='announce')?'Special offer':'Book appointment')+' · '+(r.status==='scheduled'?'Starts '+_aoLongDT(r.scheduled_for):'Started '+_aoDate(r.created_at))+'</div>'
+    +(/^\[DEMO\]/.test(r.name||'')?'':'<button class="ao-link" style="margin-top:6px;font-weight:500;display:inline-flex;align-items:center;gap:5px" onclick="aoRename(\''+_aoE(r.id)+'\')"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>Rename</button>')
     +'<div class="ao-dsum"><button onclick="aoCallsShow(\'all\',1)"><b>'+Number(r.called||0).toLocaleString('en-CA')+'</b><span>Called ›</span></button><button onclick="aoCallsShow(\'talked\',1)"><b>'+(r.connected||0)+'</b><span>Talked ›</span></button><button onclick="aoCallsShow(\'booked\',1)"><b style="color:var(--green)">'+(r.booked||0)+'</b><span>Booked ›</span></button><div><b>'+(r.minutes_used||0)+'</b><span>Min used</span></div></div>'
     +_aoBigActions(r, left)+'</div>';
   h+='<div class="ao-lbl" style="margin-top:4px">Report</div><div class="ao-tabs ao-tabs-scroll" style="margin-bottom:12px">'+AO_RANGES.map(function(x){ return '<button class="'+(rk===x[0]?'on':'')+'" onclick="aoRangePick(\''+x[0]+'\')">'+(x[0]==='custom'&&rk==='custom'?'📅 '+_aoRangeLabel(_ao.range):(x[0]==='custom'?'📅 Custom':x[1]))+'</button>'; }).join('')+'</div>';
