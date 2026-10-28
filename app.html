@@ -5481,10 +5481,12 @@ async function applyRoleGate(user){
     // something it would allow.
     window._telecallerScope = (m.lead_scope && typeof m.lead_scope==='object') ? m.lead_scope : {};
     // rev-1: owner can hide revenue from this person (reports start at Pipeline)
-    window._hideRevenue = false;
+    window._hideRevenue = false; window._hidePayments = false;
     try {
-      var _rvR = await sbFetch('/rest/v1/client_members?select=show_revenue&user_id=eq.'+user.id+'&client_id=eq.'+m.client_id+'&limit=1');
-      if(_rvR.ok){ var _rvA = await _rvR.json(); window._hideRevenue = !!(_rvA[0] && _rvA[0].show_revenue === false); }
+      var _rvR = await sbFetch('/rest/v1/client_members?select=*&user_id=eq.'+user.id+'&client_id=eq.'+m.client_id+'&limit=1');
+      if(_rvR.ok){ var _rvA = await _rvR.json(); var _rv0 = _rvA[0] || {};
+        window._hideRevenue  = _rv0.show_revenue  === false;
+        window._hidePayments = _rv0.show_payments === false; }
     } catch(_e){}
     // Name for the "Me" screen comes from user_profiles.display_name; the
     // job title is the role the owner gave them on the roster (client_members).
@@ -7564,7 +7566,7 @@ function _bellActionItems(){
   (leads||[]).forEach(function(l){
     var name=l.company||l.name||'Lead';
     if(l.call_wrapup_pending) out.push({kind:'wrapup',dbId:l.dbId,name:name,sort:4});
-    if(/deal closed/i.test(String(l.stage||'')) && (l.deal_value==null||l.deal_value===''||Number(l.deal_value)===0))
+    if(!window._hidePayments && /deal closed/i.test(String(l.stage||'')) && (l.deal_value==null||l.deal_value===''||Number(l.deal_value)===0))
       out.push({kind:'deal',dbId:l.dbId,name:name,sort:3});
     if(l.meeting_date){ var mt=new Date(l.meeting_date).getTime(); if(mt&&mt<=now&&!l.meeting_outcome) out.push({kind:'meeting',dbId:l.dbId,name:name,sort:2}); }
     if(l.next_followup && !_isClosedStage(l.stage)){ var ft=new Date(l.next_followup).getTime(); if(ft&&ft<=now) out.push({kind:'followup',dbId:l.dbId,name:name,when:l.next_followup,sort:1}); }
@@ -19051,6 +19053,7 @@ function renderLeadScreen(id) {
     });
     _schedItems.sort(function(x,y){ return x._when-y._when; });
   }catch(e){}
+  if(actFilter==='payment' && window._hidePayments) actFilter='all'; // rev-1
   var filteredActs = (actFilter==='payment') ? _pmtItems : (actFilter==='sched') ? _schedItems : acts.filter(filterGroups[actFilter]||filterGroups.all);
   var filterTabs = [
     {k:'all',    icon:'🕐', label:'All'},
@@ -19068,7 +19071,7 @@ function renderLeadScreen(id) {
   // ── rpt-1: Deal payments — the client's own revenue from this lead.
   // Multiple entries per lead; the total is kept in sync by the database.
   var _pmIsClosed = /deal closed/i.test(String(l.stage||''));
-  if (_pmIsClosed || (Number(l.deal_value)||0) > 0) {
+  if (!window._hidePayments && (_pmIsClosed || (Number(l.deal_value)||0) > 0)) {   // rev-1: owner can hide payments
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:8px">';
   h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
   h += '<div style="font-size:11px;font-weight:500;color:var(--sub);letter-spacing:.07em;text-transform:uppercase">Deal Payments</div>';
@@ -19089,6 +19092,7 @@ function renderLeadScreen(id) {
   h += '<div class="act-chips" onwheel="if(this.scrollWidth>this.clientWidth&&Math.abs(event.deltaY)>Math.abs(event.deltaX)){this.scrollLeft+=event.deltaY;event.preventDefault();}">';
   filterTabs.forEach(function(tab){
     var isActive = actFilter === tab.k;
+    if(tab.k==='payment' && window._hidePayments) return; // rev-1
     var count = (tab.k==='payment') ? _pmtItems.length : (tab.k==='sched') ? _schedItems.length : acts.filter(filterGroups[tab.k]).length;
     if(tab.k !== 'all' && count === 0) return; // hide empty filters
     h += '<button onclick="setActFilter(this)" data-filter="'+tab.k+'" data-lid="'+l.id+'" style="'
@@ -45423,14 +45427,14 @@ document.addEventListener('click', function(ev){
     var _mBase = '/rest/v1/client_members?client_id=eq.'+encodeURIComponent(cid())+'&select=id,user_id,role,lead_scope,is_active,user_type,phone';
     // mask-1: ask for mask_contacts too; if that column isn't live yet, fall back to the old list
     // rev-1: also show_revenue; each newer column falls back cleanly if it isn't live yet
-    var mReq = sbFetch(_mBase+',mask_contacts,show_revenue')
-                 .then(function(r){
-                   if(r&&r.ok){ window._teMaskCol=true; window._teRevCol=true; return r.json(); }
-                   window._teRevCol=false;
-                   return sbFetch(_mBase+',mask_contacts').then(function(r1){
-                     if(r1&&r1.ok){ window._teMaskCol=true; return r1.json(); }
-                     window._teMaskCol=false; return sbFetch(_mBase).then(function(r2){ return r2&&r2.ok?r2.json():[]; });
-                   });
+    var mReq = sbFetch('/rest/v1/client_members?client_id=eq.'+encodeURIComponent(cid())+'&select=*')
+                 .then(function(r){ return r&&r.ok?r.json():[]; })
+                 .then(function(rows){
+                   var k = rows && rows[0] ? rows[0] : null;   // which settings exist (all, once the DB is updated)
+                   window._teMaskCol = k ? ('mask_contacts' in k) : true;
+                   window._teRevCol  = k ? ('show_revenue'  in k) : true;
+                   window._tePayCol  = k ? ('show_payments' in k) : true;
+                   return rows||[];
                  })
                  .catch(function(){ return []; });
     // Server-side truth: every login tied to this account (roster, profiles, AND any stray
@@ -45567,6 +45571,7 @@ document.addEventListener('click', function(ev){
       is_active: existing ? (m.is_active!==false) : true,
       mask: existing ? (m.mask_contacts===true) : true,   // mask-1: new members start hidden
       rev:  existing ? (m.show_revenue!==false) : false,  // rev-1: new members don't see revenue
+      pay:  existing ? (m.show_payments!==false) : false, // rev-1: …or payments on leads
       camps: arr(o,'campaign_id'),
       locs:  arr(o,'location'),
       svcs:  arr(o,'service')
@@ -45581,6 +45586,7 @@ document.addEventListener('click', function(ev){
   window._teActive = function(){ draft.is_active=!draft.is_active; renderUserEdit(); };
   window._teMask = function(){ draft.mask=!draft.mask; renderUserEdit(); };
   window._teRev = function(){ draft.rev=!draft.rev; renderUserEdit(); };
+  window._tePay = function(){ draft.pay=!draft.pay; renderUserEdit(); };
 
   // "All" is simply an empty list — no limit. Ticking All clears the list;
   // unticking one box out of All keeps every other box ticked.
@@ -45716,6 +45722,9 @@ document.addEventListener('click', function(ev){
       +(window._teRevCol ? '<div class="te-row" style="border:1.5px solid var(--border);border-radius:11px;padding:10px 12px;margin-bottom:14px">'
         +'<div><div class="te-rname">Show revenue</div><div class="te-rsub">'+(draft.rev?'They see revenue and deal size in Reports':'Reports start at Pipeline \u2014 no revenue shown')+'</div></div>'
         +'<div class="te-sw '+(draft.rev?'on':'')+'" onclick="_teRev()"></div></div>' : '')
+      +(window._tePayCol ? '<div class="te-row" style="border:1.5px solid var(--border);border-radius:11px;padding:10px 12px;margin-bottom:14px">'
+        +'<div><div class="te-rname">Show payments on leads</div><div class="te-rsub">'+(draft.pay?'They see Deal Payments and the payment history on each lead':'Deal Payments and payment amounts are hidden on leads')+'</div></div>'
+        +'<div class="te-sw '+(draft.pay?'on':'')+'" onclick="_tePay()"></div></div>' : '')
       +(isNew?'':teDevicesBlock())
       +(isNew?'':'<div class="te-row" style="border:1.5px solid var(--border);border-radius:11px;padding:10px 12px;margin-bottom:12px">'
         +'<div><div class="te-rname">Access</div><div class="te-rsub">'+(draft.is_active?'They can sign in':'Paused \u2014 signed out everywhere, cannot sign in')+'</div></div>'
@@ -45766,6 +45775,7 @@ document.addEventListener('click', function(ev){
           var _newPatch = {};
           if(window._teMaskCol && draft.mask===false) _newPatch.mask_contacts = false;
           if(window._teRevCol && draft.rev===true) _newPatch.show_revenue = true;
+          if(window._tePayCol && draft.pay===true) _newPatch.show_payments = true;
           if(r.d.user_id && Object.keys(_newPatch).length){
             sbFetch('/rest/v1/client_members?user_id=eq.'+encodeURIComponent(r.d.user_id)+'&client_id=eq.'+encodeURIComponent(cid()),
               { method:'PATCH', body: JSON.stringify(_newPatch) }).catch(function(){});
@@ -45791,7 +45801,7 @@ document.addEventListener('click', function(ev){
     // first. The profile is only what people see on screen.
     sbFetch('/rest/v1/client_members?user_id=eq.'+encodeURIComponent(draft.user_id)+'&client_id=eq.'+encodeURIComponent(cid()),
       { method:'PATCH', headers:{'Prefer':'return=representation'},
-        body: JSON.stringify(Object.assign({ role: roleLabel, lead_scope: scope, is_active: draft.is_active, phone: draft.phone||null }, window._teMaskCol ? { mask_contacts: !!draft.mask } : {}, window._teRevCol ? { show_revenue: !!draft.rev } : {})) })
+        body: JSON.stringify(Object.assign({ role: roleLabel, lead_scope: scope, is_active: draft.is_active, phone: draft.phone||null }, window._teMaskCol ? { mask_contacts: !!draft.mask } : {}, window._teRevCol ? { show_revenue: !!draft.rev } : {}, window._tePayCol ? { show_payments: !!draft.pay } : {})) })
       .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
       .then(function(r){
         if(!r.ok) throw new Error((r.d && (r.d.message||r.d.hint)) || 'Access update refused');
