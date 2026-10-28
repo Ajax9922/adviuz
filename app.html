@@ -5096,7 +5096,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-27 import-10zzy';
+var APP_VERSION = 'v2026-10-27 import-10zzz';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6757,6 +6757,8 @@ function mapLead(l, i) {
     human_only:      l.human_only === true,
     do_not_contact:  l.do_not_contact === true,   // dnd-2: texted STOP / said wrong number or not interested
     opted_out_at:    l.opted_out_at || null,
+    dnc_reason:      l.dnc_reason || '',
+    dnc_at:          l.dnc_at || null,
     ai_off:          (l.ai_off && typeof l.ai_off === 'object') ? l.ai_off : {}
   };
 }
@@ -9573,7 +9575,7 @@ function lRow(l,anySel,forceDetailed,slim){
 
   // ── Row 2: company name + person name (subtitle) ──
   var nameRow='<div class="sl-names">'
-    +'<div class="sl-company">'+esc(title)+'</div>'
+    +'<div class="sl-company">'+esc(title)+(l.do_not_contact?' <span style="display:inline-block;vertical-align:1px;margin-left:5px;font-size:9.5px;font-weight:700;letter-spacing:.04em;color:#b91c1c;background:#fee2e2;border-radius:5px;padding:1px 5px">DND</span>':'')+'</div>'
     +(sub?'<div class="sl-person">'+I.person+'<span>'+esc(sub)+'</span></div>':'')
     +'</div>';
 
@@ -9665,13 +9667,14 @@ function lRow(l,anySel,forceDetailed,slim){
 function cardCall(id){ if(typeof doCall==='function') doCall(id); }
 function cardSms(id){ if(typeof openSms==='function') openSms(id); }
 function cardEmail(id){ var l=leads.find(function(x){return x.id===id;}); if(l&&l.em){ location.href='mailto:'+l.em; } else { showToast('No email on file'); } }
-function cardWa(id){ var l=leads.find(function(x){return x.id===id;}); if(l&&l.ph){ var n=String(l.ph).replace(/[^0-9]/g,''); window.open('https://wa.me/'+n,'_blank'); } else { showToast('No phone on file'); } }
+function cardWa(id){ var l=leads.find(function(x){return x.id===id;}); if(l&&l.do_not_contact){ dncInfo(id); return; } if(l&&l.ph){ var n=String(l.ph).replace(/[^0-9]/g,''); window.open('https://wa.me/'+n,'_blank'); } else { showToast('No phone on file'); } }
 
 // ── New SaaS card actions ──
 // SMS Templates: opens the templates sheet for this lead.
 function cardSmsTpl(id){
   var l=leads.find(function(x){return x.id===id;});
   if(!l){ return; }
+  if(l.do_not_contact){ dncInfo(id); return; }
   if(!l.ph){ showToast('No phone number on file'); return; }
   curLid = id;
   window._smsLead = l;
@@ -9683,6 +9686,7 @@ window._pendingIvrLid = null;
 function cardIvrCall(id){
   var l=leads.find(function(x){return x.id===id;});
   if(!l){ return; }
+  if(l.do_not_contact){ dncInfo(id); return; }
   if(!l.ph){ showToast('No phone number on file'); return; }
   window._pendingIvrLid = id;
   var sub=document.getElementById('ivrConfirmSub');
@@ -18072,6 +18076,49 @@ function apStopInfo(localId){
   var l = leads.find(function(x){ return x.id === localId; }); if (!l) return;
   showToast(l.opted_out_at ? '\u26D4 They texted STOP \u2014 the AI won\u2019t contact them. If they text START, contact opens again.' : '\u26D4 They asked not to be contacted \u2014 the AI won\u2019t reach out. Your team can still call or text by hand.');
 }
+// ── dnc-2: Do-not-contact lock (banner, info sheet, owner-only "Allow contact again") ──
+function _dncWhen(l){ try{ return l.dnc_at ? new Date(l.dnc_at).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}) : ''; }catch(e){ return ''; } }
+function _dncCanLift(){ return !!(window._isAdviuzStaff || window._isAccountOwner || window._staffRole==='super_admin'); }
+function dncBannerHTML(l){
+  var why=String(l.dnc_reason||'asked not to be contacted'), when=_dncWhen(l);
+  return '<div onclick="dncInfo('+l.id+')" style="margin:0 0 4px;background:#fef2f2;border-bottom:1px solid #fecaca;padding:11px 16px;display:flex;align-items:center;gap:10px;cursor:pointer">'
+    +'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#b91c1c" stroke-width="1.8" stroke-linecap="round" style="flex-shrink:0"><circle cx="12" cy="12" r="9"/><line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/></svg>'
+    +'<div style="flex:1;min-width:0;font-size:13px;color:#991b1b;line-height:1.4"><b>Do not contact</b> — '+_smsEsc(why)+(when?' on '+_smsEsc(when):'')+'. Calls, texts and emails are locked.</div></div>';
+}
+function dncInfo(localId){
+  var l=leads.find(function(x){ return x.id===localId; }); if(!l) return;
+  var ov=document.getElementById('dncOv');
+  if(!ov){ ov=document.createElement('div'); ov.id='dncOv'; ov.className='sheet-ov'; ov.style.zIndex='9990';
+    ov.innerHTML='<div class="sheet"><div class="sheet-handle"></div><div class="sheet-head"><div class="sheet-title">Do not contact</div><button class="sheet-x" onclick="document.getElementById(\'dncOv\').classList.remove(\'open\')">&#x2715;</button></div><div class="sh-body" id="dncBody" style="padding:10px 16px calc(28px + env(safe-area-inset-bottom))"></div></div>';
+    ov.addEventListener('click',function(e){ if(e.target===ov) ov.classList.remove('open'); }); document.body.appendChild(ov); }
+  var why=String(l.dnc_reason||'asked not to be contacted'), when=_dncWhen(l);
+  var h='<div style="font-size:14px;color:var(--text);line-height:1.55"><b>'+_smsEsc(l.name||'This person')+'</b> '+_smsEsc(why)+(when?' on '+_smsEsc(when):'')+'. Calling, texting or emailing them now can break Canada’s anti-spam rules (CASL), so contact is locked.</div>'
+    +'<div style="font-size:12.5px;color:var(--sub);margin-top:10px;line-height:1.5">If they call or text you, it still reaches your team. An appointment they already booked still gets email reminders.</div>';
+  if(_dncCanLift()){
+    h+='<div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px"><div style="font-size:13px;font-weight:600;color:var(--text)">They asked to hear from you again?</div>'
+      +'<textarea id="dncWhy" rows="2" placeholder="Reason — e.g. called us on Oct 28 and asked for a callback" style="width:100%;box-sizing:border-box;margin-top:8px;border:1.5px solid var(--border);border-radius:10px;padding:9px 11px;font-family:var(--f);font-size:13px;color:var(--text);background:var(--white);resize:vertical"></textarea>'
+      +'<button type="button" id="dncGo" onclick="dncLift('+l.id+')" style="width:100%;margin-top:10px;border:1.5px solid #b91c1c;border-radius:12px;padding:12px;background:var(--white);color:#b91c1c;font-family:var(--f);font-size:13.5px;font-weight:600;cursor:pointer">Allow contact again</button>'
+      +(l.opted_out_at?'<div style="font-size:11.5px;color:var(--sub);margin-top:8px">They texted STOP, so texts stay blocked by the phone carrier until they text START.</div>':'')+'</div>';
+  } else {
+    h+='<div style="font-size:12.5px;color:var(--sub);margin-top:12px">Only the account owner can allow contact again.</div>';
+  }
+  document.getElementById('dncBody').innerHTML=h; ov.classList.add('open');
+}
+async function dncLift(localId){
+  var l=leads.find(function(x){ return x.id===localId; }); if(!l||!l.dbId) return;
+  var why=String((document.getElementById('dncWhy')||{}).value||'').trim();
+  if(!why){ showToast('Add a reason first'); return; }
+  var go=document.getElementById('dncGo'); if(go){ go.disabled=true; go.textContent='Saving…'; }
+  try{
+    var r=await sbFetch('/rest/v1/rpc/lead_dnc_lift',{method:'POST',body:JSON.stringify({p_lead:l.dbId,p_reason:why})});
+    var j=await r.json().catch(function(){ return null; });
+    if(!r.ok){ showToast((j&&j.message)||'Could not change it'); if(go){ go.disabled=false; go.textContent='Allow contact again'; } return; }
+    l.do_not_contact=false; l.dnc_reason=''; l.dnc_at=null;
+    document.getElementById('dncOv').classList.remove('open');
+    showToast('Contact allowed again');
+    if(typeof renderLeadScreen==='function' && typeof curLid!=='undefined' && curLid===localId) renderLeadScreen(localId);
+  }catch(e){ showToast('Could not change it'); if(go){ go.disabled=false; go.textContent='Allow contact again'; } }
+}
 async function amSaveAndOpenPb(){
   try{ await saveCampSettings(); }catch(e){}
   setTimeout(function(){ if (typeof openPlaybook === 'function') openPlaybook(); }, 250);
@@ -18307,6 +18354,9 @@ function renderLeadScreen(id) {
   var dtDef  = tmrw.getFullYear()+'-'+String(tmrw.getMonth()+1).padStart(2,'0')+'-'+String(tmrw.getDate()).padStart(2,'0')+'T10:00';
 
   var h = '';
+  // dnc-2: Do-not-contact lock — red bar on top; every contact button below is greyed.
+  window._ldDncLead = l.do_not_contact ? l.id : null;
+  if (l.do_not_contact) h += dncBannerHTML(l);
 
   // ══════════════════════════════════════════════
   // SECTION 1 — LEAD INFO CARD (white)
@@ -20501,6 +20551,10 @@ function ldQuickBtn(icon, label, bg, col, fn, feature){
 
 // ── Helper: call/comms button ──
 function ldCallBtn(icon, label, bg, col, fn, feature){
+  if (window._ldDncLead != null) {
+    return '<button onclick="dncInfo('+window._ldDncLead+')" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 8px;border-radius:12px;border:1.5px dashed var(--border);background:var(--bg);cursor:pointer;font-family:var(--f);font-size:11px;font-weight:500;color:var(--muted,#9ca3af);opacity:.75">'
+      + '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/></svg>' + label + '</button>';
+  }
   var lk = _getLockKind(feature);
   if (lk) {
     var lockFn = lk === 'partner' ? '_partnerLockToast' : '_clientLockToast';
@@ -20626,6 +20680,8 @@ function lsSetStage(stage){
   var l = lsGetLead(); if(!l) return;
   var oldStage = l.stage;             // ← was missing — caused ReferenceError on the line below
   l.stage = stage;
+  // dnc-2: these two stages lock contact (the database does the same)
+  if((stage==='16. DND'||stage==='10. Not Interested') && !l.do_not_contact){ l.do_not_contact=true; l.dnc_reason=(stage==='16. DND'?'marked DND':'marked Not Interested'); l.dnc_at=new Date().toISOString(); setTimeout(function(){ try{ if(typeof renderLeadScreen==='function') renderLeadScreen(l.id); }catch(e){} }, 400); }
   // Update the dropdown border/color to match stage color
   var sel = document.getElementById('lsStageSelect');
   if(sel){ var c=stgColor(stage); sel.style.borderColor=c; sel.style.color=c; }
