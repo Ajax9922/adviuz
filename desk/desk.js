@@ -75,15 +75,81 @@
     var card = row.closest('div[style*="padding:16px 16px 14px"]') || row.parentElement && row.parentElement.parentElement;
     if (card && card.classList) card.classList.add('dk-info-card');
   }
+  // ── 3-column lead view: Activity moves to its own scrollable column (desk-4) ──
+  var MQ3 = window.matchMedia('(min-width: 1280px)');
+  function actColumn(){
+    var scr = document.getElementById('leadScreen');
+    var body = document.getElementById('lsBody');
+    if (!scr || !body) return;
+    var col = document.getElementById('dkActCol');
+    if (!MQ.matches || !MQ3.matches) { scr.classList.remove('dk-3col'); if (col) col.innerHTML = ''; return; }
+    var chips = body.querySelector('.act-chips');
+    var sec = chips;
+    while (sec && sec.parentElement !== body) sec = sec.parentElement;
+    if (!sec) { scr.classList.remove('dk-3col'); return; }
+    if (!col) { col = document.createElement('aside'); col.id = 'dkActCol'; col.setAttribute('aria-label','Activity'); scr.appendChild(col); }
+    col.innerHTML = '';
+    sec.classList.add('dk-act-sec');
+    col.appendChild(sec);
+    scr.classList.add('dk-3col');
+  }
   function hookLeadRender(){
     if (typeof window.renderLeadScreen !== 'function' || window.renderLeadScreen._dk) return;
     var orig = window.renderLeadScreen;
     window.renderLeadScreen = function(){
+      // the Activity column has room for the whole history
+      if (MQ.matches && MQ3.matches) window._actExpand = true;
+      var col = document.getElementById('dkActCol'), y = col ? col.scrollTop : 0;
       var r = orig.apply(this, arguments);
       try { markInfoCard(); } catch(e){}
+      try { actColumn(); col = document.getElementById('dkActCol'); if (col) col.scrollTop = y; } catch(e){}
       return r;
     };
     window.renderLeadScreen._dk = true;
+    if (MQ3.addEventListener) MQ3.addEventListener('change', function(){ try { var id = window.curLid; if (id != null && document.getElementById('leadScreen').classList.contains('open')) window.renderLeadScreen(id); } catch(e){} });
+  }
+
+  // ── Leads filters: first 3 shown, "+N more" opens the rest; stage chips get arrows ──
+  function hookFilterPills(){
+    if (typeof window._lfPillsHTML !== 'function' || window._lfPillsHTML._dk) return;
+    var orig = window._lfPillsHTML, LIM = 3;
+    window._lfPillsHTML = function(){
+      var html = orig.apply(this, arguments);
+      if (!MQ.matches) return html;
+      var all = html.match(/class="lf-(pill|react)\b[^"]*"/g) || [];
+      var n = all.length;
+      if (n <= LIM + 1) return html;
+      var hiddenOn = all.slice(LIM).filter(function(c){ return /\bon\b/.test(c); }).length;
+      var open = !!window._dkLfMore;
+      var lbl = open ? 'Fewer filters' : ('+' + (n - LIM) + ' more' + (hiddenOn ? ' · ' + hiddenOn + ' on' : ''));
+      var btn = '<button class="lf-pill dk-lf-more' + (hiddenOn && !open ? ' on' : '') + '" onclick="window._dkLfMore=!window._dkLfMore;render()">'
+        + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="' + (open ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6') + '"/></svg>' + lbl + '</button>';
+      html = html.replace('class="lf-row lf-pills"', 'class="lf-row lf-pills' + (open ? '' : ' dk-lf-collapsed') + '"');
+      return html.replace(/<\/div>\s*$/, btn + '</div>');
+    };
+    window._lfPillsHTML._dk = true;
+  }
+  function stageArrows(){
+    if (!MQ.matches) return;
+    document.querySelectorAll('.lf-stages').forEach(function(row){
+      if (row.parentElement && row.parentElement.classList.contains('dk-stagewrap')) { syncArrows(row); return; }
+      var wrap = document.createElement('div'); wrap.className = 'dk-stagewrap';
+      row.parentNode.insertBefore(wrap, row); wrap.appendChild(row);
+      ['l','r'].forEach(function(d){
+        var b = document.createElement('button'); b.type = 'button'; b.className = 'dk-sarrow dk-sarrow-' + d;
+        b.setAttribute('aria-label', d === 'l' ? 'Previous stages' : 'More stages');
+        b.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="' + (d === 'l' ? 'M15 6l-6 6 6 6' : 'M9 6l6 6-6 6') + '"/></svg>';
+        b.addEventListener('click', function(){ row.scrollBy({ left: (d === 'l' ? -1 : 1) * Math.max(160, row.clientWidth * .7), behavior: 'smooth' }); });
+        wrap.appendChild(b);
+      });
+      row.addEventListener('scroll', function(){ syncArrows(row); }, { passive: true });
+      syncArrows(row);
+    });
+  }
+  function syncArrows(row){
+    var w = row.parentElement; if (!w) return;
+    w.classList.toggle('dk-can-l', row.scrollLeft > 4);
+    w.classList.toggle('dk-can-r', row.scrollLeft + row.clientWidth < row.scrollWidth - 4);
   }
 
   function build(){
@@ -152,6 +218,13 @@
 
     hookInfoRows();
     hookLeadRender();
+    hookFilterPills();
+    var content = document.getElementById('content');
+    if (content && window.MutationObserver) {
+      var t = null;
+      new MutationObserver(function(){ clearTimeout(t); t = setTimeout(stageArrows, 30); }).observe(content, { childList: true, subtree: true });
+    }
+    stageArrows();
   }
 
   function apply(){ if (MQ.matches) build(); }
