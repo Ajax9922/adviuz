@@ -5096,7 +5096,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-28 mask-1';
+var APP_VERSION = 'v2026-10-28 rev-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -5480,6 +5480,12 @@ async function applyRoleGate(user){
     // screen can never show something the database would refuse, or hide
     // something it would allow.
     window._telecallerScope = (m.lead_scope && typeof m.lead_scope==='object') ? m.lead_scope : {};
+    // rev-1: owner can hide revenue from this person (reports start at Pipeline)
+    window._hideRevenue = false;
+    try {
+      var _rvR = await sbFetch('/rest/v1/client_members?select=show_revenue&user_id=eq.'+user.id+'&client_id=eq.'+m.client_id+'&limit=1');
+      if(_rvR.ok){ var _rvA = await _rvR.json(); window._hideRevenue = !!(_rvA[0] && _rvA[0].show_revenue === false); }
+    } catch(_e){}
     // Name for the "Me" screen comes from user_profiles.display_name; the
     // job title is the role the owner gave them on the roster (client_members).
     window._teamMemberTitle = _prettyRole(m.role);
@@ -14452,6 +14458,8 @@ function clientReportsHTML(){
   // ── Filter chips (import-9): campaign / campaign no. / date / location / service ──
   h += rfChipBarHTML();
 
+  // rev-1: team members without revenue access start straight at Pipeline
+  if(!window._hideRevenue){
   // Header
   h += '<div style="font-size:22px;font-weight:600;color:var(--text);margin-bottom:14px">Leads Summary</div>';
 
@@ -14503,6 +14511,7 @@ function clientReportsHTML(){
       +'<div style="flex:1;min-width:180px">'+_legend+'</div>'
       +'</div></div>';
   }
+  } // rev-1
 
   // ── PIPELINE STATUS (where every lead currently sits) ──
   h += '<div style="font-size:11px;font-weight:500;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:6px 2px 8px">Pipeline Status</div>';
@@ -45413,8 +45422,16 @@ document.addEventListener('click', function(ev){
                  .then(function(r){ return r&&r.ok?r.json():[]; }).catch(function(){ return []; });
     var _mBase = '/rest/v1/client_members?client_id=eq.'+encodeURIComponent(cid())+'&select=id,user_id,role,lead_scope,is_active,user_type,phone';
     // mask-1: ask for mask_contacts too; if that column isn't live yet, fall back to the old list
-    var mReq = sbFetch(_mBase+',mask_contacts')
-                 .then(function(r){ if(r&&r.ok){ window._teMaskCol=true; return r.json(); } window._teMaskCol=false; return sbFetch(_mBase).then(function(r2){ return r2&&r2.ok?r2.json():[]; }); })
+    // rev-1: also show_revenue; each newer column falls back cleanly if it isn't live yet
+    var mReq = sbFetch(_mBase+',mask_contacts,show_revenue')
+                 .then(function(r){
+                   if(r&&r.ok){ window._teMaskCol=true; window._teRevCol=true; return r.json(); }
+                   window._teRevCol=false;
+                   return sbFetch(_mBase+',mask_contacts').then(function(r1){
+                     if(r1&&r1.ok){ window._teMaskCol=true; return r1.json(); }
+                     window._teMaskCol=false; return sbFetch(_mBase).then(function(r2){ return r2&&r2.ok?r2.json():[]; });
+                   });
+                 })
                  .catch(function(){ return []; });
     // Server-side truth: every login tied to this account (roster, profiles, AND any stray
     // login that only shows up through a registered phone), with device lists.
@@ -45549,6 +45566,7 @@ document.addEventListener('click', function(ev){
       role: existing ? (m.role||existing.role||'Telecaller') : 'Telecaller',
       is_active: existing ? (m.is_active!==false) : true,
       mask: existing ? (m.mask_contacts===true) : true,   // mask-1: new members start hidden
+      rev:  existing ? (m.show_revenue!==false) : false,  // rev-1: new members don't see revenue
       camps: arr(o,'campaign_id'),
       locs:  arr(o,'location'),
       svcs:  arr(o,'service')
@@ -45562,6 +45580,7 @@ document.addEventListener('click', function(ev){
   window._teRole = function(v){ draft.role=v; renderUserEdit(); };
   window._teActive = function(){ draft.is_active=!draft.is_active; renderUserEdit(); };
   window._teMask = function(){ draft.mask=!draft.mask; renderUserEdit(); };
+  window._teRev = function(){ draft.rev=!draft.rev; renderUserEdit(); };
 
   // "All" is simply an empty list — no limit. Ticking All clears the list;
   // unticking one box out of All keeps every other box ticked.
@@ -45694,6 +45713,9 @@ document.addEventListener('click', function(ev){
         +'<div><div class="te-rname">Hide customer phone &amp; email</div><div class="te-rsub">'+(draft.mask?'They see (\u2022\u2022\u2022) \u2022\u2022\u2022-0172 and m\u2022\u2022\u2022\u2022\u2022@gmail.com':'They see full phone numbers and emails')+'</div></div>'
         +'<div class="te-sw '+(draft.mask?'on':'')+'" onclick="_teMask()"></div></div>'
         +'<div style="font-size:11px;color:var(--sub);margin:0 0 14px;line-height:1.45">'+(draft.mask?'They can still call, text and email customers from the app \u2014 but can\u2019t download, export or use WhatsApp.':'Turn on to hide contact details from this person.')+'</div>' : '')
+      +(window._teRevCol ? '<div class="te-row" style="border:1.5px solid var(--border);border-radius:11px;padding:10px 12px;margin-bottom:14px">'
+        +'<div><div class="te-rname">Show revenue</div><div class="te-rsub">'+(draft.rev?'They see revenue and deal size in Reports':'Reports start at Pipeline \u2014 no revenue shown')+'</div></div>'
+        +'<div class="te-sw '+(draft.rev?'on':'')+'" onclick="_teRev()"></div></div>' : '')
       +(isNew?'':teDevicesBlock())
       +(isNew?'':'<div class="te-row" style="border:1.5px solid var(--border);border-radius:11px;padding:10px 12px;margin-bottom:12px">'
         +'<div><div class="te-rname">Access</div><div class="te-rsub">'+(draft.is_active?'They can sign in':'Paused \u2014 signed out everywhere, cannot sign in')+'</div></div>'
@@ -45741,9 +45763,12 @@ document.addEventListener('click', function(ev){
         .then(function(res){ return res.json().then(function(d){ return {ok:res.ok,d:d}; }); })
         .then(function(r){
           if(!r.ok || !r.d || r.d.ok===false) throw new Error((r.d&&r.d.error)||'Could not create login');
-          if(window._teMaskCol && draft.mask===false && r.d.user_id){
+          var _newPatch = {};
+          if(window._teMaskCol && draft.mask===false) _newPatch.mask_contacts = false;
+          if(window._teRevCol && draft.rev===true) _newPatch.show_revenue = true;
+          if(r.d.user_id && Object.keys(_newPatch).length){
             sbFetch('/rest/v1/client_members?user_id=eq.'+encodeURIComponent(r.d.user_id)+'&client_id=eq.'+encodeURIComponent(cid()),
-              { method:'PATCH', body: JSON.stringify({ mask_contacts:false }) }).catch(function(){});
+              { method:'PATCH', body: JSON.stringify(_newPatch) }).catch(function(){});
           }
           sbFetch('/functions/v1/send-email',{ method:'POST', body: JSON.stringify({
             to: draft.email, toName: draft.display_name,
@@ -45766,7 +45791,7 @@ document.addEventListener('click', function(ev){
     // first. The profile is only what people see on screen.
     sbFetch('/rest/v1/client_members?user_id=eq.'+encodeURIComponent(draft.user_id)+'&client_id=eq.'+encodeURIComponent(cid()),
       { method:'PATCH', headers:{'Prefer':'return=representation'},
-        body: JSON.stringify(Object.assign({ role: roleLabel, lead_scope: scope, is_active: draft.is_active, phone: draft.phone||null }, window._teMaskCol ? { mask_contacts: !!draft.mask } : {})) })
+        body: JSON.stringify(Object.assign({ role: roleLabel, lead_scope: scope, is_active: draft.is_active, phone: draft.phone||null }, window._teMaskCol ? { mask_contacts: !!draft.mask } : {}, window._teRevCol ? { show_revenue: !!draft.rev } : {})) })
       .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
       .then(function(r){
         if(!r.ok) throw new Error((r.d && (r.d.message||r.d.hint)) || 'Access update refused');
