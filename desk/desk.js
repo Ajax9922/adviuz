@@ -244,12 +244,12 @@
           }
         } catch(e){}
         var r = orig.apply(this, arguments);
-        try { document.body.classList.toggle('dk-wide', !!WIDE_TABS[name]); } catch(e){}
+        try { document.body.classList.toggle('dk-wide', !!WIDE_TABS[name]); document.body.classList.toggle('dk-tab-leads', name === 'leads'); } catch(e){}
         return r;
       };
       window.goTab._dk = true;
     }
-    try { document.body.classList.toggle('dk-wide', !!WIDE_TABS[window.curTab]); } catch(e){}
+    try { document.body.classList.toggle('dk-wide', !!WIDE_TABS[window.curTab]); document.body.classList.toggle('dk-tab-leads', (window.curTab || 'leads') === 'leads'); } catch(e){}
 
     hookInfoRows();
     hookLeadRender();
