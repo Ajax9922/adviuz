@@ -198,10 +198,10 @@
     // Rail head: logo mark + wordmark (wordmark shows when expanded)
     var head = el('div', { 'class':'dk-rail-head' });
     var logo = el('button', { 'class':'dk-rail-logo', 'aria-label':'Refresh Adviuz', title:'Adviuz — click to refresh', type:'button' },
-      '<img src="/desk/mark.png?v=1" alt="" width="26" height="26">');
+      '<img src="/desk/mark.png?v=2" alt="" width="22" height="22">');
     logo.addEventListener('click', function(){ location.reload(); });
     head.appendChild(logo);
-    var word = el('img', { 'class':'dk-rail-word', src:'/brand/adviuz-logo-black.png', alt:'Adviuz' });
+    var word = el('img', { 'class':'dk-rail-word', src:'/adviuz-logo-purple.png', alt:'Adviuz' });
     word.addEventListener('click', function(){ location.reload(); });
     head.appendChild(word);
     bar.insertBefore(head, bar.firstChild);
@@ -247,7 +247,7 @@
 
     // Empty detail panel
     var empty = el('div', { 'class':'dk-empty', 'aria-hidden':'true' },
-      '<img src="/brand/adviuz-logo-black.png" alt="">' +
+      '<img src="/adviuz-logo-purple.png" alt="">' +
       '<h2>Pick a lead to open it here</h2>' +
       '<p>Calls, texts, emails, notes and follow-ups for the lead you choose show up on this side, so your list stays in view.</p>' +
       '<div class="dk-empty-foot">Adviuz Support · Mon–Fri 10–6 CST · +1 647 250 1152</div>');
