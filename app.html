@@ -5096,7 +5096,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-27 import-10zzz';
+var APP_VERSION = 'v2026-10-27 step1-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -6826,6 +6826,19 @@ function _notifPrefs(){
 function _notifSetPref(key,val){
   var p=_notifPrefs(); p[key]=val;
   try{ localStorage.setItem('adviuz_notif_prefs', JSON.stringify(p)); }catch(e){}
+  _notifSyncPushPrefs(p);
+}
+// notif-prefs-1 (Ajax, 2026-10-27): the switches now control PUSH alerts on this
+// device too (not just the bell list). They are saved on this device's push
+// registration, and send-push skips an alert whose kind is switched off.
+async function _notifSyncPushPrefs(p){
+  try{
+    var ep = await _notifEndpoint(); if(!ep) return;
+    await sbFetch('/rest/v1/push_subscriptions?endpoint=eq.'+encodeURIComponent(ep), {
+      method:'PATCH', headers:{'Prefer':'return=minimal'},
+      body: JSON.stringify({ prefs: { leads:p.leads!==false, calls:p.calls!==false, sms:p.sms!==false, email:p.email!==false, followups:p.followups!==false } })
+    });
+  }catch(e){}
 }
 function ensureNotifSettingsSheet(){
   if(document.getElementById('notifSettingsSh'))return;
@@ -6873,12 +6886,12 @@ function renderNotifSettings(){
     '</label>';
   }
   body.innerHTML=
-    '<div style="font-size:12px;color:var(--sub);margin:6px 0 14px">Choose what you want to be alerted about. Saved on this device.</div>'+
+    '<div style="font-size:12px;color:var(--sub);margin:6px 0 14px">Choose what you want to be alerted about — in this list and as push alerts. Saved on this device.</div>'+
     pushRow+
     '<div style="font-size:11px;font-weight:500;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin:20px 0 2px">Alert me about</div>'+
     liveRow+
     rows;
-  if(perm==='granted') _notifLoadLivePush();
+  if(perm==='granted'){ _notifLoadLivePush(); _notifSyncPushPrefs(p); }
 }
 // The live-call toggle lives on THIS DEVICE's push registration row, so each
 // phone/desktop can choose independently. send-push skips "live-" pushes for
@@ -6918,8 +6931,7 @@ async function sendTestPush(){
     var res = await sbFetch('/functions/v1/send-push', {
       method:'POST',
       body: JSON.stringify({
-        user_id:   currentUser.id,
-        client_id: window._clientId || null,
+        user_id:   currentUser.id,          // notif-prefs-1: only YOUR devices, never the whole team
         title:     '\uD83D\uDD14 Adviuz test alert',
         body:      'If you can see this, push notifications are working on this device.',
         url:       '/',
@@ -6964,10 +6976,19 @@ async function loadAdminNotifs(){
   }catch(e){ window._adminNotifs = []; }
   if(typeof updateNotifBadge==='function') updateNotifBadge();
 }
+// bell-scope-1 (Ajax, 2026-10-27): in the Adviuz admin app the bell shows ONLY
+// Adviuz's own leads (staff can read every client's activity, which flooded the
+// bell with client replies/calls whose leads the admin view can't open).
+// "View as client" shows that client's; real clients are scoped by the server.
+function _bellScopeQ(){
+  if(window._viewingAsClient && window._clientId) return '&client_id=eq.'+window._clientId;
+  if(_isOperatorBell()) return '&client_id=in.(7d315d20-00af-4e7f-8d79-c89b3f2b5cf7,9686a0a7-75b0-4232-b5a4-20fb11296db3)';
+  return '';
+}
 async function loadSmsReplies(){
   if(_isPartnerBell()){ window._smsReplies=[]; if(typeof updateNotifBadge==='function') updateNotifBadge(); return; }
   try{
-    var r = await sbFetch('/rest/v1/lead_activity?activity_type=eq.sms_received&order=created_at.desc&limit=20&select=id,lead_id,client_id,description,created_at');
+    var r = await sbFetch('/rest/v1/lead_activity?activity_type=eq.sms_received'+_bellScopeQ()+'&order=created_at.desc&limit=20&select=id,lead_id,client_id,description,created_at');
     window._smsReplies = r.ok ? (await r.json().catch(function(){return [];})) : [];
   }catch(e){ window._smsReplies = []; }
   if(typeof updateNotifBadge==='function') updateNotifBadge();
@@ -6975,7 +6996,7 @@ async function loadSmsReplies(){
 async function loadCallActs(){
   if(_isPartnerBell()){ window._callActs=[]; return; }
   try{
-    var r = await sbFetch('/rest/v1/lead_activity?activity_type=in.(call,email_received)&or=(direction.eq.inbound,activity_type.eq.email_received)&order=created_at.desc&limit=40&select=id,lead_id,client_id,activity_type,description,direction,duration_seconds,metadata,created_at');
+    var r = await sbFetch('/rest/v1/lead_activity?activity_type=in.(call,email_received)&or=(direction.eq.inbound,activity_type.eq.email_received)'+_bellScopeQ()+'&order=created_at.desc&limit=40&select=id,lead_id,client_id,activity_type,description,direction,duration_seconds,metadata,created_at');
     window._callActs = r.ok ? (await r.json().catch(function(){return [];})) : [];
   }catch(e){ window._callActs = []; }
 }
@@ -7292,7 +7313,7 @@ function _ntfCollect(seen){
     push({key:'ad:'+nf.id, kind:'account', ts:ts||now, unread:!nf.is_read,
       icon:'card', badge:['card', nf.type==='payout_request'?'amber':''],
       t:'<b>'+esc(nf.title||'Notification')+'</b>', sub:esc(nf.body||''),
-      on:"_notifOpenAdmin('"+nf.id+"','"+safeLink+"')"});
+      on:"_notifOpenAdmin('"+nf.id+"','"+safeLink+"','"+String(nf.type||'').replace(/[^\w-]/g,'')+"','"+esc(String(nf.title||'')).replace(/'/g,"\\'")+"')"});
   });
   out.sort(function(a,b){ return (b.ts||0)-(a.ts||0); });
   return out.slice(0,80);
@@ -7391,9 +7412,27 @@ function _notifOpenLeadByDb(dbId){
   if(dbId){
     var ld=(leads||[]).find(function(x){ return String(x.dbId)===String(dbId); });
     if(ld && typeof openLead==='function'){ openLead(ld.id); return; }
+    // bell-scope-1: not in this view's list (e.g. a client's lead seen from the
+    // admin app) — find whose lead it is and open it inside that account.
+    if(_isOperatorBell() && !window._viewingAsClient && /^[0-9a-f-]{36}$/i.test(String(dbId))){ _notifOpenForeignLead(String(dbId)); return; }
+    if(typeof showToast==='function') showToast('That lead is no longer in this list');
   }
   var lt=document.getElementById('tab-leads');
   if(lt && typeof goTab==='function') goTab('leads',lt);
+}
+async function _notifOpenForeignLead(dbId){
+  try{
+    var r=await sbFetch('/rest/v1/leads?id=eq.'+dbId+'&select=id,client_id,name&limit=1');
+    var row=r.ok?((await r.json().catch(function(){return[];}))[0]):null;
+    if(!row){ showToast('That lead was deleted'); return; }
+    var cid=String(row.client_id||'');
+    if(cid && typeof adminViewAsClient==='function'){
+      await adminViewAsClient(cid);
+      if(typeof window.openLeadByDbId==='function') window.openLeadByDbId(dbId);
+      return;
+    }
+    showToast('Could not find that lead\u2019s account');
+  }catch(e){ showToast('Could not open that lead'); }
 }
 function _notifOpenSms(dbId){
   var l=(leads||[]).find(function(x){ return String(x.dbId)===String(dbId)||String(x.id)===String(dbId); });
@@ -7401,15 +7440,27 @@ function _notifOpenSms(dbId){
   if(typeof openSmsByDbId==='function'){ openSmsByDbId(dbId); return; }
   _notifOpenLeadByDb(dbId);
 }
-function _notifOpenAdmin(id, link){
+function _notifOpenAdmin(id, link, type, title){
   try{ sbFetch('/rest/v1/admin_notifications?id=eq.'+id,{method:'PATCH',headers:{'Prefer':'return=minimal'},body:JSON.stringify({is_read:true})}); }catch(e){}
   (window._adminNotifs||[]).forEach(function(n){ if(String(n.id)===String(id)) n.is_read=true; });
   if(typeof updateNotifBadge==='function') updateNotifBadge();
-  if(!link) return;
-  // A lead UUID → open that lead; other links (e.g. 'commissions') just clear.
-  if(/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(link)){
-    var ld=(leads||[]).find(function(x){ return String(x.dbId)===String(link); });
+  link=String(link||''); type=String(type||'');
+  // A lead UUID → open that lead (in its own account if it isn't Adviuz's).
+  if(/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(link)){ _notifOpenLeadByDb(link); return; }
+  // bell-scope-1: every other notice opens the admin screen it is about.
+  var adm = (typeof adminShowTab==='function' && !window._viewingAsClient) ? adminShowTab : null;
+  if(/payout|commission|cashout/i.test(type+' '+link)){ if(adm) adm('commissions'); return; }
+  if(/partner|affiliate|application/i.test(type+' '+link)){ if(typeof openPartnersManager==='function') openPartnersManager(); return; }
+  if(/video_review|review/i.test(type)){ if(adm) adm('reviews'); return; }
+  if(/invoice|payment/i.test(type+' '+link)){ if(adm) adm('invoices'); return; }
+  if(/quote/i.test(type+' '+link)){ if(adm) adm('quotes'); return; }
+  if(/topup|fund/i.test(type+' '+link)){ if(adm) adm('funds'); return; }
+  if(/proposal/i.test(type)){
+    // "Proposal opened — Larry Stewart" → that Adviuz lead
+    var nm=String(title||'').split(/\s[\u2014-]\s/).pop().trim().toLowerCase();
+    var ld=nm?(leads||[]).find(function(x){ return String(x.name||'').trim().toLowerCase()===nm; }):null;
     if(ld && typeof openLead==='function'){ openLead(ld.id); return; }
+    if(adm) adm('quotes'); return;
   }
 }
 // ════════════════════════════════════════════════════════════
@@ -11009,6 +11060,20 @@ function bwRender(){
     _cnt();
   }
 }
+// bulk-dedup-1 (Ajax, 2026-10-27): one person = one message. Two lead cards that
+// share a phone (texts) or an email (emails) are sent to ONCE per outreach.
+function _bulkDedup(ls, channel){
+  var seen={}, out=[];
+  (ls||[]).forEach(function(l){
+    var k = channel==='email'
+      ? String(l.em||l.email||'').trim().toLowerCase()
+      : String(l.ph||l.phone||'').replace(/\D/g,'').slice(-10);
+    if(!k){ out.push(l); return; }          // no contact: the sender skips it with a reason
+    if(seen[k]) return;
+    seen[k]=1; out.push(l);
+  });
+  return out;
+}
 async function bwLaunch(schedIso){
   var b=window._bw; if(!b) return;
   schedIso=schedIso||null;
@@ -11034,7 +11099,7 @@ async function bwLaunch(schedIso){
   picked.forEach(function(l){ var c=l.client_id||window._clientId||''; if(c) (groups[c]=groups[c]||[]).push(l); });
   var made=0, people=0;
   for(var cid in groups){
-    var ls=groups[cid];
+    var ls=_bulkDedup(groups[cid], b.channel);
     try{
       var jr=await sbFetch('/rest/v1/bulk_jobs',{method:'POST',body:JSON.stringify({
         client_id:cid, channel:b.channel,
@@ -15055,13 +15120,27 @@ function _liveDur(startMs){
   var m = Math.floor(s/60); return m+':'+((s%60)<10?'0':'')+(s%60);
 }
 
+// live-scope-1 (Ajax, 2026-10-27): the Adviuz admin app shows ONLY Adviuz's own
+// live calls. Staff accounts can read every client's calls, so the list is
+// scoped here: admin view -> house accounts only; "view as client" -> that client.
+var _LIVE_HOUSE = ['7d315d20-00af-4e7f-8d79-c89b3f2b5cf7','9686a0a7-75b0-4232-b5a4-20fb11296db3'];
+function _liveScope(calls){
+  calls = Array.isArray(calls) ? calls : [];
+  if (window._viewingAsClient && window._clientId) {
+    var vc = String(window._clientId);
+    return calls.filter(function(c){ return String(c.client_id||'') === vc; });
+  }
+  if (window._staffRole === 'client') return calls;            // real client: server already scoped
+  return calls.filter(function(c){ return _LIVE_HOUSE.indexOf(String(c.client_id||'')) > -1; });
+}
+
 async function loadLiveCalls(){
   var panel = document.getElementById('liveCallsPanel');
   if(!panel) return;
   try {
     var res = await sbFetch('/functions/v1/live-calls', { method:'POST', body: JSON.stringify({}) });
     var data = await res.json().catch(function(){ return {}; });
-    var calls = (data && data.calls) || [];
+    var calls = _liveScope((data && data.calls) || []);
     // Detect a call that was live a moment ago but is now gone (its row was deleted
     // on call-end) -> auto-refresh the completed-calls list so it appears instantly.
     var ids = calls.map(function(c){ return c.call_id; });
@@ -15956,8 +16035,9 @@ async function pbGen(overwrite){
       var r = await sbFetch('/functions/v1/live-calls', { method:'POST', body:'{}' });
       if(!r || !r.ok) return;
       var d = await r.json().catch(function(){ return {}; });
-      var n = (d && d.calls && d.calls.length) || 0;
-      window._ntfLive = (d && d.calls) || []; // import-10o: bell's live-call card
+      var _lc = (typeof _liveScope==='function') ? _liveScope((d && d.calls) || []) : ((d && d.calls) || []);
+      var n = _lc.length;
+      window._ntfLive = _lc; // import-10o: bell's live-call card (live-scope-1: house only in admin)
       var pill = document.getElementById('tbLivePill');
       if(pill) pill.style.display = n > 0 ? 'flex' : 'none';
     }catch(e){ /* quiet */ }
@@ -27790,7 +27870,7 @@ async function sendBulkSms(){
   picked.forEach(function(l){ var c=l.client_id||window._clientId||''; if(c) (groups[c]=groups[c]||[]).push(l); });
   var made=0, people=0;
   for(var cid in groups){
-    var ls=groups[cid];
+    var ls=_bulkDedup(groups[cid],'sms');
     try{
       var jr=await sbFetch('/rest/v1/bulk_jobs',{method:'POST',body:JSON.stringify({
         client_id:cid, channel:'sms',
@@ -27829,7 +27909,7 @@ async function sendBulkEmail(){
   picked.forEach(function(l){ var c=l.client_id||window._clientId||''; if(c) (groups[c]=groups[c]||[]).push(l); });
   var made=0, people=0;
   for(var cid in groups){
-    var ls=groups[cid];
+    var ls=_bulkDedup(groups[cid],'email');
     try{
       var jr=await sbFetch('/rest/v1/bulk_jobs',{method:'POST',body:JSON.stringify({
         client_id:cid, channel:'email',
