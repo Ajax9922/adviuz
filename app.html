@@ -4500,7 +4500,7 @@ body.ao-open #aiFab{display:none}
           <div class="emx-av">@</div>
           <div style="flex:1;min-width:0">
             <div class="emx-lbl">To</div>
-            <input id="ceTo" type="email" placeholder="patient@email.com" style="width:100%;border:none;outline:none;background:transparent;font-size:14px;font-family:var(--f);color:var(--text);padding:2px 0">
+            <input id="ceTo" type="text" inputmode="email" placeholder="patient@email.com" style="width:100%;border:none;outline:none;background:transparent;font-size:14px;font-family:var(--f);color:var(--text);padding:2px 0">
           </div>
           <div class="emx-chg" id="ceCcToggle" onclick="this.style.display='none';document.getElementById('ceCcRow').style.display='block';document.getElementById('ceCcSep').style.display='block'">+ CC/BCC</div>
         </div>
@@ -5096,7 +5096,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-27 step1-1';
+var APP_VERSION = 'v2026-10-28 mask-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -5431,6 +5431,7 @@ async function applyRoleGate(user){
   // bootspeed-2: the three identity lookups ran one-by-one (~0.5s wasted).
   // They are independent reads, so fire them together; the results are applied
   // in the EXACT same order and under the exact same conditions as before.
+  await _loadMaskFlag();   // mask-1: must be known before any lead data is fetched
   var _rg = await Promise.all([
     sbFetch('/rest/v1/client_members?select=role,user_type,client_id,lead_scope,is_active&user_id=eq.'+user.id+'&limit=1'),
     sbFetch('/rest/v1/sales_partners?user_id=eq.'+user.id+'&limit=1'),
@@ -6420,8 +6421,86 @@ setTimeout(async function(){
 }, 32000);
 
 // Use auth token for all Supabase requests
+// ══════════════════════════════════════════════════════════════════
+// mask-1 (Ajax, 2026-10-28): "Hide customer contact details" team members.
+// The database hides the raw tables from them and offers masked twins
+// (<table>_mv) plus three write doors (member_patch / member_insert /
+// member_delete). This router sends their requests to the right place, so
+// every existing screen keeps working with masked phones/emails.
+// ══════════════════════════════════════════════════════════════════
+var _MASK_READ  = {leads:1,lead_activity:1,call_logs:1,email_logs:1,meetings:1,followups:1,scheduled_sms:1,scheduled_emails:1,sms_guard_log:1,live_calls:1};
+var _MASK_WRITE = {leads:1,lead_activity:1,followups:1,meetings:1,call_logs:1,scheduled_sms:1,scheduled_emails:1};
+function _maskJson(data, status){
+  return new Response(JSON.stringify(data), { status: status||200, headers: { 'Content-Type':'application/json' } });
+}
+function isMaskedValue(v){ return /•/.test(String(v||'')); }
+async function _maskRoute(path, opts){
+  var rest = path.slice(9);                       // after '/rest/v1/'
+  var tbl = rest.split('?')[0], qs = rest.indexOf('?')>-1 ? rest.slice(rest.indexOf('?')+1) : '';
+  if (!_MASK_READ[tbl]) return null;
+  var method = String((opts && opts.method) || 'GET').toUpperCase();
+  if (method === 'GET' || method === 'HEAD') return sbFetch('/rest/v1/' + tbl + '_mv' + (qs ? '?' + qs : ''), opts);
+  if (!_MASK_WRITE[tbl]) return _maskJson({ message: 'Not allowed for this team member' }, 403);
+  async function idsFor(){
+    var m = qs.match(/(?:^|&)id=eq\.([0-9a-f-]{36})/i);
+    if (m) return [m[1]];
+    var mi = qs.match(/(?:^|&)id=in\.\(([^)]*)\)/i);
+    if (mi) return mi[1].split(',').map(function(x){ return x.replace(/"/g,'').trim(); }).filter(Boolean);
+    var keep = qs.split('&').filter(function(p){ return p && !/^(select|order|limit|offset|on_conflict|columns)=/.test(p); }).join('&');
+    if (!keep) return [];
+    var r = await sbFetch('/rest/v1/' + tbl + '_mv?select=id&' + keep);
+    var rows = r.ok ? await r.json().catch(function(){ return []; }) : [];
+    return rows.map(function(x){ return x.id; });
+  }
+  try {
+    var body = (opts && opts.body) ? JSON.parse(opts.body) : null;
+    var rpc, payload;
+    if (method === 'PATCH') { rpc = 'member_patch';  payload = { p_table: tbl, p_ids: await idsFor(), p_patch: body || {} }; }
+    else if (method === 'POST')  { rpc = 'member_insert'; payload = { p_table: tbl, p_rows: body }; }
+    else if (method === 'DELETE'){ rpc = 'member_delete'; payload = { p_table: tbl, p_ids: await idsFor() }; }
+    else return null;
+    if (rpc !== 'member_insert' && !payload.p_ids.length) return _maskJson([]);
+    var rr = await sbFetch('/rest/v1/rpc/' + rpc, { method:'POST', body: JSON.stringify(payload) });
+    var out = await rr.json().catch(function(){ return null; });
+    return _maskJson(out == null ? [] : out, rr.status);
+  } catch(e){ return _maskJson({ message: String(e && e.message || e) }, 500); }
+}
+async function _loadMaskFlag(){
+  try {
+    var r = await sbFetch('/rest/v1/rpc/is_masked_member', { method:'POST', body:'{}' });
+    window._maskContacts = r.ok ? ((await r.json()) === true) : false;
+  } catch(e){ window._maskContacts = false; }
+  try { document.documentElement.classList.toggle('mask-contacts', !!window._maskContacts); } catch(_e){}
+  return window._maskContacts;
+}
+
+// mask-1: hidden-contact members — no downloads at all, no WhatsApp (it needs the real number on the phone)
+function _maskBlock(what){
+  if (window._maskContacts !== true) return false;
+  try { showToast((what||'This') + ' is turned off for your account \u2014 ask the business owner'); } catch(_e){}
+  return true;
+}
+(function(){
+  try {
+    var _aClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function(){
+      if (window._maskContacts === true && this.hasAttribute('download')) { _maskBlock('Downloading'); return; }
+      return _aClick.apply(this, arguments);
+    };
+    document.addEventListener('click', function(e){
+      if (window._maskContacts !== true) return;
+      var a = e.target && e.target.closest ? e.target.closest('a[download],a[href^="https://wa.me"],a[href^="whatsapp:"]') : null;
+      if (a) { e.preventDefault(); e.stopPropagation(); _maskBlock(a.hasAttribute('download') ? 'Downloading' : 'WhatsApp'); }
+    }, true);
+  } catch(_e){}
+})();
+
 async function sbFetch(path, opts) {
   opts = opts || {};
+  if (window._maskContacts === true && path.indexOf('/rest/v1/') === 0 && path.indexOf('/rest/v1/rpc/') !== 0) {
+    var _mr = await _maskRoute(path, opts);
+    if (_mr) return _mr;
+  }
   var _pt0 = performance.now();
   var token = authToken || SB_ANON;
   var isEdgeFn = path.indexOf('/functions/v1/') === 0;
@@ -9718,7 +9797,7 @@ function lRow(l,anySel,forceDetailed,slim){
 function cardCall(id){ if(typeof doCall==='function') doCall(id); }
 function cardSms(id){ if(typeof openSms==='function') openSms(id); }
 function cardEmail(id){ var l=leads.find(function(x){return x.id===id;}); if(l&&l.em){ location.href='mailto:'+l.em; } else { showToast('No email on file'); } }
-function cardWa(id){ var l=leads.find(function(x){return x.id===id;}); if(l&&l.do_not_contact){ dncInfo(id); return; } if(l&&l.ph){ var n=String(l.ph).replace(/[^0-9]/g,''); window.open('https://wa.me/'+n,'_blank'); } else { showToast('No phone on file'); } }
+function cardWa(id){ if(_maskBlock('WhatsApp')) return; var l=leads.find(function(x){return x.id===id;}); if(l&&l.do_not_contact){ dncInfo(id); return; } if(l&&l.ph){ var n=String(l.ph).replace(/[^0-9]/g,''); window.open('https://wa.me/'+n,'_blank'); } else { showToast('No phone on file'); } }
 
 // ── New SaaS card actions ──
 // SMS Templates: opens the templates sheet for this lead.
@@ -17490,10 +17569,12 @@ async function sendSmsFromSheet(){
   var msg = (ta ? ta.value : '').trim();
   if(!msg){ showToast('Type a message first'); return; }
 
-  // Normalize phone to E.164
+  // Normalize phone to E.164 (mask-1: a hidden number is swapped in by the server)
   var phone = l.ph || '';
-  var digits = phone.replace(/\D/g,'');
-  if(digits.length===10)       phone = '+1'+digits;
+  var _phMasked = isMaskedValue(phone);
+  var digits = _phMasked ? '0000000000' : phone.replace(/\D/g,'');
+  if(_phMasked)                {}
+  else if(digits.length===10)  phone = '+1'+digits;
   else if(digits.length===11)  phone = '+'+digits;
   else if(!phone.startsWith('+')) phone = '+'+digits;
   if(!phone || digits.length<10){ showToast('❌ No valid phone number for this lead'); return; }
@@ -21222,6 +21303,7 @@ function lsDialer(){
 function lsDoCall(){ var l=lsGetLead();if(l)doCall(l.id); }
 function lsDoIvrCall(){ var l=lsGetLead();if(l){ showToast('📞 Starting call...'); doCall(l.id); } }
 function lsDoWa(){
+  if(_maskBlock('WhatsApp')) return;
   var l=lsGetLead();if(!l||!l.ph)return;
   var ph=l.ph.replace(/[^0-9]/g,'');
   window.location.href='https://wa.me/'+ph;
@@ -21390,7 +21472,7 @@ function openClientEmail(id, replySubj){
     if(_cr) _cr.style.display='none'; if(_cs) _cs.style.display='none'; if(_ct) _ct.style.display='';
   }catch(_e){}
   // Prefill
-  var toEl=document.getElementById('ceTo'); if(toEl) toEl.value = l.em || '';
+  var toEl=document.getElementById('ceTo'); if(toEl){ toEl.value = l.em || ''; toEl.readOnly = window._maskContacts===true; }
   var nm=String(l.name||'').trim(); var first = nm ? nm.split(' ')[0] : 'there';
   // Replying keeps the original subject with a single "Re:" in front.
   var subEl=document.getElementById('ceSubj');
@@ -23456,6 +23538,8 @@ function openEditLead(id) {
   document.getElementById('ef-em3').value = l.em3 || '';
   document.getElementById('ef-em4').value = l.em4 || '';
   document.getElementById('ef-em5').value = l.em5 || '';
+  // mask-1: hidden-contact members can't see or change phone / email
+  ['ef-ph','ef-ph2','ef-ph3','ef-em','ef-em2','ef-em3','ef-em4','ef-em5'].forEach(function(fid){ var el=document.getElementById(fid); if(el){ el.readOnly = window._maskContacts===true; el.style.opacity = window._maskContacts===true ? '.6' : ''; } });
   var locEl = document.getElementById('ef-loc');
   if(locEl) locEl.value = l.location || '';
   // Source — locked to "Adviuz" for client-mode (platform) leads; editable for admin/partner
@@ -27720,6 +27804,7 @@ async function confirmImport(){
   }
 }
 function exportCSV(){
+  if(_maskBlock('Exporting leads')) return;
   var rows=[['Name','Phone','Email','Stage','Source','Service','Notes','Consent']];
   leads.forEach(function(l){rows.push([l.name,l.ph,l.em||'',l.stage,l.src,l.svc||'',l.note||'',l.ok?'Yes':'No'])});
   var csv=rows.map(function(r){return r.map(function(v){return'"'+(v||'').replace(/"/g,'""')+'"'}).join(',')}).join('\n');
@@ -43041,6 +43126,7 @@ function clearInvCustomRange() {
 // ════════════════════════════════════════════════════════════
 
 function openExportForCASheet() {
+  if(_maskBlock('Exporting')) return;
   renderExportCAPreview();
   openSheet('exportCASh');
 }
@@ -43279,6 +43365,7 @@ function _slugPeriod(_r) {
 }
 
 async function generateCAExport() {
+  if(_maskBlock('Exporting')) return;
   var btn  = document.getElementById('exportCAGenBtn');
   var body = document.getElementById('exportCABody');
   if (!btn || !body) return;
@@ -45324,8 +45411,11 @@ document.addEventListener('click', function(ev){
     if(typeof sbFetch!=='function' || !cid()){ users=[]; memberBy={}; cb&&cb(); return; }
     var pReq = sbFetch('/rest/v1/user_profiles?client_id=eq.'+encodeURIComponent(cid())+'&select=*&order=display_name.asc')
                  .then(function(r){ return r&&r.ok?r.json():[]; }).catch(function(){ return []; });
-    var mReq = sbFetch('/rest/v1/client_members?client_id=eq.'+encodeURIComponent(cid())+'&select=id,user_id,role,lead_scope,is_active,user_type,phone')
-                 .then(function(r){ return r&&r.ok?r.json():[]; }).catch(function(){ return []; });
+    var _mBase = '/rest/v1/client_members?client_id=eq.'+encodeURIComponent(cid())+'&select=id,user_id,role,lead_scope,is_active,user_type,phone';
+    // mask-1: ask for mask_contacts too; if that column isn't live yet, fall back to the old list
+    var mReq = sbFetch(_mBase+',mask_contacts')
+                 .then(function(r){ if(r&&r.ok){ window._teMaskCol=true; return r.json(); } window._teMaskCol=false; return sbFetch(_mBase).then(function(r2){ return r2&&r2.ok?r2.json():[]; }); })
+                 .catch(function(){ return []; });
     // Server-side truth: every login tied to this account (roster, profiles, AND any stray
     // login that only shows up through a registered phone), with device lists.
     var aReq = sbFetch('/functions/v1/team-access', { method:'POST', body: JSON.stringify({ action:'list', client_id: cid() }) })
@@ -45458,6 +45548,7 @@ document.addEventListener('click', function(ev){
       phone: existing ? (existing.phone||m.phone||'') : '',
       role: existing ? (m.role||existing.role||'Telecaller') : 'Telecaller',
       is_active: existing ? (m.is_active!==false) : true,
+      mask: existing ? (m.mask_contacts===true) : true,   // mask-1: new members start hidden
       camps: arr(o,'campaign_id'),
       locs:  arr(o,'location'),
       svcs:  arr(o,'service')
@@ -45470,6 +45561,7 @@ document.addEventListener('click', function(ev){
   window._teSet = function(k,v){ draft[k]=v; };
   window._teRole = function(v){ draft.role=v; renderUserEdit(); };
   window._teActive = function(){ draft.is_active=!draft.is_active; renderUserEdit(); };
+  window._teMask = function(){ draft.mask=!draft.mask; renderUserEdit(); };
 
   // "All" is simply an empty list — no limit. Ticking All clears the list;
   // unticking one box out of All keeps every other box ticked.
@@ -45598,6 +45690,10 @@ document.addEventListener('click', function(ev){
       + pickerBlock('Locations','location')
       + pickerBlock('Services','service')
       +'<div style="font-size:11px;color:var(--sub);margin:-4px 0 14px;line-height:1.45">They will not see leads, calls or reports outside these \u2014 and the Dashboard stays yours alone.</div>'
+      +(window._teMaskCol ? '<div class="te-row" style="border:1.5px solid var(--border);border-radius:11px;padding:10px 12px;margin-bottom:6px">'
+        +'<div><div class="te-rname">Hide customer phone &amp; email</div><div class="te-rsub">'+(draft.mask?'They see (\u2022\u2022\u2022) \u2022\u2022\u2022-0172 and m\u2022\u2022\u2022\u2022\u2022@gmail.com':'They see full phone numbers and emails')+'</div></div>'
+        +'<div class="te-sw '+(draft.mask?'on':'')+'" onclick="_teMask()"></div></div>'
+        +'<div style="font-size:11px;color:var(--sub);margin:0 0 14px;line-height:1.45">'+(draft.mask?'They can still call, text and email customers from the app \u2014 but can\u2019t download, export or use WhatsApp.':'Turn on to hide contact details from this person.')+'</div>' : '')
       +(isNew?'':teDevicesBlock())
       +(isNew?'':'<div class="te-row" style="border:1.5px solid var(--border);border-radius:11px;padding:10px 12px;margin-bottom:12px">'
         +'<div><div class="te-rname">Access</div><div class="te-rsub">'+(draft.is_active?'They can sign in':'Paused \u2014 signed out everywhere, cannot sign in')+'</div></div>'
@@ -45645,6 +45741,10 @@ document.addEventListener('click', function(ev){
         .then(function(res){ return res.json().then(function(d){ return {ok:res.ok,d:d}; }); })
         .then(function(r){
           if(!r.ok || !r.d || r.d.ok===false) throw new Error((r.d&&r.d.error)||'Could not create login');
+          if(window._teMaskCol && draft.mask===false && r.d.user_id){
+            sbFetch('/rest/v1/client_members?user_id=eq.'+encodeURIComponent(r.d.user_id)+'&client_id=eq.'+encodeURIComponent(cid()),
+              { method:'PATCH', body: JSON.stringify({ mask_contacts:false }) }).catch(function(){});
+          }
           sbFetch('/functions/v1/send-email',{ method:'POST', body: JSON.stringify({
             to: draft.email, toName: draft.display_name,
             subject: 'You have been added to '+clientName()+' on Adviuz',
@@ -45666,7 +45766,7 @@ document.addEventListener('click', function(ev){
     // first. The profile is only what people see on screen.
     sbFetch('/rest/v1/client_members?user_id=eq.'+encodeURIComponent(draft.user_id)+'&client_id=eq.'+encodeURIComponent(cid()),
       { method:'PATCH', headers:{'Prefer':'return=representation'},
-        body: JSON.stringify({ role: roleLabel, lead_scope: scope, is_active: draft.is_active, phone: draft.phone||null }) })
+        body: JSON.stringify(Object.assign({ role: roleLabel, lead_scope: scope, is_active: draft.is_active, phone: draft.phone||null }, window._teMaskCol ? { mask_contacts: !!draft.mask } : {})) })
       .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
       .then(function(r){
         if(!r.ok) throw new Error((r.d && (r.d.message||r.d.hint)) || 'Access update refused');
