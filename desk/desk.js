@@ -108,6 +108,25 @@
       b.innerHTML = svg(QB[fn][1], 17) + QB[fn][0];
     });
   }
+  // Email / SMS / WhatsApp / Meeting / AI Call / Call move into the lead's top bar (desk-10)
+  function actionsToTop(){
+    var scr = document.getElementById('leadScreen'), body = document.getElementById('lsBody');
+    var top = scr && scr.querySelector('.ls-topbar');
+    var old = document.getElementById('dkTopActs'); if (old) old.remove();
+    if (!MQ.matches || !top || !body) return;
+    var grids = [].slice.call(body.querySelectorAll(':scope > div > div[style*="grid-template-columns:repeat(3,1fr)"]'))
+      .filter(function(g){ return !g.querySelector('button[onclick^="openLeadQuotes"],button[onclick^="openLeadInvoices"]'); });
+    if (!grids.length) return;
+    var sec = grids[0].parentElement;
+    var bar = document.createElement('div'); bar.id = 'dkTopActs';
+    grids.forEach(function(g){ [].slice.call(g.children).forEach(function(b){
+      var t = (b.textContent || '').trim(); if (t) { b.title = t; b.setAttribute('aria-label', t); }
+      bar.appendChild(b);
+    }); });
+    var nav = top.querySelector('.ls-nav');
+    top.insertBefore(bar, nav || null);
+    sec.remove();
+  }
   function hookLeadRender(){
     if (typeof window.renderLeadScreen !== 'function' || window.renderLeadScreen._dk) return;
     var orig = window.renderLeadScreen;
@@ -119,6 +138,7 @@
       try { markInfoCard(); } catch(e){}
       try { actColumn(); col = document.getElementById('dkActCol'); if (col) col.scrollTop = y; } catch(e){}
       try { tidyQuickBtns(); } catch(e){}
+      try { actionsToTop(); } catch(e){}
       return r;
     };
     window.renderLeadScreen._dk = true;
