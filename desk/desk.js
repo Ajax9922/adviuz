@@ -131,13 +131,13 @@
   }
   function stageArrows(){
     if (!MQ.matches) return;
-    document.querySelectorAll('.lf-stages').forEach(function(row){
+    document.querySelectorAll('.lf-stages, .lf-pills').forEach(function(row){
       if (row.parentElement && row.parentElement.classList.contains('dk-stagewrap')) { syncArrows(row); return; }
       var wrap = document.createElement('div'); wrap.className = 'dk-stagewrap';
       row.parentNode.insertBefore(wrap, row); wrap.appendChild(row);
       ['l','r'].forEach(function(d){
         var b = document.createElement('button'); b.type = 'button'; b.className = 'dk-sarrow dk-sarrow-' + d;
-        b.setAttribute('aria-label', d === 'l' ? 'Previous stages' : 'More stages');
+        b.setAttribute('aria-label', d === 'l' ? 'Scroll back' : 'Show more');
         b.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="' + (d === 'l' ? 'M15 6l-6 6 6 6' : 'M9 6l6 6-6 6') + '"/></svg>';
         b.addEventListener('click', function(){ row.scrollBy({ left: (d === 'l' ? -1 : 1) * Math.max(160, row.clientWidth * .7), behavior: 'smooth' }); });
         wrap.appendChild(b);
@@ -237,7 +237,6 @@
 
     hookInfoRows();
     hookLeadRender();
-    hookFilterPills();
     var content = document.getElementById('content');
     if (content && window.MutationObserver) {
       var t = null;
