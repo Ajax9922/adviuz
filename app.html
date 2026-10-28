@@ -5096,7 +5096,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-10-27 import-10zzx';
+var APP_VERSION = 'v2026-10-27 import-10zzy';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -37843,10 +37843,34 @@ function _campLeadCount(c){
     return String(l.campaign_id)===String(c.id);
   }).length;
 }
+// cf-1 (Ajax 2026-10-27): campaign filter chips — type (default Digital Flyers) + status.
+function _campIsAi(c){ return /\bAI (Conversion )?Engine\b/i.test(String(c&&c.name||'')) || (!(c&&c.ad_id) && !(Number(c&&c.view_budget)>0)); }
+function _campNeedsTopup(c){ var b=Number(c.view_budget)||0; return !_campIsAi(c) && b>0 && (Number(c.views_used)||0)/b>=0.9; }
+var CAMP_TYPES=[['flyer','Digital Flyers'],['ai','AI Engine'],['all','All']];
+var CAMP_STATS=[['all','Any status'],['active','Active'],['inactive','Inactive'],['topup','Needs top-up'],['recent','New (30 days)']];
+function _campPass(c, type, st){
+  if(type==='flyer' && _campIsAi(c)) return false;
+  if(type==='ai' && !_campIsAi(c)) return false;
+  if(st==='active' && c.status!=='active') return false;
+  if(st==='inactive' && c.status==='active') return false;
+  if(st==='topup' && !_campNeedsTopup(c)) return false;
+  if(st==='recent' && !(c.created_at && (Date.now()-new Date(c.created_at).getTime()) < 30*864e5)) return false;
+  return true;
+}
+function campChipsHTML(){
+  var all=_adminData.campaigns||[], ty=window._campType||'flyer', st=window._campStat||'all';
+  var chip=function(on,label,n,fn){ return '<button type="button" onclick="'+fn+'" style="flex-shrink:0;padding:6px 12px;border-radius:20px;border:1.5px solid '+(on?'var(--text)':'var(--border)')+';background:'+(on?'var(--text)':'var(--white)')+';color:'+(on?'#fff':'var(--sub)')+';font-family:var(--f);font-size:12px;font-weight:500;cursor:pointer">'+label+' <span style="opacity:.65">'+n+'</span></button>'; };
+  var row='display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px;margin-bottom:8px';
+  var h='<div style="'+row+'">'+CAMP_TYPES.map(function(t){ var n=all.filter(function(c){ return _campPass(c,t[0],'all'); }).length; return chip(ty===t[0],t[1],n,"window._campType='"+t[0]+"';_renderCampList()"); }).join('')+'</div>';
+  h+='<div style="'+row+'">'+CAMP_STATS.map(function(t){ var n=all.filter(function(c){ return _campPass(c,ty,t[0]); }).length; return chip(st===t[0],t[1],n,"window._campStat='"+t[0]+"';_renderCampList()"); }).join('')+'</div>';
+  return h;
+}
 function _campListFiltered(){
   var all=(_adminData.campaigns||[]).slice();
   var q=(window._campSearch||'').trim().toLowerCase();
+  var _ty=window._campType||'flyer', _st=window._campStat||'all';
   var camps=all.filter(function(c){
+    if(!_campPass(c,_ty,_st)) return false;
     if(!q) return true;
     var cn=((c.clients&&c.clients.business_name)||'').toLowerCase();
     return String(c.name||'').toLowerCase().indexOf(q)>=0 || cn.indexOf(q)>=0;
@@ -37891,13 +37915,14 @@ function campCardHTML(c, i){
 }
 function campListInnerHTML(){
   var r=_campListFiltered();
-  if(!r.camps.length) return '<div style="text-align:center;padding:30px;color:var(--sub);font-size:13px">No campaigns match your search.</div>';
+  if(!r.camps.length) return '<div style="text-align:center;padding:30px;color:var(--sub);font-size:13px">No campaigns match these filters.</div>';
   var h='<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
   r.camps.forEach(function(c,i){ h+=campCardHTML(c,i); });
   return h+'</div>';
 }
 function _renderCampList(){
   var wrap=document.getElementById('campListWrap'); if(wrap) wrap.innerHTML=campListInnerHTML();
+  var chips=document.getElementById('campChips'); if(chips) chips.innerHTML=campChipsHTML();
   var cnt=document.getElementById('campCount');
   if(cnt){ var r=_campListFiltered(); cnt.textContent=r.camps.length+(r.camps.length!==r.all.length?(' of '+r.all.length):'')+' campaigns'; }
 }
@@ -37906,10 +37931,12 @@ function adCampaignsHTML() {
   var all=_adminData.campaigns||[];
   var h = '<div style="padding:0 12px 12px;margin-top:10px">';
   h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0 10px">';
-  h += '<div id="campCount" style="font-size:12px;color:var(--sub);font-weight:600">'+all.length+' campaigns</div>';
+  var _cfR=_campListFiltered();
+  h += '<div id="campCount" style="font-size:12px;color:var(--sub);font-weight:600">'+_cfR.camps.length+(_cfR.camps.length!==all.length?(' of '+all.length):'')+' campaigns</div>';
   h += '<button onclick="openAddCampaignSheet()" style="padding:7px 14px;border-radius:9px;background:var(--navy,#001f3f);color:#fff;border:none;font-family:var(--f);font-size:12px;font-weight:500;cursor:pointer">+ New Campaign</button></div>';
   if (!all.length) return h+'<div style="text-align:center;padding:40px;color:var(--sub)">No campaigns yet.<br><br><button onclick="openAddCampaignSheet()" style="padding:10px 20px;border-radius:9px;background:var(--navy,#001f3f);color:#fff;border:none;font-family:var(--f);font-size:13px;font-weight:500;cursor:pointer">\uD83D\uDE80 Create First Campaign</button></div></div>';
   var sSvg='<svg fill="none" stroke="var(--muted)" stroke-width="2" viewBox="0 0 24 24" style="width:15px;height:15px;flex-shrink:0"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
+  h += '<div id="campChips">'+campChipsHTML()+'</div>';
   h += '<div style="display:flex;gap:8px;margin-bottom:10px">';
   h += '<div style="flex:1;display:flex;align-items:center;gap:7px;background:var(--white);border:1px solid var(--border);border-radius:9px;padding:8px 11px;min-width:0">'+sSvg
      + '<input id="campSearchInp" value="'+(window._campSearch||'').replace(/"/g,'&quot;')+'" placeholder="Search campaign\u2026" oninput="window._campSearch=this.value;_renderCampList()" style="flex:1;min-width:0;border:none;outline:none;background:none;font-family:var(--f);font-size:13px;color:var(--text)"></div>';
