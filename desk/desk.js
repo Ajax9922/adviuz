@@ -93,6 +93,21 @@
     col.appendChild(sec);
     scr.classList.add('dk-3col');
   }
+  // Quotes / Invoices / Proposal: line icons instead of coloured emoji tiles
+  var QB = {
+    openLeadQuotes:     ['Quotes',   '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>'],
+    openLeadInvoices:   ['Invoices', '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>'],
+    openProposalWizard: ['Proposal', '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 3v2h6V3M9 11h6M9 15h6"/>']
+  };
+  function tidyQuickBtns(){
+    if (!MQ.matches) return;
+    Object.keys(QB).forEach(function(fn){
+      var b = document.querySelector('#leadScreen button[onclick^="' + fn + '"]');
+      if (!b || b.classList.contains('dk-qbtn')) return;
+      b.classList.add('dk-qbtn');
+      b.innerHTML = svg(QB[fn][1], 17) + QB[fn][0];
+    });
+  }
   function hookLeadRender(){
     if (typeof window.renderLeadScreen !== 'function' || window.renderLeadScreen._dk) return;
     var orig = window.renderLeadScreen;
@@ -103,6 +118,7 @@
       var r = orig.apply(this, arguments);
       try { markInfoCard(); } catch(e){}
       try { actColumn(); col = document.getElementById('dkActCol'); if (col) col.scrollTop = y; } catch(e){}
+      try { tidyQuickBtns(); } catch(e){}
       return r;
     };
     window.renderLeadScreen._dk = true;
