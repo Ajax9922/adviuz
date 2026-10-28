@@ -37845,20 +37845,20 @@ function _campLeadCount(c){
 }
 // cf-1 (Ajax 2026-10-27): campaign filter chips — type (default Digital Flyers) + status.
 function _campIsAi(c){ return /\bAI (Conversion )?Engine\b/i.test(String(c&&c.name||'')) || (!(c&&c.ad_id) && !(Number(c&&c.view_budget)>0)); }
-function _campNeedsTopup(c){ var b=Number(c.view_budget)||0; return !_campIsAi(c) && b>0 && (Number(c.views_used)||0)/b>=0.9; }
+// A flyer campaign that has used all its views is FINISHED (top-up needed), whatever its status field says.
+function _campFinished(c){ var b=Number(c.view_budget)||0; return !_campIsAi(c) && b>0 && (Number(c.views_used)||0)>=b; }
+function _campEffStatus(c){ return _campFinished(c) ? 'finished' : (c.status==='active' ? 'active' : 'inactive'); }
 var CAMP_TYPES=[['flyer','Digital Flyers'],['ai','AI Engine'],['all','All']];
-var CAMP_STATS=[['all','Any status'],['active','Active'],['inactive','Inactive'],['topup','Needs top-up'],['recent','New (30 days)']];
+var CAMP_STATS=[['active','Active'],['finished','Finished \u00b7 top up'],['inactive','Paused / other'],['recent','New (30 days)'],['all','Any status']];
 function _campPass(c, type, st){
   if(type==='flyer' && _campIsAi(c)) return false;
   if(type==='ai' && !_campIsAi(c)) return false;
-  if(st==='active' && c.status!=='active') return false;
-  if(st==='inactive' && c.status==='active') return false;
-  if(st==='topup' && !_campNeedsTopup(c)) return false;
+  if(st==='active' || st==='finished' || st==='inactive'){ if(_campEffStatus(c)!==st) return false; }
   if(st==='recent' && !(c.created_at && (Date.now()-new Date(c.created_at).getTime()) < 30*864e5)) return false;
   return true;
 }
 function campChipsHTML(){
-  var all=_adminData.campaigns||[], ty=window._campType||'flyer', st=window._campStat||'all';
+  var all=_adminData.campaigns||[], ty=window._campType||'flyer', st=window._campStat||'active';
   var chip=function(on,label,n,fn){ return '<button type="button" onclick="'+fn+'" style="flex-shrink:0;padding:6px 12px;border-radius:20px;border:1.5px solid '+(on?'var(--text)':'var(--border)')+';background:'+(on?'var(--text)':'var(--white)')+';color:'+(on?'#fff':'var(--sub)')+';font-family:var(--f);font-size:12px;font-weight:500;cursor:pointer">'+label+' <span style="opacity:.65">'+n+'</span></button>'; };
   var row='display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px;margin-bottom:8px';
   var h='<div style="'+row+'">'+CAMP_TYPES.map(function(t){ var n=all.filter(function(c){ return _campPass(c,t[0],'all'); }).length; return chip(ty===t[0],t[1],n,"window._campType='"+t[0]+"';_renderCampList()"); }).join('')+'</div>';
@@ -37868,7 +37868,7 @@ function campChipsHTML(){
 function _campListFiltered(){
   var all=(_adminData.campaigns||[]).slice();
   var q=(window._campSearch||'').trim().toLowerCase();
-  var _ty=window._campType||'flyer', _st=window._campStat||'all';
+  var _ty=window._campType||'flyer', _st=window._campStat||'active';
   var camps=all.filter(function(c){
     if(!_campPass(c,_ty,_st)) return false;
     if(!q) return true;
@@ -37891,22 +37891,25 @@ function _campListFiltered(){
       default:             return cr(b).localeCompare(cr(a));
     }
   });
+  // cf-2: with "Any status", running campaigns stay on top, then finished, then paused/other.
+  if(_st==='all'){ var _rk={active:0,finished:1,inactive:2}; camps.sort(function(a,b){ return _rk[_campEffStatus(a)]-_rk[_campEffStatus(b)]; }); }
   return {all:all, camps:camps};
 }
 function campCardHTML(c, i){
   var cn=(c.clients&&c.clients.business_name)||'Unknown';
   var pct=c.view_budget>0?Math.min(100,Math.round((c.views_used||0)/c.view_budget*100)):0;
-  var stCol=c.status==='active'?'var(--green)':c.status==='paused'?'var(--amber)':'var(--sub)';
+  var _fin=(typeof _campFinished==='function')&&_campFinished(c);
+  var stCol=_fin?'var(--red,#dc2626)':c.status==='active'?'var(--green)':c.status==='paused'?'var(--amber)':'var(--sub)';
   var wfLabels={payment_received:'\uD83D\uDCB0 Payment received',content_pending:'\uD83D\uDCC1 Content pending',design_in_progress:'\uD83C\uDFA8 Design in progress',design_approval:'\uD83D\uDC41 Design approval',campaign_setup:'\u2699\uFE0F Campaign setup',active:'\uD83D\uDE80 Live',paused:'\u23F8 Paused',completed:'\u2705 Completed'};
   var wf=c.workflow_stage||c.status||'active';
-  var wfLabel=wfLabels[wf]||wf;
+  var wfLabel=_fin?'\u23F9 Views used up \u2014 top up to restart':(wfLabels[wf]||wf);
   var leads=_campLeadCount(c);
   return '<div style="padding:12px 14px;'+(i?'border-top:1px solid var(--border)':'')+';cursor:pointer" onclick="openAdminCampDetail(\''+c.id+'\')" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">'
     +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px">'
     +'<div style="font-size:13px;font-weight:500;color:var(--text)">'+(c.name||'Campaign')+'</div>'
-    +'<span style="font-size:10px;font-weight:500;padding:2px 8px;border-radius:20px;color:'+stCol+';background:'+stCol+'18">'+c.status+'</span></div>'
+    +'<span style="font-size:10px;font-weight:500;padding:2px 8px;border-radius:20px;color:'+stCol+';background:'+stCol+'18">'+(_fin?'finished \u00b7 top up':c.status)+'</span></div>'
     +'<div style="font-size:11px;color:var(--sub);margin-bottom:6px">'+cn+'</div>'
-    +'<div style="font-size:11px;color:var(--blue);margin-bottom:6px;font-weight:600">'+wfLabel+'</div>'
+    +'<div style="font-size:11px;color:'+(_fin?'var(--red,#dc2626)':'var(--blue)')+';margin-bottom:6px;font-weight:600">'+wfLabel+'</div>'
     +'<div style="height:4px;background:var(--border);border-radius:2px;margin-bottom:4px"><div style="height:100%;width:'+pct+'%;background:var(--green);border-radius:2px"></div></div>'
     +'<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--sub)">'
       +'<span>'+(c.views_used||0)+' / '+(c.view_budget||0)+' views &middot; <b style="color:var(--text)">'+leads+'</b> leads</span>'
