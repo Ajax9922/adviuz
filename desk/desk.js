@@ -162,16 +162,35 @@
     // Rail head: logo mark + wordmark (wordmark shows when expanded)
     var head = el('div', { 'class':'dk-rail-head' });
     var logo = el('button', { 'class':'dk-rail-logo', 'aria-label':'Refresh Adviuz', title:'Adviuz — click to refresh', type:'button' },
-      '<svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><defs><linearGradient id="dkg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4000f3"/><stop offset="1" stop-color="#e65afc"/></linearGradient></defs><circle cx="6" cy="19.5" r="4" fill="url(#dkg)"/><path d="M11 4.5 L20.5 21" stroke="#190229" stroke-width="4.2" stroke-linecap="round"/></svg>');
+      '<img src="/desk/mark.png?v=1" alt="" width="26" height="26">');
     logo.addEventListener('click', function(){ location.reload(); });
     head.appendChild(logo);
-    head.appendChild(el('span', { 'class':'dk-rail-word' }, 'adviuz'));
+    var word = el('img', { 'class':'dk-rail-word', src:'/brand/adviuz-logo-black.png', alt:'Adviuz' });
+    word.addEventListener('click', function(){ location.reload(); });
+    head.appendChild(word);
     bar.insertBefore(head, bar.firstChild);
 
-    // Tooltips from the tab labels (useful while the rail is collapsed)
+    // Brand icon set (one stroke weight, one size) + short labels under each icon
+    var NAV = {
+      'tab-leads':     ['Leads',      '<circle cx="9" cy="8" r="3.4"/><path d="M3 19.5c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 4.8a3.2 3.2 0 0 1 0 6.4"/><path d="M18 14.3c1.8.6 3 2.5 3 5.2"/>'],
+      'tab-followups': ['Follow-ups', '<rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M8 3v4M16 3v4M3.5 10h17"/><path d="m9 15 2 2 4-4"/>'],
+      'tab-reports':   ['Reports',    '<path d="M4 20h16"/><rect x="5.5" y="12" width="3" height="5.5" rx="1"/><rect x="10.5" y="7" width="3" height="10.5" rx="1"/><rect x="15.5" y="9.5" width="3" height="8" rx="1"/>'],
+      'tab-calls':     ['Inbox',      '<path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 3.5V17h0A2.5 2.5 0 0 1 4 14.5z"/><path d="M8.5 9.5h7M8.5 12.5h4.5"/>'],
+      'tab-dashboard': ['Dashboard',  '<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/>'],
+      'tab-me':        ['Me',         '<circle cx="12" cy="8.5" r="3.8"/><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6"/>']
+    };
     bar.querySelectorAll('.tab').forEach(function(t){
+      var cfg = NAV[t.id];
+      var old = t.querySelector('svg');
+      if (cfg && old) {
+        var ns = document.createElement('span'); ns.className = 'dk-ico';
+        ns.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + cfg[1] + '</svg>';
+        old.replaceWith(ns);
+      }
       var l = t.querySelector('.tab-lbl');
-      if (l && !t.title) { t.title = l.textContent.replace(/\s*\(\d+\)$/, ''); t.setAttribute('aria-label', t.title); }
+      var name = cfg ? cfg[0] : (l ? l.textContent.replace(/\s*\(\d+\)$/, '') : '');
+      if (!t.querySelector('.dk-mini')) { var m = document.createElement('span'); m.className = 'dk-mini'; m.textContent = name; t.appendChild(m); }
+      if (name) { t.title = name; t.setAttribute('aria-label', name); }
     });
 
     // Rail bottom: expand/collapse, settings, profile
