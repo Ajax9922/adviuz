@@ -30990,6 +30990,7 @@ function _cInvStatus(inv) {
   if (s === 'paid')    return { lbl:'Paid',    bg:'#dcfce7', fg:'#15803d' };
   if (s === 'partial') return { lbl:'Partial', bg:'#fef3c7', fg:'#b45309' };
   if (s === 'refunded') return { lbl:'Refunded', bg:'#e5e7eb', fg:'#4b5563' }; /* ref-1 */
+  if (s === 'partially_refunded') return { lbl:'Part refunded', bg:'#fef3c7', fg:'#b45309' }; /* refund-1 */
   if (s === 'cancelled') return { lbl:'Cancelled', bg:'#e5e7eb', fg:'#4b5563' }; /* ref-1 */
   return { lbl:'Unpaid', bg:'#fee2e2', fg:'#b91c1c' };
 }
@@ -31082,20 +31083,21 @@ function clientBillingHTML() {
   all.forEach(function(inv){
     var _st0 = (inv.payment_status || '').toLowerCase();
     if (_st0 === 'refunded' || _st0 === 'cancelled') return; /* ref-1: money went back */
-    var tot = parseFloat(inv.total) || 0;
+    var tot = (parseFloat(inv.total) || 0) - (parseFloat(inv.refunded_amount) || 0); /* refund-1: part refunds */
     billed += tot;
     var ap = (inv.amount_paid != null)
       ? (parseFloat(inv.amount_paid) || 0)
       : ((inv.payment_status || '').toLowerCase() === 'paid' ? tot : 0);
-    paid += ap;
+    if (_st0 === 'partially_refunded') ap = tot; /* refund-1 */
+    paid += Math.min(ap, tot);
   });
   var outstanding = Math.max(0, billed - paid);
 
   var f = window._clientBillFilter || 'all';
   var rows = all.filter(function(inv){
     var s = (inv.payment_status || '').toLowerCase();
-    if (f === 'paid')   return s === 'paid';
-    if (f === 'unpaid') return s !== 'paid' && s !== 'refunded' && s !== 'cancelled'; /* ref-1 */
+    if (f === 'paid')   return s === 'paid' || s === 'partially_refunded'; /* refund-1 */
+    if (f === 'unpaid') return s !== 'paid' && s !== 'refunded' && s !== 'cancelled' && s !== 'partially_refunded'; /* ref-1, refund-1 */
     return true;
   });
 
@@ -42492,7 +42494,12 @@ function invShowDetail(invId) {
     +'<div style="text-align:center;background:var(--navy,#001f3f);border-radius:16px;padding:24px 20px;margin-bottom:20px">'
       +'<div style="font-size:13px;color:rgba(255,255,255,.6);margin-bottom:6px">'+num+'</div>'
       +'<div style="font-size:32px;font-weight:600;color:#fff;margin-bottom:8px">'+total+'</div>'
-      +'<div style="display:inline-block;padding:4px 14px;border-radius:20px;background:'+(isPaid?'#059669':'#d97706')+';font-size:12px;font-weight:500;color:#fff;text-transform:uppercase">'+(isPaid?'✅ PAID':'⏳ PENDING')+'</div>'
+      +(function(){ // refund-1: refunded / partially refunded badges
+        var ps=(inv.payment_status||'').toLowerCase(), rf=Number(inv.refunded_amount)||0;
+        if(ps==='refunded') return '<div style="display:inline-block;padding:4px 14px;border-radius:20px;background:#6b7280;font-size:12px;font-weight:500;color:#fff;text-transform:uppercase">↩️ REFUNDED</div>';
+        if(ps==='partially_refunded') return '<div style="display:inline-block;padding:4px 14px;border-radius:20px;background:#b45309;font-size:12px;font-weight:500;color:#fff;text-transform:uppercase">↩️ $'+rf.toLocaleString('en-CA',{minimumFractionDigits:2})+' REFUNDED</div>';
+        return '<div style="display:inline-block;padding:4px 14px;border-radius:20px;background:'+(isPaid?'#059669':'#d97706')+';font-size:12px;font-weight:500;color:#fff;text-transform:uppercase">'+(isPaid?'✅ PAID':'⏳ PENDING')+'</div>';
+      })()
     +'</div>'
     // Details card
     +'<div style="background:var(--bg);border-radius:12px;padding:4px 0;margin-bottom:16px">'
@@ -42520,6 +42527,10 @@ function invShowDetail(invId) {
   } else {
     fhtml += '<button class="btn" style="width:100%;justify-content:center;padding:14px;background:var(--navy,#001f3f);border:none;color:#fff" data-id="'+inv.id+'" onclick="regenInvoicePdf(this.dataset.id, this)">🔄 Generate PDF</button>';
   }
+  // refund-1: admin-only Refund button on paid invoices
+  if(window._staffRole==='super_admin' && ['paid','partially_refunded'].indexOf((inv.payment_status||'').toLowerCase())>=0){
+    fhtml += '<button class="btn" style="width:100%;justify-content:center;padding:14px;background:var(--white,#fff);border:1px solid #fecaca;color:var(--red,#dc2626)" data-id="'+inv.id+'" onclick="openRefundSheet(this.dataset.id)">↩️ Refund</button>';
+  }
   fhtml += '<div style="display:flex;gap:8px">'
     +'<button onclick="invEditFromDetail()" class="btn" style="flex:1;justify-content:center;background:#f1f5f9;border:1px solid var(--border);color:var(--text);padding:12px">✏️ Edit</button>'
     +'<button onclick="openLeadInvoices(_invMgrLeadId)" class="btn" style="flex:1;justify-content:center;background:#f1f5f9;border:1px solid var(--border);color:var(--text);padding:12px">← Back</button>'
@@ -42528,6 +42539,67 @@ function invShowDetail(invId) {
 
   foot.innerHTML = fhtml;
   foot.style.display = 'block';
+}
+
+// ── refund-1: Refund sheet (admin only) ─────────────────────────────────────
+// Rule A: suggests refunding only the UNUSED part (views left, AI fuel left);
+// you can change the amount. Server: admin-refund (preview → refund).
+function _rfMoney(n){ return '$'+Number(n||0).toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function _rfE(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+async function _rfCall(body){
+  var r=await fetch(SB_URL+'/functions/v1/admin-refund',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken,'apikey':SB_ANON},body:JSON.stringify(body)});
+  var j=await r.json().catch(function(){return {};});
+  if(!r.ok||j.error) throw new Error(j.error||'Something went wrong');
+  return j;
+}
+async function openRefundSheet(invId){
+  var ov=document.createElement('div'); ov.className='sheet-ov open'; ov.style.display='flex'; ov.style.zIndex='9990'; ov.id='rfSheet';
+  ov.innerHTML='<div class="sheet" style="max-height:88vh"><div class="sheet-handle"></div><div class="sh-head"><div class="sh-title">↩️ Refund</div><button onclick="this.closest(\'.sheet-ov\').remove()" style="background:none;border:none;font-size:18px;color:var(--sub);cursor:pointer">&#x2715;</button></div>'
+    +'<div class="sh-body" id="rfBody" style="padding:12px 16px calc(28px + env(safe-area-inset-bottom,16px));overflow-y:auto"><div style="font-size:13px;color:var(--sub);padding:16px 0">Checking what this payment gave the client\u2026</div></div></div>';
+  ov.addEventListener('click',function(e){ if(e.target===ov) ov.remove(); });
+  document.body.appendChild(ov);
+  var body=document.getElementById('rfBody');
+  try{
+    var p=await _rfCall({action:'preview', invoice_id:invId});
+    window._rfP=p; window._rfInv=invId;
+    var box='background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:12px';
+    var h='<div style="'+box+'"><div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:var(--sub)">Invoice '+_rfE(p.invoice_number)+'</span><b style="color:var(--text)">'+_rfMoney(p.total)+'</b></div>'
+      +'<div style="font-size:13px;color:var(--text);margin-top:3px">'+_rfE(p.client)+'</div>'
+      +(p.already_refunded>0?'<div style="font-size:12px;color:#b45309;margin-top:4px">Already refunded: '+_rfMoney(p.already_refunded)+'</div>':'')+'</div>';
+    if(p.credits && p.credits.length){
+      h+='<div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);margin:4px 2px 8px">What this payment gave them</div>';
+      p.credits.forEach(function(c){ h+='<div style="'+box+'"><div style="font-size:13px;font-weight:600;color:var(--text)">'+_rfE(c.what)+'</div><div style="font-size:12px;color:var(--sub);margin-top:3px">'+_rfE(c.unused)+' ('+c.pct+'%)</div></div>'; });
+    }
+    h+='<div style="font-size:12.5px;color:var(--sub);margin:2px 2px 10px;line-height:1.5">'+_rfE(p.basis)+(p.via_stripe?'':'<br><b style="color:#b45309">'+_rfE(p.stripe_note)+'</b>')+'</div>'
+      +'<label style="font-size:12px;font-weight:600;color:var(--sub)">Amount to refund (max '+_rfMoney(p.max_refund)+')</label>'
+      +'<input id="rfAmt" type="number" inputmode="decimal" step="0.01" min="0.01" max="'+p.max_refund+'" value="'+Number(p.suggested).toFixed(2)+'" style="width:100%;margin:6px 0 12px;padding:12px;border:1px solid var(--border);border-radius:12px;font-family:var(--f);font-size:16px;font-weight:600;color:var(--text);background:var(--white)">'
+      +'<label style="font-size:12px;font-weight:600;color:var(--sub)">Reason</label>'
+      +'<textarea id="rfWhy" placeholder="e.g. Auto-recharge charged by mistake" style="width:100%;min-height:64px;margin:6px 0 10px;padding:11px;border:1px solid var(--border);border-radius:12px;font-family:var(--f);font-size:13.5px;resize:vertical"></textarea>'
+      +(p.credits && p.credits.length ? '<label style="display:flex;gap:10px;align-items:center;font-size:13px;color:var(--text);padding:8px 2px"><input type="checkbox" id="rfBack" checked style="width:18px;height:18px"> Take back the unused credits</label>' : '')
+      +'<label style="display:flex;gap:10px;align-items:center;font-size:13px;color:var(--text);padding:8px 2px"><input type="checkbox" id="rfMail" checked style="width:18px;height:18px"> Email the client a refund confirmation</label>'
+      +((p.commission||[]).length ? '<div style="font-size:12px;color:var(--sub);margin:4px 2px 0">Partner commission on this payment is reduced in the same share'+((p.commission||[]).some(function(c){return c.paid;})?' (already paid \u2014 you\u2019ll get a reminder to deduct it)':'')+'.</div>' : '')
+      +'<button id="rfGo" onclick="refundGo()" style="display:block;width:100%;margin-top:14px;padding:14px;border-radius:12px;border:none;background:var(--red,#dc2626);color:#fff;font-family:var(--f);font-size:15px;font-weight:600;cursor:pointer">'+(p.via_stripe?'Refund to card':'Record refund (paid back outside Stripe)')+'</button>'
+      +'<button onclick="this.closest(\'.sheet-ov\').remove()" style="display:block;width:100%;margin-top:8px;padding:13px;border-radius:12px;border:1px solid var(--border);background:var(--white);color:var(--text);font-family:var(--f);font-size:14px;font-weight:600;cursor:pointer">Cancel</button>';
+    body.innerHTML=h;
+  }catch(e){ body.innerHTML='<div style="font-size:13px;color:var(--red);padding:16px 0">'+_rfE(e.message)+'</div>'; }
+}
+function refundGo(){
+  var p=window._rfP||{}; var amt=parseFloat((document.getElementById('rfAmt')||{}).value)||0; var why=((document.getElementById('rfWhy')||{}).value||'').trim();
+  if(!(amt>0)){ showToast('Enter an amount'); return; }
+  if(amt>p.max_refund+0.001){ showToast('The most you can refund is '+_rfMoney(p.max_refund)); return; }
+  if(!why){ showToast('Add a short reason'); return; }
+  var back=document.getElementById('rfBack'); var mail=document.getElementById('rfMail');
+  var payload={action:'refund', invoice_id:window._rfInv, amount:amt, reason:why, take_back: back?back.checked:true, email_client: mail?mail.checked:true, mode: p.via_stripe?'stripe':'manual'};
+  _aoConfirm('Refund '+_rfMoney(amt)+'?', (p.via_stripe?'The money goes back to the client\u2019s card right away (shows in 5\u201310 business days). This can\u2019t be undone.':'This records that you paid the client back yourself. No money moves in Stripe.')+(payload.take_back&&(p.credits||[]).length?' Unused credits are taken back.':''), 'Refund '+_rfMoney(amt), async function(){
+    var go=document.getElementById('rfGo'); if(go){ go.disabled=true; go.textContent='Refunding\u2026'; }
+    try{
+      var r=await _rfCall(payload);
+      var sh=document.getElementById('rfSheet'); if(sh) sh.remove();
+      showToast('Refunded '+_rfMoney(r.refunded)+(r.problems&&r.problems.length?' \u2014 check your email for 1 item to handle':''));
+      var inv=_invMap[window._rfInv]; if(inv){ inv.refunded_amount=r.total_refunded; inv.payment_status=r.full?'refunded':'partially_refunded'; invShowDetail(inv.id); }
+      try{ if(typeof loadAdminData==='function') loadAdminData(); }catch(_e){}
+    }catch(e){ showToast(e.message||'Refund failed'); if(go){ go.disabled=false; go.textContent='Try again'; } }
+  }, true);
 }
 
 function invRow(label, val) {
