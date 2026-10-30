@@ -14928,7 +14928,8 @@ function callsHTML(){
     var meta='<span style="color:var(--sub)">'+(c.dir==='in'?aIn:aOut)+'</span>'
       +' <span style="color:'+outCol+';font-weight:500">'+outTxt+'</span>'
       +(!isSms&&c.durS>0?' <span style="color:var(--sub)">\u00b7 '+c.dur+'</span>':'')
-      +' <span style="color:var(--sub)">\u00b7 '+(c.tOnly||c.time)+'</span>';
+      +' <span style="color:var(--sub)">\u00b7 '+(c.tOnly||c.time)+'</span>'
+      +(function(){ var d=String(c.via||'').replace(/\D/g,''); return (!isSms && d.length>=4) ? ' <span style="color:var(--sub)">\u00b7 '+(c.dir==='in'?'to':'via')+' '+d.slice(-4)+'</span>' : ''; })(); // calls-3
 
     var h='<div style="border-bottom:1px solid var(--border);background:var(--white)">'
       +'<div style="display:flex;align-items:center;gap:11px;padding:12px 14px">'
@@ -24403,6 +24404,10 @@ function _lineForLead(l){
   if(window._isPartnerMode===true || window._activeRole==='partner') return null;
   var cid = l.client_id || window._clientId || '';
   for(var i=0;i<window._myLines.length;i++){ if(window._myLines[i].client_id===cid) return window._myLines[i]; }
+  // calls-3: Adviuz staff (e.g. Ajax's 8220) call from their own line on ANY lead, so callbacks ring them.
+  if(window._staffRole==='super_admin'){
+    for(var j=0;j<window._myLines.length;j++){ if(String(window._myLines[j].client_id||'').indexOf('7d315d20')===0) return window._myLines[j]; }
+  }
   return null;
 }
 // calls-2: the campaign's own number for a lead (e.g. Adviuz 1152).
@@ -24547,13 +24552,14 @@ function _makeCall(l) {
           headers: { 'Prefer': 'return=representation' },
           body: JSON.stringify({
             lead_id:       l.dbId,
-            client_id:     window._clientId || null,
+            client_id:     l.client_id || window._clientId || null, // calls-3: the lead's own business
             activity_type: 'call',
             description:   'Outbound call',
             call_sid:      callSid,
             direction:     'outbound',
             // calls-2: which number the lead saw (shown next to "Human" on the card)
-            metadata:      { handler: 'human', from_number: (_lineForLead(l) && window._ccFrom!=='campaign') ? _lineForLead(l).phone : (_campPhoneFor(l) || null) },
+            // calls-3: nothing else set → the Adviuz main line (647-250-1152) is what Twilio used
+            metadata:      { handler: 'human', from_number: (_lineForLead(l) && window._ccFrom!=='campaign') ? _lineForLead(l).phone : (_campPhoneFor(l) || '+16472501152') },
             created_at:    new Date().toISOString()
           })
         }).then(function(r){
@@ -30733,6 +30739,8 @@ async function loadCallLog() {
         rec:  r.recording_url || '',
         ph:   lead.ph || '',
         tx:   (r.metadata && r.metadata.transcript) || '',
+        // calls-3: our number on this call (outbound: the caller ID we used; inbound: the number they rang)
+        via:  (r.metadata && ((r.direction||'').toLowerCase()==='inbound' ? (r.metadata.to_number || r.metadata.line) : (r.metadata.from_number || r.metadata.line))) || '',
         ai:   !!((r.metadata && (r.metadata.handler === 'ai' || r.metadata.ai === true || r.metadata.retell)) || /^ai\b/i.test(desc))
       });
     });
