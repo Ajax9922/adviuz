@@ -19534,7 +19534,121 @@ function openBillingSheet(){
   _bilLoadFuel();
   _bilARInit();
 }
-function _bilARInit(){ _bilPaintAR(); _bilLoadCard(); }
+function _bilARInit(){ _bilPaintAR(); _bilLoadCard(); _bilSubsLoad(); }
+
+// ── subs-1: Billing → Subscriptions ─────────────────────────────────────────
+// Lists the AI plan (if any) and every payment plan (quote paid in installments).
+// Payment plans: pause 1–2 months (max 2/yr, end date moves back), resume,
+// request cancellation (30 days' notice — Adviuz confirms), update card (Stripe).
+// Actions go through quote-installments?action=manage with the plan's own token.
+var _bilSubs = [];
+function _subD(s){ if(!s) return '\u2014'; var x=new Date(s); return isNaN(x)?'\u2014':x.toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}); }
+function _subM(n){ return '$'+Number(n||0).toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function _subPauseLeft(p){ var since=Date.now()-365*864e5; var used=(Array.isArray(p.pause_log)?p.pause_log:[]).filter(function(x){ return new Date(x.at).getTime()>since; }).reduce(function(s,x){ return s+(Number(x.months)||0); },0); return Math.max(0,2-used); }
+async function _bilSubsLoad(){
+  var el=document.getElementById('bilSubs'); if(!el) return;
+  var cid=window._clientId||'';
+  var rows=[];
+  if(cid){
+    try{ var r=await sbFetch('/rest/v1/rpc/my_payment_plans',{method:'POST',body:JSON.stringify({p_client:cid})}); if(r.ok) rows=await r.json(); }catch(_e){}
+  }
+  _bilSubs=Array.isArray(rows)?rows:[];
+  _bilSubsPaint();
+}
+function _bilSubsPaint(){
+  var el=document.getElementById('bilSubs'); if(!el) return;
+  var card='background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:10px';
+  var b=function(label,click,kind){ var c=kind==='red'?'color:var(--red);border-color:#fecaca':(kind==='dark'?'background:var(--text);color:#fff;border-color:var(--text)':'color:var(--text)');
+    return '<button onclick="'+click+'" style="flex:1;min-width:120px;padding:10px 8px;border-radius:10px;border:1px solid var(--border);background:var(--white);font-family:var(--f);font-size:12.5px;font-weight:600;cursor:pointer;'+c+'">'+label+'</button>'; };
+  var h='';
+  // AI Sales Engine plan (existing subscription)
+  var pk=(window._clientSubPlan||'').toLowerCase(), st=window._clientPlanStatus||'';
+  if(pk && st && st!=='cancelled' && st!=='trial_ended'){
+    h+='<div style="'+card+'"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><div style="font-size:14px;font-weight:600;color:var(--text)">AI Sales Engine \u2014 '+pk.charAt(0).toUpperCase()+pk.slice(1)+'</div>'
+      +'<span style="font-size:11px;font-weight:600;color:'+(st==='past_due'?'var(--red)':'var(--green)')+'">'+(st==='trialing'?'Free trial':st==='past_due'?'Card failed':'Active')+'</span></div>'
+      +'<div style="font-size:12.5px;color:var(--sub);margin-top:4px">'+(st==='trialing'?'First charge ':'Renews ')+_subD(window._clientPlanRenews)+(window._clientPlanInterval==='year'?' \u00b7 billed yearly':' \u00b7 monthly')+'</div>'
+      +'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'+b('Change plan',"openPlansSheet()")+b('Cancel plan',"showToast('Just message us \u2014 we cancel it same day, no questions')",'red')+'</div></div>';
+  }
+  // Payment plans
+  _bilSubs.forEach(function(p,i){
+    var paused = p.status==='paused' && p.paused_until && new Date(p.paused_until) > new Date();
+    var s = p.status==='paused' && !paused ? 'active' : p.status;
+    var lbl = {active:['Active','var(--green)'],paused:['Paused','#b45309'],past_due:['Card failed \u2014 update card','var(--red)'],cancel_requested:['Cancellation requested','var(--red)'],cancel_scheduled:['Ends '+_subD(p.cancel_effective_at),'var(--red)'],cancelled:['Cancelled','var(--sub)'],completed:['Fully paid','var(--green)']}[s]||[s,'var(--sub)'];
+    var pct=Math.round(100*p.payments_made/Math.max(1,p.total_payments));
+    var live=['active','paused','past_due','cancel_requested','cancel_scheduled'].indexOf(s)>=0;
+    var left=_subPauseLeft(p);
+    h+='<div style="'+card+'"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px"><div style="min-width:0"><div style="font-size:14px;font-weight:600;color:var(--text)">'+sanitize(p.item_name||'Payment plan')+'</div>'
+      +'<div style="font-size:12.5px;color:var(--sub);margin-top:2px">'+_subM(p.per_payment)+(p.interval_months===3?' every 3 months':' / month')+' \u00b7 '+p.total_payments+' payments \u00b7 '+_subM(p.total)+' total</div></div>'
+      +'<span style="font-size:11px;font-weight:600;color:'+lbl[1]+';white-space:nowrap">'+lbl[0]+'</span></div>'
+      +'<div style="height:6px;background:var(--border);border-radius:9px;overflow:hidden;margin:11px 0 6px"><div style="height:100%;width:'+pct+'%;background:linear-gradient(90deg,#4000f3,#e65afc)"></div></div>'
+      +'<div style="font-size:12px;color:var(--sub)">'+p.payments_made+' of '+p.total_payments+' paid'
+      +(s==='paused'?' \u00b7 paused until '+_subD(p.paused_until):'')
+      +(live && p.next_payment_at && s!=='cancel_scheduled'?' \u00b7 next payment '+_subD(p.next_payment_at):'')
+      +(s==='completed'?' \u00b7 no more charges':'')+'</div>';
+    if(live){
+      var btns=[b('Update card',"subCard("+i+")")];
+      if(s==='paused') btns.push(b('Resume now',"subAct("+i+",'resume')"));
+      else if((s==='active'||s==='past_due') && p.interval_months===1 && left>0) btns.push(b('Pause',"subPause("+i+")"));
+      if(s==='active'||s==='paused'||s==='past_due') btns.push(b('Cancel',"subCancel("+i+")",'red'));
+      h+='<div style="display:flex;gap:8px;margin-top:11px;flex-wrap:wrap">'+btns.join('')+'</div>'
+        +'<div style="font-size:11.5px;color:var(--sub);margin-top:8px;line-height:1.5">'
+        +(s==='cancel_requested'?'We received your cancellation request on '+_subD(p.cancel_requested_at)+' \u2014 our accounts team will confirm by email.':(p.interval_months===1?'Pause up to 2 months a year ('+left+' left) \u2014 your end date moves back. ':'')+'Cancelling needs 30 days\u2019 notice.')
+        +'</div>';
+    }
+    h+='</div>';
+  });
+  if(!h) h='<div style="'+card+';font-size:13px;color:var(--sub)">No active subscriptions.</div>';
+  el.innerHTML=h;
+}
+async function _subManage(i, body){
+  var p=_bilSubs[i]; if(!p) throw new Error('Plan not found');
+  var r=await fetch(SB_URL+'/functions/v1/quote-installments?action=manage&t='+encodeURIComponent(p.manage_token),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  var j=await r.json().catch(function(){return {};});
+  if(!r.ok||j.error) throw new Error(j.error||'Something went wrong');
+  return j;
+}
+function _subSheet(title, inner){
+  var ov=document.createElement('div'); ov.className='sheet-ov open'; ov.style.display='flex'; ov.style.zIndex='9990'; ov.id='subSheet';
+  ov.innerHTML='<div class="sheet" style="max-height:80vh"><div class="sheet-handle"></div><div class="sh-head"><div class="sh-title">'+title+'</div><button class="sheet-x" onclick="this.closest(\'.sheet-ov\').remove()" style="background:none;border:none;font-size:18px;color:var(--sub);cursor:pointer">&#x2715;</button></div>'
+    +'<div class="sh-body" style="padding:12px 16px calc(28px + env(safe-area-inset-bottom,16px))">'+inner+'</div></div>';
+  ov.addEventListener('click',function(e){ if(e.target===ov) ov.remove(); });
+  document.body.appendChild(ov); return ov;
+}
+var _subBtnCss='display:block;width:100%;padding:13px;border-radius:12px;font-family:var(--f);font-size:14px;font-weight:600;cursor:pointer;margin-top:10px;';
+function subPause(i){
+  var p=_bilSubs[i]; if(!p) return; var left=_subPauseLeft(p); window._subPm=1;
+  var opt=function(n,t1,t2){ return '<div data-pm="'+n+'" onclick="window._subPm='+n+';Array.prototype.forEach.call(document.querySelectorAll(\'[data-pm]\'),function(x){x.style.borderColor=(x.getAttribute(\'data-pm\')==\''+n+'\')?\'#4000f3\':\'var(--border)\';x.style.background=(x.getAttribute(\'data-pm\')==\''+n+'\')?\'#f5f3ff\':\'var(--white)\';})" style="padding:13px 14px;border:1.5px solid '+(n===1?'#4000f3':'var(--border)')+';background:'+(n===1?'#f5f3ff':'var(--white)')+';border-radius:12px;margin-top:10px;cursor:pointer"><div style="font-size:14px;font-weight:600;color:var(--text)">'+t1+'</div><div style="font-size:12px;color:var(--sub);margin-top:2px">'+t2+'</div></div>'; };
+  _subSheet('Pause payments','<div style="font-size:13px;color:var(--sub);line-height:1.55">No charge while paused. Your plan simply ends later \u2014 all '+p.total_payments+' payments stay the same.</div>'
+    +opt(1,'Pause 1 month','Skip the '+_subD(p.next_payment_at)+' payment')
+    +(left>=2?opt(2,'Pause 2 months','Skip the next two payments'):'')
+    +'<button id="subGo" onclick="subAct('+i+',\'pause\')" style="'+_subBtnCss+'background:var(--text);color:#fff;border:none">Confirm pause</button>'
+    +'<button onclick="this.closest(\'.sheet-ov\').remove()" style="'+_subBtnCss+'background:var(--white);color:var(--text);border:1px solid var(--border)">Not now</button>');
+}
+function subCancel(i){
+  var p=_bilSubs[i]; if(!p) return; var left=_subPauseLeft(p);
+  _subSheet('Request cancellation','<div style="font-size:13px;color:var(--sub);line-height:1.55">Your agreement needs <b>30 days\u2019 notice</b>. Payments due in that time are still charged; nothing after. Our accounts team will confirm by email.</div>'
+    +(p.interval_months===1 && p.status!=='paused' && left>0 ? '<div style="margin-top:10px;background:#f5f3ff;border-radius:10px;padding:10px 12px;font-size:12.5px;color:#4c1d95">Just need a break? You can <a href="#" onclick="this.closest(\'.sheet-ov\').remove();subPause('+i+');return false" style="color:#4000f3;font-weight:600">pause instead</a> \u2014 up to '+left+' month'+(left===1?'':'s')+'.</div>' : '')
+    +'<textarea id="subWhy" placeholder="Optional \u2014 tell us why" style="width:100%;min-height:76px;margin-top:10px;border:1px solid var(--border);border-radius:12px;padding:11px;font-family:var(--f);font-size:13.5px;resize:vertical"></textarea>'
+    +'<button id="subGo" onclick="subAct('+i+',\'cancel_request\')" style="'+_subBtnCss+'background:var(--white);color:var(--red);border:1px solid #fecaca">Send cancellation request</button>'
+    +'<button onclick="this.closest(\'.sheet-ov\').remove()" style="'+_subBtnCss+'background:var(--white);color:var(--text);border:1px solid var(--border)">Keep my plan</button>');
+}
+async function subAct(i, op){
+  var go=document.getElementById('subGo'); if(go){ go.disabled=true; go.textContent='Please wait\u2026'; }
+  try{
+    var body={op:op};
+    if(op==='pause') body.months=window._subPm||1;
+    if(op==='cancel_request') body.reason=(document.getElementById('subWhy')||{}).value||'';
+    await _subManage(i, body);
+    var sh=document.getElementById('subSheet'); if(sh) sh.remove();
+    showToast({pause:'Plan paused \u2014 a confirmation email is on its way',resume:'Payments resumed',cancel_request:'Request sent \u2014 we\u2019ll confirm by email'}[op]||'Done');
+    _bilSubsLoad();
+  }catch(e){ showToast(e.message||'Something went wrong'); if(go){ go.disabled=false; go.textContent='Try again'; } }
+}
+async function subCard(i){
+  showToast('Opening the secure card page\u2026');
+  try{ var j=await _subManage(i,{op:'card'}); if(j.url) window.location.href=j.url; }
+  catch(e){ showToast(e.message||'Could not open the card page'); }
+}
 
 // ── Saved card details (fetched live from Stripe — we never store card numbers) ──
 async function _bilLoadCard(){
@@ -31004,6 +31118,10 @@ function clientBillingHTML() {
       +   '</div>'
       + '</div>';
   }
+
+  // subs-1: Subscriptions — AI plan + payment plans (pause / cancel request / card)
+  h += '<div style="font-size:11px;font-weight:500;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:4px 2px 10px">Subscriptions</div>'
+    + '<div id="bilSubs" style="margin-bottom:14px"><div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px 16px;font-size:13px;color:var(--sub)">Loading your subscriptions\u2026</div></div>';
 
   // Card on file + auto-recharge (same block as Plan & AI Fuel)
   h += '<div style="font-size:11px;font-weight:500;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:4px 2px 10px">Payment method</div>'
