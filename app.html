@@ -39294,36 +39294,35 @@ function updateInstallmentPreview() {
   var total = parseFloat((document.getElementById('q-total')||{}).textContent.replace(/[^0-9.]/g,'')||0);
   if(!total) { preview.style.display='none'; return; }
 
-  var perInstallment = total / n;
+  var sched = buildInstallments(total, n); // plan-1: same amounts + dates the client will see
   var html = '<div style="font-weight:500;color:var(--text);margin-bottom:8px">Payment Schedule Preview</div>';
-  var today = new Date();
-  for(var i = 1; i <= n; i++) {
-    var due = new Date(today);
-    due.setMonth(due.getMonth() + (i-1));
+  sched.forEach(function(s){
     html += '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)">'
-      +'<span>Payment '+i+' &bull; Due: '+due.toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'})+'</span>'
-      +'<strong>CAD $'+perInstallment.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2})+'</strong>'
+      +'<span>Payment '+s.number+' &bull; Due: '+new Date(s.due_date+'T12:00:00').toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'})+'</span>'
+      +'<strong>CAD $'+s.amount.toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2})+'</strong>'
       +'</div>';
-  }
-  html += '<div style="margin-top:8px;color:var(--muted);font-size:11px">Installment dates start today and are monthly. You can adjust in the notes field.</div>';
+  });
+  html += '<div style="margin-top:8px;color:var(--muted);font-size:11px">The client pays payment 1 online; the rest is charged to their card automatically '+(n===4?'every 3 months':'every month')+' and stops after payment '+n+'. '+(n===4?'':'They can pause up to 2 months a year (end date moves back). ')+'Cancelling needs 30 days\' notice.</div>';
   preview.innerHTML = html;
   preview.style.display = 'block';
 }
 
+function _planAddMonths(d, n){ // plan-1: same day next month(s), clamped (Jan 31 → Feb 28)
+  var day = d.getDate(); var t = new Date(d.getFullYear(), d.getMonth()+n, 1, 12);
+  var last = new Date(t.getFullYear(), t.getMonth()+1, 0).getDate(); t.setDate(Math.min(day, last)); return t;
+}
 function buildInstallments(total, n) {
   var installments = [];
-  var perInstallment = +(total / n).toFixed(2);
+  var tC = Math.round(total*100), perC = Math.floor(tC/n), extraC = tC - perC*n; // plan-1: matches Stripe plan
   var today = new Date();
-  var runningTotal = 0;
+  var step = n===4 ? 3 : 1;
   for(var i = 1; i <= n; i++) {
-    var due = new Date(today);
-    due.setMonth(due.getMonth() + (i-1));
-    var amt = i === n ? +(total - runningTotal).toFixed(2) : perInstallment; // last payment handles rounding
-    runningTotal += amt;
+    var due = _planAddMonths(today, (i-1)*step);
+    var amt = (perC + (i===1 ? extraC : 0))/100;
     installments.push({
       number: i,
       amount: amt,
-      due_date: due.toISOString().split('T')[0],
+      due_date: due.toLocaleDateString('en-CA'),
       status: 'pending'
     });
   }
@@ -40000,10 +39999,12 @@ async function openLeadQuotes(lid) {
           +'<div style="font-size:18px;color:var(--sub)">&#x276F;</div>'
           +'</div>';
         if(q.status==='scheduled') html += _qSchedRowHTML(q);
+        if((q.installments||1) > 1) html += '<div id="qplan_'+q.id+'"></div>'; // plan-1
         html += _quoteRemindersHTML(q);
       });
     }
     if(body) body.innerHTML = html;
+    _qPlanLoad(quotes); // plan-1
   } catch(e) {
     if(body) body.innerHTML = '<div style="padding:20px;color:var(--red)">Error loading quotes: '+e.message+'</div>';
   }
@@ -40012,6 +40013,61 @@ async function openLeadQuotes(lid) {
 function closeQuotesList() {
   var el = document.getElementById('quotesListScreen');
   if(el) el.classList.remove('open');
+}
+
+// ── plan-1: payment plan card under an installment quote (admin controls) ──
+async function _qPlanLoad(quotes){
+  var ids = (quotes||[]).filter(function(q){ return (q.installments||1) > 1; }).map(function(q){ return q.id; });
+  if(!ids.length) return;
+  try{
+    var r = await sbFetch('/rest/v1/quote_installment_plans?quote_id=in.('+ids.join(',')+')&select=*');
+    var rows = r.ok ? await r.json() : [];
+    (rows||[]).forEach(function(p){ var el=document.getElementById('qplan_'+p.quote_id); if(el) el.innerHTML=_qPlanHTML(p); });
+  }catch(_e){}
+}
+function _qPlanHTML(p){
+  if(!p || p.status==='pending') return '';
+  var d = function(s){ if(!s) return '—'; var x=new Date(s); return isNaN(x)?'—':x.toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}); };
+  var m = function(n){ return 'CAD $'+Number(n||0).toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  var paused = p.status==='paused' && p.paused_until && new Date(p.paused_until) > new Date();
+  var st = p.status==='paused' && !paused ? 'active' : p.status;
+  var lbl = {active:['Active','var(--green)'],paused:['Paused until '+d(p.paused_until),'#b45309'],past_due:['Card failed','var(--red)'],
+    cancel_requested:['Cancel requested '+d(p.cancel_requested_at),'var(--red)'],cancel_scheduled:['Ends '+d(p.cancel_effective_at),'var(--red)'],
+    cancelled:['Cancelled','var(--sub)'],completed:['Fully paid','var(--green)']}[st] || [st,'var(--sub)'];
+  var pct = Math.round(100*p.payments_made/Math.max(1,p.total_payments));
+  var b = function(op,label,danger){ return '<button onclick="event.stopPropagation();qPlanAct(\''+p.id+'\',\''+op+'\')" style="flex:1;padding:9px 6px;border-radius:9px;border:1px solid '+(danger?'#fecaca':'var(--border)')+';background:var(--surface,#fff);color:'+(danger?'var(--red)':'var(--text)')+';font-family:var(--f);font-size:12px;font-weight:500;cursor:pointer">'+label+'</button>'; };
+  var btns = [];
+  if(st==='cancel_requested'){ btns.push(b('approve_cancel','Approve (ends in 30 days)',true)); btns.push(b('undo_cancel','Keep plan')); }
+  else if(st==='cancel_scheduled'){ btns.push(b('undo_cancel','Undo cancellation')); }
+  else if(st==='paused'){ btns.push(b('resume','Resume now')); }
+  else if(st==='active' || st==='past_due'){ if(p.interval_months===1) btns.push(b('pause','Pause 1 month')); btns.push(b('approve_cancel','Cancel (30 days)',true)); }
+  if(['active','paused','past_due','cancel_requested','cancel_scheduled'].indexOf(st)>=0) btns.push(b('cancel_now','Stop now',true));
+  return '<div style="margin:0 20px 12px;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:var(--bg)">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px"><span style="font-weight:600;color:var(--text)">&#x1F4B3; Payment plan</span><span style="font-weight:600;color:'+lbl[1]+'">'+lbl[0]+'</span></div>'
+    +'<div style="height:6px;background:var(--border);border-radius:9px;overflow:hidden;margin:9px 0 6px"><div style="height:100%;width:'+pct+'%;background:var(--green)"></div></div>'
+    +'<div style="font-size:12px;color:var(--sub)">'+p.payments_made+' of '+p.total_payments+' paid · '+m(p.per_payment)+(p.interval_months===3?' every 3 months':' monthly')
+    +(p.next_payment_at && ['active','paused','past_due','cancel_requested'].indexOf(st)>=0 ? ' · next '+d(p.next_payment_at) : '')+'</div>'
+    +(p.cancel_reason ? '<div style="font-size:12px;color:var(--sub);margin-top:6px">Reason: '+String(p.cancel_reason).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];})+'</div>' : '')
+    +(btns.length ? '<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">'+btns.join('')+'</div>' : '')
+    +'</div>';
+}
+function qPlanAct(planId, op){
+  var t = {approve_cancel:['Approve cancellation?','The plan ends 30 days after the client asked (or 30 days from now if they didn\'t). Payments due before then are still charged. The client gets a confirmation email.','Approve cancellation'],
+    cancel_now:['Stop this plan now?','Stripe stops immediately — no more charges at all. Nothing already paid is refunded.','Stop the plan now'],
+    undo_cancel:['Keep the plan going?','The cancellation is withdrawn and payments continue as normal.','Keep the plan'],
+    pause:['Pause for 1 month?','The next payment is skipped and the plan end moves back 1 month. The client is emailed.','Pause 1 month'],
+    resume:['Resume payments now?','The pause ends and the next payment follows the normal schedule.','Resume']}[op];
+  if(!t) return;
+  var go = async function(){
+    try{
+      var r = await sbFetch('/functions/v1/quote-installments?action=admin',{method:'POST',body:JSON.stringify({plan_id:planId, op:op, months:1})});
+      var j = await r.json().catch(function(){return {};});
+      if(!r.ok || j.error){ showToast(j.error || 'Could not update the plan'); return; }
+      var el = document.getElementById('qplan_'+j.plan.quote_id); if(el) el.innerHTML = _qPlanHTML(j.plan);
+      showToast('Payment plan updated');
+    }catch(e){ showToast('Could not update the plan'); }
+  };
+  _aoConfirm(t[0], t[1], t[2], go, /cancel/.test(op));
 }
 
 // Build the "Reminder Emails" panel for one quote. Reminders aren't stored as
@@ -40558,6 +40614,7 @@ async function saveAndSendQuote() {
       payment_terms:  terms,
       valid_until:    valid||null,
       installments:   parseInt((document.getElementById('q-installments')||{}).value||1),
+      installment_schedule: (parseInt((document.getElementById('q-installments')||{}).value||1) > 1) ? buildInstallments(total, parseInt((document.getElementById('q-installments')||{}).value||1)) : null, // plan-1
       notes:          notes||null,
       status:         _qWhen==='sched' ? 'scheduled' : 'sent',
       sent_at:        _qWhen==='sched' ? null : new Date().toISOString(),
