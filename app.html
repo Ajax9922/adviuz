@@ -42531,6 +42531,11 @@ function invShowDetail(invId) {
   if(window._staffRole==='super_admin' && ['paid','partially_refunded'].indexOf((inv.payment_status||'').toLowerCase())>=0){
     fhtml += '<button class="btn" style="width:100%;justify-content:center;padding:14px;background:var(--white,#fff);border:1px solid #fecaca;color:var(--red,#dc2626)" data-id="'+inv.id+'" onclick="openRefundSheet(this.dataset.id)">↩️ Refund</button>';
   }
+  // refund-2: refunded in the Stripe dashboard (no hub record yet) → finish it here
+  if(window._staffRole==='super_admin' && (inv.payment_status||'').toLowerCase()==='refunded' && (Number(inv.refunded_amount)||0) < (Number(inv.total)||0)-0.005){
+    fhtml += '<div style="background:#fef3c7;border-radius:12px;padding:10px 12px;font-size:12.5px;color:#92400e;line-height:1.5">Refunded in the Stripe dashboard \u2014 the client still has the credits this payment gave them.</div>'
+      + '<button class="btn" style="width:100%;justify-content:center;padding:14px;background:#b45309;border:none;color:#fff" data-id="'+inv.id+'" onclick="refundTakeBack(this.dataset.id, this)">↩️ Take back credits</button>';
+  }
   fhtml += '<div style="display:flex;gap:8px">'
     +'<button onclick="invEditFromDetail()" class="btn" style="flex:1;justify-content:center;background:#f1f5f9;border:1px solid var(--border);color:var(--text);padding:12px">✏️ Edit</button>'
     +'<button onclick="openLeadInvoices(_invMgrLeadId)" class="btn" style="flex:1;justify-content:center;background:#f1f5f9;border:1px solid var(--border);color:var(--text);padding:12px">← Back</button>'
@@ -42582,6 +42587,21 @@ async function openRefundSheet(invId){
       +'<button onclick="this.closest(\'.sheet-ov\').remove()" style="display:block;width:100%;margin-top:8px;padding:13px;border-radius:12px;border:1px solid var(--border);background:var(--white);color:var(--text);font-family:var(--f);font-size:14px;font-weight:600;cursor:pointer">Cancel</button>';
     body.innerHTML=h;
   }catch(e){ body.innerHTML='<div style="font-size:13px;color:var(--red);padding:16px 0">'+_rfE(e.message)+'</div>'; }
+}
+async function refundTakeBack(invId, btn){
+  try{
+    var p=await _rfCall({action:'preview', invoice_id:invId});
+    if(!(p.unrecorded_stripe_refund>0)){ showToast('Nothing left to record for this refund'); return; }
+    var what=(p.credits||[]).map(function(c){ return c.what+' \u2014 '+c.unused; }).join('<br>');
+    _aoConfirm('Take back credits?', 'Stripe refunded '+_rfMoney(p.unrecorded_stripe_refund)+'. The matching unused credits are taken back and partner commission is reduced. No money moves again.'+(what?'<br><br>'+_rfE(what).replace(/&lt;br&gt;/g,'<br>'):''), 'Take back credits', async function(){
+      if(btn){ btn.disabled=true; btn.textContent='Working\u2026'; }
+      try{
+        var r=await _rfCall({action:'takeback', invoice_id:invId, reason:'Refunded in the Stripe dashboard', take_back:true, email_client:false});
+        showToast('Recorded '+_rfMoney(r.refunded)+(r.problems&&r.problems.length?' \u2014 check your email for 1 item':''));
+        var inv=_invMap[invId]; if(inv){ inv.refunded_amount=r.total_refunded; inv.payment_status=r.full?'refunded':'partially_refunded'; invShowDetail(inv.id); }
+      }catch(e){ showToast(e.message||'Could not finish'); if(btn){ btn.disabled=false; btn.textContent='↩️ Take back credits'; } }
+    }, true);
+  }catch(e){ showToast(e.message||'Could not check Stripe'); }
 }
 function refundGo(){
   var p=window._rfP||{}; var amt=parseFloat((document.getElementById('rfAmt')||{}).value)||0; var why=((document.getElementById('rfWhy')||{}).value||'').trim();
@@ -43405,15 +43425,25 @@ function _caFilterInvsForPeriod() {
   return { invs: invs, range: _r };
 }
 
+// refund-2: the share of an invoice that was NOT refunded (1 = nothing refunded, 0 = fully refunded).
+// Sales and GST/PST/HST in the report are reduced by the refunded share, so tax is never
+// reported on money that went back to the client.
+function _caNetK(i){
+  var tot = parseFloat(i.total || 0), rf = parseFloat(i.refunded_amount || 0);
+  if (String(i.payment_status||'').toLowerCase()==='refunded' && !(rf > 0)) rf = tot; // refunded in Stripe, amount not recorded
+  return tot > 0 ? Math.max(0, 1 - Math.min(1, rf / tot)) : 1;
+}
 function _caTotals(invs) {
-  var t = { gross:0, sub:0, gst:0, pst:0, hst:0, tax:0 };
+  var t = { gross:0, sub:0, gst:0, pst:0, hst:0, tax:0, refunded:0 };
   invs.forEach(function(i){
-    t.gross += parseFloat(i.total || 0);
-    t.sub   += parseFloat(i.subtotal || 0);
-    t.gst   += parseFloat(i.gst_amount || 0);
-    t.pst   += parseFloat(i.pst_amount || 0);
-    t.hst   += parseFloat(i.hst_amount || 0);
-    t.tax   += parseFloat(i.total_tax || 0);
+    var k = _caNetK(i);
+    t.gross += parseFloat(i.total || 0) * k;
+    t.sub   += parseFloat(i.subtotal || 0) * k;
+    t.gst   += parseFloat(i.gst_amount || 0) * k;
+    t.pst   += parseFloat(i.pst_amount || 0) * k;
+    t.hst   += parseFloat(i.hst_amount || 0) * k;
+    t.tax   += parseFloat(i.total_tax || 0) * k;
+    t.refunded += parseFloat(i.total || 0) * (1 - k);
   });
   return t;
 }
@@ -43499,11 +43529,13 @@ function _buildCAWorkbook(invs, rangeLabel) {
   var totalOutstanding = 0;
   invs.forEach(function(i){
     var tot = parseFloat(i.total || 0);
+    var ps0 = (i.payment_status||'').toLowerCase();
     var ap  = (i.amount_paid != null && i.amount_paid !== '')
       ? (parseFloat(i.amount_paid) || 0)
-      : ((i.payment_status||'').toLowerCase() === 'paid' ? tot : 0);
-    totalReceived    += ap;
-    totalOutstanding += Math.max(0, tot - ap);
+      : ((ps0 === 'paid' || ps0 === 'refunded' || ps0 === 'partially_refunded') ? tot : 0);
+    var rfd = tot * (1 - _caNetK(i));                       // refund-2
+    totalReceived    += Math.max(0, ap - rfd);
+    totalOutstanding += (ps0 === 'refunded' || ps0 === 'partially_refunded') ? 0 : Math.max(0, tot - ap);
   });
   var missing = invs.filter(function(i){ return !i.pdf_url; });
 
@@ -43521,11 +43553,12 @@ function _buildCAWorkbook(invs, rangeLabel) {
     ['Partial',             partial.length],
     ['Outstanding',         unpaid.length],
     [''],
-    ['Gross sales (with tax)',   t.gross],
+    ['Gross sales (with tax, after refunds)', t.gross],
     ['Subtotal (before tax)',    t.sub],
     ['Total tax collected',      t.tax],
     [''],
-    ['Total received',      totalReceived],
+    ['Refunded to clients', t.refunded],
+    ['Total received (after refunds)', totalReceived],
     ['Outstanding balance', totalOutstanding]
   ];
   if (missing.length) {
@@ -43541,10 +43574,11 @@ function _buildCAWorkbook(invs, rangeLabel) {
   invs.forEach(function(i){
     var p = i.client_province || 'SK';
     if (!byProv[p]) byProv[p] = { sub:0, gst:0, pst:0, hst:0, count:0 };
-    byProv[p].sub   += parseFloat(i.subtotal || 0);
-    byProv[p].gst   += parseFloat(i.gst_amount || 0);
-    byProv[p].pst   += parseFloat(i.pst_amount || 0);
-    byProv[p].hst   += parseFloat(i.hst_amount || 0);
+    var _k = _caNetK(i); // refund-2
+    byProv[p].sub   += parseFloat(i.subtotal || 0) * _k;
+    byProv[p].gst   += parseFloat(i.gst_amount || 0) * _k;
+    byProv[p].pst   += parseFloat(i.pst_amount || 0) * _k;
+    byProv[p].hst   += parseFloat(i.hst_amount || 0) * _k;
     byProv[p].count += 1;
   });
   var s2 = [
@@ -43578,7 +43612,7 @@ function _buildCAWorkbook(invs, rangeLabel) {
 
   var s3 = [[
     '#','Invoice #','Date','Client','Business','Province',
-    'Subtotal','GST','PST/QST','HST','Total','Amount Paid','Amount Due','Payment Method','Status','PDF Filename'
+    'Subtotal','GST','PST/QST','HST','Total','Refunded','Amount Paid','Amount Due','Payment Method','Status','PDF Filename'
   ]];
   invs.forEach(function(i){
     var pdfName = i._caFilename || (i.pdf_url ? (i.pdf_url.split('/').pop() || '') : '(missing)');
@@ -43600,6 +43634,7 @@ function _buildCAWorkbook(invs, rangeLabel) {
       parseFloat(i.pst_amount || 0),
       parseFloat(i.hst_amount || 0),
       invTot,
+      +(invTot * (1 - _caNetK(i))).toFixed(2), // refund-2
       amtPaid,
       amtDue,
       i.payment_method || '',
@@ -43611,7 +43646,7 @@ function _buildCAWorkbook(invs, rangeLabel) {
   ws3['!cols'] = [
     {wch:5},
     {wch:16},{wch:12},{wch:22},{wch:26},{wch:8},
-    {wch:12},{wch:10},{wch:10},{wch:10},{wch:12},{wch:13},{wch:12},{wch:14},{wch:11},{wch:44}
+    {wch:12},{wch:10},{wch:10},{wch:10},{wch:12},{wch:11},{wch:13},{wch:12},{wch:14},{wch:11},{wch:44}
   ];
   ws3['!freeze'] = { xSplit:0, ySplit:1 };
   XLSX.utils.book_append_sheet(wb, ws3, 'Invoice Register');
@@ -43743,11 +43778,12 @@ function adInvoicesHTML() {
   // ── All-time totals ──
   var grossAll = 0, beforeAll = 0, taxAll = 0, collected = 0, gstAll = 0, pstAll = 0, hstAll = 0;
   invs.forEach(function(i){
-    var t  = parseFloat(i.total||0);
-    var tx = parseFloat(i.total_tax||0);
+    var _k = _caNetK(i); // refund-2: refunded share never counts as sales or tax
+    var t  = parseFloat(i.total||0) * _k;
+    var tx = parseFloat(i.total_tax||0) * _k;
     grossAll  += t;  taxAll += tx;  beforeAll += (t - tx);
-    gstAll += parseFloat(i.gst_amount||0); pstAll += parseFloat(i.pst_amount||0); hstAll += parseFloat(i.hst_amount||0);
-    if(i.payment_status==='paid') collected += t;
+    gstAll += parseFloat(i.gst_amount||0)*_k; pstAll += parseFloat(i.pst_amount||0)*_k; hstAll += parseFloat(i.hst_amount||0)*_k;
+    if(i.payment_status==='paid' || i.payment_status==='partially_refunded') collected += t;
   });
 
   // ── Group by month (YYYY-MM) ──
@@ -43760,9 +43796,9 @@ function adInvoicesHTML() {
       var y=ds.slice(0,4), m=parseInt(ds.slice(5,7),10);
       byMonth[ds] = { key:ds, label:(MN[m-1]||'?')+' '+y.slice(2), gross:0, before:0, tax:0, gst:0, pst:0, hst:0, rows:[] };
     }
-    var t=parseFloat(i.total||0), tx=parseFloat(i.total_tax||0);
+    var _k2=_caNetK(i), t=parseFloat(i.total||0)*_k2, tx=parseFloat(i.total_tax||0)*_k2; // refund-2
     byMonth[ds].gross += t; byMonth[ds].tax += tx; byMonth[ds].before += (t - tx);
-    byMonth[ds].gst += parseFloat(i.gst_amount||0); byMonth[ds].pst += parseFloat(i.pst_amount||0); byMonth[ds].hst += parseFloat(i.hst_amount||0);
+    byMonth[ds].gst += parseFloat(i.gst_amount||0)*_k2; byMonth[ds].pst += parseFloat(i.pst_amount||0)*_k2; byMonth[ds].hst += parseFloat(i.hst_amount||0)*_k2;
     byMonth[ds].rows.push(i);
     _invMap[i.id] = i; // cache for click → detail
   });
