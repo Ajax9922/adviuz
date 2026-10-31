@@ -9373,6 +9373,7 @@ async function loadCampaigns() {
     var camps = [];
     if(res.ok) {
       camps = await res.json();
+      camps = (camps||[]).filter(function(c){ return !_isPbHolder(c.id); }); // pbtabs-1: playbook holders are not campaigns
       // Also fetch impressions for each campaign
       if(camps.length) {
         var campIds = camps.map(function(c){return c.id}).join(',');
@@ -15559,6 +15560,48 @@ async function brainImportSite(){
 
 // ═══ PLAYBOOK — the stage-by-stage follow-up plan ══════════════════════════
 var _pbCid=null,_pbClientId=null,_pbName='',_pbSteps=[],_pbStages={},_pbEditId=null;
+// pbtabs-1: Adviuz house account — ONE campaign ("Adviuz"), three follow-up plans picked by the lead's Service.
+// The AI Sales Engine and Complete Solution plans live on two hidden holder campaigns (no leads, no phone).
+var PB_ADV={main:'2cdddf2f-9934-486d-8f7d-2f98fa75e991',tabs:[
+  {k:'fly',id:'2cdddf2f-9934-486d-8f7d-2f98fa75e991',name:'Digital Flyers'},
+  {k:'ai', id:'9814fbae-a424-4060-bca7-2ca751627c23',name:'AI Sales Engine'},
+  {k:'cs', id:'ff920df9-5714-4432-86d4-a981ee65d80b',name:'Complete Solution'}]};
+function _isPbHolder(id){ id=String(id||''); return id===PB_ADV.tabs[1].id||id===PB_ADV.tabs[2].id; }
+function _pbTabsOn(){ var c=String(_pbCid||''); return PB_ADV.tabs.some(function(t){ return t.id===c; }); }
+function _pbSetCid(){ return _pbTabsOn()?PB_ADV.main:_pbCid; } // review mode, Day-1 call, email design: shared, on Adviuz
+function _pbSvcKind(s){ s=String(s||'').toLowerCase(); return /(both|complete)/.test(s)?'cs':/(ai\s*(sales|conversion)|sales engine|conversion engine)/.test(s)?'ai':'fly'; }
+async function _pbLoadTabCounts(){
+  try{
+    var r=await sbFetch('/rest/v1/leads?campaign_id=eq.'+PB_ADV.main+'&select=service&limit=5000');
+    var a=r.ok?await r.json():[]; var c={fly:0,ai:0,cs:0};
+    (a||[]).forEach(function(x){ c[_pbSvcKind(x.service)]++; });
+    window._pbTabCnt=c;
+  }catch(e){ window._pbTabCnt=null; }
+}
+function pbTab(k){
+  var t=PB_ADV.tabs.find(function(x){ return x.k===k; }); if(!t||String(_pbCid)===t.id) return;
+  _pbCid=t.id; _pbEditId=null; window._pbEnr=null;
+  var el=document.getElementById('pbBody'); if(el){ var bx=el.querySelector('#pbTabBody'); if(bx) bx.style.opacity='.45'; }
+  loadPlaybook();
+}
+function _pbTabsHtml(){
+  var cur=String(_pbCid||''), c=window._pbTabCnt||null;
+  var h='<div style="display:flex;gap:6px;margin:-2px 0 12px">';
+  PB_ADV.tabs.forEach(function(t){
+    var on=t.id===cur, n=c?c[t.k]:null;
+    h+='<button type="button" onclick="pbTab(\''+t.k+'\')" style="flex:1;min-width:0;border:1.5px solid '+(on?'var(--text)':'var(--border)')+';background:'+(on?'var(--white)':'var(--bg)')+';border-radius:12px;padding:8px 4px;font-family:var(--f);cursor:pointer;text-align:center">'
+      +'<span style="display:block;font-size:12px;font-weight:600;color:'+(on?'var(--text)':'var(--sub)')+';line-height:1.25">'+t.name+'</span>'
+      +'<span style="display:block;font-size:10.5px;color:var(--muted);margin-top:2px">'+(n==null?'&nbsp;':(n+' lead'+(n===1?'':'s')))+'</span></button>';
+  });
+  h+='</div>';
+  var tab=PB_ADV.tabs.find(function(x){ return x.id===cur; })||PB_ADV.tabs[0];
+  h+='<div style="font-size:11.5px;color:var(--sub);line-height:1.55;background:var(--bg);border-radius:11px;padding:9px 12px;margin-bottom:4px">Leads follow the plan for their <b>Service</b>. Change a lead\u2019s Service and they move to that plan, starting from the beginning of their current stage. Review mode and the Day-1 call are shared by all three plans.</div>';
+  if(tab.k==='cs'){
+    var anyOn=Object.keys(_pbStages||{}).some(function(k){ return k!=='_master'&&_pbStages[k]===true; });
+    if(!anyOn) h+='<div style="margin-top:10px;padding:11px 13px;border:1.5px solid var(--amber);background:#fffbeb;border-radius:12px"><div style="font-size:13px;font-weight:600;color:var(--text)">Draft \u2014 not sending yet</div><div style="font-size:11px;font-weight:600;color:#92400e;line-height:1.5">Read the messages, then switch a stage ON. Until then, Complete Solution leads get the Digital Flyers plan.</div></div>';
+  }
+  return h;
+}
 var PB_ORDER=['1','2','3','noshow','6','7','9','review','topup','10','11'];
 var PB_NAMES={'1':'\uD83C\uDF31 Fresh Lead','2':'\uD83D\uDCF5 Call Not Connected','3':'\uD83D\uDCDE Callback Requested','noshow':'\uD83D\uDEAA No-Show Rescue','6':'\uD83E\uDD1D Meeting Done','7':'\uD83D\uDCC4 Proposal Sent','9':'\uD83C\uDF89 Deal Closed','review':'\u2B50 Review Request','topup':'\uD83D\uDCB3 Client Top-up Follow-ups','10':'\uD83D\uDE45 Not Interested','11':'\uD83C\uDF31 Future Prospect'};
 var PB_CHIP={'sms':'\uD83D\uDCAC Text','email':'\uD83D\uDCE7 Email','call':'\uD83E\uDD16 AI Call','task':'\uD83D\uDC64 Task'};
@@ -15577,12 +15620,12 @@ async function pbMaster(el){
 async function pbReviewToggle(el){
   var on=!!(el&&el.checked);
   try{
-    var r=await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(_pbCid)+'&select=settings');
+    var r=await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(_pbSetCid())+'&select=settings');
     var rows=r.ok?await r.json():[];
     var s=(rows[0]&&rows[0].settings)||{}; if(typeof s==='string'){ try{ s=JSON.parse(s); }catch(_e){ s={}; } }
     s.ai=s.ai||{};
     s.ai.approvals={ sms:(on?'review':'auto'), email:(on?'review':'auto') };
-    var pr=await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(_pbCid),{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ settings:s }) });
+    var pr=await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(_pbSetCid()),{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ settings:s }) });
     if(!(pr.ok||pr.status===204)) throw new Error('save failed');
     window._pbReview=on;
     showToast(on?'\u270B Review mode ON \u2014 every AI text and email waits for your tap in the Inbox':'\u26A1 Automatic \u2014 AI messages now send on their own');
@@ -15601,7 +15644,7 @@ async function _pbLoadDesign(){
   }catch(e){}
   var dz={};
   try{
-    var r2=await sbFetch('/rest/v1/campaigns?id=eq.'+_pbCid+'&select=settings');
+    var r2=await sbFetch('/rest/v1/campaigns?id=eq.'+_pbSetCid()+'&select=settings');
     var cr=r2&&r2.ok?await r2.json():[];
     var st=(cr[0]&&cr[0].settings)||{}; if(typeof st==='string'){ try{ st=JSON.parse(st); }catch(_e){ st={}; } }
     dz=(st&&st.email_design)||{};
@@ -15613,13 +15656,13 @@ async function _pbLoadDesign(){
     email_logo_url: dz.logo_url||base.email_logo_url||'',
     email_website_url: dz.website_url||base.email_website_url||'',
     email_design: Object.assign({}, base.email_design||{}, dz),
-    _loadedFor: String(_pbCid)
+    _loadedFor: String(_pbSetCid())
   };
 }
 function pbPreview(id){
   var s=(_pbSteps||[]).find(function(x){return String(x.id)===String(id);}); if(!s) return;
   var _chNow=(String(_pbEditId)===String(id))?(((document.getElementById('pbEdCh')||{}).value)||s.channel):s.channel;
-  if(_chNow==='email' && (!window._ceFrom || String((window._ceFrom||{})._loadedFor||'')!==String(_pbCid))){
+  if(_chNow==='email' && (!window._ceFrom || String((window._ceFrom||{})._loadedFor||'')!==String(_pbSetCid()))){
     _pbLoadDesign().then(function(){ pbPreview(id); });
     return;
   }
@@ -15710,7 +15753,7 @@ async function pbTestSend(id){
     if(!em||!String(em).trim()) return;
     if(btn){ btn.disabled=true; btn.textContent='Sending\u2026'; }
     try{
-      var r2=await sbFetch('/functions/v1/client-email',{ method:'POST', body: JSON.stringify({ client_id:window._clientId||null, lead_id:null, campaign_id:(typeof _pbCid!=='undefined'&&_pbCid)?_pbCid:null, to:String(em).trim(), subject:'[Test] '+pz(subjTxt), message:pz(bodyTxt) }) });
+      var r2=await sbFetch('/functions/v1/client-email',{ method:'POST', body: JSON.stringify({ client_id:window._clientId||null, lead_id:null, campaign_id:(typeof _pbCid!=='undefined'&&_pbCid)?_pbSetCid():null, to:String(em).trim(), subject:'[Test] '+pz(subjTxt), message:pz(bodyTxt) }) });
       var d2=await r2.json().catch(function(){return{};});
       if(r2.ok&&!(d2&&d2.ok===false)&&!(d2&&d2.error)) showToast('\uD83E\uDDEA Test email sent \u2014 check your inbox');
       else showToast('Could not send: '+((d2&&d2.error)||('HTTP '+r2.status)));
@@ -15783,11 +15826,11 @@ async function pbEnr(id, act){
 function _pbHM12(hm){ var m=String(hm||'').match(/^(\d{1,2}):(\d{2})/); if(!m) return String(hm||''); var hh=parseInt(m[1],10), ap=hh>=12?'PM':'AM'; var h12=hh%12; if(h12===0) h12=12; return h12+':'+m[2]+' '+ap; }
 async function _pbD1Save(patch){
   try{
-    var r=await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(_pbCid)+'&select=settings');
+    var r=await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(_pbSetCid())+'&select=settings');
     var rows=r.ok?await r.json():[]; var st=(rows[0]&&rows[0].settings)||{}; if(typeof st==='string'){ try{ st=JSON.parse(st); }catch(_e){ st={}; } }
     st.ai=st.ai||{}; var cur=st.ai.day1_retry||{enabled:false,time:'16:45',cutoff:'15:00'};
     st.ai.day1_retry=Object.assign({},cur,patch);
-    var w=await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(_pbCid),{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ settings: st }) });
+    var w=await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(_pbSetCid()),{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ settings: st }) });
     if(!w.ok) return false;
     window._pbDay1=st.ai.day1_retry;
     return true;
@@ -15822,6 +15865,7 @@ function openPlaybook(){
   var cp=(typeof _csCp==='function')?_csCp():null;
   if(!cp||!cp.id){ showToast('Open a campaign first'); return; }
   _pbCid=cp.id; _pbClientId=cp.client_id||window._clientId; _pbName=cp.name||'Campaign'; _pbEditId=null;
+  if(_pbTabsOn()){ _pbName='Adviuz'; window._pbTabCnt=null; _pbLoadTabCounts().then(function(){ if(_pbTabsOn()) renderPlaybook(); }); } // pbtabs-1
   closeSheet('campSettingsSh');
   var t=document.getElementById('pbTitle'); if(t) t.textContent='\uD83D\uDCD6 '+_pbName+' \u00b7 Automated Follow-ups';
   openSheet('playbookSh');
@@ -15844,7 +15888,7 @@ async function loadPlaybook(){
       window._pbEnr={active:a,paused:p,talking:talking};
     }catch(e){ window._pbEnr=null; }
     try{
-      var r4=await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(_pbCid)+'&select=settings');
+      var r4=await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(_pbSetCid())+'&select=settings');
       var cr=r4.ok?await r4.json():[];
       var stg=(cr[0]&&cr[0].settings)||{}; if(typeof stg==='string'){ try{ stg=JSON.parse(stg); }catch(_e){ stg={}; } }
       var ap=(stg.ai&&stg.ai.approvals)||{};
@@ -15855,6 +15899,12 @@ async function loadPlaybook(){
   renderPlaybook();
 }
 function renderPlaybook(){
+  _renderPlaybookCore();
+  if(!_pbTabsOn()) return; // pbtabs-1
+  var el=document.getElementById('pbBody'); if(!el) return;
+  el.innerHTML='<div id="pbTabHead">'+_pbTabsHtml()+'</div><div id="pbTabBody">'+el.innerHTML+'</div>';
+}
+function _renderPlaybookCore(){
   var el=document.getElementById('pbBody'); if(!el) return;
   if(!_pbSteps.length){
     el.innerHTML='<div style="text-align:center;padding:26px 6px 10px">'
@@ -37305,7 +37355,7 @@ async function loadAdminData() {
       sbFetch('/rest/v1/invoices?select=*&order=invoice_date.desc&limit=200')
     ]);
     if (cRes.ok)    _adminData.clients     = await cRes.json();
-    if (campRes.ok) _adminData.campaigns   = await campRes.json();
+    if (campRes.ok) _adminData.campaigns   = (await campRes.json()).filter(function(c){ return !_isPbHolder(c.id); }); // pbtabs-1
     if (lRes.ok)    _adminData.allLeads    = await lRes.json();
     var _pResponses = await Promise.allSettled([
       sbFetch('/rest/v1/sales_partners?select=*&order=created_at.desc&limit=100'),
