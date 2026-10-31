@@ -15605,8 +15605,8 @@ function _pbTabsHtml(){
   }
   return h;
 }
-var PB_ORDER=['1','2','3','noshow','6','7','9','review','topup','10','11'];
-var PB_NAMES={'1':'\uD83C\uDF31 Fresh Lead','2':'\uD83D\uDCF5 Call Not Connected','3':'\uD83D\uDCDE Callback Requested','noshow':'\uD83D\uDEAA No-Show Rescue','6':'\uD83E\uDD1D Meeting Done','7':'\uD83D\uDCC4 Proposal Sent','9':'\uD83C\uDF89 Deal Closed','review':'\u2B50 Review Request','topup':'\uD83D\uDCB3 Client Top-up Follow-ups','10':'\uD83D\uDE45 Not Interested','11':'\uD83C\uDF31 Future Prospect'};
+var PB_ORDER=['1','2','3','5','noshow','6','7','9','review','topup','10','11'];
+var PB_NAMES={'5':'\uD83D\uDCC5 Meeting Booked','1':'\uD83C\uDF31 Fresh Lead','2':'\uD83D\uDCF5 Call Not Connected','3':'\uD83D\uDCDE Callback Requested','noshow':'\uD83D\uDEAA No-Show Rescue','6':'\uD83E\uDD1D Meeting Done','7':'\uD83D\uDCC4 Proposal Sent','9':'\uD83C\uDF89 Deal Closed','review':'\u2B50 Review Request','topup':'\uD83D\uDCB3 Client Top-up Follow-ups','10':'\uD83D\uDE45 Not Interested','11':'\uD83C\uDF31 Future Prospect'};
 var PB_CHIP={'sms':'\uD83D\uDCAC Text','email':'\uD83D\uDCE7 Email','call':'\uD83E\uDD16 AI Call','task':'\uD83D\uDC64 Task'};
 function _pbDelayLbl(h){ h=Number(h)||0; if(h===0) return 'Right away'; if(h<24) return h+'h in'; return 'Day '+Math.round(h/24); }
 async function pbMaster(el){
@@ -15901,6 +15901,16 @@ async function loadPlaybook(){
   }catch(e){ _pbSteps=[]; _pbStages={}; }
   renderPlaybook();
 }
+async function pbPropToggle(id,el){ // proposal-pb-1
+  var on=!!(el&&el.checked);
+  try{
+    var r=await sbFetch('/rest/v1/playbook_steps?id=eq.'+encodeURIComponent(id),{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ active:on, updated_at:new Date().toISOString() }) });
+    if(!(r.ok||r.status===204)) throw new Error('save failed');
+    (_pbSteps||[]).forEach(function(x){ if(String(x.id)===String(id)) x.active=on; });
+    showToast(on?'\uD83D\uDCC4 Proposal email ON':'Proposal email OFF');
+  }catch(e){ showToast('Could not change \u2014 try again'); if(el) el.checked=!on; }
+  renderPlaybook();
+}
 function renderPlaybook(){
   _renderPlaybookCore();
   if(!_pbTabsOn()) return; // pbtabs-1
@@ -15954,7 +15964,8 @@ function _renderPlaybookCore(){
       .sort(function(a,b){ return (Number(a.delay_hours)||0)-(Number(b.delay_hours)||0) || (Number(a.step_no)||0)-(Number(b.step_no)||0); });
     if(!steps.length && !staff) return;
     if(key==='review' && !steps.length) return;   // pbrev-1: only campaigns that have a Review stage (Adviuz Digital Flyers)
-    if(key==='topup' && !steps.length) return;   // twocamp-1: only the campaign that owns client top-ups (Adviuz Digital Flyers)
+    if(key==='topup' && !steps.length) return;
+    if(key==='5' && !steps.length) return;   // proposal-pb-1: only playbooks that send something on booking (Adviuz proposals)   // twocamp-1: only the campaign that owns client top-ups (Adviuz Digital Flyers)
     var on=_pbStages[key]===true;
     h+='<div style="margin-top:12px;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--white)'+(on?'':';opacity:.8')+'">'
       +'<div style="display:flex;align-items:center;gap:10px;padding:11px 13px;background:'+(on?'#e7f8f3':'var(--bg)')+'">'
@@ -16012,6 +16023,20 @@ function _renderPlaybookCore(){
   el.innerHTML=h;
 }
 function _pbStepHtml(s){
+  // proposal-pb-1: the service proposal step — fixed email, switch on/off only.
+  if(String(s.body||'').trim()==='{proposal}'){
+    var _pk=(String(_pbCid)===PB_ADV.tabs[1].id)?'ai':(String(_pbCid)===PB_ADV.tabs[2].id)?'cs':'fly';
+    var _pn={fly:'Digital Flyers',ai:'AI Conversion Engine',cs:'Complete Solution'}[_pk];
+    var _on=(s.active!==false);
+    return '<div style="display:flex;gap:10px;align-items:center;padding:10px 14px;border-top:1px solid var(--border);background:var(--white)">'
+      +'<div style="flex:1;min-width:0"><div style="display:flex;gap:8px;align-items:center"><span style="font-size:11px;font-weight:600;color:var(--green);white-space:nowrap">'+_pbDelayLbl(s.delay_hours)+'</span><span style="font-size:11px;font-weight:500;color:var(--sub)">'+(PB_CHIP.email||'Email')+'</span></div>'
+      +'<div style="font-size:12.5px;font-weight:600;color:var(--text);margin-top:4px">\uD83D\uDCC4 '+_pn+' proposal</div>'
+      +'<div style="font-size:11px;color:var(--sub);line-height:1.45">Sent once per lead \u00b7 never twice to the same email</div>'
+      +(_pk!=='fly'?'<div onclick="window.open(\'/brand/tpl/proposal-'+_pk+'.html\',\'_blank\')" style="display:inline-block;font-size:11px;font-weight:600;color:var(--green);margin-top:6px;text-decoration:underline;text-underline-offset:2px;cursor:pointer">\uD83D\uDC41 Preview</div>':'')
+      +'</div>'
+      +'<label style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:'+(_on?'var(--green)':'var(--sub)')+';cursor:pointer">'+(_on?'ON':'OFF')
+      +'<input type="checkbox" '+(_on?'checked':'')+' onchange="pbPropToggle(\''+s.id+'\',this)" style="width:17px;height:17px;accent-color:var(--green)"></label></div>';
+  }
   var editing=(String(_pbEditId)===String(s.id));
   var chip=PB_CHIP[s.channel]||s.channel;
   var pin=(s.send_at_local?(' \u00b7 '+String(s.send_at_local).slice(0,5)):'');
