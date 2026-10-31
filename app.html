@@ -5593,7 +5593,7 @@ function switchRole(role){
   var menuBtn = document.querySelector('.tb-menu'); if(menuBtn) menuBtn.style.display='';
   ['partnerSignOutBtn','clientSignOutBtn'].forEach(function(id){ var b=document.getElementById(id); if(b) b.style.display='none'; });
   // fresh data slate, then bring up the target view
-  leads = []; nxtId = 1; leadAct = {}; callLog = [];
+  leads = []; nxtId = 1; leadAct = {}; callLog = []; window._leadsLoaded = false; window._leadsWaitT = Date.now(); // bootflash-1
   var done = (role==='client') ? showClientUI() : showPartnerUI();
   Promise.resolve(done).then(function(){ ensureRoleSwitcher(); });
   showToast('Switched to ' + (role==='client' ? 'Client' : 'Partner') + ' view');
@@ -6277,7 +6277,7 @@ function onLoginSuccess() {
   window.__authResolved = true;
   var _bs=document.getElementById('bootSplash'); if(_bs) _bs.style.display='none';
   document.getElementById('loginScreen').style.display = 'none';
-  leads = []; nxtId = 1;
+  leads = []; nxtId = 1; window._leadsLoaded = false; window._leadsWaitT = Date.now(); // bootflash-1
   syncStageSelects();
   if (window._staffRole === 'sales_partner') {
     showPartnerUI();
@@ -6678,7 +6678,7 @@ async function loadLeadsFromDB() {
     // SECURITY: non-operators with no client linked → empty (never expose other orgs' leads)
     if(!isOperator && !window._clientId) {
       console.warn('[Adviuz] No client linked — empty state');
-      DB_READY = true;
+      DB_READY = true; window._leadsLoaded = true;
       return [];
     }
     // Scope the lead fetch.
@@ -6765,10 +6765,11 @@ async function loadLeadsFromDB() {
       } catch(e) { console.warn('[Adviuz] assignee names:', e.message); }
     }
 
-    DB_READY = true;
+    DB_READY = true; window._leadsLoaded = true;
     return data;
   } catch(e) {
     console.error('[Adviuz] loadLeadsFromDB:', e.message);
+    window._leadsLoaded = true;
     return null;
   }
 }
@@ -9000,6 +9001,8 @@ function leadsHTML(){
   }
 
   // Show onboarding when no leads at all
+  // bootflash-1: never flash the empty-account welcome while the lead list is still loading
+  if(leads.length===0 && !schQ && window._leadsLoaded===false && (Date.now()-(window._leadsWaitT||0))<20000){ return '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:62vh;text-align:center;padding:20px"><div class="ai-spin"></div><div style="font-size:14px;color:var(--sub);font-weight:500">Loading your leads...</div></div>'; }
   if(leads.length===0 && !schQ){ return onboardingHTML(); }
 
   var anySel=selIds.size>0;
@@ -30062,6 +30065,7 @@ async function loadPartnerLeads() {
   var p = window._partnerData; if(!p) return;
   try {
     var res = await sbFetch('/rest/v1/leads?partner_id=eq.'+p.id+'&order=created_at.desc&limit=200');
+    window._leadsLoaded = true; // bootflash-1
     if (res.ok) {
       var dbLeads = await res.json();
       leads = dbLeads.map(function(l, i) {
@@ -30672,6 +30676,7 @@ async function loadClientLeads() {
   try {
     var _tp = (typeof _loadTouch==='function') ? _loadTouch() : null; // import-10zzj
     var dbLeads = await _sbAllRows('/rest/v1/leads?client_id=eq.'+cid+'&or=(source.is.null,source.neq.block)&order=created_at.desc,id.desc');
+    window._leadsLoaded = true; // bootflash-1
     try{ _touchRestore(); if(!window._touchAt && _tp) await _tp; }catch(_e){}
     if (dbLeads) {
       leads = dbLeads.filter(_notBlockRow).map(mapLead).filter(function(l){
