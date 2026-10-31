@@ -44594,20 +44594,23 @@ function renderCaReviewSheet() {
     return;
   }
 
-  var invs = (_adminData.invoices || []).filter(function(i){
-    var ds = (i.invoice_date || '').slice(0, 10);
-    return ds && ds >= r.period_start && ds <= r.period_end;
-  });
+  // ca-review-1: read the quarter's invoices straight from the database. The sheet is often opened from a
+  // notification before the admin dashboard has loaded _adminData.invoices — that showed $0.00 / 0 invoices.
+  var _ck = 'ca_' + r.id;
+  window._caInvCache = window._caInvCache || {};
+  var invs = window._caInvCache[_ck];
+  if (!invs) {
+    body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--sub);font-size:14px">Loading the quarter\u2019s invoices\u2026</div>';
+    foot.innerHTML = '<button class="btn btn-ghost" onclick="closeSheet(\'caReviewSh\')" style="flex:1">Close</button>';
+    var _fallback = function(){ return (_adminData.invoices || []).filter(function(i){ var ds = (i.invoice_date || '').slice(0, 10); return ds && ds >= r.period_start && ds <= r.period_end; }); };
+    sbFetch('/rest/v1/invoices?invoice_date=gte.' + encodeURIComponent(r.period_start) + '&invoice_date=lte.' + encodeURIComponent(r.period_end) + '&select=*&order=invoice_date.asc&limit=5000')
+      .then(function(x){ return x.ok ? x.json() : null; })
+      .then(function(a){ window._caInvCache[_ck] = Array.isArray(a) ? a : _fallback(); if (window._caReviewId === r.id) renderCaReviewSheet(); })
+      .catch(function(){ window._caInvCache[_ck] = _fallback(); if (window._caReviewId === r.id) renderCaReviewSheet(); });
+    return;
+  }
 
-  var t = { gross:0, sub:0, gst:0, pst:0, hst:0, tax:0 };
-  invs.forEach(function(i){
-    t.gross += parseFloat(i.total || 0);
-    t.sub   += parseFloat(i.subtotal || 0);
-    t.gst   += parseFloat(i.gst_amount || 0);
-    t.pst   += parseFloat(i.pst_amount || 0);
-    t.hst   += parseFloat(i.hst_amount || 0);
-    t.tax   += parseFloat(i.total_tax || 0);
-  });
+  var t = _caTotals(invs); // net of refunds, same as the report itself
 
   var acc = (typeof _accSettings === 'function') ? _accSettings() : (window._accountantSettings || window._accountantDefaults);
   var esc = function(x){ return String(x||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
