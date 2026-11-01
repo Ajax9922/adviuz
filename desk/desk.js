@@ -178,7 +178,27 @@
     // 3 · work bar: quick outcomes + note + stage + follow-up + one Save
     var notesSec = sectionOf(body.querySelector('#lsNoteInp'), body);
     var stageSec = sectionOf(body.querySelector('#lsStageSelect'), body);
-    if (notesSec) { notesSec.classList.add('dk-w-notes'); work.appendChild(notesSec); var ta = notesSec.querySelector('#lsNoteInp'); if (ta) { ta.placeholder = 'Type a note about this call…'; ta.rows = 1; } }
+    if (notesSec) {
+      notesSec.classList.add('dk-w-notes'); work.appendChild(notesSec);
+      var ta = notesSec.querySelector('#lsNoteInp'); if (ta) { ta.placeholder = 'Type a note about this call…'; ta.rows = 1; }
+      // desk-17: call-to-action buttons on the same row as the quick outcomes
+      var tpls = notesSec.querySelector('.note-tpl'); tpls = tpls && tpls.parentElement;
+      var tb = [].slice.call(scr.querySelectorAll('#dkTopActs > button'));
+      var pick = function(rx){ return tb.filter(function(b){ return rx.test((b.textContent||'') + ' ' + (b.title||'')); })[0]; };
+      var row = el('div', { 'class':'dk-w-row' }), acts = el('div', { 'class':'dk-w-acts' });
+      var A = [
+        [/sms/i, 'Text', '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.6A8 8 0 1 1 21 12z"/>'],
+        [/email/i, 'Email', I.mail],
+        [/whatsapp/i, 'WhatsApp', '<path d="M3 21l1.6-4.7A9 9 0 1 1 8 19.6z"/><path d="M9 9.5c.3 2.2 2.3 4.2 4.5 4.5l1-1.2 2 .8-.4 1.6c-3.7.4-7.6-3.5-7.2-7.2l1.6-.4.8 2z"/>'],
+        [/ai call/i, 'AI call', '<rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'],
+        [/meeting|book/i, 'Book', I.cal]
+      ];
+      A.forEach(function(a){ var src = pick(a[0]); if (!src) return; var b = el('button', { type:'button', 'class':'dk-w-act', title:a[1] }, svg(a[2], 17) + '<span>'+a[1]+'</span>'); b.addEventListener('click', function(){ src.click(); }); acts.appendChild(b); });
+      var callSrc = tb[tb.length - 1];
+      if (callSrc && /call/i.test(callSrc.textContent||'') && !/ai call/i.test(callSrc.textContent||'')) { var c = el('button', { type:'button', 'class':'dk-w-call', title:'Call' }, svg(I.phone, 17) + '<span>Call</span>'); c.addEventListener('click', function(){ callSrc.click(); }); acts.appendChild(c); }
+      if (tpls) { notesSec.insertBefore(row, tpls); row.appendChild(tpls); } else notesSec.insertBefore(row, notesSec.firstChild);
+      row.appendChild(acts);
+    }
     if (stageSec) {
       stageSec.classList.add('dk-w-stage'); work.appendChild(stageSec);
       var fuRow = stageSec.querySelector('#lsFuDatetime'); fuRow = fuRow && fuRow.parentElement;
