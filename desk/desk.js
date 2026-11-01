@@ -127,6 +127,85 @@
     top.insertBefore(bar, nav || null);
     sec.remove();
   }
+
+  // ── desk-15: WhatsApp-style open lead (Ajax 2026-10-31). Header with call actions,
+  // pinned last recording, activity as a chat (newest at the bottom), a work bar at the
+  // bottom for note + stage + follow-up with ONE Save, and a Contact info panel on the right.
+  function sectionOf(el, body){ while (el && el.parentElement !== body) el = el.parentElement; return el; }
+  function actKind(it){
+    var dot = it.querySelector(':scope > .ld-act-dot'), d = dot ? dot.textContent : '';
+    if (/📩|📥/.test(d)) return 'in';
+    if (/📝/.test(d)) return 'note';
+    if (/🕐/.test(d)) return 'sched';
+    if (/💬|📧|📄|🧾|💳|📋|📅|👁|✅|⏰|💰/.test(d)) return 'out';
+    if (!dot) { var t = it.textContent || ''; if (/Incoming/.test(t)) return 'in'; if (/Outgoing/.test(t)) return 'out'; }
+    return 'sys';
+  }
+  function dkSave(lid){
+    var ta = document.getElementById('lsNoteInp'), fu = document.getElementById('lsFuDatetime');
+    var note = ta ? ta.value.trim() : '', when = fu ? fu.value : '';
+    if (!note && !when) { if (typeof showToast === 'function') showToast('Write a note or pick a follow-up date'); return; }
+    if (when && typeof lsQuickSaveFu === 'function') lsQuickSaveFu(lid);
+    if (note && typeof lsAddNote === 'function') { var t2 = document.getElementById('lsNoteInp'); if (t2) t2.value = note; lsAddNote(lid); }
+  }
+  window.dkSave = dkSave;
+  function waLayout(){
+    var scr = document.getElementById('leadScreen'), body = document.getElementById('lsBody');
+    var main = document.getElementById('dkMain');
+    if (!scr || !body || !MQ.matches || !MQ3.matches) { scr && scr.classList.remove('dk-wa'); if (main) main.remove(); return; }
+    var col = document.getElementById('dkActCol');
+    if (!col) return;
+    var lid = window.curLid, y = col.scrollTop;
+    if (!main) { main = el('div', { id:'dkMain' }); scr.appendChild(main); }
+    main.innerHTML = '';
+    var pin = el('div', { id:'dkPin' }), work = el('div', { id:'dkWork' });
+    main.appendChild(pin); main.appendChild(col); main.appendChild(work);
+    scr.classList.remove('dk-3col'); scr.classList.add('dk-wa');
+
+    // 1 · pinned recording (only when there is something to play)
+    var rec = body.querySelector('#recAudio0, #recPlayBtn0');
+    if (rec) { var rs = sectionOf(rec, body); rs.classList.add('dk-pin-sec'); pin.appendChild(rs); }
+    else { var none = [].slice.call(body.children).filter(function(c){ return /Recent Call Recording/i.test(c.textContent||''); })[0]; if (none) none.remove(); pin.style.display = 'none'; }
+
+    // 2 · activity as chat bubbles, newest at the bottom
+    var sec = col.querySelector('.dk-act-sec');
+    if (sec) {
+      var items = [].slice.call(sec.querySelectorAll(':scope > .ld-act-item'));
+      var n = items.length;
+      items.forEach(function(it, i){ it.classList.add('dk-b', 'dk-b-' + actKind(it)); it.style.order = String(n - i + 10); });
+    }
+
+    // 3 · work bar: quick outcomes + note + stage + follow-up + one Save
+    var notesSec = sectionOf(body.querySelector('#lsNoteInp'), body);
+    var stageSec = sectionOf(body.querySelector('#lsStageSelect'), body);
+    if (notesSec) { notesSec.classList.add('dk-w-notes'); work.appendChild(notesSec); var ta = notesSec.querySelector('#lsNoteInp'); if (ta) { ta.placeholder = 'Type a note about this call…'; ta.rows = 1; } }
+    if (stageSec) {
+      stageSec.classList.add('dk-w-stage'); work.appendChild(stageSec);
+      var fuRow = stageSec.querySelector('#lsFuDatetime'); fuRow = fuRow && fuRow.parentElement;
+      var sv = el('button', { type:'button', 'class':'dk-save' }, 'Save');
+      sv.addEventListener('click', function(){ dkSave(lid); });
+      if (fuRow) fuRow.appendChild(sv); else stageSec.appendChild(sv);
+    }
+
+    // 4 · Contact info panel (what's left in the body) + Book appointment
+    body.classList.add('dk-side');
+    var info = body.querySelector('.dk-info-card');
+    var meet = [].slice.call(scr.querySelectorAll('#dkTopActs > button')).filter(function(b){ return /meeting/i.test(b.textContent||''); })[0];
+    if (meet) {
+      meet.classList.add('dk-book'); meet.title = 'Book appointment'; meet.setAttribute('aria-label','Book appointment');
+      var lbl = [].slice.call(meet.childNodes).filter(function(c){ return c.nodeType === 3 && c.textContent.trim(); })[0]; if (lbl) lbl.textContent = 'Book';
+      var bk = el('button', { type:'button', 'class':'dk-book-big' }, svg(I.cal, 17) + 'Book appointment');
+      bk.addEventListener('click', function(){ meet.click(); });
+      if (info && info.parentElement === body) body.insertBefore(bk, info.nextSibling); else body.insertBefore(bk, body.firstChild);
+    }
+    var head = el('div', { 'class':'dk-side-h' }, 'Contact info');
+    body.insertBefore(head, body.firstChild);
+
+    // open a new lead at the newest message; keep the reader's place on re-renders
+    if (window._dkWaLid !== lid) { window._dkWaLid = lid; requestAnimationFrame(function(){ col.scrollTop = col.scrollHeight; }); }
+    else col.scrollTop = y;
+  }
+
   function hookLeadRender(){
     if (typeof window.renderLeadScreen !== 'function' || window.renderLeadScreen._dk) return;
     var orig = window.renderLeadScreen;
@@ -139,6 +218,7 @@
       try { actColumn(); col = document.getElementById('dkActCol'); if (col) col.scrollTop = y; } catch(e){}
       try { tidyQuickBtns(); } catch(e){}
       try { actionsToTop(); } catch(e){}
+      try { waLayout(); } catch(e){ if (window.console) console.warn('dk waLayout', e); }
       return r;
     };
     window.renderLeadScreen._dk = true;
