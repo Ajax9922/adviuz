@@ -206,32 +206,65 @@
     fields.appendChild(el('span', { 'class':'dk-c-sp' })); fields.appendChild(cancel); fields.appendChild(sv);
     panel.appendChild(fields);
     box.appendChild(panel);
-    // the one calm row
-    var row = el('div', { 'class':'dk-c-row' });
-    var plus = el('button', { type:'button', 'class':'dk-c-plus', title:'More actions', 'aria-label':'More actions', 'aria-haspopup':'menu' }, svg('<path d="M12 5v14M5 12h14"/>', 20));
-    var pm = el('div', { 'class':'dk-c-menu', role:'menu' });
-    [[/sms/i, 'Send text', '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.6A8 8 0 1 1 21 12z"/>'],
-     [/email/i, 'Send email', I.mail],
-     [/whatsapp/i, 'WhatsApp', '<path d="M3 21l1.6-4.7A9 9 0 1 1 8 19.6z"/>'],
-     [/ai call/i, 'AI call', '<rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'],
-     [/meeting|book/i, 'Book appointment', I.cal]].forEach(function(a){
-      var src = pick(a[0]); if (!src) return;
-      var b = el('button', { type:'button', role:'menuitem' }, svg(a[2], 18) + '<span>'+a[1]+'</span>');
-      b.addEventListener('click', function(){ pm.classList.remove('open'); src.click(); });
-      pm.appendChild(b);
+    // desk-19: ways to write are tabs on the message box (Note · Text · Email · WhatsApp);
+    // Book appointment · AI call · Call live in the header. Nothing is sent from here —
+    // Text and Email open the app's own window pre-filled, so every guard and preview still runs.
+    var lead = (typeof lsGetLead === 'function') ? lsGetLead() : null;
+    var first = lead ? String(_nmShow(lead.name,'') || lead.company || '').split(/\s+/)[0] : '';
+    var MODE = {
+      note:['Write a note about this lead…', 'Only your team sees notes', 'Save note'],
+      sms:['Text ' + (first || 'this lead') + '…', 'Opens your text window to review and send', 'Continue in text window'],
+      email:['Write an email to ' + (first || 'this lead') + '…', 'Opens the email window to review and send', 'Continue in email window'],
+      wa:['WhatsApp message to ' + (first || 'this lead') + '…', 'Opens WhatsApp with this message', 'Open in WhatsApp']
+    };
+    var tabs = el('div', { 'class':'dk-c-tabs', role:'tablist' });
+    var TI = { note:'<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>', sms:'<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.6A8 8 0 1 1 21 12z"/>', email:I.mail, wa:'<path d="M3 21l1.6-4.7A9 9 0 1 1 8 19.6z"/>' };
+    var TL = { note:'Note', sms:'Text', email:'Email', wa:'WhatsApp' };
+    var mode = window._dkMode && MODE[window._dkMode] ? window._dkMode : 'note';
+    var from = el('span', { 'class':'dk-c-from' });
+    Object.keys(MODE).forEach(function(m){
+      var b = el('button', { type:'button', role:'tab', 'data-m':m }, svg(TI[m], 15) + TL[m]);
+      b.addEventListener('click', function(){ setMode(m); var x = document.getElementById('lsNoteInp'); if (x) x.focus(); });
+      tabs.appendChild(b);
     });
-    plus.addEventListener('click', function(e){ e.stopPropagation(); pm.classList.toggle('open'); });
-    window._dkPm = pm;
-    if (!window._dkPmL) { window._dkPmL = 1; document.addEventListener('click', function(e){ var m = window._dkPm; if (m && !m.contains(e.target) && !(e.target.closest && e.target.closest('.dk-c-plus'))) m.classList.remove('open'); }); }
-    row.appendChild(plus); row.appendChild(pm);
+    tabs.appendChild(from);
+    box.insertBefore(tabs, box.firstChild);
+    var row = el('div', { 'class':'dk-c-row' });
+    var subj = el('input', { 'class':'dk-c-subj', placeholder:'Subject', type:'text' });
     var inp = el('div', { 'class':'dk-c-inp' });
-    if (ta) { ta.placeholder = 'Write a note about this lead…'; ta.rows = 1; inp.appendChild(ta); ta.addEventListener('focus', open); ta.addEventListener('input', function(){ ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 140) + 'px'; update(); }); ta.addEventListener('keydown', function(e){ if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); dkSave(lid); } if (e.key === 'Escape') ta.blur(); }); }
-    row.appendChild(inp);
-    var callSrc = tb[tb.length - 1];
-    if (callSrc && /call/i.test(callSrc.textContent||'') && !/ai call/i.test(callSrc.textContent||'')) {
-      var c = el('button', { type:'button', 'class':'dk-c-call', title:'Call', 'aria-label':'Call' }, svg(I.phone, 19));
-      c.addEventListener('click', function(){ callSrc.click(); }); row.appendChild(c);
+    if (ta) { ta.rows = 1; inp.appendChild(ta); ta.addEventListener('focus', function(){ if (mode === 'note') open(); }); ta.addEventListener('input', function(){ ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 140) + 'px'; update(); }); ta.addEventListener('keydown', function(e){ if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); } if (e.key === 'Escape') ta.blur(); }); }
+    var go = el('button', { type:'button', 'class':'dk-c-send' }, svg('<path d="M5 12h14M13 6l6 6-6 6"/>', 18));
+    go.addEventListener('click', send);
+    row.appendChild(subj); row.appendChild(inp); row.appendChild(go);
+    function setMode(m){
+      mode = m; window._dkMode = m;
+      [].forEach.call(tabs.querySelectorAll('[data-m]'), function(b){ b.classList.toggle('on', b.getAttribute('data-m') === m); b.setAttribute('aria-selected', b.getAttribute('data-m') === m ? 'true' : 'false'); });
+      box.className = 'dk-c m-' + m;
+      if (ta) ta.placeholder = MODE[m][0];
+      from.textContent = MODE[m][1]; go.title = MODE[m][2]; go.setAttribute('aria-label', MODE[m][2]);
+      if (m !== 'note') work.classList.remove('dk-c-open');
     }
+    function send(){
+      var x = document.getElementById('lsNoteInp'), v = x ? x.value.trim() : '';
+      if (mode === 'note') { open(); if (v || (fuIn && fuIn.value)) dkSave(lid); else if (x) x.focus(); return; }
+      if (lead && lead.do_not_contact && typeof dncInfo === 'function') { dncInfo(lead.id); return; }
+      if (mode === 'sms') {
+        var sb = pick(/sms/i); if (!sb) return; sb.click();
+        setTimeout(function(){ var c = document.getElementById('smsCompose'); if (c && v) { c.value = v; if (typeof smsGrow === 'function') smsGrow(c); c.focus(); } }, 60);
+      } else if (mode === 'email') {
+        var canCompose = typeof openEmail === 'function' && !(typeof isClientMode === 'function' && isClientMode()) && !window._isTelecaller;
+        if (canCompose && lead) {
+          openEmail(lead.id);
+          setTimeout(function(){ var sj = document.getElementById('emailSubj'), bd = document.getElementById('emailBody'); if (sj && subj.value.trim()) { sj.value = subj.value.trim(); if (typeof subjValidate === 'function') subjValidate(); } if (bd && v) { bd.textContent = 'Hi ' + (first || 'there') + ',\n\n' + v; } }, 80);
+        } else { var eb = pick(/email/i); if (eb) eb.click(); }
+      } else if (mode === 'wa') {
+        if (typeof _maskBlock === 'function' && _maskBlock('WhatsApp')) return;
+        if (!lead || !lead.ph) { if (typeof showToast === 'function') showToast('No phone on file'); return; }
+        window.open('https://wa.me/' + String(lead.ph).replace(/[^0-9]/g,'') + (v ? '?text=' + encodeURIComponent(v) : ''), '_blank');
+      }
+      if (x) { x.value = ''; x.style.height = ''; } subj.value = ''; update();
+    }
+    setMode(mode);
     box.appendChild(row);
     work.appendChild(box);
     function open(){ work.classList.add('dk-c-open'); }
@@ -246,10 +279,11 @@
     // 4 · Contact info panel (what's left in the body) + Book appointment
     body.classList.add('dk-side');
     var info = body.querySelector('.dk-info-card');
-    var meet = [].slice.call(scr.querySelectorAll('#dkTopActs > button')).filter(function(b){ return /meeting/i.test(b.textContent||''); })[0];
+    var _tbs = [].slice.call(scr.querySelectorAll('#dkTopActs > button')); var meet = _tbs.filter(function(b){ return /appointment/i.test(b.textContent||''); })[0] || _tbs.filter(function(b){ return /meeting/i.test(b.textContent||''); })[0];
+    _tbs.forEach(function(b){ if (/ai call/i.test(b.textContent||'')) b.classList.add('dk-aic'); });
     if (meet) {
       meet.classList.add('dk-book'); meet.title = 'Book appointment'; meet.setAttribute('aria-label','Book appointment');
-      var lbl = [].slice.call(meet.childNodes).filter(function(c){ return c.nodeType === 3 && c.textContent.trim(); })[0]; if (lbl) lbl.textContent = 'Book';
+      var lbl = [].slice.call(meet.childNodes).filter(function(c){ return c.nodeType === 3 && c.textContent.trim(); })[0]; if (lbl) lbl.textContent = 'Book appointment';
       var bk = el('button', { type:'button', 'class':'dk-book-big' }, svg(I.cal, 17) + 'Book appointment');
       bk.addEventListener('click', function(){ meet.click(); });
       if (info && info.parentElement === body) body.insertBefore(bk, info.nextSibling); else body.insertBefore(bk, body.firstChild);
@@ -309,7 +343,7 @@
     var sep = function(){ menu.appendChild(el('div', { 'class':'dk-msep' })); };
     var clk = function(b){ return b ? function(){ b.click(); } : null; };
     item(MI.info, 'Contact info', function(){ infoOn(true); });
-    var bk = find(/meeting|book/i); item(I.cal, 'Book appointment', clk(bk));
+    var bk = find(/appointment/i) || find(/meeting|book/i); item(I.cal, 'Book appointment', clk(bk));
     sep();
     item(I.mail, 'Send email', clk(find(/email/i)));
     item('<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.6A8 8 0 1 1 21 12z"/>', 'Send text (SMS)', clk(find(/sms/i)));
