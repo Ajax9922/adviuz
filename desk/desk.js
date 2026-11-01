@@ -206,6 +206,80 @@
     else col.scrollTop = y;
   }
 
+
+  // ── desk-16: show very little, like WhatsApp — header = avatar + name, Book, Call, ⋮ menu.
+  // Contact info panel is hidden until you click the name or "Contact info" in the menu.
+  var MI = {
+    info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
+    more:'<circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/>',
+    x:'<path d="M6 6l12 12M18 6 6 18"/>',
+    up:'<path d="M15 18l-6-6 6-6"/>', down:'<path d="M9 6l6 6-6 6"/>',
+    ref:'<path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/>',
+    robot:'<rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'
+  };
+  function infoOn(on){
+    var scr = document.getElementById('leadScreen'); if (!scr) return;
+    scr.classList.toggle('dk-info-on', !!on);
+    try { localStorage.setItem('adviuz_dk_info', on ? '1' : '0'); } catch(e){}
+  }
+  window.dkInfo = infoOn;
+  function closeMenu(){ var m = document.getElementById('dkMenu'); if (m) m.classList.remove('open'); }
+  document.addEventListener('click', function(e){ if (!e.target.closest || !e.target.closest('#dkMore,#dkMenu')) closeMenu(); });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeMenu(); });
+  function waHeader(){
+    var scr = document.getElementById('leadScreen'), top = scr && scr.querySelector('.ls-topbar');
+    if (!top) return;
+    ['dkMore','dkMenu','dkHAv'].forEach(function(id){ var o = document.getElementById(id); if (o) o.remove(); });
+    if (!scr.classList.contains('dk-wa')) return;
+    var acts = document.getElementById('dkTopActs');
+    var btns = acts ? [].slice.call(acts.children) : [];
+    var find = function(rx){ return btns.filter(function(b){ return rx.test((b.textContent||'') + ' ' + (b.title||'')); })[0]; };
+    var body = document.getElementById('lsBody');
+    var q = function(sel){ return body && body.querySelector(sel); };
+    // avatar + name → Contact info
+    var title = top.querySelector('.ls-title');
+    if (title) {
+      var nm = (document.getElementById('lsName')||{}).textContent || '';
+      var p = nm.trim().split(/\s+/).filter(Boolean);
+      var av = el('button', { id:'dkHAv', type:'button', title:'Contact info', 'aria-label':'Contact info' }, ((p[0]||'?').charAt(0) + (p[1]||'').charAt(0)).toUpperCase());
+      av.addEventListener('click', function(){ infoOn(!scr.classList.contains('dk-info-on')); });
+      top.insertBefore(av, title);
+      if (!title._dk) { title._dk = 1; title.style.cursor = 'pointer'; title.title = 'Contact info'; title.addEventListener('click', function(){ if (scr.classList.contains('dk-wa')) infoOn(!scr.classList.contains('dk-info-on')); }); }
+    }
+    // ⋮ menu
+    var more = el('button', { id:'dkMore', type:'button', title:'More', 'aria-label':'More options', 'aria-haspopup':'menu' }, svg(MI.more, 20));
+    var menu = el('div', { id:'dkMenu', role:'menu' });
+    var item = function(icon, label, fn){ if (!fn) return; var b = el('button', { type:'button', role:'menuitem' }, svg(icon, 18) + '<span>'+label+'</span>'); b.addEventListener('click', function(){ closeMenu(); fn(); }); menu.appendChild(b); };
+    var sep = function(){ menu.appendChild(el('div', { 'class':'dk-msep' })); };
+    var clk = function(b){ return b ? function(){ b.click(); } : null; };
+    item(MI.info, 'Contact info', function(){ infoOn(true); });
+    var bk = find(/meeting|book/i); item(I.cal, 'Book appointment', clk(bk));
+    sep();
+    item(I.mail, 'Send email', clk(find(/email/i)));
+    item('<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.6A8 8 0 1 1 21 12z"/>', 'Send text (SMS)', clk(find(/sms/i)));
+    item('<path d="M3 21l1.6-4.7A9 9 0 1 1 8 19.6z"/>', 'WhatsApp', clk(find(/whatsapp/i)));
+    item(MI.robot, 'AI call', clk(find(/ai call/i)));
+    sep();
+    item('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>', 'Quotes', clk(q('button[onclick^="openLeadQuotes"]')));
+    item('<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>', 'Invoices', clk(q('button[onclick^="openLeadInvoices"]')));
+    item('<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 11h6M9 15h6"/>', 'Proposal', clk(q('button[onclick^="openProposalWizard"]')));
+    var ap = q('div[onclick^="apGoToAiSettings"],div[onclick^="openApSheet"],div[onclick^="apStopInfo"]');
+    item(MI.robot, 'AI Autopilot', ap ? function(){ infoOn(true); setTimeout(function(){ ap.scrollIntoView({ block:'center', behavior:'smooth' }); }, 50); } : null);
+    sep();
+    item(MI.ref, 'Refresh lead', clk(document.getElementById('lsRefresh')));
+    item(MI.up, 'Previous lead', clk(document.getElementById('lsPrev')));
+    item(MI.down, 'Next lead', clk(document.getElementById('lsNext')));
+    item(MI.x, 'Close lead', typeof closeLead === 'function' ? function(){ closeLead(); } : null);
+    more.addEventListener('click', function(e){ e.stopPropagation(); menu.classList.toggle('open'); });
+    top.appendChild(more); top.appendChild(menu);
+    if (bk) { bk.classList.add('dk-book'); bk.title = 'Book appointment'; }
+    // Contact info header gets a close (×)
+    var h = body && body.querySelector('.dk-side-h');
+    if (h && !h.querySelector('button')) { var x = el('button', { type:'button', 'aria-label':'Close contact info', title:'Close' }, svg(MI.x, 18)); x.addEventListener('click', function(){ infoOn(false); }); h.appendChild(x); }
+    var saved = null; try { saved = localStorage.getItem('adviuz_dk_info'); } catch(e){}
+    scr.classList.toggle('dk-info-on', saved === '1');
+  }
+
   function hookLeadRender(){
     if (typeof window.renderLeadScreen !== 'function' || window.renderLeadScreen._dk) return;
     var orig = window.renderLeadScreen;
@@ -219,6 +293,7 @@
       try { tidyQuickBtns(); } catch(e){}
       try { actionsToTop(); } catch(e){}
       try { waLayout(); } catch(e){ if (window.console) console.warn('dk waLayout', e); }
+      try { waHeader(); } catch(e){ if (window.console) console.warn('dk waHeader', e); }
       return r;
     };
     window.renderLeadScreen._dk = true;
