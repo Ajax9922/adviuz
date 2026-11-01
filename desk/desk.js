@@ -1,4 +1,4 @@
-/* Adviuz Hub — DESKTOP LAYER (desk-2, 2026-10-27). Pairs with desk.css.
+/* Adviuz Hub — DESKTOP LAYER (desk-2, 2026-10-27; desk-13 compact lead rows 2026-10-31). Pairs with desk.css.
    Rail logo + expand/collapse + bottom buttons, the empty "pick a lead" panel,
    full-width Reports/Dashboard, and the tidy lead-details grid.
    Does nothing below 1100px. */
@@ -188,6 +188,106 @@
     w.classList.toggle('dk-can-r', row.scrollLeft + row.clientWidth < row.scrollWidth - 4);
   }
 
+
+  // ── desk-13: WhatsApp-style two-line lead rows (list only; other lRow callers untouched) ──
+  var TEMP_DOT = { hot:'#4000f3', warm:'#d97706', cold:'#94a3b8' };
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function ini(t){ var p=String(t||'').replace(/[^\p{L}\p{N}\s]/gu,' ').trim().split(/\s+/).filter(Boolean); return ((p[0]||'?').charAt(0)+(p[1]||'').charAt(0)).toUpperCase(); }
+  function tint(hex, a){ var m=/^#([0-9a-f]{6})$/i.exec(String(hex||'')); return m ? '#'+m[1]+a : 'rgba(102,119,129,.12)'; }
+  function preview(l){
+    try{
+      if (window._leadSort==='opened'){ var o=(window._openByDb||{})[l.dbId]; if(o) return '<b>Opened an email</b> · '+esc(timeAgo(o)); }
+      var acts=leadAct[l.id]||[], a=acts[0];
+      if (a){
+        var lbl=cleanActLabel(a), ai=String(a.type||'').toLowerCase()==='ai_analysis', g=ai?_aiGist(a.body):'', cx=ai?_aiCallCtx(a,acts):null;
+        lbl = cx ? cx.lbl : _byLbl(a,lbl);
+        var body = ai ? g : (a.body ? String(a.body).trim() : '');
+        return '<b>'+esc(lbl)+'</b>'+(body?' — '+esc(body.replace(/\s+/g,' ')):'');
+      }
+      if (l.note) return '<b>Note</b> — '+esc(l.note);
+    }catch(e){}
+    return esc(l.svc||l.location||'No activity yet');
+  }
+  function dkRow(l, anySel){
+    var company=(l.company||'').trim(), person=_nmShow(l.name,'');
+    var title, sub='';
+    if (company && person && company.toLowerCase()!==person.toLowerCase()){ title=company; sub=person; } else title = company||person||'Unnamed';
+    var col=stgColor(l.stage), isSel=selIds.has(l.id);
+    var on = (window.curLid===l.id) && document.getElementById('leadScreen') && document.getElementById('leadScreen').classList.contains('open');
+    var tAt=(window._touchAt||{})[String(l.dbId||'')], tl=tAt?timeAgo(new Date(tAt).toISOString()):(l.t||'');
+    var fI=l.first_inquiry_at||l.created_at, cA=l.created_at;
+    var back = fI && cA && (new Date(cA)-new Date(fI) > 36*3600*1000);
+    var tp=leadTemp(l.stage), dot=TEMP_DOT[tp], stName=String(l.stage||'').replace(/^\d+\.\s*/,'');
+    var cb='<div class="l-cb'+(anySel?' vis':'')+(isSel?' chk':'')+'" onclick="event.stopPropagation();toggleSel('+l.id+')"></div>';
+    return '<div class="dk-lr'+(isSel?' sel':'')+(on?' dk-on':'')+'" data-lid="'+l.id+'" '
+      +'onclick="'+(anySel?'toggleSel('+l.id+')':'openLead('+l.id+')')+'" oncontextmenu="event.preventDefault();startSel('+l.id+')">'
+      +(anySel?cb:'')
+      +'<div class="dk-av" style="background:'+tint(col,'1f')+';color:'+col+'">'+esc(ini(title))+'</div>'
+      +'<div class="dk-lr-main">'
+        +'<div class="dk-lr-1"><span class="dk-lr-nm" title="'+esc(title+(sub?' · '+sub:''))+'">'+esc(title)+(sub?'<span class="dk-lr-p"> · '+esc(sub)+'</span>':'')+'</span>'
+          +(l.do_not_contact?'<span class="dk-dnd">DND</span>':'')
+          +'<span class="dk-lr-t"'+(back?' title="Returning lead"':'')+'>'+(back?'↩ ':'')+esc(tl)+'</span></div>'
+        +'<div class="dk-lr-2"><span class="dk-lr-pv">'+preview(l)+'</span>'
+          +(stName?'<span class="dk-lr-st" style="background:'+tint(col,'14')+';color:'+col+'"'+(dot?' title="'+tp.charAt(0).toUpperCase()+tp.slice(1)+' lead"':'')+'>'+(dot?'<span class="dk-lr-dot" style="background:'+dot+'"></span>':'')+esc(stName)+'</span>':'')
+        +'</div>'
+      +'</div></div>';
+  }
+  function hookLeadRow(){
+    if (typeof window.lRow !== 'function' || window.lRow._dk) return;
+    var orig = window.lRow;
+    window.lRow = function(l, anySel){
+      if (MQ.matches && arguments.length <= 2 && l) { try { return dkRow(l, anySel); } catch(e){} }
+      return orig.apply(this, arguments);
+    };
+    window.lRow._dk = true;
+  }
+  function markOpen(){
+    var ls=document.getElementById('leadScreen'), open=ls && ls.classList.contains('open');
+    document.querySelectorAll('.dk-lr').forEach(function(r){ r.classList.toggle('dk-on', !!open && String(window.curLid)===r.getAttribute('data-lid')); });
+  }
+  function hookOpenClose(){
+    ['openLead','closeLead'].forEach(function(fn){
+      if (typeof window[fn] !== 'function' || window[fn]._dk) return;
+      var o = window[fn];
+      window[fn] = function(){ var r = o.apply(this, arguments); try { markOpen(); setTimeout(markOpen, 60); } catch(e){} return r; };
+      window[fn]._dk = true;
+    });
+  }
+  // stage chips: first 5 + "+N more" (the selected one always stays visible)
+  function tidyFilters(){
+    if (!MQ.matches) return;
+    // filter pills: Campaigns + Locations (or Time) up front, the rest behind "More filters"
+    document.querySelectorAll('.lf-pills').forEach(function(row){
+      if (row.getAttribute('data-dkt')) return; row.setAttribute('data-dkt','1');
+      var pills=[].slice.call(row.querySelectorAll(':scope > .lf-pill:not(.dk-lf-more)'));
+      var hasLoc=pills.some(function(b){ return /lfPick\('loc'\)/.test(b.getAttribute('onclick')||''); });
+      var keep=hasLoc ? /lfPick\('(camp|loc)'\)/ : /lfPick\('(camp|time)'\)/;
+      var hidden=0, hiddenOn=0;
+      pills.forEach(function(b){
+        if (keep.test(b.getAttribute('onclick')||'')) return;
+        if (b.classList.contains('on')) { hiddenOn++; return; }
+        b.classList.add('dk-pf-x'); hidden++;
+      });
+      if (!hidden) return;
+      var m=document.createElement('button'); m.type='button'; m.className='lf-pill dk-pf-more';
+      var set=function(){ row.classList.toggle('dk-pf-open', !!window._dkPfMore); m.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg><span>'+(window._dkPfMore?'Fewer':'More filters')+'</span>'; };
+      m.addEventListener('click', function(e){ e.stopPropagation(); window._dkPfMore=!window._dkPfMore; set(); });
+      var react=row.querySelector(':scope > .lf-react');
+      row.insertBefore(m, null); set();
+    });
+    document.querySelectorAll('.lf-stages').forEach(function(row){
+      if (row.getAttribute('data-dkt')) return; row.setAttribute('data-dkt','1');
+      var kids=[].slice.call(row.children), LIM=5, hidden=0;
+      if (kids.length <= LIM + 1) return;
+      kids.forEach(function(b, i){ if (i >= LIM && !/color:#fff|color:#4000f3/.test(b.getAttribute('style')||'')) { b.classList.add('dk-st-x'); hidden++; } });
+      if (!hidden) return;
+      var m=document.createElement('button'); m.type='button'; m.className='dk-st-more';
+      var set=function(){ row.classList.toggle('dk-st-open', !!window._dkStMore); m.textContent = window._dkStMore ? 'Fewer' : '+' + hidden + ' more'; };
+      m.addEventListener('click', function(e){ e.stopPropagation(); window._dkStMore = !window._dkStMore; set(); });
+      row.appendChild(m); set();
+    });
+  }
+
   function build(){
     if (built) return;
     var bar = document.querySelector('.tabbar');
@@ -240,6 +340,8 @@
     var me = el('button', { 'class':'dk-rail-btn dk-me', title:'Your account', 'aria-label':'Your account', type:'button' },
       '<span class="dk-rail-av">'+initials()+'</span><span class="dk-lbl">Account</span>');
     me.addEventListener('click', function(){ if (typeof openMenu === 'function') openMenu(); });
+    var bell = document.getElementById('tbNotifBtn');
+    if (bell) { bell.title = 'Notifications'; bell.setAttribute('aria-label','Notifications'); bottom.appendChild(bell); }
     bottom.appendChild(tog); bottom.appendChild(menu); bottom.appendChild(me);
     bar.appendChild(bottom);
     railOpen(document.documentElement.classList.contains('dk-rail-open'));
@@ -273,12 +375,15 @@
 
     hookInfoRows();
     hookLeadRender();
+    hookLeadRow();
+    hookOpenClose();
+    try { if (curTab === 'leads' && typeof render === 'function') render(); } catch(e){}
     var content = document.getElementById('content');
     if (content && window.MutationObserver) {
       var t = null;
-      new MutationObserver(function(){ clearTimeout(t); t = setTimeout(stageArrows, 30); }).observe(content, { childList: true, subtree: true });
+      new MutationObserver(function(){ clearTimeout(t); t = setTimeout(tidyFilters, 30); }).observe(content, { childList: true, subtree: true });
     }
-    stageArrows();
+    tidyFilters();
   }
 
   function apply(){ if (MQ.matches) build(); }
