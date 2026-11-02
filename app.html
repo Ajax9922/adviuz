@@ -5096,7 +5096,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-02 ibprev-2';
+var APP_VERSION = 'v2026-11-02 apptyou-2';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -9792,12 +9792,16 @@ function lRow(l,anySel,forceDetailed,slim){
   try{
     var _apMs=l.appointment_at?new Date(l.appointment_at).getTime():NaN;
     if(!isNaN(_apMs) && _apMs>Date.now()-30*60000 && !l.meeting_outcome){
-      var _apD=new Date(_apMs), _now=new Date(), _d0=new Date(_now.getFullYear(),_now.getMonth(),_now.getDate()).getTime();
-      var _dd=Math.floor((new Date(_apD.getFullYear(),_apD.getMonth(),_apD.getDate()).getTime()-_d0)/86400000);
-      var _day=_dd===0?'Today':_dd===1?'Tomorrow':_apD.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'});
-      var _tm=_apD.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit',hour12:true});
-      var _myTz=''; try{ _myTz=Intl.DateTimeFormat().resolvedOptions().timeZone||''; }catch(_z){}
-      var _tzL=(_myTz==='America/Regina'||_myTz==='America/Swift_Current')?'Saskatoon time':'your time';
+      var _apD=new Date(_apMs), _myTz=''; try{ _myTz=Intl.DateTimeFormat().resolvedOptions().timeZone||''; }catch(_z){}
+      // apptyou-2: Adviuz's own leads → my (device) time; client leads → clinic / their time
+      var _cz=null, _tzL;
+      if(_isHouseLead(l)){ _tzL=(_myTz==='America/Regina'||_myTz==='America/Swift_Current')?'Saskatoon time':'your time'; }
+      else { var _ce=(typeof effLeadTz==='function')?effLeadTz(l):null; _cz=(_ce&&_ce.tz)||l.timezone||(typeof tzFromPhone==='function'?tzFromPhone(l.ph):'')||'America/Toronto'; _tzL=(_ce&&_ce.clinic)?'clinic time':'their time'; }
+      var _o=_cz?{timeZone:_cz}:{};
+      var _dk=function(d){ return d.toLocaleDateString('en-CA',Object.assign({year:'numeric',month:'2-digit',day:'2-digit'},_o)); };
+      var _dd=Math.round((Date.parse(_dk(_apD))-Date.parse(_dk(new Date())))/86400000);
+      var _day=_dd===0?'Today':_dd===1?'Tomorrow':_apD.toLocaleDateString('en-CA',Object.assign({weekday:'short',month:'short',day:'numeric'},_o));
+      var _tm=_apD.toLocaleTimeString('en-CA',Object.assign({hour:'numeric',minute:'2-digit',hour12:true},_o));
       lastHTML='<div class="sl-last" style="background:var(--greenl,#e7f8f3);color:var(--green)"><span class="sl-cl"><b>\uD83D\uDCC5 Upcoming meeting</b> · '+esc(_day+', '+_tm)+' <span style="opacity:.75">('+_tzL+')</span></span></div>'+lastHTML;
     }
   }catch(_ap){}
@@ -18805,7 +18809,7 @@ function renderLeadScreen(id) {
         + '<div style="background:var(--greenl,#e7f8f3);border:1.5px solid var(--green);border-radius:14px;padding:13px 15px">'
         +   '<div style="font-size:11px;font-weight:600;color:var(--green);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">\uD83D\uDCC5 Upcoming appointment</div>'
         +   '<div style="font-size:15px;font-weight:500;color:var(--text);line-height:1.4">'+fmtApptLocal(l.appointment_at,_apTz)+' <span style="font-size:12px;color:var(--sub);font-weight:600">('+(_apClin?'clinic time':'their local time')+')</span></div>'
-        +   fmtApptYours(l.appointment_at,_apTz)
+        +   (_isHouseLead(l)?fmtApptYours(l.appointment_at,_apTz):'') // apptyou-2: Saskatoon time only on Adviuz's own leads
         +   '<div style="display:flex;gap:8px;margin-top:11px">'
         +     _apBtn('Reschedule','openApptSheet('+l.id+')','var(--green)')
         +     _apBtn('Cancel','apptCancelDirect('+l.id+')','var(--red,#dc2626)')
@@ -18816,7 +18820,7 @@ function renderLeadScreen(id) {
         + '<div style="background:#fffbeb;border:1.5px solid #f59e0b;border-radius:14px;padding:13px 15px">'
         +   '<div style="font-size:11px;font-weight:600;color:#b45309;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">\uD83D\uDCC5 Appointment \u00b7 time passed</div>'
         +   '<div style="font-size:15px;font-weight:500;color:var(--text);line-height:1.4">'+fmtApptLocal(l.appointment_at,_apTz)+' <span style="font-size:12px;color:var(--sub);font-weight:600">('+(_apClin?'clinic time':'their local time')+')</span></div>'
-        +   fmtApptYours(l.appointment_at,_apTz)
+        +   (_isHouseLead(l)?fmtApptYours(l.appointment_at,_apTz):'') // apptyou-2: Saskatoon time only on Adviuz's own leads
         +   '<div style="font-size:12px;color:#92400e;margin-top:4px">How did it go? Recording it keeps your numbers honest.</div>'
         +   '<div style="display:flex;gap:8px;margin-top:11px">'
         +     _apBtn('\u2713 Done','apptOutcomeDirect('+l.id+',\'done\')','var(--green)')
@@ -32937,6 +32941,7 @@ function isoToZonedParts(iso, tz){
 }
 // apptyou-1 (Ajax 2026-11-02): also show the appointment in YOUR device's time when it differs
 // from the lead's (e.g. a Calgary lead seen from Saskatoon).
+function _isHouseLead(l){ var H=(typeof _LIVE_HOUSE!=='undefined'&&_LIVE_HOUSE)||['7d315d20-00af-4e7f-8d79-c89b3f2b5cf7']; return !!(l&&l.client_id&&H.indexOf(String(l.client_id))>-1); }
 function fmtApptYours(iso, leadTz){
   try{
     var my = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
