@@ -5096,7 +5096,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-02 closed-sink-1';
+var APP_VERSION = 'v2026-11-02 ibprev-2';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -27070,21 +27070,23 @@ function ibEmailPreview(key){
   var isHtml=/<\s*(!doctype|html|body|table|div|p|br)\b/i.test(body);
   var esc=function(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
   var shell=function(){
-    if(r.inbound) return '<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#111;padding:18px;white-space:pre-wrap">'+(isHtml?body:esc(body||'(no message text)'))+'</div>';
+    if(r.inbound||!/adviuz\./i.test(from)) return '<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#111;padding:18px;white-space:pre-wrap">'+(isHtml?body:esc(body||'(no message text)'))+'</div>'; // ibprev-2: never put Adviuz branding on a client's email
     try{ return isHtml?buildBrandedHtml(body,from,'',true):buildBrandedHtml(body||'(no message text)',from,'',false); }
     catch(_e){ return '<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;padding:18px;white-space:pre-wrap">'+esc(body)+'</div>'; }
   };
-  var cached=r.email_id&&window._emibHtml?window._emibHtml[r.email_id]:'';
-  frame.srcdoc=r.html||cached||shell();
+  window._emibHtml=window._emibHtml||{};
+  var cached=r.email_id?window._emibHtml[r.email_id]:'';
+  var willLoad=!r.html&&!cached&&!!r.email_id&&!r.inbound&&!isHtml&&window._emibHtml[r.email_id]!=='';
+  var tok=window._ibPrevTok=(window._ibPrevTok||0)+1;
+  frame.srcdoc=r.html||cached||(willLoad?'<div style="font-family:Helvetica,Arial,sans-serif;font-size:13px;color:#9aa3af;text-align:center;padding:60px 20px">Loading the email\u2026</div>':shell());
   var sb=document.getElementById('epSendBtn'); if(sb) sb.style.display='none';
   if(meta) meta.textContent=(r.inbound?('From: '+(r.from_email||r.name)):('From: '+from+(r.to_email?' \u2192 '+r.to_email:'')))+(r.subject?' | '+r.subject:'');
   ov.classList.add('open');
-  if(!r.html&&!cached&&r.email_id&&!r.inbound&&!isHtml){
-    window._emibHtml=window._emibHtml||{};
+  if(willLoad){
     sbFetch('/functions/v1/email-body',{method:'POST',body:JSON.stringify({email_id:r.email_id})})
       .then(function(x){ return x&&x.ok?x.json():{}; })
-      .then(function(d){ var h=(d&&d.ok&&d.html)?String(d.html):''; window._emibHtml[r.email_id]=h; if(h&&ov.classList.contains('open')) frame.srcdoc=h; })
-      .catch(function(){});
+      .then(function(d){ var h=(d&&d.ok&&d.html)?String(d.html):''; window._emibHtml[r.email_id]=h; if(tok===window._ibPrevTok&&ov.classList.contains('open')) frame.srcdoc=h||shell(); })
+      .catch(function(){ if(tok===window._ibPrevTok&&ov.classList.contains('open')) frame.srcdoc=shell(); });
   }
 }
 function closeEmailPreview(){
