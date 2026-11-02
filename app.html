@@ -5096,7 +5096,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-01 hold30-1';
+var APP_VERSION = 'v2026-11-02 apptyou-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -18790,6 +18790,7 @@ function renderLeadScreen(id) {
         + '<div style="background:var(--greenl,#e7f8f3);border:1.5px solid var(--green);border-radius:14px;padding:13px 15px">'
         +   '<div style="font-size:11px;font-weight:600;color:var(--green);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">\uD83D\uDCC5 Upcoming appointment</div>'
         +   '<div style="font-size:15px;font-weight:500;color:var(--text);line-height:1.4">'+fmtApptLocal(l.appointment_at,_apTz)+' <span style="font-size:12px;color:var(--sub);font-weight:600">('+(_apClin?'clinic time':'their local time')+')</span></div>'
+        +   fmtApptYours(l.appointment_at,_apTz)
         +   '<div style="display:flex;gap:8px;margin-top:11px">'
         +     _apBtn('Reschedule','openApptSheet('+l.id+')','var(--green)')
         +     _apBtn('Cancel','apptCancelDirect('+l.id+')','var(--red,#dc2626)')
@@ -18800,6 +18801,7 @@ function renderLeadScreen(id) {
         + '<div style="background:#fffbeb;border:1.5px solid #f59e0b;border-radius:14px;padding:13px 15px">'
         +   '<div style="font-size:11px;font-weight:600;color:#b45309;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">\uD83D\uDCC5 Appointment \u00b7 time passed</div>'
         +   '<div style="font-size:15px;font-weight:500;color:var(--text);line-height:1.4">'+fmtApptLocal(l.appointment_at,_apTz)+' <span style="font-size:12px;color:var(--sub);font-weight:600">('+(_apClin?'clinic time':'their local time')+')</span></div>'
+        +   fmtApptYours(l.appointment_at,_apTz)
         +   '<div style="font-size:12px;color:#92400e;margin-top:4px">How did it go? Recording it keeps your numbers honest.</div>'
         +   '<div style="display:flex;gap:8px;margin-top:11px">'
         +     _apBtn('\u2713 Done','apptOutcomeDirect('+l.id+',\'done\')','var(--green)')
@@ -32849,7 +32851,7 @@ function tzFromPhone(ph){
   return CA_AREACODE_TZ[d.slice(0,3)] || null;
 }
 function tzShortLabel(tz){
-  return ({'America/Vancouver':'Pacific','America/Edmonton':'Mountain','America/Regina':'Central','America/Winnipeg':'Central','America/Toronto':'Eastern','America/Halifax':'Atlantic','America/St_Johns':'Newfoundland'})[tz] || tz;
+  return ({'America/Vancouver':'Pacific','America/Edmonton':'Alberta','America/Regina':'Central','America/Winnipeg':'Central','America/Toronto':'Eastern','America/Halifax':'Atlantic','America/St_Johns':'Newfoundland'})[tz] || tz;
 }
 function localHourInTz(tz){
   try { var h = parseInt(new Intl.DateTimeFormat('en-CA',{timeZone:tz,hour:'2-digit',hour12:false}).format(new Date()),10); return isNaN(h)?new Date().getHours():(h%24); }
@@ -32884,6 +32886,20 @@ function isoToZonedParts(iso, tz){
       .formatToParts(new Date(iso)).reduce(function(a,x){a[x.type]=x.value;return a;},{});
     return { date:p.year+'-'+p.month+'-'+p.day, time:p.hour+':'+p.minute };
   }catch(e){ return {date:'',time:''}; }
+}
+// apptyou-1 (Ajax 2026-11-02): also show the appointment in YOUR device's time when it differs
+// from the lead's (e.g. a Calgary lead seen from Saskatoon).
+function fmtApptYours(iso, leadTz){
+  try{
+    var my = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    if(!my || !iso) return '';
+    var o = {weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true};
+    var mine = new Intl.DateTimeFormat('en-CA',Object.assign({timeZone:my},o)).format(new Date(iso));
+    var theirs = new Intl.DateTimeFormat('en-CA',Object.assign({timeZone:leadTz},o)).format(new Date(iso));
+    var lbl = my==='America/Regina' ? 'Saskatoon time' : (tzShortLabel(my)!==my ? tzShortLabel(my)+' time' : 'your time');
+    if(mine === theirs) lbl += ' — same as theirs';
+    return '<div style="font-size:13px;color:var(--text);margin-top:3px">\uD83D\uDD52 <b style="font-weight:600">'+mine+'</b> <span style="font-size:12px;color:var(--sub);font-weight:600">('+lbl+')</span></div>';
+  }catch(e){ return ''; }
 }
 function fmtApptLocal(iso, tz){
   try{ return new Intl.DateTimeFormat('en-CA',{timeZone:tz,weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}).format(new Date(iso))+' '+tzShortLabel(tz); }
