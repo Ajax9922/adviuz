@@ -31804,14 +31804,14 @@ function _pjPaint(){
     +'<div style="display:flex;justify-content:space-between;font-size:12px;margin:12px 0 5px"><span>'+st.done+' done · '+st.up+' planned</span><b>'+st.pct+'%</b></div>'
     +'<div style="height:7px;border-radius:99px;background:rgba(255,255,255,.3);overflow:hidden"><div style="height:100%;width:'+st.pct+'%;background:#fff;border-radius:99px"></div></div>'
     +(nx?'<div style="font-size:12px;margin-top:10px;opacity:.95">Next: <b>'+_pjE(nx.title)+'</b> · '+_pjFmt(nx.due_date)+'</div>':'')
-    +(adm?'<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button onclick="_pjEditProject(\''+p.id+'\')" style="'+_pjBtn+'">Edit project</button><button onclick="_pjLogWork()" style="'+_pjBtn+'">+ Log work</button><button onclick="_pjEditItem(null)" style="'+_pjBtn+'">+ Add item</button><button onclick="_pjEditScore(null)" style="'+_pjBtn+'">+ AI check</button><button onclick="_pjEditMetrics(null)" style="'+_pjBtn+'">+ Results</button></div>':'')
+    +(adm?'<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button onclick="_pjEditProject(\''+p.id+'\')" style="'+_pjBtn+'">Edit project</button><button onclick="_pjLogWork()" style="'+_pjBtn+'">+ Log work</button><button onclick="_pjEditItem(null)" style="'+_pjBtn+'">+ Add item</button><button onclick="_pjRunCheck()" style="'+_pjBtn+'">Run AI check</button><button onclick="_pjEditMetrics(null)" style="'+_pjBtn+'">+ Results</button></div>':'')
     +'</div>';
   // 2. AI visibility score
   var sc=((p.project_scores)||[]).slice().sort(function(a,c){ return String(a.checked_on).localeCompare(String(c.checked_on)); });
   var last=sc[sc.length-1];
   h+='<div style="'+_pjLbl+'">AI visibility score</div><div style="'+_pjCard+'">';
   if(!last){
-    h+='<div style="font-size:13px;color:var(--text);line-height:1.5">We ask ChatGPT, Gemini, Perplexity and Google AI the questions your customers ask, and count how often they name you. Your first check is coming soon.</div>';
+    h+='<div style="font-size:13px;color:var(--text);line-height:1.5">We ask ChatGPT, Gemini, Google, Perplexity and Claude the questions your customers ask, and count how often they name you. Your first check is coming soon.</div>';
   } else {
     var pc=Math.round(last.mentioned*100/Math.max(1,last.total)), first=sc[0], fpc=Math.round(first.mentioned*100/Math.max(1,first.total));
     h+='<div style="display:flex;align-items:baseline;gap:8px"><span style="font-size:28px;font-weight:700;color:#4000f3">'+pc+'%</span><span style="font-size:12.5px;color:var(--sub)">'+last.mentioned+' of '+last.total+' AI answers mention you · '+_pjFmt(last.checked_on)+'</span></div>'
@@ -31823,8 +31823,10 @@ function _pjPaint(){
       h+='<div style="display:flex;align-items:flex-end;gap:5px;height:64px;margin-top:14px">'+hist.map(function(s){ var v=Math.round(s.mentioned*100/Math.max(1,s.total)); return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div style="width:100%;max-width:26px;height:'+Math.max(4,Math.round(v/mx*46))+'px;background:linear-gradient(0deg,#4000f3,#e65afc);border-radius:4px 4px 0 0"></div><div style="font-size:10px;color:var(--sub);margin-top:3px">'+_pjDay(s.checked_on).toLocaleDateString('en-CA',{month:'short'})+'</div></div>'; }).join('')+'</div>';
     }
     if(last.note) h+='<div style="font-size:12.5px;color:var(--sub);margin-top:10px;line-height:1.5">'+_pjE(last.note)+'</div>';
+    if(last.details && last.details.questions && last.details.questions.length) h+='<a href="#" onclick="event.preventDefault();var x=this.nextSibling;x.style.display=x.style.display===\'none\'?\'block\':\'none\'" style="display:inline-block;margin-top:10px;font-size:12.5px;font-weight:600;color:#4000f3">See question by question</a><div style="display:none">'+_pjGridHTML(last.details)+'</div>';
     if(adm) h+='<div style="margin-top:10px;font-size:11.5px;color:var(--sub)">'+sc.map(function(s){ return _pjFmt(s.checked_on)+' '+s.mentioned+'/'+s.total+(s.visible_to_client?'':' (internal)')+' <a href="#" onclick="event.preventDefault();_pjEditScore(\''+s.id+'\')" style="color:#4000f3">edit</a>'; }).join(' · ')+'</div>';
   }
+  if(!adm && _pjQs(p).length) h+='<button onclick="_pjTryIt()" style="'+_pjBtn+';width:100%;margin-top:12px;color:#4000f3">Try it yourself ↗</button>';
   h+='</div>';
   // 2b. Results (latest month typed in by the team)
   var rm=_pjMetrics(p, adm), rl=rm[rm.length-1];
@@ -32296,6 +32298,120 @@ async function _pjSaveMetrics(mid, btn){
     else { body.project_id=window._pjCur; await _pjSave('project_metrics','POST',body); }
     closeSheet('pjMt'); showToast('Results saved'); await _pjLoad(); _pjPaint();
   }catch(e){ showToast('Not saved: '+e.message); btn.disabled=false; }
+}
+
+// ── Guided AI check: 8 questions × 5 AI apps. Tap opens the app with the question typed in. ──
+var _PJ_AI=[
+  ['ChatGPT','https://chatgpt.com/?q='],
+  ['Gemini','https://gemini.google.com/app?q='],
+  ['Google','https://www.google.com/search?q='],
+  ['Perplexity','https://www.perplexity.ai/search?q='],
+  ['Claude','https://claude.ai/new?q=']];
+function _pjQs(p){ return (Array.isArray(p.ai_questions)?p.ai_questions:[]).filter(function(q){ return String(q||'').trim(); }); }
+function _pjCkKey(){ return 'advz_aichk_'+window._pjCur; }
+function _pjCkGet(){ try{ return JSON.parse(localStorage.getItem(_pjCkKey())||'{}')||{}; }catch(e){ return {}; } }
+function _pjCkSet(g){ try{ localStorage.setItem(_pjCkKey(), JSON.stringify(g)); }catch(e){} }
+function _pjAsk(qi, ai){
+  var p=_pjFind(window._pjCur); if(!p) return;
+  var q=_pjQs(p)[qi], a=_PJ_AI[ai]; if(!q||!a) return;
+  try{ if(navigator.clipboard) navigator.clipboard.writeText(q).catch(function(){}); }catch(e){}
+  window.open(a[1]+encodeURIComponent(q),'_blank','noopener');
+  showToast(a[0]+' opened — the question is also copied, paste it if it isn’t typed in');
+}
+function _pjMark(qi, ai, v){
+  var g=_pjCkGet(), k=qi+':'+ai; g[k]=(g[k]===v)?'':v; _pjCkSet(g); _pjCkPaint();
+}
+function _pjGridHTML(d){
+  var qs=d.questions||[], g=d.grid||{};
+  return '<div style="overflow-x:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">'
+    +'<tr><th style="text-align:left;padding:5px 4px;color:#64748b;font-weight:600;width:38%">Question</th>'+_PJ_AI.map(function(a){ return '<th style="padding:5px 1px;color:#64748b;font-weight:600;font-size:10px;overflow:hidden;text-overflow:ellipsis">'+({ChatGPT:'GPT',Perplexity:'Perplx.'}[a[0]]||a[0])+'</th>'; }).join('')+'</tr>'
+    +qs.map(function(q,qi){ return '<tr style="border-top:1px solid #eef0f4"><td style="padding:6px 4px;color:#0f172a;line-height:1.35">'+_pjE(q)+'</td>'+_PJ_AI.map(function(a,ai){ var v=g[qi+':'+ai]; return '<td style="text-align:center;padding:6px 3px;font-weight:700;color:'+(v==='y'?'#15803d':v==='n'?'#b91c1c':'#cbd5e1')+'">'+(v==='y'?'✓':v==='n'?'✗':'–')+'</td>'; }).join('')+'</tr>'; }).join('')
+    +'</table></div><div style="font-size:11px;color:#64748b;margin-top:4px">✓ named you · ✗ did not · – not checked</div>';
+}
+function _pjRunCheck(){
+  if(!_pjIsAdmin()) return;
+  var p=_pjFind(window._pjCur); if(!p) return;
+  _pjEnsureSheet('pjCk', 890);
+  document.getElementById('pjCkT').textContent='AI check';
+  if(!_pjQs(p).length){ _pjEditQs(); return; }
+  _pjCkPaint();
+  openSheet('pjCk');
+}
+function _pjCkPaint(){
+  var p=_pjFind(window._pjCur), b=document.getElementById('pjCkB'); if(!p||!b) return;
+  var qs=_pjQs(p), g=_pjCkGet(), y=0, n=0;
+  Object.keys(g).forEach(function(k){ if(g[k]==='y') y++; else if(g[k]==='n') n++; });
+  var tot=qs.length*_PJ_AI.length;
+  var h='<div style="font-size:12.5px;color:var(--sub);line-height:1.5;margin-bottom:10px">Tap an app to open it with the question typed in. Read the answer, come back and tap <b style="color:#15803d">Named</b> if it mentions the clinic, or <b style="color:#b91c1c">Not</b> if it doesn’t. Your ticks are kept on this device until you save.</div>'
+    +'<div style="position:sticky;top:-12px;z-index:2;background:var(--white);padding:8px 0;margin-bottom:6px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px"><span style="flex:1;font-size:13px;color:var(--text)"><b style="color:#15803d">'+y+' named</b> · '+n+' not · '+(tot-y-n)+' to check</span>'
+    +'<a href="#" onclick="event.preventDefault();_pjEditQs()" style="font-size:12px;color:#4000f3">Edit questions</a></div>';
+  qs.forEach(function(q,qi){
+    h+='<div style="'+_pjCard+'"><div style="font-size:13.5px;font-weight:600;color:var(--text);line-height:1.4;margin-bottom:8px">'+(qi+1)+'. '+_pjE(q)+'</div>';
+    _PJ_AI.forEach(function(a,ai){
+      var v=g[qi+':'+ai];
+      var tog=function(val,lbl,col,bg){ var on=v===val; return '<button onclick="_pjMark('+qi+','+ai+',\''+val+'\')" style="padding:6px 10px;border-radius:8px;border:1.5px solid '+(on?col:'var(--border)')+';background:'+(on?bg:'var(--white)')+';color:'+(on?col:'var(--sub)')+';font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer">'+lbl+'</button>'; };
+      h+='<div style="display:flex;align-items:center;gap:6px;padding:5px 0;'+(ai?'border-top:1px solid var(--border)':'')+'">'
+        +'<button onclick="_pjAsk('+qi+','+ai+')" style="flex:1;min-width:0;text-align:left;padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:var(--f);font-size:12.5px;font-weight:600;cursor:pointer">'+a[0]+' <span style="color:#4000f3">↗</span></button>'
+        +tog('y','Named','#15803d','#f0fdf4')+tog('n','Not','#b91c1c','#fef2f2')+'</div>';
+    });
+    h+='</div>';
+  });
+  h+='<div style="'+_pjF('Note for the client (optional)','<textarea id="pjck_note" style="'+_pjTa+'" placeholder="Perplexity now names HairTattoo for ‘SMP Toronto’"></textarea>').replace('<div style="','')
+    +'<label style="display:flex;align-items:center;gap:10px;margin:0 0 14px;font-size:13.5px;color:var(--text)"><input type="checkbox" id="pjck_vis" checked style="width:18px;height:18px;accent-color:#4000f3"> Client can see this check</label>'
+    +'<button onclick="_pjSaveCheck(this)" style="'+_pjBtnP+';width:100%;padding:12px">Save check ('+(y+n)+' answers)</button>'
+    +'<div style="display:flex;gap:8px;margin-top:10px"><button onclick="_pjEditScore(null)" style="'+_pjBtn+';flex:1">Type numbers instead</button><button onclick="if(this.dataset.s!==\'1\'){this.dataset.s=\'1\';this.textContent=\'Tap again to clear\';return;}_pjCkSet({});_pjCkPaint()" style="'+_pjBtn+';flex:1">Clear ticks</button></div>';
+  b.innerHTML=h;
+}
+async function _pjSaveCheck(btn){
+  var p=_pjFind(window._pjCur); if(!p) return;
+  var qs=_pjQs(p), g=_pjCkGet(), eng={}, m=0, t=0;
+  _PJ_AI.forEach(function(a,ai){ var yy=0, aa=0; qs.forEach(function(q,qi){ var v=g[qi+':'+ai]; if(v==='y'||v==='n'){ aa++; if(v==='y') yy++; } }); if(aa){ eng[a[0]]=[yy,aa]; m+=yy; t+=aa; } });
+  if(!t){ showToast('Tick Named or Not on at least one answer'); return; }
+  var clean={}; Object.keys(g).forEach(function(k){ if(g[k]==='y'||g[k]==='n') clean[k]=g[k]; });
+  btn.disabled=true;
+  try{
+    await _pjSave('project_scores','POST',{project_id:p.id, checked_on:_pjToday(), engines:eng, mentioned:m, total:t,
+      note:_pjV('pjck_note')||null, visible_to_client:!!(document.getElementById('pjck_vis')||{}).checked,
+      details:{questions:qs, apps:_PJ_AI.map(function(a){ return a[0]; }), grid:clean}});
+    _pjCkSet({}); closeSheet('pjCk'); showToast('AI check saved — '+m+' of '+t+' answers named the client');
+    await _pjLoad(); _pjPaint();
+  }catch(e){ showToast('Not saved: '+e.message); btn.disabled=false; }
+}
+function _pjEditQs(){
+  var p=_pjFind(window._pjCur); if(!p) return;
+  _pjEnsureSheet('pjQe', 895);
+  document.getElementById('pjQeT').textContent='AI check questions';
+  document.getElementById('pjQeB').innerHTML=
+     _pjF('One question per line — ask them the way a customer would','<textarea id="pjq_txt" style="'+_pjTa+';min-height:220px">'+_pjE(_pjQs(p).join('\n'))+'</textarea>')
+    +'<div style="font-size:12px;color:var(--sub);margin:-4px 0 12px;line-height:1.5">Keep the same questions every month so the score is comparable.</div>'
+    +'<button onclick="_pjSaveQs(this)" style="'+_pjBtnP+';width:100%;padding:12px">Save questions</button>';
+  openSheet('pjQe');
+}
+async function _pjSaveQs(btn){
+  var qs=_pjV('pjq_txt').split(/\n+/).map(function(x){ return x.replace(/^\s*\d+[.)]\s*/,'').trim(); }).filter(Boolean).slice(0,20);
+  if(!qs.length){ showToast('Add at least one question'); return; }
+  btn.disabled=true;
+  try{
+    await _pjSave('client_projects?id=eq.'+window._pjCur,'PATCH',{ai_questions:qs, updated_at:new Date().toISOString()});
+    var p=_pjFind(window._pjCur); if(p) p.ai_questions=qs;
+    closeSheet('pjQe'); showToast('Questions saved'); _pjLoad();
+    _pjEnsureSheet('pjCk', 890); _pjCkPaint(); openSheet('pjCk');
+  }catch(e){ showToast('Not saved: '+e.message); btn.disabled=false; }
+}
+
+// ── Try it yourself (client): open each question in the AI apps — never changes the score ──
+function _pjTryIt(){
+  var p=_pjFind(window._pjCur); if(!p) return;
+  _pjEnsureSheet('pjTry', 890);
+  document.getElementById('pjTryT').textContent='Try it yourself';
+  var h='<div style="font-size:12.5px;color:var(--sub);line-height:1.5;margin-bottom:12px">These are the questions we check every month. Tap an app to see what it tells your customers. For the most honest answer, use a private window or log out — apps that know you may show you differently.</div>';
+  _pjQs(p).forEach(function(q,qi){
+    h+='<div style="'+_pjCard+'"><div style="font-size:13.5px;font-weight:600;color:var(--text);line-height:1.4;margin-bottom:9px">'+(qi+1)+'. '+_pjE(q)+'</div><div style="display:flex;flex-wrap:wrap;gap:6px">'
+      +_PJ_AI.map(function(a,ai){ return '<button onclick="_pjAsk('+qi+','+ai+')" style="padding:7px 11px;border-radius:99px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:var(--f);font-size:12.5px;font-weight:600;cursor:pointer">'+a[0]+' <span style="color:#4000f3">↗</span></button>'; }).join('')
+      +'</div></div>';
+  });
+  document.getElementById('pjTryB').innerHTML=h;
+  openSheet('pjTry');
 }
 
 function setCampTypeFilter(v){ window._campTypeFilter = v; render(); }
