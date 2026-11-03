@@ -7306,6 +7306,7 @@ function _ntfCollect(seen){
   var byDb={}; (leads||[]).forEach(function(l){ if(l&&l.dbId!=null) byDb[String(l.dbId)]=l; });
   function push(it){ if(dis.indexOf(it.key)!==-1) return; out.push(it); }
   function ini(n){ return String(n||'L').charAt(0).toUpperCase(); }
+  try{ _pjBellItems(seen).forEach(push); }catch(e){}   // proj-1: open questions/approvals for the client
   // Replies & opt-outs — several replies from one lead stack into ONE card
   if(prefs.sms!==false){
     var reps=[];
@@ -7575,6 +7576,7 @@ function _notifOpenAdmin(id, link, type, title){
   (window._adminNotifs||[]).forEach(function(n){ if(String(n.id)===String(id)) n.is_read=true; });
   if(typeof updateNotifBadge==='function') updateNotifBadge();
   link=String(link||''); type=String(type||'');
+  if(/^project:/.test(link)){ _pjOpenFromAdmin(link.slice(8)); return; }   // proj-1
   // A lead UUID → open that lead (in its own account if it isn't Adviuz's).
   if(/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(link)){ _notifOpenLeadByDb(link); return; }
   // bell-scope-1: every other notice opens the admin screen it is about.
@@ -30691,6 +30693,7 @@ async function preloadActivity() {
 
 async function loadClientCampaigns() {
   var cid = window._clientId; if(!cid) return;
+  try{ _pjLoad(cid); }catch(e){}   // proj-1: project tab loads alongside
   try {
     // 1) Fetch campaigns. Plain query — no embed — so a missing FK or schema
     //    cache hiccup won't silently return empty.
@@ -31506,7 +31509,8 @@ function clientCampaignListHTML() {
   //    flyer and AI-Engine campaigns (otherwise they are noise). ──
   var _hasCe2 = camps.some(function(c2){ return _isCeCamp(c2); });
   var _hasFl2 = camps.some(function(c2){ return !_isCeCamp(c2); });
-  if (_hasCe2 && _hasFl2) {
+  var _pjT2 = _pjTabs(); // proj-1: project tab chip(s)
+  if ((_hasCe2 && _hasFl2) || _pjT2.length || _pjIsAdmin()) {
     var _tf2 = window._campTypeFilter||'';
     var _tchip = function(val, lbl){
       var on = _tf2===val;
@@ -31518,9 +31522,14 @@ function clientCampaignListHTML() {
     };
     h += '<div style="display:flex;gap:7px;margin-bottom:14px;overflow-x:auto;-webkit-overflow-scrolling:touch">'
       +   _tchip('','All')
-      +   _tchip('flyer','Digital Flyers')
-      +   _tchip('ce','AI Conversion Engine')
+      +   ((_hasCe2 && _hasFl2) ? _tchip('flyer','Digital Flyers') + _tchip('ce','AI Conversion Engine') : '')
+      +   _pjChipsHTML(_tf2, _tchip)
       + '</div>';
+  }
+  // proj-1: a project chip shows the project cards instead of campaigns
+  if (/^pj\d+$/.test(window._campTypeFilter||'')) {
+    if (_pjT2.length) { h += _pjListHTML(window._campTypeFilter) + '</div>'; return h; }
+    window._campTypeFilter = '';
   }
 
   // ── AI auto-call toggle — ONLY shown to AI-enabled clients (e.g. Gul).
@@ -31595,6 +31604,664 @@ function _fuelCacheHydrate(){
     if (c && Array.isArray(c.w) && c.w.length){ window._aiWallets = c.w; window._aiTotals = c.t || {}; window._fuelFromCache = true; }
   } catch(e){}
 }
+// ── proj-1 (2026-11-03, Ajax): custom Project tab (first use "AEO & GEO" for HairTattoo) ──
+// Data: client_projects + project_items + project_scores (RLS: clients read only their own
+// visible rows; they answer/approve through rpc project_item_respond). Staff viewing a client
+// ("Viewing as…") get the edit controls on the same screens.
+window._pjList = null; window._pjFor = null;
+function _pjIsAdmin(){ return !!window._viewingAsClient; }
+function _pjE(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function _pjToday(){ var d=new Date(); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
+function _pjAdd(ymd, days){ var d=_pjDay(ymd); d.setDate(d.getDate()+days); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
+function _pjDay(ymd){ var p=String(ymd||'').slice(0,10).split('-'); return new Date(+p[0], (+p[1]||1)-1, +p[2]||1); }
+function _pjFmt(ymd){
+  if(!ymd) return '';
+  var d=_pjDay(ymd), y=new Date().getFullYear();
+  return d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+(d.getFullYear()!==y?', '+d.getFullYear():'');
+}
+function _pjFmtTs(ts){ if(!ts) return ''; var d=new Date(ts); return d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' · '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}); }
+function _pjMonths(p){
+  if(!p.start_date) return {cur:0,total:0};
+  var s=_pjDay(p.start_date), n=new Date();
+  var md=function(a,b){ return (b.getFullYear()-a.getFullYear())*12+(b.getMonth()-a.getMonth())-(b.getDate()<a.getDate()?1:0); };
+  var total=p.end_date?Math.max(1,md(s,_pjDay(_pjAdd(p.end_date,1)))):12;
+  return {cur:Math.min(total,Math.max(1,md(s,n)+1)), total:total};
+}
+function _pjItems(p){ return (p&&p.project_items)||[]; }
+function _pjIsDone(it){ return it.kind==='done' || (it.kind==='upcoming' && it.status==='done') || (it.kind==='report' && !!it.attachment_url); }
+function _pjIsPending(it){ return (it.kind==='upcoming' && it.status!=='done') || (it.kind==='report' && !it.attachment_url); }
+function _pjStats(p){
+  var its=_pjItems(p), done=0, up=0, need=0, adm=_pjIsAdmin();
+  its.forEach(function(it){
+    if(!adm && !it.visible_to_client) return;
+    if(_pjIsDone(it)) done++;
+    else if(_pjIsPending(it)) up++;
+    if(it.visible_to_client && it.status==='open' && (it.kind==='question'||it.kind==='approval')) need++;
+  });
+  return {done:done, up:up, need:need, pct:(done+up)?Math.round(done*100/(done+up)):0};
+}
+function _pjNext(p){
+  var t=_pjToday();
+  var up=_pjItems(p).filter(function(it){ return _pjIsPending(it) && it.due_date && (_pjIsAdmin()||it.visible_to_client); })
+    .sort(function(a,b){ return String(a.due_date).localeCompare(String(b.due_date)); });
+  return up.filter(function(it){ return it.due_date>=t; })[0] || up[0] || null;
+}
+function _pjScoreLatest(p){
+  var s=((p&&p.project_scores)||[]).slice().sort(function(a,b){ return String(b.checked_on).localeCompare(String(a.checked_on)); });
+  return s[0]||null;
+}
+function _pjTabs(){
+  if(window._pjFor!==window._clientId || !window._pjList) return [];
+  var seen={}, out=[];
+  window._pjList.forEach(function(p){ var t=p.tab_name||'Project'; if(!seen[t]){ seen[t]=1; out.push(t); } });
+  return out;
+}
+function _pjTabNeed(tab){
+  return (window._pjList||[]).filter(function(p){ return (p.tab_name||'Project')===tab; })
+    .reduce(function(s,p){ return s+_pjStats(p).need; },0);
+}
+function _pjFind(id){ return (window._pjList||[]).find(function(p){ return String(p.id)===String(id); })||null; }
+function _pjFindItem(id){
+  var r=null; (window._pjList||[]).some(function(p){ return _pjItems(p).some(function(it){ if(String(it.id)===String(id)){ r={p:p,it:it}; return true; } return false; }); });
+  return r;
+}
+
+async function _pjLoad(cid){
+  cid = cid || window._clientId; if(!cid) return;
+  try{
+    var r=await sbFetch('/rest/v1/client_projects?client_id=eq.'+cid+'&select=*,project_items(*),project_scores(*),project_metrics(*)&order=created_at.asc');
+    if(!r.ok) return;
+    var rows=await r.json().catch(function(){ return []; });
+    if(cid!==window._clientId) return;           // user switched account meanwhile
+    var before=JSON.stringify((window._pjFor===cid&&window._pjList)?window._pjList.map(function(p){ return [p.id,p.tab_name,_pjStats(p).need]; }):null);
+    window._pjList=Array.isArray(rows)?rows:[]; window._pjFor=cid;
+    var after=JSON.stringify(window._pjList.map(function(p){ return [p.id,p.tab_name,_pjStats(p).need]; }));
+    if(typeof updateNotifBadge==='function') updateNotifBadge();
+    if(before!==after && typeof curTab!=='undefined' && curTab==='dashboard' && typeof render==='function') render();
+    if(window._pjCur && document.getElementById('pjSh')) _pjPaint();
+  }catch(e){}
+}
+function _pjBellItems(seen){
+  if(!window._pjList || window._pjFor!==window._clientId || !(typeof isClientMode==='function' && isClientMode())) return [];
+  var out=[];
+  window._pjList.forEach(function(p){
+    _pjItems(p).forEach(function(it){
+      if(!it.visible_to_client || it.status!=='open' || (it.kind!=='question' && it.kind!=='approval')) return;
+      var ts=new Date(it.created_at).getTime()||0;
+      out.push({key:'pj:'+it.id, kind:'reply', ts:ts, unread:ts>seen, initial:'P', badge:['msg',''],
+        t:'<b>'+_pjE(p.tab_name||'Project')+'</b> — '+(it.kind==='approval'?'please review: ':'question for you: ')+'<span style="color:var(--sub)">“'+_pjE(String(it.title).slice(0,90))+'”</span>',
+        on:"closeSheet('notifSh');openProject('"+p.id+"')"});
+    });
+  });
+  return out;
+}
+
+// ── Dashboard: chip + project cards ──
+function _pjChipsHTML(tf, chipFn){
+  var h='';
+  _pjTabs().forEach(function(t,i){
+    var n=_pjTabNeed(t);
+    h+=chipFn('pj'+i, _pjE(t)+(n?' <span style="display:inline-block;min-width:17px;padding:1px 5px;margin-left:3px;border-radius:99px;background:#f59e0b;color:#fff;font-size:10px;line-height:15px;text-align:center">'+n+'</span>':''));
+  });
+  if(_pjIsAdmin()) h+='<button onclick="_pjEditProject(null)" style="padding:7px 13px;border-radius:99px;font-family:var(--f);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;border:1px dashed var(--border);background:var(--white);color:var(--sub)">+ Project</button>';
+  return h;
+}
+function _pjListHTML(tf){
+  var tab=_pjTabs()[parseInt(String(tf).slice(2),10)||0];
+  var ps=(window._pjList||[]).filter(function(p){ return (p.tab_name||'Project')===tab; });
+  var h='<div style="font-size:11px;font-weight:500;letter-spacing:.07em;text-transform:uppercase;color:var(--sub);margin:4px 2px 10px">'+_pjE(tab)+' ('+ps.length+')</div>';
+  if(!ps.length) return h+'<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:28px 16px;text-align:center;color:var(--sub);font-size:13px">No projects here yet.</div>';
+  ps.forEach(function(p){
+    var st=_pjStats(p), m=_pjMonths(p), nx=_pjNext(p), sc=_pjScoreLatest(p);
+    var tile=function(v,l,warn){ return '<div style="flex:1;background:var(--bg);border-radius:10px;padding:9px 6px;text-align:center"><div style="font-size:18px;font-weight:600;color:'+(warn?'#b45309':'var(--text)')+'">'+v+'</div><div style="font-size:10.5px;color:var(--sub);margin-top:1px">'+l+'</div></div>'; };
+    h+='<div onclick="openProject(\''+p.id+'\')" style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:12px;cursor:pointer;box-shadow:0 1px 3px rgba(15,23,42,.04)">'
+      + '<div style="display:flex;align-items:center;gap:10px">'
+      +   '<span style="width:38px;height:38px;border-radius:11px;background:linear-gradient(118deg,#4000f3,#e65afc);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="18" height="18" fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/><path d="M8 11h6M11 8v6"/></svg></span>'
+      +   '<span style="flex:1;min-width:0"><span style="display:block;font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_pjE(p.title)+'</span>'
+      +   '<span style="display:block;font-size:12px;color:var(--sub);margin-top:1px">'+(m.total?'Month '+m.cur+' of '+m.total:'')+(p.status!=='active'?' · '+_pjE(p.status):'')+'</span></span>'
+      +   '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:var(--sub)"><polyline points="9 18 15 12 9 6"/></svg>'
+      + '</div>'
+      + '<div style="display:flex;gap:7px;margin:12px 0 10px">'+tile(st.done,'tasks done')+tile(st.need,'need you',st.need>0)+tile(sc?(Math.round(sc.mentioned*100/Math.max(1,sc.total))+'%'):'—','AI visibility')+'</div>'
+      + '<div style="height:6px;border-radius:99px;background:var(--border);overflow:hidden"><div style="height:100%;width:'+st.pct+'%;background:linear-gradient(90deg,#4000f3,#e65afc);border-radius:99px"></div></div>'
+      + (nx?'<div style="font-size:12px;color:var(--sub);margin-top:8px">Next: '+_pjE(nx.title)+' · '+_pjFmt(nx.due_date)+'</div>':'')
+      + '</div>';
+  });
+  return h;
+}
+
+// ── Project page (bottom sheet) ──
+function _pjEnsureSheet(id, z){
+  if(document.getElementById(id)) return;
+  var d=document.createElement('div');
+  d.innerHTML='<div class="sheet-ov" id="'+id+'" onclick="if(event.target===this)closeSheet(\''+id+'\')" style="z-index:'+z+'">'
+    +'<div class="sheet" style="max-height:92dvh"><div class="sheet-handle"></div>'
+    +'<div class="sheet-head"><div class="sheet-title" id="'+id+'T"></div><button class="sheet-x" onclick="closeSheet(\''+id+'\')">&#x2715;</button></div>'
+    +'<div class="sh-body" id="'+id+'B" style="padding:12px 14px 26px"></div></div></div>';
+  document.body.appendChild(d.firstChild);
+}
+function openProject(pid){
+  window._pjCur=pid;
+  _pjEnsureSheet('pjSh', 860);
+  _pjPaint();
+  openSheet('pjSh');
+  _pjLoad();
+}
+var _pjCard='background:var(--white);border:1px solid var(--border);border-radius:14px;padding:13px 14px;margin-bottom:10px';
+var _pjLbl='font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--sub);margin:16px 2px 8px;display:flex;align-items:center;gap:6px';
+var _pjBtn='padding:8px 14px;border-radius:9px;border:1px solid var(--border);background:var(--white);color:var(--text);font-family:var(--f);font-size:12.5px;font-weight:600;cursor:pointer';
+var _pjBtnP='padding:8px 14px;border-radius:9px;border:none;background:linear-gradient(118deg,#4000f3,#e65afc);color:#fff;font-family:var(--f);font-size:12.5px;font-weight:600;cursor:pointer';
+var _pjTa='width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:10px;padding:9px 11px;font-family:var(--f);font-size:13px;color:var(--text);background:var(--white);resize:vertical;min-height:62px';
+function _pjInternal(it){ return it.visible_to_client?'':' <span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:99px;background:#fef3c7;color:#92400e;vertical-align:1px">Internal</span>'; }
+function _pjAdminEdit(it){ return _pjIsAdmin()?' <button onclick="event.stopPropagation();_pjEditItem(\''+it.id+'\')" title="Edit" style="border:none;background:none;color:var(--sub);cursor:pointer;padding:0 2px;font-size:12px">Edit</button>':''; }
+function _pjPaint(){
+  var p=_pjFind(window._pjCur), b=document.getElementById('pjShB'), t=document.getElementById('pjShT');
+  if(!b) return;
+  if(!p){ b.innerHTML='<div style="padding:30px;text-align:center;color:var(--sub);font-size:13px">Loading…</div>'; return; }
+  var adm=_pjIsAdmin(), st=_pjStats(p), m=_pjMonths(p), nx=_pjNext(p), its=_pjItems(p), today=_pjToday();
+  if(t) t.textContent=p.tab_name||'Project';
+  var h='';
+  // 1. Header
+  h+='<div style="'+_pjCard+';border:none;background:linear-gradient(118deg,#4000f3,#8b2bf7,#e65afc);color:#fff">'
+    +'<div style="font-size:16px;font-weight:700;line-height:1.3">'+_pjE(p.title)+'</div>'
+    +'<div style="font-size:12px;opacity:.85;margin-top:3px">'+(p.start_date?_pjFmt(p.start_date)+' – '+_pjFmt(p.end_date):'')+(m.total?' · Month '+m.cur+' of '+m.total:'')+'</div>'
+    +(p.description?'<div style="font-size:12.5px;opacity:.92;margin-top:8px;line-height:1.5">'+_pjE(p.description)+'</div>':'')
+    +'<div style="display:flex;justify-content:space-between;font-size:12px;margin:12px 0 5px"><span>'+st.done+' done · '+st.up+' planned</span><b>'+st.pct+'%</b></div>'
+    +'<div style="height:7px;border-radius:99px;background:rgba(255,255,255,.3);overflow:hidden"><div style="height:100%;width:'+st.pct+'%;background:#fff;border-radius:99px"></div></div>'
+    +(nx?'<div style="font-size:12px;margin-top:10px;opacity:.95">Next: <b>'+_pjE(nx.title)+'</b> · '+_pjFmt(nx.due_date)+'</div>':'')
+    +(adm?'<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button onclick="_pjEditProject(\''+p.id+'\')" style="'+_pjBtn+'">Edit project</button><button onclick="_pjLogWork()" style="'+_pjBtn+'">+ Log work</button><button onclick="_pjEditItem(null)" style="'+_pjBtn+'">+ Add item</button><button onclick="_pjEditScore(null)" style="'+_pjBtn+'">+ AI check</button><button onclick="_pjEditMetrics(null)" style="'+_pjBtn+'">+ Results</button></div>':'')
+    +'</div>';
+  // 2. AI visibility score
+  var sc=((p.project_scores)||[]).slice().sort(function(a,c){ return String(a.checked_on).localeCompare(String(c.checked_on)); });
+  var last=sc[sc.length-1];
+  h+='<div style="'+_pjLbl+'">AI visibility score</div><div style="'+_pjCard+'">';
+  if(!last){
+    h+='<div style="font-size:13px;color:var(--text);line-height:1.5">We ask ChatGPT, Gemini, Perplexity and Google AI the questions your customers ask, and count how often they name you. Your first check is coming soon.</div>';
+  } else {
+    var pc=Math.round(last.mentioned*100/Math.max(1,last.total)), first=sc[0], fpc=Math.round(first.mentioned*100/Math.max(1,first.total));
+    h+='<div style="display:flex;align-items:baseline;gap:8px"><span style="font-size:28px;font-weight:700;color:#4000f3">'+pc+'%</span><span style="font-size:12.5px;color:var(--sub)">'+last.mentioned+' of '+last.total+' AI answers mention you · '+_pjFmt(last.checked_on)+'</span></div>'
+      +(sc.length>1?'<div style="font-size:12px;color:'+(pc>=fpc?'#15803d':'#b45309')+';margin-top:2px;font-weight:600">'+(pc>=fpc?'▲ up ':'▼ down ')+Math.abs(pc-fpc)+' points since '+_pjFmt(first.checked_on)+'</div>':'');
+    var eng=last.engines||{}, ek=Object.keys(eng);
+    if(ek.length) h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">'+ek.map(function(k){ var v=eng[k]||[0,0]; return '<span style="font-size:11.5px;padding:4px 9px;border-radius:99px;background:#ede9fe;color:#3c3489">'+_pjE(k)+' '+(v[0]||0)+'/'+(v[1]||0)+'</span>'; }).join('')+'</div>';
+    if(sc.length>1){
+      var hist=sc.slice(-12), mx=Math.max.apply(null,hist.map(function(s){ return s.mentioned*100/Math.max(1,s.total); }).concat([1]));
+      h+='<div style="display:flex;align-items:flex-end;gap:5px;height:64px;margin-top:14px">'+hist.map(function(s){ var v=Math.round(s.mentioned*100/Math.max(1,s.total)); return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div style="width:100%;max-width:26px;height:'+Math.max(4,Math.round(v/mx*46))+'px;background:linear-gradient(0deg,#4000f3,#e65afc);border-radius:4px 4px 0 0"></div><div style="font-size:10px;color:var(--sub);margin-top:3px">'+_pjDay(s.checked_on).toLocaleDateString('en-CA',{month:'short'})+'</div></div>'; }).join('')+'</div>';
+    }
+    if(last.note) h+='<div style="font-size:12.5px;color:var(--sub);margin-top:10px;line-height:1.5">'+_pjE(last.note)+'</div>';
+    if(adm) h+='<div style="margin-top:10px;font-size:11.5px;color:var(--sub)">'+sc.map(function(s){ return _pjFmt(s.checked_on)+' '+s.mentioned+'/'+s.total+(s.visible_to_client?'':' (internal)')+' <a href="#" onclick="event.preventDefault();_pjEditScore(\''+s.id+'\')" style="color:#4000f3">edit</a>'; }).join(' · ')+'</div>';
+  }
+  h+='</div>';
+  // 2b. Results (latest month typed in by the team)
+  var rm=_pjMetrics(p, adm), rl=rm[rm.length-1];
+  if(rl || adm){
+    h+='<div style="'+_pjLbl+'">Results'+(rl?' · '+_pjMonName(_pjMonKey(rl.month)):'')+'</div>';
+    h+= rl ? _pjResultsHTML(p, _pjMonKey(rl.month), adm) : '<div style="'+_pjCard+';color:var(--sub);font-size:13px">No results entered yet. Tap + Results once a month.</div>';
+  }
+  // 3. Deliverables counter
+  var dl=Array.isArray(p.deliverables)?p.deliverables:[];
+  if(dl.length){
+    h+='<div style="'+_pjLbl+'">What you get</div><div style="'+_pjCard+'">';
+    dl.forEach(function(d,i){
+      var n=its.filter(function(it){ return it.deliverable===d.key && _pjIsDone(it) && (adm||it.visible_to_client); }).length;
+      var tg=Number(d.target)||0, pc2=tg?Math.min(100,Math.round(n*100/tg)):0;
+      h+='<div style="'+(i?'margin-top:10px':'')+'"><div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:var(--text)">'+_pjE(d.label)+'</span><b style="color:var(--text)">'+n+(tg?' of '+tg:'')+'</b></div>'
+        +'<div style="height:5px;border-radius:99px;background:var(--border);overflow:hidden;margin-top:5px"><div style="height:100%;width:'+pc2+'%;background:#4000f3;border-radius:99px"></div></div></div>';
+    });
+    h+='</div>';
+  }
+  // 4. Needs your answer
+  var qs=its.filter(function(it){ return it.kind==='question' && (adm||it.visible_to_client); })
+    .sort(function(a,c){ return (a.status==='open'?0:1)-(c.status==='open'?0:1) || (a.sort_order-c.sort_order) || String(a.created_at).localeCompare(String(c.created_at)); });
+  var qOpen=qs.filter(function(it){ return it.status==='open'; }).length;
+  h+='<div style="'+_pjLbl+'">Needs your answer'+(qOpen?' <span style="min-width:18px;padding:1px 6px;border-radius:99px;background:#f59e0b;color:#fff;font-size:10.5px;letter-spacing:0">'+qOpen+'</span>':'')+'</div>';
+  if(!qs.length || (!qOpen && !qs.length)) h+='<div style="'+_pjCard+';color:var(--sub);font-size:13px">Nothing needs your answer right now 👍</div>';
+  qs.forEach(function(it){
+    h+='<div style="'+_pjCard+'"><div style="font-size:13.5px;color:var(--text);line-height:1.45;font-weight:500">'+_pjE(it.title)+_pjInternal(it)+_pjAdminEdit(it)+'</div>'
+      +(it.body?'<div style="font-size:12.5px;color:var(--sub);margin-top:4px;line-height:1.5;white-space:pre-wrap">'+_pjE(it.body)+'</div>':'');
+    if(it.status==='open'){
+      h+= adm ? '<div style="font-size:12px;color:#b45309;margin-top:8px">Waiting for the client’s answer</div>'
+              : '<textarea id="pjr_'+it.id+'" placeholder="Type your answer" style="'+_pjTa+';margin-top:10px"></textarea><div style="text-align:right;margin-top:8px"><button onclick="_pjRespond(\''+it.id+'\',\'answer\',this)" style="'+_pjBtnP+'">Send</button></div>';
+    } else {
+      h+='<div style="margin-top:9px;padding:9px 11px;border-radius:10px;background:#f0fdf4;font-size:12.5px;color:#14532d;line-height:1.5"><b>Answered</b> · '+_pjFmtTs(it.replied_at)+'<div style="white-space:pre-wrap;margin-top:3px">'+_pjE(it.client_reply)+'</div></div>';
+    }
+    h+='</div>';
+  });
+  // 5. Approvals
+  var ap=its.filter(function(it){ return it.kind==='approval' && (adm||it.visible_to_client); })
+    .sort(function(a,c){ return (a.status==='open'?0:1)-(c.status==='open'?0:1) || String(c.created_at).localeCompare(String(a.created_at)); });
+  h+='<div style="'+_pjLbl+'">Approvals</div>';
+  if(!ap.length) h+='<div style="'+_pjCard+';color:var(--sub);font-size:13px">Nothing to approve right now.</div>';
+  ap.forEach(function(it){
+    h+='<div style="'+_pjCard+'"><div style="font-size:13.5px;color:var(--text);font-weight:500">'+_pjE(it.title)+_pjInternal(it)+_pjAdminEdit(it)+'</div>'
+      +(it.body?'<div style="font-size:12.5px;color:var(--sub);margin-top:4px;line-height:1.5;white-space:pre-wrap">'+_pjE(it.body)+'</div>':'')
+      +(it.attachment_url?'<a href="'+_pjE(it.attachment_url)+'" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;font-size:12.5px;font-weight:600;color:#4000f3;text-decoration:none">Open draft ↗</a>':'');
+    if(it.status==='open'){
+      h+= adm ? '<div style="font-size:12px;color:#b45309;margin-top:8px">Waiting for the client’s decision</div>'
+        : '<div style="display:flex;gap:8px;margin-top:10px"><button onclick="_pjRespond(\''+it.id+'\',\'approve\',this)" style="'+_pjBtnP+';flex:1">Approve</button><button onclick="var x=document.getElementById(\'pjc_'+it.id+'\');x.style.display=x.style.display===\'none\'?\'block\':\'none\'" style="'+_pjBtn+';flex:1">Request changes</button></div>'
+        + '<div id="pjc_'+it.id+'" style="display:none;margin-top:8px"><textarea id="pjr_'+it.id+'" placeholder="What should we change?" style="'+_pjTa+'"></textarea><div style="text-align:right;margin-top:8px"><button onclick="_pjRespond(\''+it.id+'\',\'changes\',this)" style="'+_pjBtnP+'">Send changes</button></div></div>';
+    } else {
+      var ok=it.status==='approved';
+      h+='<div style="margin-top:9px;padding:9px 11px;border-radius:10px;background:'+(ok?'#f0fdf4':'#fffbeb')+';font-size:12.5px;color:'+(ok?'#14532d':'#78350f')+';line-height:1.5"><b>'+(ok?'Approved':'Changes requested')+'</b> · '+_pjFmtTs(it.replied_at)+(it.client_reply?'<div style="white-space:pre-wrap;margin-top:3px">'+_pjE(it.client_reply)+'</div>':'')+'</div>';
+    }
+    h+='</div>';
+  });
+  // 6. Coming up
+  var lim=_pjAdd(today,30);
+  var upAll=its.filter(function(it){ return _pjIsPending(it) && (adm||it.visible_to_client); })
+    .sort(function(a,c){ return String(a.due_date||'9999').localeCompare(String(c.due_date||'9999')); });
+  var up=window._pjAllUp&&adm?upAll:upAll.filter(function(it){ return !it.due_date || it.due_date<=lim; });
+  h+='<div style="'+_pjLbl+'">Coming up</div><div style="'+_pjCard+';padding:4px 14px">';
+  if(!up.length) h+='<div style="padding:10px 0;color:var(--sub);font-size:13px">Nothing scheduled for the next 30 days.</div>';
+  up.forEach(function(it,i){
+    var late=it.due_date && it.due_date<today;
+    h+='<div style="display:flex;gap:10px;align-items:flex-start;padding:10px 0;'+(i?'border-top:1px solid var(--border)':'')+'">'
+      +'<span style="flex-shrink:0;width:52px;font-size:12px;font-weight:600;color:'+(late?'#b45309':'#4000f3')+'">'+_pjFmt(it.due_date)+'</span>'
+      +'<span style="flex:1;min-width:0;font-size:13px;color:var(--text);line-height:1.45">'+_pjE(it.title)+_pjInternal(it)+_pjAdminEdit(it)+'</span>'
+      +(adm?'<button onclick="'+(it.kind==='report'?'_pjEditItem(\''+it.id+'\')':'_pjMarkDone(\''+it.id+'\',this)')+'" title="Mark done" style="flex-shrink:0;border:1px solid var(--border);background:var(--white);border-radius:8px;padding:3px 8px;font-size:12px;color:var(--green);cursor:pointer">✓ Done</button>':'')
+      +'</div>';
+  });
+  if(adm && upAll.length>up.length) h+='<div style="padding:8px 0;border-top:1px solid var(--border)"><a href="#" onclick="event.preventDefault();window._pjAllUp=true;_pjPaint()" style="font-size:12.5px;color:#4000f3">Show all '+upAll.length+' upcoming (admin)</a></div>';
+  h+='</div>';
+  // 7. Progress (done timeline)
+  var dn=its.filter(function(it){ return _pjIsDone(it) && it.kind!=='report' && (adm||it.visible_to_client); })
+    .sort(function(a,c){ return String(c.due_date||c.updated_at||'').localeCompare(String(a.due_date||a.updated_at||'')) || String(c.created_at).localeCompare(String(a.created_at)); });
+  var dShow=window._pjAllDone?dn:dn.slice(0,15);
+  h+='<div style="'+_pjLbl+'">Progress</div><div style="'+_pjCard+'">';
+  if(!dn.length) h+='<div style="color:var(--sub);font-size:13px">Finished work will show here.</div>';
+  dShow.forEach(function(it,i){
+    h+='<div style="display:flex;gap:10px;position:relative;padding-bottom:'+(i<dShow.length-1?'12px':'0')+'">'
+      +'<span style="flex-shrink:0;display:flex;flex-direction:column;align-items:center"><span style="width:20px;height:20px;border-radius:50%;background:#dcfce7;color:#15803d;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">✓</span>'+(i<dShow.length-1?'<span style="flex:1;width:2px;background:var(--border);margin-top:3px"></span>':'')+'</span>'
+      +'<span style="flex:1;min-width:0"><span style="display:block;font-size:13px;color:var(--text);line-height:1.45">'+_pjE(it.title)+_pjInternal(it)+_pjAdminEdit(it)+'</span><span style="display:block;font-size:11.5px;color:var(--sub);margin-top:1px">'+_pjFmt(_pjDoneDay(it))+(it.category?' · '+_pjE(it.category):'')+'</span>'
+      +(it.body&&it.kind==='done'?'<span style="display:block;font-size:12px;color:var(--sub);margin-top:2px;line-height:1.45">'+_pjE(it.body)+'</span>':'')+'</span></div>';
+  });
+  if(dn.length>dShow.length) h+='<div style="margin-top:10px"><a href="#" onclick="event.preventDefault();window._pjAllDone=true;_pjPaint()" style="font-size:12.5px;color:#4000f3">Show all '+dn.length+'</a></div>';
+  h+='</div>';
+  // 8. Monthly reports — one per month, built from the finished work (+ any PDF report linked that month)
+  var mk=_pjMonKeys(p);
+  h+='<div style="'+_pjLbl+'">Monthly reports</div><div style="'+_pjCard+';padding:4px 14px">';
+  if(!mk.length) h+='<div style="padding:10px 0;color:var(--sub);font-size:13px">Your first monthly report will appear here.</div>';
+  mk.forEach(function(k,i){
+    var n=its.filter(function(it){ return _pjIsDone(it) && it.kind!=='report' && (adm||it.visible_to_client) && _pjMonKey(_pjDoneDay(it))===k; }).length;
+    var cur=k===_pjMonKey(today);
+    h+='<div onclick="_pjOpenMonth(\''+k+'\')" style="display:flex;align-items:center;gap:10px;padding:12px 0;cursor:pointer;'+(i?'border-top:1px solid var(--border)':'')+'">'
+      +'<span style="width:34px;height:34px;border-radius:10px;background:#ede9fe;color:#4000f3;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg></span>'
+      +'<span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:600;color:var(--text)">'+_pjMonName(k)+(cur?' <span style="font-size:10.5px;font-weight:600;padding:1px 7px;border-radius:99px;background:#dcfce7;color:#15803d;vertical-align:1px">In progress</span>':'')+'</span>'
+      +'<span style="display:block;font-size:12px;color:var(--sub);margin-top:1px">'+n+' task'+(n===1?'':'s')+' completed</span></span>'
+      +'<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:var(--sub)"><polyline points="9 18 15 12 9 6"/></svg></div>';
+  });
+  h+='</div>';
+  b.innerHTML=h;
+}
+
+async function _pjRespond(itemId, action, btn){
+  var ta=document.getElementById('pjr_'+itemId), reply=ta?ta.value.trim():'';
+  if(action==='answer' && !reply){ showToast('Type your answer first'); if(ta) ta.focus(); return; }
+  if(action==='changes' && !reply){ showToast('Say what we should change'); if(ta) ta.focus(); return; }
+  if(btn){ btn.disabled=true; btn.textContent='Sending…'; }
+  try{
+    var r=await sbFetch('/rest/v1/rpc/project_item_respond',{method:'POST',body:JSON.stringify({p_item:itemId,p_action:action,p_reply:reply||null})});
+    var j=await r.json().catch(function(){ return {}; });
+    if(!r.ok || !j || !j.ok) throw new Error((j&&j.message)||'Could not send');
+    var f=_pjFindItem(itemId);
+    if(f){ f.it.status=j.status; f.it.client_reply=reply||null; f.it.replied_at=j.replied_at||new Date().toISOString(); }
+    showToast(action==='approve'?'Approved — thank you':'Sent — thank you');
+    _pjPaint(); if(typeof updateNotifBadge==='function') updateNotifBadge();
+    if(typeof curTab!=='undefined' && curTab==='dashboard' && typeof render==='function') render();
+  }catch(e){
+    showToast(e.message||'Could not send — try again');
+    if(btn){ btn.disabled=false; btn.textContent=action==='approve'?'Approve':(action==='changes'?'Send changes':'Send'); }
+  }
+}
+
+// ── Admin editing (staff "Viewing as…" only; RLS enforces it server-side too) ──
+async function _pjSave(path, method, body){
+  var r=await sbFetch('/rest/v1/'+path,{method:method,body:body?JSON.stringify(body):undefined});
+  if(!r.ok){ var t=await r.text().catch(function(){ return ''; }); throw new Error(t.slice(0,140)||('HTTP '+r.status)); }
+  return r.status===204?null:await r.json().catch(function(){ return null; });
+}
+function _pjChipRow(name, opts, cur){
+  return '<div id="'+name+'" data-v="'+_pjE(cur)+'" style="display:flex;gap:6px;flex-wrap:wrap">'+opts.map(function(o){
+    var on=o[0]===cur;
+    return '<button type="button" data-v="'+_pjE(o[0])+'" onclick="var r=this.parentNode;r.dataset.v=this.dataset.v;Array.prototype.forEach.call(r.children,function(b){var a=b===this;b.style.borderColor=a?\'#4000f3\':\'var(--border)\';b.style.color=a?\'#4000f3\':\'var(--sub)\';},this);if(r.onpick)r.onpick(this.dataset.v)" style="padding:7px 12px;border-radius:99px;border:1.5px solid '+(on?'#4000f3':'var(--border)')+';background:var(--white);color:'+(on?'#4000f3':'var(--sub)')+';font-family:var(--f);font-size:12.5px;font-weight:600;cursor:pointer">'+_pjE(o[1])+'</button>';
+  }).join('')+'</div>';
+}
+var _pjIn='width:100%;box-sizing:border-box;height:40px;border:1px solid var(--border);border-radius:10px;padding:0 11px;font-family:var(--f);font-size:13.5px;color:var(--text);background:var(--white)';
+function _pjF(lbl, inner){ return '<div style="margin-bottom:12px"><div style="font-size:12px;font-weight:600;color:var(--sub);margin-bottom:5px">'+lbl+'</div>'+inner+'</div>'; }
+function _pjV(id){ var e=document.getElementById(id); return e?String(e.value||'').trim():''; }
+
+function _pjEditProject(pid){
+  if(!_pjIsAdmin()) return;
+  var p=pid?_pjFind(pid):null;
+  _pjEnsureSheet('pjEd', 880);
+  document.getElementById('pjEdT').textContent=p?'Edit project':'New project';
+  var dl=(p&&Array.isArray(p.deliverables)?p.deliverables:[]).map(function(d){ return d.label+' = '+(d.target||0)+(d.key&&d.key!==_pjSlug(d.label)?' ['+d.key+']':''); }).join('\n');
+  document.getElementById('pjEdB').innerHTML=
+     _pjF('Tab name (what the client sees on the chip)','<input id="pje_tab" style="'+_pjIn+'" value="'+_pjE(p?p.tab_name:'Project')+'" placeholder="AEO & GEO">')
+    +_pjF('Project title','<input id="pje_title" style="'+_pjIn+'" value="'+_pjE(p?p.title:'')+'" placeholder="AI Search Visibility — website.com">')
+    +_pjF('Short description (optional)','<textarea id="pje_desc" style="'+_pjTa+'">'+_pjE(p?p.description:'')+'</textarea>')
+    +'<div style="display:flex;gap:10px">'+_pjF('Start','<input type="date" id="pje_start" style="'+_pjIn+'" value="'+_pjE(p?p.start_date:_pjToday())+'">').replace('margin-bottom:12px','margin-bottom:12px;flex:1')
+    +_pjF('End','<input type="date" id="pje_end" style="'+_pjIn+'" value="'+_pjE(p?p.end_date:'')+'">').replace('margin-bottom:12px','margin-bottom:12px;flex:1')+'</div>'
+    +_pjF('Status',_pjChipRow('pje_status',[['active','Active'],['paused','Paused'],['done','Finished']],p?p.status:'active'))
+    +_pjF('Deliverables counter — one per line, e.g. "Articles = 24"','<textarea id="pje_dl" style="'+_pjTa+'" placeholder="Articles = 24&#10;Google posts = 48&#10;Monthly reports = 12 [report]">'+_pjE(dl)+'</textarea>')
+    +'<button onclick="_pjSaveProject(\''+(pid||'')+'\',this)" style="'+_pjBtnP+';width:100%;padding:12px">Save project</button>';
+  openSheet('pjEd');
+}
+function _pjSlug(s){ return String(s||'').toLowerCase().replace(/monthly\s+/,'').replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'').replace(/s$/,''); }
+async function _pjSaveProject(pid, btn){
+  var title=_pjV('pje_title'); if(!title){ showToast('Add a project title'); return; }
+  var dl=_pjV('pje_dl').split(/\n+/).map(function(l){
+    var m=/^(.+?)\s*=\s*(\d+)\s*(?:\[([a-z0-9_]+)\])?\s*$/i.exec(l.trim()); if(!m) return null;
+    return {label:m[1].trim(), target:+m[2], key:m[3]||_pjSlug(m[1])};
+  }).filter(Boolean);
+  var body={tab_name:_pjV('pje_tab')||'Project', title:title, description:_pjV('pje_desc')||null, start_date:_pjV('pje_start')||null, end_date:_pjV('pje_end')||null,
+    status:(document.getElementById('pje_status')||{}).dataset.v||'active', deliverables:dl, updated_at:new Date().toISOString()};
+  btn.disabled=true; var isNew=!pid;
+  try{
+    if(pid) await _pjSave('client_projects?id=eq.'+pid,'PATCH',body);
+    else { body.client_id=window._clientId; var rows=await _pjSave('client_projects','POST',body); if(rows&&rows[0]) pid=rows[0].id; }
+    closeSheet('pjEd'); showToast('Project saved');
+    await _pjLoad();
+    if(isNew) openProject(pid); else _pjPaint();
+  }catch(e){ showToast('Not saved: '+e.message); btn.disabled=false; }
+}
+
+var _PJ_CATS=['Security','Website','Google & listings','Content','AI visibility','Reporting','Other'];
+function _pjDoneDay(it){ return String(it.due_date||it.updated_at||it.created_at||'').slice(0,10); }
+function _pjMonKey(ymd){ return String(ymd||'').slice(0,7); }
+function _pjMonName(k){ var p=k.split('-'); return new Date(+p[0],+p[1]-1,1).toLocaleDateString('en-CA',{month:'long',year:'numeric'}); }
+function _pjMonKeys(p){
+  var keys={}, t=_pjMonKey(_pjToday());
+  if(p.start_date){ var d=_pjDay(p.start_date); d.setDate(1); while(true){ var k=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2); if(k>t) break; keys[k]=1; d.setMonth(d.getMonth()+1); } }
+  _pjItems(p).forEach(function(it){ if(_pjIsDone(it)){ var k=_pjMonKey(_pjDoneDay(it)); if(k&&k<=t) keys[k]=1; } });
+  return Object.keys(keys).sort().reverse();
+}
+var _PJ_KINDS=[['upcoming','Coming up'],['done','Done'],['question','Question'],['approval','Approval'],['report','Report']];
+function _pjEditItem(itemId, copyFrom){
+  if(!_pjIsAdmin()) return;
+  var f=itemId?_pjFindItem(itemId):null, it=f?f.it:(copyFrom||null), p=f?f.p:_pjFind(window._pjCur);
+  if(!p){ showToast('Open a project first'); return; }
+  _pjEnsureSheet('pjIt', 890);
+  document.getElementById('pjItT').textContent=f?'Edit item':'New item';
+  var kind=it?it.kind:'upcoming', vis=it?it.visible_to_client!==false:true;
+  var dl=Array.isArray(p.deliverables)?p.deliverables:[];
+  var h=_pjF('Type',_pjChipRow('pji_kind',_PJ_KINDS,kind))
+    +_pjF('Title','<input id="pji_title" style="'+_pjIn+'" value="'+_pjE(it?it.title:'')+'">')
+    +_pjF('Details (optional)','<textarea id="pji_body" style="'+_pjTa+'">'+_pjE(it?it.body:'')+'</textarea>')
+    +_pjF('Type of work',_pjChipRow('pji_cat',_PJ_CATS.map(function(c){ return [c,c]; }),it&&it.category||'Other'))
+    +_pjF('Date','<input type="date" id="pji_due" style="'+_pjIn+'" value="'+_pjE(it&&it.due_date?it.due_date:_pjToday())+'">')
+    +_pjF('Link — draft or report (optional)','<input id="pji_url" style="'+_pjIn+'" value="'+_pjE(it?it.attachment_url:'')+'" placeholder="https://">')
+    +(dl.length?_pjF('Counts toward',_pjChipRow('pji_dl',[['','Nothing']].concat(dl.map(function(d){ return [d.key,d.label]; })),it&&it.deliverable||'')):'')
+    +'<label style="display:flex;align-items:center;gap:10px;margin:4px 0 12px;font-size:13.5px;color:var(--text);cursor:pointer"><input type="checkbox" id="pji_vis" '+(vis?'checked':'')+' style="width:18px;height:18px;accent-color:#4000f3"> Client can see this <span style="font-size:12px;color:var(--sub)">(off = Internal)</span></label>'
+    +'<label id="pji_mailRow" style="display:'+(!f&&(kind==='question'||kind==='approval')?'flex':'none')+';align-items:center;gap:10px;margin:0 0 14px;font-size:13.5px;color:var(--text);cursor:pointer"><input type="checkbox" id="pji_mail" style="width:18px;height:18px;accent-color:#4000f3"> Also email client <span style="font-size:12px;color:var(--sub)">('+_pjE((window._clientData||{}).email||'no email on file')+')</span></label>';
+  if(f && it.replied_at) h+='<div style="margin:0 0 14px;padding:9px 11px;border-radius:10px;background:var(--bg);font-size:12.5px;color:var(--text)"><b>Client '+(it.status==='approved'?'approved':it.status==='changes_requested'?'asked for changes':'answered')+'</b> · '+_pjFmtTs(it.replied_at)+(it.client_reply?'<div style="white-space:pre-wrap;margin-top:3px">'+_pjE(it.client_reply)+'</div>':'')+'</div>';
+  h+='<button onclick="_pjSaveItem(\''+(f?it.id:'')+'\',this)" style="'+_pjBtnP+';width:100%;padding:12px">Save</button>';
+  if(f){
+    h+='<div style="display:flex;gap:8px;margin-top:10px">'
+      +(it.kind==='upcoming'&&it.status!=='done'?'<button onclick="closeSheet(\'pjIt\');_pjMarkDone(\''+it.id+'\')" style="'+_pjBtn+';flex:1;color:var(--green)">✓ Mark done</button>':'')
+      +'<button onclick="_pjDup(\''+it.id+'\')" style="'+_pjBtn+';flex:1">Duplicate</button>'
+      +'<button onclick="_pjDelItem(\''+it.id+'\',this)" style="'+_pjBtn+';flex:1;color:#dc2626">Delete</button></div>';
+  }
+  document.getElementById('pjItB').innerHTML=h;
+  var kr=document.getElementById('pji_kind');
+  if(kr && !f) kr.onpick=function(v){ var m=document.getElementById('pji_mailRow'); if(m) m.style.display=(v==='question'||v==='approval')?'flex':'none'; };
+  openSheet('pjIt');
+}
+function _pjDup(id){ var f=_pjFindItem(id); if(!f) return; var c=Object.assign({},f.it); c.title=c.title+' (copy)'; c.status='open'; c.client_reply=null; c.replied_at=null; closeSheet('pjIt'); setTimeout(function(){ _pjEditItem(null,c); },220); }
+async function _pjSaveItem(id, btn){
+  var title=_pjV('pji_title'); if(!title){ showToast('Add a title'); return; }
+  var kind=(document.getElementById('pji_kind')||{}).dataset.v||'upcoming';
+  var dlEl=document.getElementById('pji_dl');
+  var vis=!!(document.getElementById('pji_vis')||{}).checked, mail=!!(document.getElementById('pji_mail')||{}).checked;
+  var body={kind:kind, title:title, body:_pjV('pji_body')||null, due_date:_pjV('pji_due')||null, attachment_url:_pjV('pji_url')||null,
+    deliverable:dlEl?(dlEl.dataset.v||null):null, category:(document.getElementById('pji_cat')||{}).dataset.v||'Other', visible_to_client:vis, updated_at:new Date().toISOString()};
+  var old=id?_pjFindItem(id):null;
+  if(!old || old.it.kind!==kind) body.status=(kind==='done')?'done':'open';
+  btn.disabled=true;
+  try{
+    var p=_pjFind(window._pjCur);
+    if(id) await _pjSave('project_items?id=eq.'+id,'PATCH',body);
+    else { body.project_id=p.id; await _pjSave('project_items','POST',body); }
+    closeSheet('pjIt');
+    if(!id && mail && vis && (kind==='question'||kind==='approval')) _pjEmailClient(p, body);
+    showToast('Saved'); await _pjLoad(); _pjPaint();
+  }catch(e){ showToast('Not saved: '+e.message); btn.disabled=false; }
+}
+async function _pjMarkDone(id, btn){
+  if(btn) btn.disabled=true;
+  try{
+    await _pjSave('project_items?id=eq.'+id,'PATCH',{status:'done', due_date:_pjToday(), updated_at:new Date().toISOString()});
+    var f=_pjFindItem(id); if(f){ f.it.status='done'; f.it.due_date=_pjToday(); }
+    showToast('Marked done'); _pjPaint(); _pjLoad();
+  }catch(e){ showToast('Not saved: '+e.message); if(btn) btn.disabled=false; }
+}
+async function _pjDelItem(id, btn){
+  if(btn.dataset.sure!=='1'){ btn.dataset.sure='1'; btn.textContent='Tap again to delete'; return; }
+  try{ await _pjSave('project_items?id=eq.'+id,'DELETE'); closeSheet('pjIt'); showToast('Deleted'); await _pjLoad(); _pjPaint(); }
+  catch(e){ showToast('Not deleted: '+e.message); }
+}
+var _PJ_ENGINES=['ChatGPT','Gemini','Perplexity','Google AI'];
+function _pjEditScore(sid){
+  if(!_pjIsAdmin()) return;
+  var p=_pjFind(window._pjCur); if(!p) return;
+  var s=sid?((p.project_scores||[]).find(function(x){ return String(x.id)===String(sid); })||null):null;
+  _pjEnsureSheet('pjSc', 890);
+  document.getElementById('pjScT').textContent=s?'Edit AI check':'New AI check';
+  var eng=(s&&s.engines)||{};
+  var rows=_PJ_ENGINES.map(function(k,i){ var v=eng[k]||[0,8];
+    return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="flex:1;font-size:13.5px;color:var(--text)">'+k+'</span>'
+      +'<input type="number" min="0" id="pjs_m'+i+'" value="'+(v[0]||0)+'" style="'+_pjIn+';width:64px;text-align:center"><span style="font-size:12px;color:var(--sub)">of</span>'
+      +'<input type="number" min="0" id="pjs_t'+i+'" value="'+(v[1]==null?8:v[1])+'" style="'+_pjIn+';width:64px;text-align:center"></div>'; }).join('');
+  document.getElementById('pjScB').innerHTML=
+     _pjF('Date of the check','<input type="date" id="pjs_d" style="'+_pjIn+'" value="'+_pjE(s?s.checked_on:_pjToday())+'">')
+    +_pjF('How many answers named the client (mentioned of asked)',rows)
+    +_pjF('Note for the client (optional)','<textarea id="pjs_note" style="'+_pjTa+'" placeholder="Now showing up in Perplexity for ‘SMP Toronto’">'+_pjE(s?s.note:'')+'</textarea>')
+    +'<label style="display:flex;align-items:center;gap:10px;margin:0 0 14px;font-size:13.5px;color:var(--text)"><input type="checkbox" id="pjs_vis" '+(!s||s.visible_to_client?'checked':'')+' style="width:18px;height:18px;accent-color:#4000f3"> Client can see this</label>'
+    +'<button onclick="_pjSaveScore(\''+(sid||'')+'\',this)" style="'+_pjBtnP+';width:100%;padding:12px">Save check</button>'
+    +(s?'<button onclick="_pjDelScore(\''+sid+'\',this)" style="'+_pjBtn+';width:100%;margin-top:10px;color:#dc2626">Delete check</button>':'');
+  openSheet('pjSc');
+}
+async function _pjSaveScore(sid, btn){
+  var eng={}, m=0, t=0;
+  _PJ_ENGINES.forEach(function(k,i){ var a=Math.max(0,parseInt(_pjV('pjs_m'+i),10)||0), b=Math.max(0,parseInt(_pjV('pjs_t'+i),10)||0); if(b){ eng[k]=[Math.min(a,b),b]; m+=Math.min(a,b); t+=b; } });
+  if(!t){ showToast('Enter how many questions were asked'); return; }
+  var body={checked_on:_pjV('pjs_d')||_pjToday(), engines:eng, mentioned:m, total:t, note:_pjV('pjs_note')||null, visible_to_client:!!(document.getElementById('pjs_vis')||{}).checked};
+  btn.disabled=true;
+  try{
+    if(sid) await _pjSave('project_scores?id=eq.'+sid,'PATCH',body);
+    else { body.project_id=window._pjCur; await _pjSave('project_scores','POST',body); }
+    closeSheet('pjSc'); showToast('AI check saved'); await _pjLoad(); _pjPaint();
+  }catch(e){ showToast('Not saved: '+e.message); btn.disabled=false; }
+}
+async function _pjDelScore(sid, btn){
+  if(btn.dataset.sure!=='1'){ btn.dataset.sure='1'; btn.textContent='Tap again to delete'; return; }
+  try{ await _pjSave('project_scores?id=eq.'+sid,'DELETE'); closeSheet('pjSc'); await _pjLoad(); _pjPaint(); }catch(e){ showToast('Not deleted: '+e.message); }
+}
+async function _pjEmailClient(p, it){
+  var c=window._clientData||{}, to=c.email; if(!to){ showToast('No client email on file — not emailed'); return; }
+  var first=String(c.contact_name||'').trim().split(/\s+/)[0]||'there';
+  var ask=it.kind==='approval'?'Please review':'A quick question';
+  var esc=_pjE;
+  var html='<div style="background:#f4f4f7;padding:24px 12px;font-family:Helvetica,Arial,sans-serif"><div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #e5e7eb">'
+    +'<div style="height:5px;background:#4000f3;background:linear-gradient(90deg,#4000f3,#e65afc)"></div>'
+    +'<div style="padding:16px 24px;border-bottom:1px solid #eee"><img src="https://hub.adviuz.ca/brand/adviuz-logo-black.png" alt="Adviuz" style="height:16px;display:block;border:0"></div>'
+    +'<div style="padding:24px 26px;font-size:14px;line-height:1.6;color:#334155">'
+    +'<p style="margin:0 0 12px">Hi '+esc(first)+',</p>'
+    +'<p style="margin:0 0 12px">'+(it.kind==='approval'?'We have something ready for your approval':'We need a quick answer from you')+' on your <b>'+esc(p.title)+'</b> project:</p>'
+    +'<div style="margin:0 0 14px;padding:14px 16px;border-radius:10px;background:#f5f3ff;color:#26215c;font-weight:600">'+esc(it.title)+'</div>'
+    +(it.body?'<p style="margin:0 0 12px;white-space:pre-wrap">'+esc(it.body)+'</p>':'')
+    +'<a href="https://hub.adviuz.ca" style="display:block;margin-top:18px;background:#230835;color:#fff;text-decoration:none;text-align:center;font-weight:600;font-size:14px;padding:13px 0;border-radius:12px">Open your dashboard → '+esc(p.tab_name||'Project')+'</a>'
+    +'<p style="font-size:12px;color:#94a3b8;margin:16px 0 0">You can also just reply to this email.</p></div>'
+    +'<div style="background:#f8f9fa;padding:18px 24px;border-top:1px solid #e5e7eb;text-align:center"><p style="margin:0 0 3px;font-size:13px;font-weight:bold;color:#111111">Support Team</p>'
+    +'<p style="margin:0 0 10px;font-size:11px;color:#999999">Monday to Friday &middot; 10:00 AM &ndash; 6:00 PM CST</p>'
+    +'<p style="margin:0;border-top:1px solid #e8e8e8;padding-top:12px;font-size:11px;color:#9a9a9a;line-height:1.6">&copy; '+new Date().getFullYear()+' <strong style="color:#777777">Adviuz</strong>. Instad Web Services Limited &middot; <a href="https://adviuz.com" style="color:#9a9a9a">adviuz.com</a></p></div>'
+    +'</div></div>';
+  try{
+    var r=await sbFetch('/functions/v1/send-email',{method:'POST',body:JSON.stringify({ to:to, subject:ask+': '+String(it.title).slice(0,70), html:html,
+      text:'Hi '+first+',\n\n'+it.title+(it.body?'\n\n'+it.body:'')+'\n\nOpen your dashboard: https://hub.adviuz.ca', type:'transactional',
+      from_email:'support@adviuz.com', from_name:'Adviuz Support', reply_to:'sales@adviuz.ca' })});
+    var j=await r.json().catch(function(){ return {}; });
+    if(!r.ok||j.error) throw new Error(j.error||('HTTP '+r.status));
+    showToast('Also emailed '+to);
+  }catch(e){ showToast('Saved, but the email failed: '+e.message); }
+}
+async function _pjOpenFromAdmin(pid){
+  try{
+    var r=await sbFetch('/rest/v1/client_projects?id=eq.'+pid+'&select=id,client_id,tab_name&limit=1');
+    var row=r.ok?((await r.json().catch(function(){ return []; }))[0]):null;
+    if(!row){ showToast('That project was deleted'); return; }
+    if(String(window._clientId)!==String(row.client_id) && typeof adminViewAsClient==='function') await adminViewAsClient(row.client_id,{tab:'dashboard'});
+    await _pjLoad(row.client_id);
+    openProject(pid);
+  }catch(e){ showToast('Could not open that project'); }
+}
+
+// ── Log work: many small finished tasks at once (one per line) ──
+function _pjLogWork(){
+  if(!_pjIsAdmin()) return;
+  _pjEnsureSheet('pjLw', 890);
+  document.getElementById('pjLwT').textContent='Log finished work';
+  document.getElementById('pjLwB').innerHTML=
+     _pjF('What was done — one task per line','<textarea id="pjl_txt" style="'+_pjTa+';min-height:150px" placeholder="Changed the WordPress password&#10;Signed out all old sessions&#10;Installed 2-step login plugin"></textarea>')
+    +_pjF('Type of work',_pjChipRow('pjl_cat',_PJ_CATS.map(function(c){ return [c,c]; }),'Website'))
+    +_pjF('Date done','<input type="date" id="pjl_d" style="'+_pjIn+'" value="'+_pjToday()+'">')
+    +'<label style="display:flex;align-items:center;gap:10px;margin:0 0 14px;font-size:13.5px;color:var(--text)"><input type="checkbox" id="pjl_vis" checked style="width:18px;height:18px;accent-color:#4000f3"> Client can see these</label>'
+    +'<button onclick="_pjSaveLog(this)" style="'+_pjBtnP+';width:100%;padding:12px">Add tasks</button>';
+  openSheet('pjLw');
+}
+async function _pjSaveLog(btn){
+  var lines=_pjV('pjl_txt').split(/\n+/).map(function(x){ return x.replace(/^[\s\-•*✓✔]+/,'').trim(); }).filter(Boolean);
+  if(!lines.length){ showToast('Type at least one task'); return; }
+  var d=_pjV('pjl_d')||_pjToday(), cat=(document.getElementById('pjl_cat')||{}).dataset.v||'Other', vis=!!(document.getElementById('pjl_vis')||{}).checked;
+  btn.disabled=true;
+  try{
+    await _pjSave('project_items','POST',lines.map(function(t,i){ return {project_id:window._pjCur, kind:'done', status:'done', title:t.slice(0,300), due_date:d, category:cat, visible_to_client:vis, sort_order:i}; }));
+    closeSheet('pjLw'); showToast(lines.length+' task'+(lines.length===1?'':'s')+' added'); await _pjLoad(); _pjPaint();
+  }catch(e){ showToast('Not saved: '+e.message); btn.disabled=false; }
+}
+
+// ── Monthly report (built live from the finished work) ──
+function _pjMonthHTML(p, k, forPrint){
+  var adm=_pjIsAdmin()&&!forPrint, its=_pjItems(p).filter(function(it){ return adm||it.visible_to_client; });
+  var inM=function(ymd){ return _pjMonKey(ymd)===k; };
+  var done=its.filter(function(it){ return _pjIsDone(it) && it.kind!=='report' && inM(_pjDoneDay(it)); })
+    .sort(function(a,c){ return _pjDoneDay(a).localeCompare(_pjDoneDay(c)) || (a.sort_order-c.sort_order); });
+  var decided=its.filter(function(it){ return it.replied_at && inM(new Date(it.replied_at).toLocaleDateString('en-CA')); });
+  var pdf=its.filter(function(it){ return it.kind==='report' && it.attachment_url && inM(_pjDoneDay(it)); });
+  var nk=(function(){ var x=k.split('-'); var d=new Date(+x[0],+x[1],1); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2); })();
+  var next=its.filter(function(it){ return _pjIsPending(it) && it.due_date && _pjMonKey(it.due_date)===nk; }).sort(function(a,c){ return String(a.due_date).localeCompare(String(c.due_date)); });
+  var sc=((p.project_scores)||[]).filter(function(s){ return adm||s.visible_to_client; }).sort(function(a,c){ return String(a.checked_on).localeCompare(String(c.checked_on)); });
+  var scM=sc.filter(function(s){ return _pjMonKey(s.checked_on)<=k; }), last=scM[scM.length-1], prev=scM[scM.length-2];
+  var dl=(Array.isArray(p.deliverables)?p.deliverables:[]).map(function(d){ return {label:d.label, n:done.filter(function(it){ return it.deliverable===d.key; }).length+pdf.filter(function(it){ return it.deliverable===d.key; }).length}; }).filter(function(d){ return d.n>0; });
+  var mi=(function(){ if(!p.start_date) return ''; var s=_pjDay(p.start_date), x=k.split('-'); var n=(+x[0]-s.getFullYear())*12+(+x[1]-1-s.getMonth())+1; var t=_pjMonths(p).total; return n>=1?'Month '+n+(t?' of '+t:''):''; })();
+  var card='background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:13px 14px;margin-bottom:10px';
+  var lbl='font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#64748b;margin:16px 2px 8px';
+  var tile=function(v,l){ return '<div style="flex:1;min-width:0;background:rgba(255,255,255,.16);border-radius:10px;padding:9px 6px;text-align:center"><div style="font-size:19px;font-weight:700">'+v+'</div><div style="font-size:10.5px;opacity:.9;margin-top:1px">'+l+'</div></div>'; };
+  var h='<div style="'+card+';border:none;background:linear-gradient(118deg,#4000f3,#8b2bf7,#e65afc);color:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact">'
+    +'<div style="font-size:12px;opacity:.85">'+_pjE(p.title)+'</div>'
+    +'<div style="font-size:18px;font-weight:700;margin-top:2px">'+_pjMonName(k)+' report</div>'
+    +'<div style="font-size:12px;opacity:.85;margin-top:2px">'+mi+(k===_pjMonKey(_pjToday())?' · month in progress':'')+'</div>'
+    +'<div style="display:flex;gap:7px;margin-top:12px">'+tile(done.length,'tasks done')+tile(decided.length,'your answers')+tile(last?Math.round(last.mentioned*100/Math.max(1,last.total))+'%':'—','AI visibility')+'</div></div>';
+  if(_pjMetrics(p,adm).some(function(m){ return _pjMonKey(m.month)===k; })) h+='<div style="'+lbl+'">Results this month</div>'+_pjResultsHTML(p,k,adm);
+  if(last && _pjMonKey(last.checked_on)===k){
+    var pc=Math.round(last.mentioned*100/Math.max(1,last.total));
+    h+='<div style="'+lbl+'">AI visibility this month</div><div style="'+card+';font-size:13px;color:#0f172a;line-height:1.5">'+last.mentioned+' of '+last.total+' AI answers named you ('+pc+'%)'
+      +(prev?' — <b style="color:'+(pc>=Math.round(prev.mentioned*100/Math.max(1,prev.total))?'#15803d':'#b45309')+'">'+(pc>=Math.round(prev.mentioned*100/Math.max(1,prev.total))?'up ':'down ')+Math.abs(pc-Math.round(prev.mentioned*100/Math.max(1,prev.total)))+' points</b> since '+_pjFmt(prev.checked_on):'')
+      +(last.note?'<div style="color:#64748b;margin-top:4px">'+_pjE(last.note)+'</div>':'')+'</div>';
+  }
+  if(dl.length) h+='<div style="'+lbl+'">Delivered this month</div><div style="'+card+'">'+dl.map(function(d){ return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:2px 0"><span>'+_pjE(d.label)+'</span><b>'+d.n+'</b></div>'; }).join('')+'</div>';
+  h+='<div style="'+lbl+'">Work completed ('+done.length+')</div>';
+  if(!done.length) h+='<div style="'+card+';color:#64748b;font-size:13px">No finished tasks logged for this month yet.</div>';
+  else {
+    var groups={}; done.forEach(function(it){ var c=it.category||'Other'; (groups[c]=groups[c]||[]).push(it); });
+    _PJ_CATS.concat(Object.keys(groups).filter(function(c){ return _PJ_CATS.indexOf(c)<0; })).forEach(function(c){
+      var g=groups[c]; if(!g) return;
+      h+='<div style="'+card+'"><div style="font-size:12.5px;font-weight:700;color:#4000f3;margin-bottom:6px">'+_pjE(c)+' · '+g.length+'</div>'
+        +g.map(function(it){ return '<div style="display:flex;gap:9px;padding:5px 0;font-size:13px;color:#0f172a;line-height:1.45"><span style="color:#15803d;font-weight:700;flex-shrink:0">✓</span><span style="flex:1;min-width:0">'+_pjE(it.title)+(adm?_pjInternal(it):'')+'</span><span style="flex-shrink:0;font-size:11.5px;color:#64748b">'+_pjFmt(_pjDoneDay(it))+'</span></div>'; }).join('')+'</div>';
+    });
+  }
+  if(decided.length){
+    h+='<div style="'+lbl+'">Your answers and approvals</div><div style="'+card+'">'+decided.map(function(it,i){
+      var w=it.status==='approved'?'Approved':it.status==='changes_requested'?'Asked for changes':'Answered';
+      return '<div style="padding:6px 0;'+(i?'border-top:1px solid #e5e7eb':'')+';font-size:13px;color:#0f172a;line-height:1.45"><b>'+w+'</b> · '+_pjE(it.title)+(it.client_reply?'<div style="color:#64748b;font-size:12.5px;margin-top:2px">“'+_pjE(it.client_reply)+'”</div>':'')+'</div>'; }).join('')+'</div>';
+  }
+  if(pdf.length) h+='<div style="'+lbl+'">Full report</div><div style="'+card+'">'+pdf.map(function(it){ return '<a href="'+_pjE(it.attachment_url)+'" target="_blank" rel="noopener" style="display:block;font-size:13px;font-weight:600;color:#4000f3;text-decoration:none;padding:3px 0">'+_pjE(it.title)+' ↗</a>'; }).join('')+'</div>';
+  if(next.length) h+='<div style="'+lbl+'">Planned for '+_pjMonName(nk)+'</div><div style="'+card+'">'+next.map(function(it){ return '<div style="display:flex;gap:9px;padding:4px 0;font-size:13px;color:#0f172a"><span style="flex-shrink:0;width:48px;font-weight:600;color:#4000f3">'+_pjFmt(it.due_date)+'</span><span>'+_pjE(it.title)+'</span></div>'; }).join('')+'</div>';
+  return h;
+}
+function _pjOpenMonth(k){
+  var p=_pjFind(window._pjCur); if(!p) return;
+  window._pjMonth=k;
+  _pjEnsureSheet('pjMo', 875);
+  document.getElementById('pjMoT').textContent=_pjMonName(k);
+  document.getElementById('pjMoB').innerHTML=_pjMonthHTML(p,k,false)
+    +'<button onclick="_pjPrintMonth()" style="'+_pjBtn+';width:100%;margin-top:8px;padding:11px">Save as PDF / print</button>';
+  openSheet('pjMo');
+}
+function _pjPrintMonth(){
+  var p=_pjFind(window._pjCur), k=window._pjMonth; if(!p||!k) return;
+  var w=window.open('','_blank'); if(!w){ showToast('Allow pop-ups to save the PDF'); return; }
+  w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'+_pjE(p.title)+' — '+_pjMonName(k)+' report</title><style>body{font-family:Inter,Helvetica,Arial,sans-serif;max-width:640px;margin:24px auto;padding:0 16px;color:#0f172a}@page{margin:14mm}</style></head><body>'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><img src="https://hub.adviuz.ca/brand/adviuz-logo-black.png" alt="Adviuz" style="height:18px"><span style="font-size:12px;color:#64748b">Prepared '+new Date().toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'})+'</span></div>'
+    +_pjMonthHTML(p,k,true)+'<script>setTimeout(function(){window.print()},400)<\/script></body></html>');
+  w.document.close();
+}
+
+// ── Results this month (typed in once a month from Google Search Console / Google profile / Analytics) ──
+var _PJ_METRICS=[['gsc_impr','Times you showed up on Google'],['gsc_clicks','Clicks to your website from Google'],['ai_visits','Visits from AI tools (ChatGPT, Perplexity…)'],['gbp_calls','Calls from your Google profile'],['gbp_dir','Direction requests'],['reviews_new','New Google reviews'],['rating','Google star rating']];
+function _pjMetrics(p, adm){ return ((p&&p.project_metrics)||[]).filter(function(m){ return adm||m.visible_to_client; }).sort(function(a,c){ return String(a.month).localeCompare(String(c.month)); }); }
+function _pjResultsHTML(p, k, adm){
+  var ms=_pjMetrics(p, adm), i=-1;
+  ms.forEach(function(m,j){ if(_pjMonKey(m.month)===k) i=j; });
+  if(i<0) return '';
+  var cur=ms[i], prev=ms[i-1], d=cur.data||{}, pd=(prev&&prev.data)||{};
+  var rows=_PJ_METRICS.filter(function(x){ return d[x[0]]!=null && d[x[0]]!==''; }).map(function(x){
+    var v=Number(d[x[0]]), pv=pd[x[0]]!=null&&pd[x[0]]!==''?Number(pd[x[0]]):null, ch='';
+    if(pv!=null && !isNaN(pv)){
+      var diff=Math.round((v-pv)*10)/10;
+      ch = diff===0 ? '<span style="color:#64748b;font-size:11.5px">same</span>'
+        : '<span style="font-size:11.5px;font-weight:700;color:'+(diff>0?'#15803d':'#b45309')+'">'+(diff>0?'▲ ':'▼ ')+Math.abs(diff).toLocaleString()+(x[0]!=='rating'&&pv>0?' ('+Math.round(Math.abs(diff)*100/pv)+'%)':'')+'</span>';
+    }
+    return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid #eef0f4"><span style="flex:1;min-width:0;font-size:13px;color:#0f172a">'+x[1]+'</span><b style="font-size:14px;color:#0f172a">'+(x[0]==='rating'?v.toFixed(1)+' ★':v.toLocaleString())+'</b><span style="width:86px;text-align:right">'+ch+'</span></div>';
+  }).join('');
+  return '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:6px 14px 8px;margin-bottom:10px">'
+    +(prev?'<div style="font-size:11.5px;color:#64748b;padding:4px 0 2px">Compared with '+_pjMonName(_pjMonKey(prev.month))+'</div>':'')
+    +rows.replace('border-top:1px solid #eef0f4','border-top:none')
+    +(cur.note?'<div style="font-size:12.5px;color:#334155;line-height:1.5;padding:8px 0 2px;border-top:1px solid #eef0f4">'+_pjE(cur.note)+'</div>':'')
+    +(adm?'<div style="padding-top:6px"><a href="#" onclick="event.preventDefault();_pjEditMetrics(\''+cur.id+'\')" style="font-size:12px;color:#4000f3">Edit '+_pjMonName(k)+' results</a>'+(cur.visible_to_client?'':' · <span style="color:#92400e">Internal</span>')+'</div>':'')
+    +'</div>';
+}
+function _pjEditMetrics(mid){
+  if(!_pjIsAdmin()) return;
+  var p=_pjFind(window._pjCur); if(!p) return;
+  var m=mid?((p.project_metrics||[]).find(function(x){ return String(x.id)===String(mid); })||null):null;
+  var d=(m&&m.data)||{};
+  var lastMon=(function(){ var t=new Date(); t.setDate(1); t.setMonth(t.getMonth()-1); return t.getFullYear()+'-'+('0'+(t.getMonth()+1)).slice(-2); })();
+  _pjEnsureSheet('pjMt', 890);
+  document.getElementById('pjMtT').textContent=m?'Edit results':'Enter results';
+  document.getElementById('pjMtB').innerHTML=
+     _pjF('Month','<input type="month" id="pjm_mon" style="'+_pjIn+'" value="'+(m?_pjMonKey(m.month):lastMon)+'">')
+    +'<div style="font-size:12px;color:var(--sub);margin:-4px 0 10px;line-height:1.5">From Google Search Console, the Google Business Profile insights and Google Analytics. Leave a box empty if you don’t have it.</div>'
+    +_PJ_METRICS.map(function(x){ return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><span style="flex:1;font-size:13px;color:var(--text)">'+x[1]+'</span><input type="number" step="'+(x[0]==='rating'?'0.1':'1')+'" min="0" id="pjm_'+x[0]+'" value="'+(d[x[0]]!=null?d[x[0]]:'')+'" style="'+_pjIn+';width:96px;text-align:right"></div>'; }).join('')
+    +_pjF('Short note for the client (optional)','<textarea id="pjm_note" style="'+_pjTa+'" placeholder="Website clicks up after the new FAQ page went live">'+_pjE(m?m.note:'')+'</textarea>')
+    +'<label style="display:flex;align-items:center;gap:10px;margin:0 0 14px;font-size:13.5px;color:var(--text)"><input type="checkbox" id="pjm_vis" '+(!m||m.visible_to_client?'checked':'')+' style="width:18px;height:18px;accent-color:#4000f3"> Client can see these</label>'
+    +'<button onclick="_pjSaveMetrics(\''+(mid||'')+'\',this)" style="'+_pjBtnP+';width:100%;padding:12px">Save results</button>';
+  openSheet('pjMt');
+}
+async function _pjSaveMetrics(mid, btn){
+  var mon=_pjV('pjm_mon'); if(!/^\d{4}-\d{2}$/.test(mon)){ showToast('Pick the month'); return; }
+  var data={}, any=false;
+  _PJ_METRICS.forEach(function(x){ var v=_pjV('pjm_'+x[0]); if(v!==''){ var n=Number(v); if(!isNaN(n)){ data[x[0]]=n; any=true; } } });
+  if(!any){ showToast('Enter at least one number'); return; }
+  var body={month:mon+'-01', data:data, note:_pjV('pjm_note')||null, visible_to_client:!!(document.getElementById('pjm_vis')||{}).checked};
+  var p=_pjFind(window._pjCur), dup=(p.project_metrics||[]).find(function(x){ return _pjMonKey(x.month)===mon && String(x.id)!==String(mid); });
+  if(dup){ showToast(_pjMonName(mon)+' already has results — edit that one'); return; }
+  btn.disabled=true;
+  try{
+    if(mid) await _pjSave('project_metrics?id=eq.'+mid,'PATCH',body);
+    else { body.project_id=window._pjCur; await _pjSave('project_metrics','POST',body); }
+    closeSheet('pjMt'); showToast('Results saved'); await _pjLoad(); _pjPaint();
+  }catch(e){ showToast('Not saved: '+e.message); btn.disabled=false; }
+}
+
 function setCampTypeFilter(v){ window._campTypeFilter = v; render(); }
 function _clientCampCard(cp) {
   var active     = (cp.status||'').toLowerCase() === 'active';
