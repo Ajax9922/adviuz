@@ -1176,6 +1176,7 @@ body.impersonating .ls-topbar{padding-top:8px}
       </div>
       <button class="login-btn" id="loginBtn" onclick="doLogin()">Sign In</button>
       <div class="login-forgot">Forgot password? <a href="#" onclick="doForgotPassword()">Reset via email</a></div>
+      <div class="login-forgot" style="margin-top:6px">Adviuz partner? <a href="#" onclick="event.preventDefault();_showPartnerSignin()">Sign in with an email code</a></div>
     </div>
 
     <!-- ── PARTNER OTP PANEL ── -->
@@ -5352,6 +5353,14 @@ async function doLogin() {
 // PARTNER LOGIN — OTP FLOW
 // ═══════════════════════════════════════════════════════
 
+// partner-onboard-1: partners sign in with a 6-digit email code. hub.adviuz.ca/?partner=1 (the link in the
+// approval email) opens that sign-in straight away; the client sign-in shows a small "Adviuz partner?" link.
+function _showPartnerSignin(){
+  var t=document.querySelector('.login-tabs'); if(t) t.style.display='';
+  try{ switchLoginTab('partner'); }catch(_e){}
+  setTimeout(function(){ var e=document.getElementById('otpEmail'); if(e) e.focus(); },60);
+}
+(function(){ try{ if(/[?&]partner=1\b/.test(location.search)){ var go=function(){ if(document.getElementById('partnerLoginPanel')) _showPartnerSignin(); }; if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',go); else go(); } }catch(_e){} })();
 function switchLoginTab(tab) {
   var isAdmin = tab === 'admin';
   document.getElementById('tabAdmin').classList.toggle('active', isAdmin);
@@ -30159,7 +30168,8 @@ async function showPartnerUI() {
 }
 
 function partnerGetRate(n) {
-  if(n<=10)return'5%';if(n<=20)return'6%';if(n<=35)return'7%';if(n<=50)return'8%';if(n<=75)return'9%';return'10%';
+  // partner-onboard-1: ONE flat plan (Ajax 2026-11-01) — 10% first order, 5% repeat orders for 12 months
+  return '10%';
 }
 
 async function loadPartnerLeads() {
@@ -36815,6 +36825,150 @@ function _partnerPeriodRange(period){
 }
 
 // Partner dashboard HTML — injected into adminDashHTML() when role = partner
+// ═══ partner-onboard-1 (2026-11-03, Ajax): Payout & tax profile (partner) + onboarding panel (admin) ═══
+// Payouts are held until the profile is complete (Partner Terms §6) — the database refuses a payout
+// request otherwise; these screens just make it easy. Saved through partner_save_payout_details (RPC),
+// which only touches the partner's own payout/tax fields and rings Adviuz's bell on every change.
+function _ppReady(p){
+  p = p || {};
+  var em = String(p.payout_email||'').trim();
+  var okDest = p.payout_method==='bank' ? !!String(p.bank_details||'').trim() : /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(em);
+  return !!(p.details_confirmed_at && String(p.legal_name||'').trim() && String(p.address_line||'').trim()
+    && ['etransfer','paypal','bank'].indexOf(p.payout_method)>=0 && okDest
+    && (p.gst_registered===false || (p.gst_registered===true && String(p.gst_number||'').trim()))
+    && ((p.country||'CA')!=='US' || p.w9_on_file===true));
+}
+function _ppE(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function _ppSetupCard(p){
+  p = p || {};
+  if(_ppReady(p)){
+    var dest = p.payout_method==='bank' ? 'bank transfer' : (p.payout_method==='paypal'?'PayPal ':'e-Transfer to ')+_ppE(p.payout_email);
+    return '<button onclick="openPartnerPayoutSheet()" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--white);border:1px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:12px;font-family:var(--f);cursor:pointer">'
+      +'<span style="font-size:18px">✅</span><span style="flex:1;min-width:0"><span style="display:block;font-size:13.5px;font-weight:600;color:var(--text)">Payout &amp; tax details complete</span>'
+      +'<span style="display:block;font-size:12px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+dest+' · GST/HST '+(p.gst_registered?_ppE(p.gst_number):'not registered')+'</span></span>'
+      +'<span style="font-size:12.5px;font-weight:600;color:var(--green)">Edit</span></button>';
+  }
+  var usW9 = (p.country==='US' && p.details_confirmed_at && !p.w9_on_file);
+  return '<div style="background:var(--amberl,#fff7ed);border:1px solid #fcd34d;border-radius:14px;padding:14px 16px;margin-bottom:12px">'
+    +'<div style="font-size:14px;font-weight:600;color:var(--text)">'+(usW9?'One last step: your W-9':'Finish setting up to get paid')+'</div>'
+    +'<div style="font-size:12.5px;color:var(--sub);line-height:1.5;margin-top:3px">'+(usW9?'We’ll email you a W-9 to sign. Payouts start once it’s on file.':'Add your legal name, address, how you want to be paid and your GST/HST status. We can’t send commissions until this is done.')+'</div>'
+    +(usW9?'':'<button onclick="openPartnerPayoutSheet()" style="margin-top:10px;width:100%;padding:12px;border:none;border-radius:12px;background:linear-gradient(118deg,#4000f3,#8b2bf7 60%,#e65afc);color:#fff;font-weight:600;font-size:14px;font-family:var(--f);cursor:pointer">Add payout &amp; tax details</button>')
+    +'</div>';
+}
+function openPartnerPayoutSheet(){
+  var p = window._partnerData || {};
+  var CA=[['AB','Alberta'],['BC','British Columbia'],['MB','Manitoba'],['NB','New Brunswick'],['NL','Newfoundland and Labrador'],['NS','Nova Scotia'],['NT','Northwest Territories'],['NU','Nunavut'],['ON','Ontario'],['PE','Prince Edward Island'],['QC','Quebec'],['SK','Saskatchewan'],['YT','Yukon']];
+  var prov = String(p.province||'');
+  var provHit = CA.find(function(x){ return x[0]===prov.toUpperCase() || x[1].toLowerCase()===prov.toLowerCase(); });
+  var country = p.country==='US' ? 'US' : 'CA';
+  var inp='width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid var(--border);border-radius:12px;background:var(--bg);font-family:var(--f);font-size:14px;color:var(--text)';
+  var lbl=function(t,hint){ return '<div style="font-size:12.5px;font-weight:600;color:var(--text);margin:14px 0 6px">'+t+(hint?' <span style="font-weight:400;color:var(--sub)">'+hint+'</span>':'')+'</div>'; };
+  var radio=function(name,val,label,on){ return '<label style="display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid var(--border);border-radius:12px;margin-bottom:8px;font-size:14px;color:var(--text);background:var(--white);cursor:pointer"><input type="radio" name="'+name+'" value="'+val+'"'+(on?' checked':'')+'> '+label+'</label>'; };
+  var h='<div style="font-size:13px;color:var(--sub);line-height:1.5">We use these details to send your commissions and to add GST/HST where it applies. Only you and the Adviuz team can see them.</div>'
+    +'<div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--sub);margin-top:16px">1 · WHO WE PAY</div>'
+    +lbl('Country')+'<select id="ppCountry" style="'+inp+'"><option value="CA"'+(country==='CA'?' selected':'')+'>Canada</option><option value="US"'+(country==='US'?' selected':'')+'>United States</option></select>'
+    +lbl('Legal name','as on your bank account')+'<input id="ppLegal" style="'+inp+'" value="'+_ppE(p.legal_name||p.full_name||'')+'">'
+    +lbl('Business name','optional')+'<input id="ppBiz" style="'+inp+'" value="'+_ppE(p.business_name||'')+'">'
+    +lbl('Mailing address')+'<input id="ppAddr" style="'+inp+'" placeholder="Street and unit" value="'+_ppE(p.address_line||'')+'">'
+    +'<div style="display:flex;gap:8px;margin-top:8px"><input id="ppCity" style="'+inp+';flex:1.2" placeholder="City" value="'+_ppE(p.city||'')+'"><input id="ppPostal" style="'+inp+';flex:1" placeholder="Postal / ZIP" value="'+_ppE(p.postal_code||'')+'"></div>'
+    +'<div id="ppProvWrapCA" style="margin-top:8px'+(country==='US'?';display:none':'')+'"><select id="ppProvCA" style="'+inp+'"><option value="">Province…</option>'+CA.map(function(x){ return '<option value="'+x[0]+'"'+(provHit&&provHit[0]===x[0]?' selected':'')+'>'+x[1]+'</option>'; }).join('')+'</select></div>'
+    +'<div id="ppProvWrapUS" style="margin-top:8px'+(country==='US'?'':';display:none')+'"><input id="ppProvUS" style="'+inp+'" placeholder="State" value="'+(country==='US'?_ppE(prov):'')+'"></div>'
+    +'<div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--sub);margin-top:20px">2 · HOW WE PAY YOU</div>'
+    +'<div id="ppMethCA"'+(country==='US'?' style="display:none"':'')+'>'+radio('ppM','etransfer','Interac e-Transfer',country==='CA')+'</div>'
+    +'<div id="ppMethUS"'+(country==='US'?'':' style="display:none"')+'>'+radio('ppM','paypal','PayPal',country==='US'&&p.payout_method!=='bank')+radio('ppM','bank','Bank transfer (only if you can’t use PayPal)',country==='US'&&p.payout_method==='bank')+'</div>'
+    +'<div id="ppEmailWrap"'+(p.payout_method==='bank'&&country==='US'?' style="display:none"':'')+'>'+lbl('Payout email','the email your bank or PayPal accepts payments on')+'<input id="ppEmail" type="email" style="'+inp+'" value="'+_ppE(p.payout_email||p.email||'')+'"><div style="font-size:11.5px;color:var(--sub);margin-top:5px">Tip: turn on e-Transfer auto-deposit for this email so payments land instantly.</div></div>'
+    +'<div id="ppBankWrap"'+(p.payout_method==='bank'&&country==='US'?'':' style="display:none"')+'>'+lbl('Bank details')+'<textarea id="ppBank" rows="3" style="'+inp+';resize:vertical" placeholder="Account holder, bank name, routing number, account number">'+_ppE(p.bank_details||'')+'</textarea></div>'
+    +'<div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--sub);margin-top:20px">3 · TAX</div>'
+    +'<div id="ppGstWrap"'+(country==='US'?' style="display:none"':'')+'>'+lbl('Are you registered for GST/HST?')
+    +radio('ppG','yes','Yes — add GST/HST to my payouts',p.gst_registered===true)+radio('ppG','no','No, I’m not registered',p.gst_registered===false)
+    +'<div id="ppGstNumWrap"'+(p.gst_registered===true?'':' style="display:none"')+'><input id="ppGst" style="'+inp+'" placeholder="GST/HST number, e.g. 123456789RT0001" value="'+_ppE(p.gst_number||'')+'">'
+    +'<input id="ppQst" style="'+inp+';margin-top:8px'+(provHit&&provHit[0]==='QC'?'':';display:none')+'" placeholder="QST number (Quebec only)" value="'+_ppE(p.qst_number||'')+'"></div>'
+    +'<div style="font-size:11.5px;color:var(--sub);margin-top:6px;line-height:1.5">Not registered yet? Once your sales pass $30,000 in a year you’ll usually need to register — come back and update this.</div></div>'
+    +'<div id="ppUsTax"'+(country==='US'?'':' style="display:none"')+' style="font-size:13px;color:var(--text);line-height:1.5;margin-top:8px">US partners: we’ll email you a W-9 form to sign. Payouts start once it’s on file.</div>'
+    +'<label style="display:flex;align-items:flex-start;gap:10px;margin-top:18px;font-size:13.5px;color:var(--text);line-height:1.45"><input type="checkbox" id="ppConfirm" style="margin-top:3px"> My details are correct. I’ll update them here if anything changes.</label>';
+  var ov=document.createElement('div'); ov.className='sheet-ov open'; ov.style.zIndex='9990';
+  ov.innerHTML='<div class="sheet" style="max-height:92vh"><div class="sheet-handle"></div><div class="sheet-head"><div class="sheet-title">Payout &amp; tax details</div><button class="sheet-x">&#x2715;</button></div>'
+    +'<div class="sh-body" style="padding:6px 16px calc(28px + env(safe-area-inset-bottom))">'+h
+    +'<div id="ppErr" style="display:none;margin-top:12px;background:var(--redl);color:var(--red);border-radius:10px;padding:10px 12px;font-size:13px"></div>'
+    +'<button data-go style="width:100%;margin-top:14px;padding:13px;border-radius:12px;border:none;background:linear-gradient(118deg,#4000f3,#8b2bf7 60%,#e65afc);color:#fff;font-family:var(--f);font-size:14px;font-weight:600;cursor:pointer">Save details</button></div></div>';
+  var q=function(id){ return ov.querySelector('#'+id); };
+  var val=function(name){ var r=ov.querySelector('input[name="'+name+'"]:checked'); return r?r.value:''; };
+  var sync=function(){
+    var us=q('ppCountry').value==='US';
+    q('ppProvWrapCA').style.display=us?'none':''; q('ppProvWrapUS').style.display=us?'':'none';
+    q('ppMethCA').style.display=us?'none':''; q('ppMethUS').style.display=us?'':'none';
+    q('ppGstWrap').style.display=us?'none':''; q('ppUsTax').style.display=us?'':'none';
+    var m=val('ppM'); if(us && m==='etransfer'){ ov.querySelector('input[name="ppM"][value="paypal"]').checked=true; m='paypal'; }
+    if(!us && m!=='etransfer'){ ov.querySelector('input[name="ppM"][value="etransfer"]').checked=true; m='etransfer'; }
+    q('ppEmailWrap').style.display=m==='bank'?'none':''; q('ppBankWrap').style.display=m==='bank'?'':'none';
+    q('ppGstNumWrap').style.display=val('ppG')==='yes'?'':'none';
+    q('ppQst').style.display=(!us && q('ppProvCA').value==='QC')?'':'none';
+  };
+  ov.addEventListener('change', sync);
+  ov.addEventListener('click', async function(e){
+    if(e.target===ov||e.target.closest('.sheet-x')){ ov.remove(); return; }
+    var go=e.target.closest('[data-go]'); if(!go||go.disabled) return;
+    var us=q('ppCountry').value==='US', m=val('ppM'), err=q('ppErr');
+    var payload={
+      p_legal_name:q('ppLegal').value, p_business_name:q('ppBiz').value, p_address_line:q('ppAddr').value,
+      p_city:q('ppCity').value, p_province:us?q('ppProvUS').value:q('ppProvCA').value, p_postal_code:q('ppPostal').value,
+      p_country:us?'US':'CA', p_payout_method:m, p_payout_email:m==='bank'?null:q('ppEmail').value, p_bank_details:m==='bank'?q('ppBank').value:null,
+      p_gst_registered: us ? false : (val('ppG')==='yes' ? true : (val('ppG')==='no' ? false : null)),
+      p_gst_number:q('ppGst').value, p_qst_number:q('ppQst').value, p_confirm:!!q('ppConfirm').checked
+    };
+    err.style.display='none'; go.disabled=true; go.textContent='Saving…';
+    try{
+      var res=await sbFetch('/rest/v1/rpc/partner_save_payout_details',{method:'POST',body:JSON.stringify(payload)});
+      var j=await res.json().catch(function(){ return {}; });
+      if(!res.ok){ throw new Error((j&&(j.message||j.hint))||'Could not save'); }
+      var r2=await sbFetch('/rest/v1/sales_partners?id=eq.'+(window._partnerData||{}).id+'&limit=1');
+      var rows=r2.ok?await r2.json():[]; if(rows[0]) window._partnerData=Object.assign(window._partnerData||{}, rows[0]);
+      ov.remove();
+      showToast(j.ready?'✅ Payout details saved — you’re all set to get paid':'Saved — a few details are still missing');
+      try{ render(); }catch(_e){}
+    }catch(ex){ err.textContent=ex.message; err.style.display='block'; go.disabled=false; go.textContent='Save details'; }
+  });
+  document.body.appendChild(ov);
+}
+// ── Admin: onboarding panel inside the partner detail sheet ──
+function _adPartnerOnboardHTML(p){
+  var ready=_ppReady(p);
+  var dt=function(s){ return s?new Date(s).toLocaleString('en-CA',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}):''; };
+  var local=function(s){ if(!s) return ''; var d=new Date(s); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16); };
+  var row=function(k,v){ return '<div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px"><div style="width:42%;color:var(--sub)">'+k+'</div><div style="flex:1;color:var(--text);word-break:break-word">'+v+'</div></div>'; };
+  var inp='width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--bg);font-family:var(--f);font-size:13.5px;color:var(--text)';
+  var h='<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:14px">'
+    +'<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:6px">Onboarding</div>'
+    +row('Welcome call', p.welcome_call_done_at?'<span style="color:var(--green);font-weight:600">✓ Done '+dt(p.welcome_call_done_at)+'</span>':(p.welcome_call_at?'Booked for '+dt(p.welcome_call_at):'<span style="color:var(--amber);font-weight:600">Not booked yet</span>'))
+    +row('Payout &amp; tax', ready?'<span style="color:var(--green);font-weight:600">✓ Complete</span>':'<span style="color:var(--amber);font-weight:600">Incomplete — payouts on hold</span>')
+    +(p.legal_name?row('Legal name',_ppE(p.legal_name)+(p.business_name?' ('+_ppE(p.business_name)+')':'')):'')
+    +(p.address_line?row('Address',_ppE([p.address_line,p.city,p.province,p.postal_code,p.country].filter(Boolean).join(', '))):'')
+    +(p.payout_method?row('Paid by',p.payout_method==='bank'?'Bank transfer: '+_ppE(p.bank_details):(p.payout_method==='paypal'?'PayPal: ':'e-Transfer: ')+_ppE(p.payout_email)):'')
+    +(p.gst_registered!=null?row('GST/HST',p.gst_registered?_ppE(p.gst_number)+(p.qst_number?' · QST '+_ppE(p.qst_number):''):'Not registered'):'')
+    +(p.details_updated_at?row('Details updated',dt(p.details_updated_at)):'')
+    +'<div style="font-size:12px;font-weight:600;color:var(--text);margin:12px 0 6px">Welcome call booked for</div><input type="datetime-local" id="pobCallAt" style="'+inp+'" value="'+local(p.welcome_call_at)+'">'
+    +'<label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;color:var(--text)"><input type="checkbox" id="pobDone"'+(p.welcome_call_done_at?' checked':'')+'> Welcome call done</label>'
+    +(p.country==='US'?'<label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;color:var(--text)"><input type="checkbox" id="pobW9"'+(p.w9_on_file?' checked':'')+'> W-9 received and on file</label>':'')
+    +'<div style="font-size:12px;font-weight:600;color:var(--text);margin:10px 0 6px">Call notes</div><textarea id="pobNotes" rows="3" style="'+inp+';resize:vertical" placeholder="What they plan, first businesses to contact, anything to follow up">'+_ppE(p.welcome_call_notes||'')+'</textarea>'
+    +'<button onclick="adSavePartnerOnboard(\''+p.id+'\',this)" style="width:100%;margin-top:10px;padding:11px;border-radius:10px;border:none;background:var(--green);color:#fff;font-family:var(--f);font-size:13px;font-weight:600;cursor:pointer">Save onboarding</button>'
+    +'</div>';
+  return h;
+}
+async function adSavePartnerOnboard(pid, btn){
+  var p=(_adminData.partners||[]).find(function(x){ return x.id===pid; }); if(!p) return;
+  var at=document.getElementById('pobCallAt').value, done=document.getElementById('pobDone').checked, w9=document.getElementById('pobW9');
+  var patch={ welcome_call_at: at?new Date(at).toISOString():null, welcome_call_notes: document.getElementById('pobNotes').value||null,
+    welcome_call_done_at: done ? (p.welcome_call_done_at||new Date().toISOString()) : null };
+  if(w9) patch.w9_on_file=!!w9.checked;
+  btn.disabled=true; btn.textContent='Saving…';
+  try{
+    var res=await sbFetch('/rest/v1/sales_partners?id=eq.'+pid,{method:'PATCH',body:JSON.stringify(patch)});
+    if(!res.ok && res.status!==204){ var e=await res.json().catch(function(){return{};}); throw new Error(e.message||('HTTP '+res.status)); }
+    Object.assign(p,patch); showToast('✅ Onboarding saved');
+  }catch(ex){ showToast('❌ '+ex.message); }
+  btn.disabled=false; btn.textContent='Save onboarding';
+}
+
 function partnerDashHTML() {
   var p     = window._partnerData || {};
   var allComms = window._partnerComms || [];
@@ -36863,6 +37017,7 @@ function partnerDashHTML() {
 
   // ── Greeting ──
   h+='<div style="font-size:20px;font-weight:600;color:var(--text);letter-spacing:-.02em;margin:2px 2px 12px">Hi '+name.split(' ')[0]+' 👋</div>';
+  h+=_ppSetupCard(p);
 
   // ── THE ONE time filter — drives the Total Earned box AND the Statement ──
   h+='<div style="margin-bottom:12px;position:relative">'
@@ -36925,7 +37080,7 @@ function partnerDashHTML() {
 
   // ── Plain-English "how you earn" ──
   h+='<div style="background:var(--bluel);border-radius:14px;padding:13px 15px;margin-bottom:16px;font-size:13px;color:#1e40af;line-height:1.5">'
-    +'<b>How you earn:</b> You get <b>10%</b> the first time a client you referred pays, and <b>5%</b> every time they pay again. Your money becomes withdrawable <b>7 days</b> after each payment.</div>';
+    +'<b>How you earn:</b> You get <b>10%</b> the first time a client you referred pays, and <b>5%</b> every time they pay again for the next <b>12 months</b>. Your money becomes withdrawable <b>30 days</b> after each payment, and we pay monthly by the 15th (minimum $100).</div>';
 
   // ── Statement (bank-style ledger) — single clean view of all money movement ──
   h+='<div style="font-size:15px;font-weight:600;color:var(--text);margin:8px 2px 10px">Statement</div>';
@@ -36934,10 +37089,10 @@ function partnerDashHTML() {
     + '</div>';
 
   // ── Referral link (HIDDEN until adviuz.ca referral site is live) ──
-  // var refUrl = p.ref_url || ('https://adviuz.ca/r/' + (p.ref_code||''));
+  // var refUrl = p.ref_url || ('https://adviuz.com/p/' + (p.ref_code||''));
   // Re-enable this card once the adviuz.ca referral landing page is built.
-  if (window._showPartnerRefLink === true) {
-    var refUrl = p.ref_url || ('https://adviuz.ca/r/' + (p.ref_code||''));
+  if (window._showPartnerRefLink !== false) {
+    var refUrl = p.ref_url || ('https://adviuz.com/p/' + (p.ref_code||''));
     h+='<div style="background:var(--white);border:1px solid var(--green);border-radius:16px;padding:16px;margin-top:16px">'
       +'<div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:3px">🔗 Share &amp; earn more</div>'
       +'<div style="font-size:12.5px;color:var(--sub);margin-bottom:10px;line-height:1.4">Send this link to a business. When they sign up and pay, you earn.</div>'
@@ -37038,9 +37193,10 @@ async function doConvertCredit(){
 // Open the payout method chooser (e-Transfer now / Stripe coming soon)
 var DAILY_PAYOUT_CAP = 3000;
 function openPayoutSheet(available){
+  if(!_ppReady(window._partnerData)){ showToast('Add your payout & tax details first'); openPartnerPayoutSheet(); return; }
   window._payoutAvailable = +available || 0;
-  var lastEmail = '';
-  try { lastEmail = localStorage.getItem('adviuz_etransfer_email') || ''; } catch(e){}
+  var lastEmail = (window._partnerData && window._partnerData.payout_method==='etransfer' && window._partnerData.payout_email) || '';
+  try { if(!lastEmail) lastEmail = localStorage.getItem('adviuz_etransfer_email') || ''; } catch(e){}
   if (!lastEmail) lastEmail = (window._partnerData && (window._partnerData.email||'')) || '';
   var el = document.getElementById('poEmail'); if (el) el.value = lastEmail;
   var amtEl = document.getElementById('poAmount');
@@ -37472,7 +37628,7 @@ async function loadAdminData() {
       sbFetch('/rest/v1/campaigns?select=*,clients(business_name)&order=created_at.desc&limit=200'),
       sbFetch('/rest/v1/leads?select=*,clients(business_name)&order=created_at.desc&limit=500'),
       sbFetch('/rest/v1/sales_partners?select=*&order=created_at.desc&limit=100'),
-      sbFetch('/rest/v1/partner_applications?select=*&status=eq.pending&order=created_at.desc&limit=100'),
+      sbFetch('/rest/v1/partner_applications?select=*&status=in.(pending,info_requested)&order=created_at.desc&limit=100'),
       sbFetch('/rest/v1/partner_commissions?select=*,leads(name)&status=eq.earned&order=earned_at.desc&limit=100'),
       sbFetch('/rest/v1/lead_registrations?select=*,sales_partners(full_name,ref_code)&status=eq.active&order=created_at.desc&limit=50'),
       sbFetch('/rest/v1/quotes?select=*&order=created_at.desc&limit=200'),
@@ -37483,7 +37639,7 @@ async function loadAdminData() {
     if (lRes.ok)    _adminData.allLeads    = await lRes.json();
     var _pResponses = await Promise.allSettled([
       sbFetch('/rest/v1/sales_partners?select=*&order=created_at.desc&limit=100'),
-      sbFetch('/rest/v1/partner_applications?select=*&status=eq.pending&order=created_at.desc&limit=100'),
+      sbFetch('/rest/v1/partner_applications?select=*&status=in.(pending,info_requested)&order=created_at.desc&limit=100'),
       sbFetch('/rest/v1/partner_commissions?select=*,leads(name)&status=eq.earned&order=earned_at.desc&limit=100'),
       sbFetch('/rest/v1/lead_registrations?select=*,sales_partners(full_name,ref_code)&status=eq.active&order=created_at.desc&limit=50'),
       // Pending partner cashout requests — shown at the top of the Commissions tab
@@ -38669,7 +38825,7 @@ async function saveAddPartner() {
 function openPartnerDetail(partnerId) {
   var p = (_adminData.partners||[]).find(function(x){return x.id===partnerId;});
   if (!p) return;
-  var recurRate = p.active_client_count<=10?'5%':p.active_client_count<=20?'6%':p.active_client_count<=35?'7%':p.active_client_count<=50?'8%':p.active_client_count<=75?'9%':'10%';
+  var recurRate = '5% (12 months)';
   var stCol = p.status==='active'?'var(--green)':p.status==='warning'?'var(--amber)':'var(--red)';
   var h = '';
   // Header
@@ -38728,6 +38884,7 @@ function openPartnerDetail(partnerId) {
   h += '<button onclick="adTogglePartnerStatus(this)" data-pid="'+partnerId+'" data-status="'+p.status+'" style="flex:1;padding:11px;border-radius:10px;background:'+(p.status==='active'?'var(--redl)':'var(--greenl)')+';border:none;font-family:var(--f);font-size:13px;font-weight:500;color:'+(p.status==='active'?'var(--red)':'var(--green)')+';cursor:pointer">'+(p.status==='active'?'Suspend':'Activate')+'</button></div>';
   h += '</div>';
 
+  try{ var _hi = h.indexOf('</button></div>'); if(_hi > 0){ _hi += 15; h = h.slice(0,_hi) + _adPartnerOnboardHTML(p) + h.slice(_hi); } }catch(_e){}
   document.getElementById('partnerDetailContent').innerHTML = h;
   openSheet('partnerDetailSh');
 }
@@ -38793,60 +38950,123 @@ function setPartnerSubTab(tab) {
   document.getElementById('content').innerHTML = adminDashHTML();
 }
 
+// ═══ partner-onboard-1 (2026-11-03, Ajax): tidy application card + Approve / Need more info / Decline ═══
+// Every decision goes through the partner-onboard function, which sends the matching email
+// (approved / a quick question / declined) and records who decided and when.
+function _paEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function _paFields(a){
+  // The website stores the answers as "Label: value" lines inside sales_experience
+  var out=[], txt=String(a.sales_experience||'');
+  txt.split(/\n+/).forEach(function(line){
+    line=line.trim(); if(!line || /^PARTNER APPLICATION$/i.test(line)) return;
+    var i=line.indexOf(':');
+    if(i>0 && i<60) out.push([line.slice(0,i).trim(), line.slice(i+1).trim()]);
+    else out.push(['Notes', line]);
+  });
+  return out.map(function(r){ return [r[0], r[1].replace(/\s*\u2014\s*PARTNER APPLICATION$/i,'')]; }).filter(function(r){ return r[1]; });
+}
 function adPartnerAppsHTML() {
   var apps = _adminData.applications || [];
-  if (!apps.length) return '<div style="text-align:center;padding:40px;color:var(--sub);font-size:13px">No pending applications ✅</div>';
-  var h = '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
-  apps.forEach(function(a, i) {
+  if (!apps.length) return '<div style="text-align:center;padding:40px;color:var(--sub);font-size:13px">No applications waiting ✅</div>';
+  var h = '';
+  apps.forEach(function(a) {
     var dt = a.created_at ? new Date(a.created_at).toLocaleDateString('en-CA',{month:'short',day:'numeric'}) : '';
-    var safeName  = (a.full_name||'').replace(/'/g,'');
-    var safeEmail = (a.email||'').replace(/'/g,'');
-    var safePhone = (a.phone||'').replace(/'/g,'');
-    var safeCity  = (a.city||'').replace(/'/g,'');
-    h += '<div style="padding:14px;'+(i?'border-top:1px solid var(--border)':'')+'">';
-    h += '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px">';
-    h += '<div><div style="font-size:14px;font-weight:500;color:var(--text)">' + (a.full_name||'') + '</div>';
-    h += '<div style="font-size:12px;color:var(--sub)">' + (a.email||'') + ' &nbsp;·&nbsp; ' + (a.phone||'') + '</div>';
-    h += '<div style="font-size:11px;color:var(--muted)">' + (a.city||'') + (a.province?', '+a.province:'') + ' &nbsp;·&nbsp; Applied ' + dt + '</div>';
-    if (a.sales_experience) h += '<div style="font-size:11px;color:var(--sub);margin-top:3px">Exp: ' + a.sales_experience + '</div>';
-    if (a.monthly_target)   h += '<div style="font-size:11px;color:var(--sub)">Target: ' + a.monthly_target + '</div>';
-    h += '</div><span style="font-size:10px;font-weight:500;color:var(--amber);background:var(--amberl);padding:3px 8px;border-radius:10px;white-space:nowrap">Pending</span></div>';
-    h += '<div style="display:flex;gap:8px">';
-    h += '<button onclick="adRejectApp(\'' + a.id + '\')" style="flex:1;padding:9px;border-radius:8px;background:var(--redl);border:none;font-family:var(--f);font-size:12px;font-weight:500;color:var(--red);cursor:pointer">Reject</button>';
-    h += '<button onclick="adApproveApp(\'' + a.id + '\',\'' + safeName + '\',\'' + safeEmail + '\',\'' + safePhone + '\',\'' + safeCity + '\')" style="flex:2;padding:9px;border-radius:8px;background:var(--green);border:none;font-family:var(--f);font-size:12px;font-weight:500;color:#fff;cursor:pointer">✓ Approve</button>';
-    h += '</div></div>';
-  });
-  return h + '</div>';
-}
-
-async function adApproveApp(appId, name, email, phone, city) {
-  if (!confirm('Approve ' + name + ' as Sales Partner?')) return;
-  showToast('Approving...');
-  try {
-    // Edge function uses service role key securely on the server
-    var res = await sbFetch('/functions/v1/approve-partner', {
-      method: 'POST',
-      body: JSON.stringify({ app_id: appId, name: name, email: email, phone: phone, city: city })
+    var waitDays = a.created_at ? Math.floor((Date.now()-new Date(a.created_at).getTime())/864e5) : 0;
+    var st = a.status==='info_requested' ? ['Waiting for their reply','var(--blue)','var(--bluel)'] : (waitDays>=2 ? ['Overdue — reply today','var(--red)','var(--redl)'] : ['New','var(--amber)','var(--amberl)']);
+    var terms = a.agreement_accepted
+      ? '<span style="color:var(--green);font-weight:600">✓ Terms accepted</span> <span style="color:var(--sub)">'+(a.agreement_signed_at?new Date(a.agreement_signed_at).toLocaleDateString('en-CA',{month:'short',day:'numeric',year:'numeric'}):'')+(a.agreement_version?' · '+_paEsc(a.agreement_version):'')+'</span>'
+      : '<span style="color:var(--red);font-weight:600">✗ Terms not accepted</span>';
+    var rows = _paFields(a);
+    if (a.city || a.province) rows.unshift(['Location', [a.city,a.province,a.country].filter(Boolean).join(', ')]);
+    if (a.monthly_target) rows.push(['Target', a.monthly_target]);
+    if (a.referral_source) rows.push(['Found us via', a.referral_source]);
+    h += '<div style="background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:12px">';
+    h += '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">'
+      + '<div style="min-width:0"><div style="font-size:16px;font-weight:600;color:var(--text)">'+_paEsc(a.full_name||'(no name)')+'</div>'
+      + '<div style="font-size:12.5px;color:var(--sub);margin-top:2px;word-break:break-all"><a href="mailto:'+_paEsc(a.email)+'" style="color:var(--sub)">'+_paEsc(a.email)+'</a>'+(a.phone?' · <a href="tel:'+_paEsc(a.phone)+'" style="color:var(--sub)">'+_paEsc(a.phone)+'</a>':'')+'</div>'
+      + '<div style="font-size:11.5px;color:var(--sub);margin-top:2px">Applied '+dt+(waitDays?' · '+waitDays+' day'+(waitDays===1?'':'s')+' ago':' · today')+'</div></div>'
+      + '<span style="font-size:11px;font-weight:600;color:'+st[1]+';background:'+st[2]+';padding:4px 9px;border-radius:999px;white-space:nowrap">'+st[0]+'</span></div>';
+    h += '<div style="margin-top:10px;border-top:1px solid var(--border)">';
+    rows.forEach(function(r){
+      h += '<div style="display:flex;gap:12px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px"><div style="width:42%;color:var(--sub)">'+_paEsc(r[0])+'</div><div style="flex:1;color:var(--text);word-break:break-word">'+_paEsc(r[1])+'</div></div>';
     });
-    var data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Approval failed');
-    _adminData.applications = (_adminData.applications||[]).filter(function(a){return a.id!==appId;});
-    showToast('\u2705 ' + name + ' approved! Code: ' + data.ref_code + ' — Welcome email sent');
-    document.getElementById('content').innerHTML = adminDashHTML();
-  } catch(e) {
-    console.error('[adApproveApp]', e);
-    showToast('\u274c ' + (e.message || 'Something went wrong'));
-  }
-}
-async function adRejectApp(appId) {
-  if (!confirm('Reject this application?')) return;
-  await sbFetch('/rest/v1/partner_applications?id=eq.'+appId, {
-    method: 'PATCH', body: JSON.stringify({ status: 'rejected', reviewed_at: new Date().toISOString() })
+    h += '<div style="padding:8px 0;font-size:12.5px">'+terms+'</div></div>';
+    if (a.status==='info_requested' && a.review_notes) h += '<div style="background:var(--bluel);border-radius:10px;padding:9px 11px;font-size:12.5px;color:var(--text);margin-top:6px"><b>You asked:</b> '+_paEsc(a.review_notes)+'</div>';
+    h += '<div style="display:flex;gap:8px;margin-top:12px">'
+      + '<button onclick="adDeclineApp(\''+a.id+'\')" style="flex:1;padding:11px;border-radius:10px;background:var(--redl);border:none;font-family:var(--f);font-size:13px;font-weight:600;color:var(--red);cursor:pointer">Decline</button>'
+      + '<button onclick="adInfoApp(\''+a.id+'\')" style="flex:1.3;padding:11px;border-radius:10px;background:var(--bg);border:1px solid var(--border);font-family:var(--f);font-size:13px;font-weight:600;color:var(--text);cursor:pointer">Need more info</button>'
+      + '<button onclick="adApproveApp(\''+a.id+'\')" '+(a.agreement_accepted?'':'disabled ')+'style="flex:1.3;padding:11px;border-radius:10px;background:var(--green);border:none;font-family:var(--f);font-size:13px;font-weight:600;color:#fff;cursor:pointer'+(a.agreement_accepted?'':';opacity:.45')+'">✓ Approve</button>'
+      + '</div></div>';
   });
-  _adminData.applications = (_adminData.applications||[]).filter(function(a){return a.id!==appId;});
-  showToast('Application rejected');
-  document.getElementById('content').innerHTML = adminDashHTML();
+  return h;
 }
+function _paApp(id){ return (_adminData.applications||[]).find(function(x){ return x.id===id; }) || {}; }
+function _paSheet(title, bodyHtml, goLabel, goStyle, onGo){
+  var ov=document.createElement('div'); ov.className='sheet-ov open'; ov.style.zIndex='9990';
+  ov.innerHTML='<div class="sheet" style="max-height:88vh"><div class="sheet-handle"></div><div class="sheet-head"><div class="sheet-title">'+title+'</div><button class="sheet-x">&#x2715;</button></div>'
+    +'<div class="sh-body" style="padding:6px 16px calc(28px + env(safe-area-inset-bottom))">'+bodyHtml
+    +'<button data-go style="width:100%;margin-top:14px;padding:13px;border-radius:12px;border:none;font-family:var(--f);font-size:14px;font-weight:600;cursor:pointer;'+goStyle+'">'+goLabel+'</button>'
+    +'<button data-x style="width:100%;margin-top:8px;padding:11px;border-radius:12px;border:1px solid var(--border);background:var(--white);font-family:var(--f);font-size:13px;color:var(--sub);cursor:pointer">Cancel</button></div></div>';
+  ov.addEventListener('click', async function(e){
+    if(e.target===ov||e.target.closest('.sheet-x')||e.target.closest('[data-x]')){ ov.remove(); return; }
+    var go=e.target.closest('[data-go]'); if(!go||go.disabled) return;
+    var label=go.textContent; go.disabled=true; go.textContent='Working…';
+    try{ var ok=await onGo(ov); if(ok!==false) ov.remove(); else { go.disabled=false; go.textContent=label; } }
+    catch(err){ showToast('❌ '+((err&&err.message)||'Something went wrong')); go.disabled=false; go.textContent=label; }
+  });
+  document.body.appendChild(ov);
+  return ov;
+}
+async function _paCall(action, payload){
+  var res=await sbFetch('/functions/v1/partner-onboard?action='+action,{method:'POST',body:JSON.stringify(payload)});
+  var j=await res.json().catch(function(){ return {}; });
+  if(!res.ok||j.error) throw new Error(j.error||('Failed ('+res.status+')'));
+  return j;
+}
+function _paRefresh(){ var c=document.getElementById('content'); if(c && typeof adminDashHTML==='function') c.innerHTML=adminDashHTML(); }
+function adApproveApp(appId){
+  var a=_paApp(appId), nm=_paEsc(a.full_name||a.email);
+  _paSheet('Approve '+nm+'?',
+    '<div style="font-size:13.5px;line-height:1.6;color:var(--text)">Before approving, check you’ve done the review: real person, 18+, in Canada or the US, not a duplicate, honest business, and a short screening call.</div>'
+    +'<div style="background:var(--greenl);border-radius:12px;padding:12px 14px;margin-top:12px;font-size:13px;line-height:1.6;color:var(--text)"><b>Approving will:</b><br>• create their partner sign-in (email code, no password)<br>• give them their link <b>adviuz.com/p/CODE</b><br>• email them: welcome call → sign in → add payout &amp; tax details<br>• remind you to call them within 1 business day</div>',
+    '✓ Approve and send welcome email','background:var(--green);color:#fff',
+    async function(){
+      var j=await _paCall('approve',{app_id:appId});
+      _adminData.applications=(_adminData.applications||[]).filter(function(x){ return x.id!==appId; });
+      showToast('✅ '+(a.full_name||'Partner')+' approved — code '+j.ref_code+(j.email_sent===false?' (email failed — resend from Partners)':' — email sent'));
+      try{ if(typeof loadAdminData==='function') loadAdminData(); }catch(_e){}
+      _paRefresh();
+    });
+}
+function adInfoApp(appId){
+  var a=_paApp(appId), nm=_paEsc(a.full_name||a.email);
+  _paSheet('Ask '+nm+' a question',
+    '<div style="font-size:13px;color:var(--sub);margin-bottom:8px">They get an email with your question and reply to sales@adviuz.ca. The application stays here, marked “Waiting for their reply”.</div>'
+    +'<textarea id="paQ" rows="4" style="width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid var(--border);border-radius:12px;background:var(--bg);font-family:var(--f);font-size:14px;color:var(--text);resize:vertical" placeholder="e.g. Could you share the website or LinkedIn page for your business?"></textarea>',
+    'Send question','background:linear-gradient(118deg,#4000f3,#8b2bf7 60%,#e65afc);color:#fff',
+    async function(ov){
+      var q=String(ov.querySelector('#paQ').value||'').trim();
+      if(q.length<5){ showToast('Type your question first'); return false; }
+      await _paCall('info',{app_id:appId,question:q});
+      a.status='info_requested'; a.review_notes=q;
+      showToast('Question sent to '+(a.full_name||a.email)); _paRefresh();
+    });
+}
+function adDeclineApp(appId){
+  var a=_paApp(appId), nm=_paEsc(a.full_name||a.email);
+  _paSheet('Decline '+nm+'?',
+    '<div style="font-size:13.5px;line-height:1.6;color:var(--text)">They get a short, polite email saying you can’t offer a partnership at this time. No reason is given (the Partner Terms allow this).</div>'
+    +'<div style="font-size:12px;color:var(--sub);margin:12px 0 6px">Private note for your records (not sent)</div>'
+    +'<input id="paNote" style="width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid var(--border);border-radius:12px;background:var(--bg);font-family:var(--f);font-size:14px;color:var(--text)" placeholder="e.g. Outside Canada/US">'
+    +'<label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;color:var(--text)"><input type="checkbox" id="paSend" checked> Send the decline email</label>',
+    'Decline application','background:var(--red);color:#fff',
+    async function(ov){
+      await _paCall('decline',{app_id:appId,note:String(ov.querySelector('#paNote').value||'').trim(),send_email:!!ov.querySelector('#paSend').checked});
+      _adminData.applications=(_adminData.applications||[]).filter(function(x){ return x.id!==appId; });
+      showToast('Application declined'); _paRefresh();
+    });
+}
+function adRejectApp(appId){ adDeclineApp(appId); }
 
 function adPartnersListHTML() {
   var partners = _adminData.partners || [];
@@ -38901,7 +39121,7 @@ function adPartnersListRows(partners) {
     var earned = '$'+(+p.total_earned_cad||0).toFixed(2);
     var paid   = '$'+(+p.total_paid_cad||0).toFixed(2);
     var rail   = palette[i % palette.length];
-    var recurRate = p.active_client_count<=10?'5%':p.active_client_count<=20?'6%':p.active_client_count<=35?'7%':p.active_client_count<=50?'8%':p.active_client_count<=75?'9%':'10%';
+    var recurRate = '5% (12 months)';
     h += '<div data-pid="'+p.id+'" onclick="openPartnerDetail(this.dataset.pid)" style="position:relative;background:var(--white);border:1px solid var(--border);border-radius:16px;overflow:hidden;cursor:pointer">';
     h += '<div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:'+rail+'"></div>';
     h += '<div style="padding:14px 15px 14px 18px">';
