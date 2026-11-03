@@ -6513,6 +6513,37 @@ function _maskBlock(what){
   } catch(_e){}
 })();
 
+// wa-desk-1 (2026-11-03): on a computer, open WhatsApp Desktop straight away (whatsapp://) instead of the
+// api.whatsapp.com "Open app" page that pops over the hub and leaves WhatsApp behind it. Phones keep wa.me.
+var _WA_DESK = !(/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)));
+function _waDeskUrl(u){
+  var m = /^https:\/\/(?:wa\.me|api\.whatsapp\.com\/send)\/?([0-9]*)\/?(?:\?(.*))?$/.exec(String(u||''));
+  if (!m) return null;
+  var qs = new URLSearchParams(m[2] || ''), ph = m[1] || qs.get('phone') || '', tx = qs.get('text') || '';
+  return { app: 'whatsapp://send?' + (ph ? 'phone=' + ph : '') + (tx ? (ph ? '&' : '') + 'text=' + encodeURIComponent(tx) : ''),
+           web: 'https://web.whatsapp.com/send?' + (ph ? 'phone=' + ph + '&' : '') + 'text=' + encodeURIComponent(tx) };
+}
+function _waOpen(u){
+  var w = _WA_DESK ? _waDeskUrl(u) : null;
+  if (!w) { window.location.href = u; return; }
+  var left = false, onBlur = function(){ left = true; };
+  window.addEventListener('blur', onBlur, { once: true });
+  window.location.href = w.app;
+  setTimeout(function(){ window.removeEventListener('blur', onBlur); if (!left && document.hasFocus()) _waWinOpen(w.web, '_blank'); }, 1600);
+}
+var _waWinOpen = window.open.bind(window);
+if (_WA_DESK) {
+  window.open = function(u){
+    if (typeof u === 'string' && _waDeskUrl(u)) { _waOpen(u); return null; }
+    return _waWinOpen.apply(window, arguments);
+  };
+  document.addEventListener('click', function(e){
+    if (e.defaultPrevented) return;
+    var a = e.target && e.target.closest ? e.target.closest('a[href^="https://wa.me"],a[href^="https://api.whatsapp.com/send"]') : null;
+    if (a) { e.preventDefault(); _waOpen(a.href); }
+  });
+}
+
 async function sbFetch(path, opts) {
   opts = opts || {};
   if (window._maskContacts === true && path.indexOf('/rest/v1/') === 0 && path.indexOf('/rest/v1/rpc/') !== 0) {
@@ -21541,7 +21572,7 @@ function lsDoWa(){
   if(_maskBlock('WhatsApp')) return;
   var l=lsGetLead();if(!l||!l.ph)return;
   var ph=l.ph.replace(/[^0-9]/g,'');
-  window.location.href='https://wa.me/'+ph;
+  _waOpen('https://wa.me/'+ph);
 }
 async function startAiCall(leadId, phone, agent, firstName){
   var l = leads.find(function(x){ return x.id===leadId; });
