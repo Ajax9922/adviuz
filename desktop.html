@@ -3105,6 +3105,7 @@ body.ao-open #aiFab{display:none}
       <!-- ── Section 2: Package ── -->
       <div style="padding:16px 18px;border-bottom:1px solid var(--border)">
         <div style="font-size:10px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--sub);margin-bottom:10px">2 · Package</div>
+        <div id="q-seg" style="display:flex;gap:4px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:3px;margin-bottom:10px"><button type="button" data-seg="b2c" onclick="setQuoteSeg('b2c')" style="flex:1;padding:8px;border:none;border-radius:8px;font-family:var(--f);font-size:12.5px;font-weight:600;cursor:pointer;background:var(--white);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.08)">B2C</button><button type="button" data-seg="b2b" onclick="setQuoteSeg('b2b')" style="flex:1;padding:8px;border:none;border-radius:8px;font-family:var(--f);font-size:12.5px;font-weight:600;cursor:pointer;background:none;color:var(--sub)">B2B</button></div>
         <select class="fsel" id="q-plan-sel" onchange="addPlanToQuote()" style="margin-bottom:10px">
           <option value="">— Select a package to add —</option>
         </select>
@@ -40494,50 +40495,61 @@ async function seedAdviuzPlans() {
 }
 
 async function loadPlansIntoQuoteDropdown(){
+  // qpk-1 (2026-11-04, Ajax): quote packages v2 — Pilot Project, Black Friday Offer (auto-hidden after
+  // its valid_until date), Standard Plans, AI Conversion Engine, AI Boosters. B2C/B2B switch picks the
+  // version (B2B = same price, half of everything). Only plans marked in_quote are listed.
   var sel = document.getElementById('q-plan-sel');
   if(!sel) return;
+  var seg = window._quoteSeg || 'b2c';
   sel.innerHTML = '<option value="">Loading plans...</option>';
   try {
-    var res = await sbFetch('/rest/v1/plans?select=*&is_active=eq.true&order=sort_order.asc');
-    var dbPlans = res.ok ? await res.json() : [];
+    var res = await sbFetch('/rest/v1/plans?select=*&in_quote=eq.true&order=sort_order.asc');
+    var today = new Intl.DateTimeFormat('en-CA',{timeZone:'America/Regina'}).format(new Date());
+    var dbPlans = (res.ok ? await res.json() : []).filter(function(p){
+      if(p.segment && p.segment !== seg) return false;
+      if(p.valid_until && String(p.valid_until) < today) return false;
+      return true;
+    });
     var localPlans = getPlans();
     sel.innerHTML = '<option value="">— Select a package —</option>';
 
-    // Category display labels
+    var _fmtD = function(d){ try{ return new Date(d+'T12:00:00').toLocaleDateString('en-CA',{month:'short',day:'numeric'}); }catch(e){ return d; } };
     var CAT_LABELS = {
-      'digital_flyers':  '🖼  Digital Flyer Packages',
-      'ai_sales':        '🤖  AI Conversion Engine',
-      'ai_sales_engine': '🤖  AI Conversion Engine',
-      'sales_engine':    '🤖  AI Conversion Engine',
-      'flyers':          '🖼  Digital Flyer Packages',
+      'pkg_pilot':    'Pilot Project',
+      'pkg_offer':    'Black Friday Offer',
+      'pkg_standard': 'Standard Plans',
+      'pkg_engine':   'AI Conversion Engine',
+      'ai_addon':     'AI Boosters'
     };
 
     if (dbPlans.length) {
-      // Group by category
       var groups = {};
       var groupOrder = [];
       dbPlans.forEach(function(p) {
         var cat = (p.category||'other').toLowerCase().trim();
         var label = CAT_LABELS[cat] || (cat.charAt(0).toUpperCase()+cat.slice(1).replace(/_/g,' '));
+        if(cat==='pkg_offer' && p.valid_until) label += ' — until ' + _fmtD(String(p.valid_until));
         if(!groups[cat]) { groups[cat] = {label:label, items:[]}; groupOrder.push(cat); }
         groups[cat].items.push(p);
       });
       groupOrder.forEach(function(cat) {
         var grp = groups[cat];
         var og = document.createElement('optgroup');
-        og.label = grp.label;
+        og.label = grp.label + (seg==='b2b' && cat!=='pkg_engine' && cat!=='ai_addon' ? ' (B2B)' : '');
         grp.items.forEach(function(p) {
           var price = parseFloat(p.price_cad);
           var priceStr = price >= 1000
             ? '$' + price.toLocaleString('en-CA',{minimumFractionDigits:0,maximumFractionDigits:0})
             : '$' + price.toFixed(2);
           var suffix = p.billing !== 'one_time' ? '/mo' : '';
+          var shortNm = String(p.name||'').replace(/^Adviuz /,'').replace(/: Digital Flyers \+ AI Conversion Engine/,'').replace(/ \(B2B\)$/,'').replace(/^AI Conversion Engine: /,'');
           var o = document.createElement('option');
           o.value = 'db:'+p.id;
           o.dataset.name = p.name;
           o.dataset.desc = p.description||'';
           o.dataset.price = p.price_cad;
-          o.textContent = p.name + ' — ' + priceStr + suffix;
+          o.dataset.setup = p.setup_fee||0;
+          o.textContent = shortNm + ' — ' + priceStr + suffix + (parseFloat(p.setup_fee)>0 ? ' + $'+parseFloat(p.setup_fee).toFixed(0)+' setup' : '');
           og.appendChild(o);
         });
         sel.appendChild(og);
@@ -40614,6 +40626,18 @@ function buildInstallments(total, n) {
   return installments;
 }
 
+// qpk-1: B2C / B2B switch on the quote builder (B2B = same price, half of everything)
+function setQuoteSeg(seg){
+  window._quoteSeg = (seg==='b2b') ? 'b2b' : 'b2c';
+  document.querySelectorAll('#q-seg button').forEach(function(b){
+    var on = b.getAttribute('data-seg') === window._quoteSeg;
+    b.style.background = on ? 'var(--white)' : 'none';
+    b.style.color = on ? 'var(--text)' : 'var(--sub)';
+    b.style.boxShadow = on ? '0 1px 2px rgba(0,0,0,.08)' : 'none';
+  });
+  loadPlansIntoQuoteDropdown();
+}
+
 function addPlanToQuote(){
   var sel = document.getElementById('q-plan-sel');
   if(!sel || !sel.value) return;
@@ -40627,7 +40651,9 @@ function addPlanToQuote(){
   var smsMatch  = desc.match(/([\d,]+) SMS\/mo/);
   var bundle = '';
   if(minsMatch && smsMatch) bundle = ' · '+minsMatch[1]+' min/mo + '+smsMatch[1]+' SMS/mo';
-  _quoteItems.push({id:Date.now(), name:name, description:desc.split(' · ').slice(0,3).join(' · '), qty:1, unit_price:price, total:price});
+  _quoteItems.push({id:Date.now(), name:name, description:desc, qty:1, unit_price:price, total:price});
+  var _setup = parseFloat(opt.dataset.setup || 0);
+  if(_setup > 0) _quoteItems.push({id:Date.now()+1, name:'One-time setup: '+name.replace(/^Adviuz /,''), description:'Done-for-you setup by our team.', qty:1, unit_price:_setup, total:_setup});
   renderQuoteItems();
   recalcQuote();
   sel.value = '';
