@@ -30350,18 +30350,29 @@ function aoRename(id){
   });
   document.body.appendChild(ov); setTimeout(function(){ var i=ov.querySelector('#aoRnIn'); if(i){ i.focus(); i.select(); } },250);
 }
+function _aoXminLoad(runId){
+  sbFetch('/rest/v1/rpc/run_extra_minutes',{method:'POST',body:JSON.stringify({p_run_id:runId})})
+    .then(function(r){ return r.ok?r.json():null; }).catch(function(){ return null; })
+    .then(function(x){ if(!x||typeof x!=='object') return; _ao.xmin[runId]=x;
+      if(_ao.view==='report' && _ao.rep && _ao.rep.run && _ao.rep.run.id===runId) aoReport(); });
+}
 function aoReport(){
   var d=_ao.rep, b=_aoBody(); if(!d||!b) return;
   var r=d.run, st=_aoStatus(Object.assign({},r,{left:d.left,following:d.following})), left=Number(d.minutes_left||0);
   var C=_aoCalc(d), m=C.minutes, f=C.funnel, res=C.results, rk=(_ao.range&&_ao.range.k)||'all';
   // rptmin-1 (2026-11-02, Ajax): each lead keeps only its LAST call's minutes, so retries were missing (Hair Tattoo showed 39, real 53). All time = the round's true total; the gap shows as its own row.
   if(rk==='all'){ var _rx=Math.max(0,Number(r.minutes_used||0)-Number(m.total||0)); if(_rx){ m.total+=_rx; m.retry=_rx; } }
+  // rptmin-2 (2026-11-05, Ajax): add minutes charged to this campaign OUTSIDE the round (AI follow-up calls,
+  // leads calling in, other AI calls) so All time adds up to the same number as the balance.
+  if(rk==='all'){ var _xm=(_ao.xmin=_ao.xmin||{})[r.id];
+    if(_xm===undefined){ _ao.xmin[r.id]=null; _aoXminLoad(r.id); }
+    else if(_xm){ m.fu=Number(_xm.followup||0); m.inb=Number(_xm.inbound||0); m.oth=Number(_xm.other||0); m.total+=m.fu+m.inb+m.oth; } }
   _aoTitle(_aoRoundName(Object.assign({},r,{campaign_name:d.campaign_name})));
   var used=Number(m.total||0), avg=f.called?(used/f.called):1.6, max=Math.max(1,f.called||0);
   var h='<div class="ao-dhead"><div class="ao-row" style="gap:8px"><span class="ao-pill '+st[1]+'">'+st[0]+'</span>'+(/^\[DEMO\]/.test(r.name||'')?'<span class="ao-demo">Demo</span>':'')+'</div>'
     +'<div class="ao-t" style="margin-top:6px">'+_aoE(d.campaign_name)+' · '+((r.purpose==='offer'||r.purpose==='announce')?'Special offer':'Book appointment')+' · '+(r.status==='scheduled'?'Starts '+_aoLongDT(r.scheduled_for):'Started '+_aoDate(r.created_at))+'</div>'
     +(/^\[DEMO\]/.test(r.name||'')?'':'<button class="ao-link" style="margin-top:6px;font-weight:500;display:inline-flex;align-items:center;gap:5px" onclick="aoRename(\''+_aoE(r.id)+'\')"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>Rename</button>')
-    +'<div class="ao-dsum"><button onclick="aoCallsShow(\'all\',1)"><b>'+Number(r.called||0).toLocaleString('en-CA')+'</b><span>Called ›</span></button><button onclick="aoCallsShow(\'talked\',1)"><b>'+(r.connected||0)+'</b><span>Talked ›</span></button><button onclick="aoCallsShow(\'booked\',1)"><b style="color:var(--green)">'+(r.booked||0)+'</b><span>Booked ›</span></button><div><b>'+(r.minutes_used||0)+'</b><span>Min used</span></div></div>'
+    +'<div class="ao-dsum"><button onclick="aoCallsShow(\'all\',1)"><b>'+Number(r.called||0).toLocaleString('en-CA')+'</b><span>Called ›</span></button><button onclick="aoCallsShow(\'talked\',1)"><b>'+(r.connected||0)+'</b><span>Talked ›</span></button><button onclick="aoCallsShow(\'booked\',1)"><b style="color:var(--green)">'+(r.booked||0)+'</b><span>Booked ›</span></button><div><b>'+(rk==='all'?used:(r.minutes_used||0))+'</b><span>Min used</span></div></div>'
     +_aoBigActions(r, left)+'</div>';
   // rptdeal-1 (2026-11-02, Ajax): deals closed from this round's leads + the revenue they brought — only when there are any
   try{
@@ -30381,7 +30392,7 @@ function aoReport(){
   }catch(_rd){}
   h+='<div class="ao-lbl" style="margin-top:4px">Report</div><div class="ao-tabs ao-tabs-scroll" style="margin-bottom:12px">'+AO_RANGES.map(function(x){ return '<button class="'+(rk===x[0]?'on':'')+'" onclick="aoRangePick(\''+x[0]+'\')">'+(x[0]==='custom'&&rk==='custom'?'📅 '+_aoRangeLabel(_ao.range):(x[0]==='custom'?'📅 Custom':x[1]))+'</button>'; }).join('')+'</div>';
   h+='<div class="ao-card"><div class="ao-t">AI minutes used · '+_aoE(_aoRangeLabel(_ao.range))+'</div><div class="ao-mins-n">'+used+' <span>min</span></div><div class="ao-t">'+(left?'Enough left for about '+Math.floor(left/Math.max(1,avg))+' more calls':'Add minutes to keep calling')+'</div></div>';
-  h+='<div class="ao-card"><div class="ao-lbl">Where the minutes went</div>'+_aoKVl('Real conversations',(m.talk||0)+' min','talked')+_aoKVl('Voicemails',(m.voicemail||0)+' min','voicemail')+_aoKVl('Short pick-ups (under 30 sec)',(m.short||0)+' min','short')+(m.retry?_aoKV('Earlier tries on the same leads',m.retry+' min'):'')+_aoKV('No answer / busy','0 min — never charged')
+  h+='<div class="ao-card"><div class="ao-lbl">Where the minutes went</div>'+_aoKVl('Real conversations',(m.talk||0)+' min','talked')+_aoKVl('Voicemails',(m.voicemail||0)+' min','voicemail')+_aoKVl('Short pick-ups (under 30 sec)',(m.short||0)+' min','short')+(m.retry?_aoKV('Earlier tries on the same leads',m.retry+' min'):'')+(m.fu?_aoKV('AI follow-up calls after the round',m.fu+' min'):'')+(m.inb?_aoKV('Leads calling in (AI answered)',m.inb+' min'):'')+(m.oth?_aoKV('Other AI calls on this campaign',m.oth+' min'):'')+_aoKV('No answer / busy','0 min — never charged')
     +'<div class="ao-t" style="margin-top:6px">Each answered call counts in whole minutes: a 20-second call uses 1 minute.</div></div>';
   var fun=function(l,v,last,k){ return '<div class="ao-fun ao-tap" onclick="aoCallsShow(\''+k+'\')"><span>'+l+'</span><div class="ao-track"><i style="width:'+Math.round((v||0)/max*100)+'%'+(last?';background:var(--green)':'')+'"></i></div><b>'+(v||0)+' ›</b></div>'; };
   h+='<div class="ao-card"><div class="ao-lbl">Results</div>'+fun('Called',f.called,0,'all')+fun('Answered',f.answered,0,'answered')+fun('Real conversation',f.talked,0,'talked')+fun('Interested',f.interested,0,'interested')+fun('Booked',f.booked,true,'booked')+'</div>';
