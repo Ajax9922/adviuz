@@ -1267,6 +1267,8 @@ textarea.pb2-in{resize:vertical;line-height:1.55}
 .pb2-compose .pb2-sugg{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -16px;padding:0 16px}
 .pb2-compose .pb2-sugg::-webkit-scrollbar{display:none}
 .pb2-compose .pb2-sugg button{flex:none}
+.pb2-mode{display:flex;gap:8px}.pb2-mode button{flex:1;text-align:left;padding:11px 12px;border:1.5px solid var(--p-line);border-radius:13px;background:#fff}.pb2-mode button b{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--p-ink)}.pb2-mode button small{display:block;font-size:11px;color:var(--p-sub);margin-top:3px;line-height:1.35}.pb2-mode button.on{border-color:var(--p-brand);background:var(--p-bsoft)}
+.pb2-note{display:block!important}.pb2-note svg{vertical-align:-2px;margin-right:4px}
 </style>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -16099,13 +16101,14 @@ async function loadPlaybook(){
       window._pbEnr={active:a,paused:p,talking:talking};
     }catch(e){ window._pbEnr=null; }
     try{
-      var r4=await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(_pbSetCid())+'&select=settings');
+      var r4=await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(_pbSetCid())+'&select=settings,forward_to_phone');
       var cr=r4.ok?await r4.json():[];
       var stg=(cr[0]&&cr[0].settings)||{}; if(typeof stg==='string'){ try{ stg=JSON.parse(stg); }catch(_e){ stg={}; } }
       var ap=(stg.ai&&stg.ai.approvals)||{};
       window._pbReview=!(ap.sms==='auto'&&ap.email==='auto');
       window._pbDay1=(stg.ai&&stg.ai.day1_retry)||null;
       window._pbAi=stg.ai||{}; // pb2-1: opener card
+      window._pbSettings=stg; window._pbFwd=(cr[0]&&cr[0].forward_to_phone)||''; // pb2-3: welcome text
     }catch(e){ window._pbReview=true; window._pbDay1=null; }
   }catch(e){ _pbSteps=[]; _pbStages={}; }
   renderPlaybook();
@@ -16159,7 +16162,7 @@ function _pb2When(s){
 function _pb2Fill(t){
   var tab=PB_ADV.tabs.find(function(x){return x.id===String(_pbCid);})||PB_ADV.tabs[0];
   var prod={fly:'Digital Flyers',ai:'the AI Conversion Engine',cs:'Digital Flyers and the AI Conversion Engine'}[tab.k];
-  return String(t||'').replace(/\{name\}/gi,'Alex').replace(/\{hi\}/gi,'Hi Alex').replace(/\{agent\}/gi,'Amber').replace(/\{business\}/gi,'Adviuz').replace(/\{product\}/gi,prod)
+  return String(t||'').replace(/\{name\}/gi,'Alex').replace(/\{hi\}/gi,'Hi Alex').replace(/\{agent\}/gi,'Amber').replace(/\{service\}/gi,'Adviuz').replace(/\{phone\}/gi,window._pbFwd||'').replace(/\{business\}/gi,'Adviuz').replace(/\{product\}/gi,prod)
     .replace(/\{book_link\}/gi,'adviuz.com/book').replace(/\{quote_link\}/gi,'[View your quote]');
 }
 function _pb2Link(t){ return _pb2Esc(t).replace(/(adviuz\.com\/[^\s]*|hub\.adviuz\.ca\/[^\s]*)/g,'<a>$1</a>').replace(/\[View your quote\]/g,'<a>View your quote →</a>'); }
@@ -16179,8 +16182,10 @@ function _pb2Render(){
   if(_pbStages[st.k]!==true) h+='<div class="pb2-warn">This stage is switched off — nothing in it sends. Turn it on in ⚙ Settings.</div>';
   h+='<div class="pb2-sub">'+st.sub+'</div>';
   if(st.k==='1'){
-    var ai=window._pbAi||{}, on=ai.sms_book_on===true, first=_pb2Fill(ai.sms_opener||'').replace(/\s+/g,' ').trim();
-    h+='<button type="button" class="pb2-row op" onclick="pb2OpenerView()"><span class="pb2-spark">'+PB2_I.spark+'</span><span class="t"><b>Instant text opener <span class="pb2-pill '+(on?'g':'n')+' sm">'+(on?'ON':'OFF')+'</span></b><small>“'+_pb2Esc(first.slice(0,70))+'…”</small></span><span class="chev">›</span></button>';
+    var ai=window._pbAi||{}, on=ai.sms_book_on===true, wOn=_pb2WelOn();
+    var txt=on?(ai.sms_opener||''):_pb2WelText();
+    var first=_pb2Fill(txt).replace(/\s+/g,' ').trim();
+    h+='<button type="button" class="pb2-row op" onclick="pb2OpenerView()"><span class="pb2-spark">'+(on?PB2_I.spark:PB2_I.sms)+'</span><span class="t"><b>Instant text · '+(on?'AI opener':'Welcome text')+' <span class="pb2-pill '+((on||wOn)?'g':'n')+' sm">'+((on||wOn)?'ON':'OFF')+'</span></b><small>“'+_pb2Esc(first.slice(0,70))+'…”</small></span><span class="chev">›</span></button>';
     h+='<button type="button" class="pb2-row" onclick="pb2InstantView()"><span class="pb2-spark lk">'+PB2_I.lock+'</span><span class="t"><b>Instant response</b><small>AI call in 60 s · missed-call text · 2nd call</small></span><span class="chev">›</span></button>';
   }
   var steps=_pb2Steps(st.k), last='';
@@ -16215,16 +16220,53 @@ function pb2Settings(){
     +'<div class="pb2-note">Sends 8 AM – 7 PM in the lead’s own time zone. Never on Sundays. Max 2 touches a day.</div>';
   _pb2Pop('Settings', h);
 }
+var PB2_WEL_DEFAULT='Thank you for contacting us about {service}. \n\nTo book an appointment or speak with our team, please call {phone}. \n\nWe look forward to helping you!';
+function _pb2WelOn(){ var st=window._pbSettings||{}; return st.welcome_on!==false && st.welcome_on!=='false'; }
+function _pb2WelText(){ var st=window._pbSettings||{}; var t=String(st.welcome_sms||'').trim(); return (t||PB2_WEL_DEFAULT).replace(/\{service\}|\[Campaign Name\]/g,'Adviuz').replace(/\{phone\}/g,window._pbFwd||'').replace(/\[Customer Name\]/g,'{name}'); }
 function pb2OpenerView(){
-  var ai=window._pbAi||{}, on=ai.sms_book_on===true;
-  var day=ai.sms_opener||'', night=ai.sms_opener_night||day, txt=_pb2.night?night:day;
-  var h='<div class="pb2-dn" style="margin:0 0 10px"><button type="button" class="'+(_pb2.night?'':'on')+'" onclick="_pb2.night=false;pb2OpenerView()">Day</button><button type="button" class="'+(_pb2.night?'on':'')+'" onclick="_pb2.night=true;pb2OpenerView()">Night (8 PM–9 AM)</button></div>'
-    +'<div class="pb2-pbub">'+_pb2Esc(_pb2Fill(txt))+'</div>'
-    +'<div class="pb2-rl" style="margin:12px 0 0"><div><i>1</i><span>'+(_pb2.night?'The night version goes out right away; the AI call waits until morning.':'Goes out right away, then the AI calls within 60 seconds.')+'</span></div>'
-    +'<div><i>2</i><span>The follow-up plan <b>keeps running</b> — it pauses only if the lead texts back.</span></div>'
-    +'<div><i>3</i><span>While they chat, the AI handles it. Quiet 2.5 h → one nudge. Quiet 24 h → the plan continues.</span></div></div>';
-  _pb2Pop('Instant text opener <span class="pb2-pill '+(on?'g':'n')+' sm">'+(on?'ON':'OFF')+'</span>', h,
-    '<button type="button" class="pb2-btn sm" onclick="pb2OpenerToggle('+(!on)+')">'+(on?'Turn off':'Turn on')+'</button><button type="button" class="pb2-btn pri" onclick="pb2OpenerEdit()">'+PB2_I.pen+' Edit opener</button>');
+  var ai=window._pbAi||{}, on=ai.sms_book_on===true, wOn=_pb2WelOn();
+  var h='<div class="pb2-mode"><button type="button" class="'+(on?'on':'')+'" onclick="pb2OpenerMode(true)"><b>'+PB2_I.spark+' AI opener</b><small>Amber starts a chat and can book the demo</small></button>'
+    +'<button type="button" class="'+(on?'':'on')+'" onclick="pb2OpenerMode(false)"><b>'+PB2_I.sms+' Welcome text</b><small>One simple thank-you text</small></button></div>';
+  if(on){
+    var day=ai.sms_opener||'', night=ai.sms_opener_night||day, txt=_pb2.night?night:day;
+    h+='<div class="pb2-dn" style="margin:12px 0 10px"><button type="button" class="'+(_pb2.night?'':'on')+'" onclick="_pb2.night=false;pb2OpenerView()">Day</button><button type="button" class="'+(_pb2.night?'on':'')+'" onclick="_pb2.night=true;pb2OpenerView()">Night (8 PM–9 AM)</button></div>'
+      +'<div class="pb2-pbub">'+_pb2Esc(_pb2Fill(txt))+'</div>'
+      +'<div class="pb2-rl" style="margin:12px 0 0"><div><i>1</i><span>'+(_pb2.night?'The night version goes out right away; the AI call waits until morning.':'Goes out right away, then the AI calls within 60 seconds.')+'</span></div>'
+      +'<div><i>2</i><span>The follow-up plan <b>keeps running</b> — it pauses only if the lead texts back.</span></div>'
+      +'<div><i>3</i><span>While they chat, the AI handles it. Quiet 2.5 h → one nudge. Quiet 24 h → the plan continues.</span></div></div>';
+  } else {
+    h+='<div style="display:flex;align-items:center;gap:10px;margin:14px 0 10px"><span style="flex:1;font-size:12.5px;color:var(--p-sub)">'+(wOn?'Sent right away to every new form and ad lead.':'Switched off — new leads get no instant text.')+'</span>'+_pb2Toggle(wOn,'pb2WelToggle('+(!wOn)+')')+'</div>'
+      +'<div class="pb2-pbub">'+_pb2Esc(_pb2Fill(_pb2WelText()))+'</div>';
+  }
+  h+='<div class="pb2-note">'+PB2_I.lock+' People who <b>phone</b> you always get the welcome text, never the AI opener.</div>';
+  _pb2Pop('Instant text', h, '<button type="button" class="pb2-btn pri" onclick="'+(on?'pb2OpenerEdit()':'pb2WelEdit()')+'">'+PB2_I.pen+' Edit '+(on?'AI opener':'welcome text')+'</button>');
+}
+async function pb2OpenerMode(on){
+  var cur=(window._pbAi||{}).sms_book_on===true; if(cur===on) return;
+  try{ await _pb2SaveAi({sms_book_on:on}); showToast(on?'AI opener ON — Amber starts the chat':'Welcome text ON — AI opener off'); }catch(e){ showToast('Could not save — try again'); }
+  _pb2Render(); pb2OpenerView();
+}
+async function _pb2SaveTop(patch){
+  var r=await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(PB_ADV.main)+'&select=settings');
+  var rows=r.ok?await r.json():[]; var s=(rows[0]&&rows[0].settings)||{}; if(typeof s==='string'){ try{ s=JSON.parse(s); }catch(_e){ s={}; } }
+  Object.keys(patch).forEach(function(k){ s[k]=patch[k]; });
+  var w=await sbFetch('/rest/v1/campaigns?id=eq.'+encodeURIComponent(PB_ADV.main),{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ settings:s }) });
+  if(!(w.ok||w.status===204)) throw new Error('save failed');
+  window._pbSettings=s; window._pbAi=s.ai||{};
+}
+async function pb2WelToggle(on){
+  try{ await _pb2SaveTop({welcome_on:on}); showToast(on?'Welcome text ON':'Welcome text OFF'); }catch(e){ showToast('Could not save — try again'); }
+  _pb2Render(); pb2OpenerView();
+}
+function pb2WelEdit(){
+  var st=window._pbSettings||{}, cur=String(st.welcome_sms||'').trim()||PB2_WEL_DEFAULT;
+  _pb2Pop('Edit welcome text', '<textarea class="pb2-in" id="pb2WelTa" style="min-height:200px">'+_pb2Esc(cur)+'</textarea>'
+    +'<div class="pb2-note">Tags: <b>{name}</b> = first name, <b>{service}</b> = Adviuz, <b>{phone}</b> = '+_pb2Esc(window._pbFwd||'your forwarding number')+'. Add “Reply STOP to opt out” at the end.</div>',
+    '<button type="button" class="pb2-btn" onclick="pb2OpenerView()">Cancel</button><button type="button" class="pb2-btn pri" onclick="pb2WelSave()">Save</button>');
+}
+async function pb2WelSave(){
+  var t=((document.getElementById('pb2WelTa')||{}).value||'').trim(); if(!t){ showToast('The text is empty'); return; }
+  try{ await _pb2SaveTop({welcome_sms:t}); showToast('Welcome text saved'); _pb2Render(); pb2OpenerView(); }catch(e){ showToast('Could not save — try again'); }
 }
 function pb2InstantView(){
   var d1=(window._pbDay1&&window._pbDay1.enabled);
