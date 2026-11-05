@@ -1269,6 +1269,19 @@ textarea.pb2-in{resize:vertical;line-height:1.55}
 .pb2-compose .pb2-sugg button{flex:none}
 .pb2-mode{display:flex;gap:8px}.pb2-mode button{flex:1;text-align:left;padding:11px 12px;border:1.5px solid var(--p-line);border-radius:13px;background:#fff}.pb2-mode button b{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--p-ink)}.pb2-mode button small{display:block;font-size:11px;color:var(--p-sub);margin-top:3px;line-height:1.35}.pb2-mode button.on{border-color:var(--p-brand);background:var(--p-bsoft)}
 .pb2-note{display:block!important}.pb2-note svg{vertical-align:-2px;margin-right:4px}
+.pb2-add{width:100%;margin-top:4px;padding:11px;border:1.5px dashed var(--p-bline);border-radius:13px;background:#fff;color:var(--p-brand);font-size:13px;font-weight:600}
+.pb2-chs{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.pb2-chs button{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--p-line);border-radius:12px;background:#fff;font-size:13px;font-weight:600;color:var(--p-ink)}
+.pb2-chs button .pb2-ch{width:26px;height:26px}
+.pb2-chs button.on{border-color:var(--p-brand);background:var(--p-bsoft)}
+.pb2-when{display:flex;gap:8px;align-items:center}
+.pb2-step{display:flex;align-items:center;border:1px solid var(--p-line);border-radius:12px;overflow:hidden;background:#fff;flex:none}
+.pb2-step button{width:38px;height:42px;border:0;background:var(--p-soft);font-size:18px;color:var(--p-ink)}
+.pb2-step span{min-width:64px;text-align:center;font-size:14px;font-weight:600}
+.pb2-hint2{font-size:11px;color:var(--p-mute);margin-top:5px}
+.pb2-del{display:block;margin:14px auto 0;border:0;background:none;color:#c0353a;font-size:12.5px;font-weight:600}
+.pb2-del.sure{background:#fdecef;padding:8px 14px;border-radius:10px}
+.pb2-times{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:8px -16px 0;padding:0 16px}.pb2-times::-webkit-scrollbar{display:none}.pb2-times button{flex:none;height:32px;padding:0 12px;border:1px solid var(--p-line);border-radius:16px;background:#fff;font-size:12.5px;color:var(--p-ink2)}.pb2-times button.on{background:var(--p-ink);border-color:var(--p-ink);color:#fff}
 </style>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -16150,13 +16163,16 @@ function _pb2Steps(k){
   return (_pbSteps||[]).filter(function(s){ return String(s.stage_key)===k && _pb2Visible(s); })
     .sort(function(a,b){ return (Number(a.delay_hours)||0)-(Number(b.delay_hours)||0)||(Number(a.step_no)||0)-(Number(b.step_no)||0); });
 }
+function _pb2Off(k){ var st=PB2_STAGES.find(function(x){return x.k===String(k);}); return st?st.off:0; }
+function _pb2Day(h,off){ return Math.floor(((Number(h)||0)+12)/24)+(off?1:0); }
+function _pb2Delay(day,hasTime,off){ day=Math.max(off?1:0,Number(day)||0); var base=(off?(day-1):day)*24; return Math.max(0, hasTime?base-12:base); }
 function _pb2When(s){
-  var h=Number(s.delay_hours)||0, st=PB2_STAGES.find(function(x){return x.k===String(s.stage_key);})||{off:0};
+  var h=Number(s.delay_hours)||0, off=_pb2Off(s.stage_key);
   var pin=s.send_at_local?(' · '+_pbHM12(String(s.send_at_local).slice(0,5))):'';
-  if(h===0) return {day:'Instantly',lbl:'Instantly'};
-  if(h<=2) return {day:'Within 2 hours',lbl:'Within 2 hours'};
-  if(h<24) return {day:(s.send_at_local&&st.off?'Day 2':'Within '+h+' hours'),lbl:(s.send_at_local&&st.off?'Day 2':'+'+h+' hours')+pin};
-  var d='Day '+(Math.round(h/24)+st.off);
+  if(h===0&&!s.send_at_local) return {day:'Instantly',lbl:'Instantly'};
+  if(h<=2&&!s.send_at_local) return {day:'Within 2 hours',lbl:'Within 2 hours'};
+  if(h<12&&!s.send_at_local) return {day:'Within '+h+' hours',lbl:'+'+h+' hours'};
+  var d='Day '+_pb2Day(h,off);
   return {day:d,lbl:d+pin};
 }
 function _pb2Fill(t){
@@ -16198,7 +16214,7 @@ function _pb2Render(){
     if(String(s.body||'').trim()==='{proposal}') first='Service proposal (sent once per lead)';
     h+='<div class="pb2-st'+(on?'':' off')+'" onclick="pb2Open(\''+s.id+'\')"><span class="pb2-ch '+k+'">'+(PB2_I[k]||PB2_I.task)+'</span><div class="pb2-sm"><div class="pb2-s1"><span class="w">'+_pb2Esc(w.lbl)+'</span><span class="k">· '+(PB2_CH[k]||k)+'</span>'+(on?'':'<span class="k">· off</span>')+'</div><div class="pb2-s2">'+_pb2Esc(first)+'</div></div>'+_pb2Toggle(on,'pb2StepToggle(\''+s.id+'\','+(!on)+')')+'</div>';
   });
-  h+='</div><div class="pb2-note">'+PB2_I.lock+' Sends 8 AM – 7 PM in the lead’s time, never on Sundays. A reply from the lead pauses their plan; quiet for 24 hours → it continues.</div></div>';
+  h+='</div><button type="button" class="pb2-add" onclick="pb2AddStep()">+ Add a step</button><div class="pb2-note">'+PB2_I.lock+' Sends 8 AM – 7 PM in the lead’s time, never on Sundays. A reply from the lead pauses their plan; quiet for 24 hours → it continues.</div></div>';
   el.innerHTML=h;
 }
 function _pb2Pop(title, inner, foot){
@@ -16321,8 +16337,8 @@ async function pb2OpenerSave(){
 }
 // ── step sheet: Preview · Edit · Rewrite with AI ──
 function _pb2Sheet(html){ var b=document.getElementById('pb2ShBody'); if(!b) return; b.innerHTML=html; openSheet('pb2Sh'); }
-function pb2Open(id){ _pb2.step=id; _pb2.tab='pre'; _pb2.chat=[]; _pb2.draft=null; _pb2RenderStep(); openSheet('pb2Sh'); }
-function _pb2Cur(){ return (_pbSteps||[]).find(function(x){ return String(x.id)===String(_pb2.step); }); }
+function pb2Open(id){ _pb2.step=id; _pb2.tab='pre'; _pb2.chat=[]; _pb2.draft=null; _pb2.ed=null; _pb2RenderStep(); openSheet('pb2Sh'); }
+function _pb2Cur(){ if(_pb2.step==='new') return _pb2.newStep; return (_pbSteps||[]).find(function(x){ return String(x.id)===String(_pb2.step); }); }
 function _pb2Shell(subj, body){
   return '<div class="pb2-mail"><div class="pb2-mhd"><span class="lg">A</span>Adviuz</div><div class="pb2-msub"><span>Subject:</span> '+_pb2Esc(subj)+'</div>'
     +'<div class="pb2-mb">'+_pb2Link(body)+'</div><div class="pb2-mft">Adviuz · Instad Web Services Ltd · Saskatoon, SK<br>sales@adviuz.ca · adviuz.com · Unsubscribe</div></div>';
@@ -16365,11 +16381,19 @@ function _pb2RenderStep(){
     if(editable&&(k==='sms'||k==='email')) h+='<button type="button" class="pb2-link" onclick="pb2TestAsk()">Send a test to me</button>';
     if(editable) f='<button type="button" class="pb2-btn" onclick="pb2Tab(\'edit\')">'+PB2_I.pen+' Edit</button><button type="button" class="pb2-btn pri" onclick="pb2Tab(\'ai\')">'+PB2_I.spark+' Rewrite with AI</button>';
   } else if(_pb2.tab==='edit'){
-    if(k==='email') h+='<label class="pb2-f">Subject</label><input class="pb2-in" id="pb2Subj" value="'+_pb2Esc(subj)+'" style="margin-bottom:10px">';
-    h+='<label class="pb2-f">'+(k==='call'?'Mission for the AI caller':k==='task'?'Task note':'Message')+'</label><textarea class="pb2-in" id="pb2Body" style="min-height:220px">'+_pb2Esc(body)+'</textarea>';
-    h+='<div class="pb2-chips">'+['{name}','adviuz.com/book','{quote_link}'].map(function(c){ return '<button type="button" onclick="pb2Ins(\''+c+'\')">+ '+(c==='adviuz.com/book'?'Booking button':c)+'</button>'; }).join('')+'</div>';
-    h+='<div class="pb2-note">Sends '+_pb2Esc(w.lbl)+'. Timing stays the same. In emails: a line with adviuz.com/book becomes the “Book my free demo” button, **words** turn bold, and a line starting with ✓ becomes a purple check point.</div>';
-    f='<button type="button" class="pb2-btn" onclick="pb2Tab(\'pre\')">Preview</button><button type="button" class="pb2-btn pri" onclick="pb2Save()">Save</button>';
+    var off=_pb2Off(s.stage_key), ed=_pb2.ed||(_pb2.ed={ch:s.channel==='task'&&k!=='stage'?'task':s.channel, day:(Number(s.delay_hours)===0&&!s.send_at_local)?(off?1:0):_pb2Day(s.delay_hours,off), time:s.send_at_local?String(s.send_at_local).slice(0,5):''});
+    h+='<label class="pb2-f">What to send</label><div class="pb2-chs">'+[['email','Email'],['sms','Text'],['call','AI call'],['task','Task for you']].map(function(c){ return '<button type="button" class="'+(ed.ch===c[0]?'on':'')+'" onclick="pb2EdSet(\'ch\',\''+c[0]+'\')"><span class="pb2-ch '+c[0]+'">'+PB2_I[c[0]]+'</span>'+c[1]+'</button>'; }).join('')+'</div>';
+    var times=[''].concat(['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00']);
+    h+='<label class="pb2-f" style="margin-top:12px">When</label><div class="pb2-when"><div class="pb2-step"><button type="button" onclick="pb2EdSet(\'day\','+(ed.day-1)+')">−</button><span>'+(off&&ed.day<=1?'Day 1':'Day '+ed.day)+'</span><button type="button" onclick="pb2EdSet(\'day\','+(ed.day+1)+')">+</button></div>'
+      +'</div><div class="pb2-times">'+times.map(function(t){ return '<button type="button" class="'+(ed.time===t?'on':'')+'" onclick="pb2EdSet(\'time\',\''+t+'\')">'+(t?_pbHM12(t).replace(':00',''):(off&&ed.day<=1?'Right away':'Any time'))+'</button>'; }).join('')+'</div>';
+    h+='<div class="pb2-hint2">'+(off?'Day 1 = the day they enter this stage.':'Day 1 = the day after they enter this stage. Day 0 = within 2 hours.')+'</div>';
+    if(ed.ch==='email') h+='<label class="pb2-f" style="margin-top:12px">Subject</label><input class="pb2-in" id="pb2Subj" value="'+_pb2Esc(subj)+'" style="margin-bottom:10px">';
+    else h+='<div style="height:12px"></div>';
+    h+='<label class="pb2-f">'+(ed.ch==='call'?'What the AI caller should do':ed.ch==='task'?'Task note for you':'Message')+'</label><textarea class="pb2-in" id="pb2Body" style="min-height:200px">'+_pb2Esc(body)+'</textarea>';
+    if(ed.ch==='email'||ed.ch==='sms') h+='<div class="pb2-chips">'+['{name}','adviuz.com/book','{quote_link}'].map(function(c){ return '<button type="button" onclick="pb2Ins(\''+c+'\')">+ '+(c==='adviuz.com/book'?'Booking link':c)+'</button>'; }).join('')+'</div>';
+    h+='<div class="pb2-note">In emails: a line with adviuz.com/book becomes the “Book my free demo” button, **words** turn bold, and a line starting with ✓ becomes a purple check point. Booking links open each lead’s own booking page.</div>';
+    if(s.id!=='new') h+='<button type="button" class="pb2-del" id="pb2DelBtn" onclick="pb2Delete()">Delete this step</button>';
+    f='<button type="button" class="pb2-btn" onclick="'+(s.id==='new'?'closeSheet(\'pb2Sh\')':'pb2Tab(\'pre\')')+'">'+(s.id==='new'?'Cancel':'Preview')+'</button><button type="button" class="pb2-btn pri" onclick="pb2Save()">'+(s.id==='new'?'Add step':'Save')+'</button>';
   } else {
     h+='<div class="pb2-chat">';
     h+='<div class="cb ai"><div class="m">✦ Adviuz AI</div>Tell me how to change this message. I’ll write a new version — tap Approve on the one you like.</div>';
@@ -16429,12 +16453,54 @@ async function _pb2Patch(id, subj, body){
   if(!(r.ok||r.status===204)) throw new Error('save failed');
   (_pbSteps||[]).forEach(function(x){ if(String(x.id)===String(id)){ x.body=body; if(s.channel==='email') x.subject=subj; } });
 }
+function pb2EdSet(k,v){ _pb2Grab(); var ed=_pb2.ed; if(!ed) return; var off=_pb2Off((_pb2Cur()||{}).stage_key);
+  if(k==='day') v=Math.max(off?1:0,Math.min(400,Number(v)||0));
+  ed[k]=v; _pb2RenderStep(); }
+function pb2AddStep(){
+  var steps=_pb2Steps(_pb2.stage), off=_pb2Off(_pb2.stage);
+  var last=steps.length?steps[steps.length-1]:null, day=last?_pb2Day(last.delay_hours,off)+1:(off?1:0);
+  _pb2.newStep={id:'new',stage_key:_pb2.stage,channel:'sms',subject:'',body:'Hi {name}, ',delay_hours:_pb2Delay(day,false,off),send_at_local:null,active:true,label:'v2'};
+  _pb2.step='new'; _pb2.tab='edit'; _pb2.chat=[]; _pb2.draft=null; _pb2.ed={ch:'sms',day:day,time:''};
+  _pb2RenderStep(); openSheet('pb2Sh');
+}
 async function pb2Save(){
   _pb2Grab(); var s=_pb2Cur(); if(!s) return;
   var body=(_pb2.draft&&_pb2.draft.body!=null)?_pb2.draft.body:s.body, subj=(_pb2.draft&&_pb2.draft.subject!=null)?_pb2.draft.subject:s.subject;
   if(!String(body||'').trim()){ showToast('The message is empty'); return; }
-  try{ await _pb2Patch(s.id, subj, body); _pb2.draft=null; _pb2.tab='pre'; _pb2RenderStep(); _pb2Render(); showToast('Saved'); }
-  catch(e){ showToast('Could not save — try again'); }
+  var ed=_pb2.ed, off=_pb2Off(s.stage_key), patch={ body:body, updated_at:new Date().toISOString() };
+  if(ed){
+    patch.channel=ed.ch; patch.send_at_local=ed.time||null;
+    patch.delay_hours=(off&&ed.day<=1&&!ed.time)?0:(!off&&ed.day<=0&&!ed.time)?2:_pb2Delay(ed.day,!!ed.time,off);
+    if(!off&&ed.day<=0&&ed.time) patch.delay_hours=0;
+  }
+  var ch=patch.channel||s.channel;
+  patch.subject=(ch==='email')?(subj||''):null;
+  if(ch==='email'&&!String(patch.subject).trim()){ showToast('Add an email subject'); return; }
+  try{
+    if(s.id==='new'){
+      var maxNo=(_pbSteps||[]).filter(function(x){return String(x.stage_key)===String(s.stage_key);}).reduce(function(m,x){return Math.max(m,Number(x.step_no)||0);},0);
+      var row=Object.assign({ client_id:_pbClientId||'7d315d20-00af-4e7f-8d79-c89b3f2b5cf7', campaign_id:_pbCid, stage_key:s.stage_key, step_no:maxNo+1, active:true, label:'v2' }, patch);
+      var r=await sbFetch('/rest/v1/playbook_steps',{ method:'POST', headers:{'Prefer':'return=representation'}, body: JSON.stringify(row) });
+      var rows=await r.json().catch(function(){ return []; });
+      if(!r.ok||!Array.isArray(rows)||!rows[0]) throw new Error('add failed');
+      _pbSteps.push(rows[0]); _pb2.step=rows[0].id; showToast('Step added');
+    } else {
+      var r2=await sbFetch('/rest/v1/playbook_steps?id=eq.'+encodeURIComponent(s.id),{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify(patch) });
+      if(!(r2.ok||r2.status===204)) throw new Error('save failed');
+      Object.assign(s, patch); showToast('Saved');
+    }
+    _pb2.draft=null; _pb2.ed=null; _pb2.tab='pre'; _pb2RenderStep(); _pb2Render();
+  }catch(e){ showToast('Could not save — try again'); }
+}
+async function pb2Delete(){
+  var s=_pb2Cur(); if(!s||s.id==='new') return; var b=document.getElementById('pb2DelBtn');
+  if(b&&!b.dataset.sure){ b.dataset.sure='1'; b.textContent='Tap again to delete this step'; b.classList.add('sure'); return; }
+  try{
+    var r=await sbFetch('/rest/v1/playbook_steps?id=eq.'+encodeURIComponent(s.id),{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body: JSON.stringify({ active:false, label:'deleted', updated_at:new Date().toISOString() }) });
+    if(!(r.ok||r.status===204)) throw new Error('x');
+    _pbSteps=_pbSteps.filter(function(x){ return String(x.id)!==String(s.id); });
+    closeSheet('pb2Sh'); _pb2Render(); showToast('Step deleted');
+  }catch(e){ showToast('Could not delete — try again'); }
 }
 async function pb2Ask(q){
   q=String(q||'').trim(); if(!q||_pb2.busy) return;
