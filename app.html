@@ -1129,7 +1129,7 @@ body.impersonating .ls-topbar{padding-top:8px}
 .act-chips::-webkit-scrollbar{height:4px}
 .act-chips::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
 @media (min-width:900px){ .act-chips{flex-wrap:wrap;overflow-x:visible;padding-bottom:6px} }
-.lgload{height:30px;width:auto;display:block;overflow:visible}.lgload .dot{transform-box:fill-box;transform-origin:50% 50%;animation:dotblink 1.1s ease-in-out infinite}@keyframes dotblink{0%,100%{opacity:1}50%{opacity:.25}}.fu-tz{margin:7px 2px 0;padding:5px 10px;border-radius:8px;background:var(--bg);font-size:11.5px;color:var(--sub);display:inline-block}.fu-tz b{color:var(--text);font-weight:600}.fu-jn{display:block;width:100%;margin-top:8px;padding:10px 12px;border:0;border-radius:10px;background:var(--green);color:#fff;font:600 13px/1.2 inherit;cursor:pointer;animation:jnPulse 1.6s ease-in-out infinite}.fu-jn.done{background:var(--bg);color:var(--sub);border:1px solid var(--border);animation:none}@keyframes jnPulse{0%,100%{box-shadow:0 0 0 0 rgba(22,163,74,.35)}50%{box-shadow:0 0 0 6px rgba(22,163,74,0)}}.jn-pv{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.5;color:var(--text);margin-bottom:12px}.jn-bt{display:inline-block;background:var(--green);color:#fff;border-radius:8px;padding:6px 12px;font-weight:600}
+.lgload{height:30px;width:auto;display:block;overflow:visible}.lgload .dot{transform-box:fill-box;transform-origin:50% 50%;animation:dotblink 1.1s ease-in-out infinite}@keyframes dotblink{0%,100%{opacity:1}50%{opacity:.25}}.fu-tz{margin:7px 2px 0;padding:5px 10px;border-radius:8px;background:var(--bg);font-size:11.5px;color:var(--sub);display:inline-block}.fu-tz b{color:var(--text);font-weight:600}.fu-jn{display:block;width:100%;margin-top:8px;padding:10px 12px;border:0;border-radius:10px;background:var(--green);color:#fff;font:600 13px/1.2 inherit;cursor:pointer;animation:jnPulse 1.6s ease-in-out infinite}.fu-jn.done{background:var(--bg);color:var(--sub);border:1px solid var(--border);animation:none}@keyframes jnPulse{0%,100%{box-shadow:0 0 0 0 rgba(22,163,74,.35)}50%{box-shadow:0 0 0 6px rgba(22,163,74,0)}}.jn-pv{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.5;color:var(--text);margin-bottom:12px}.jn-ck{display:flex;gap:10px;align-items:flex-start;background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;margin:-4px 0 12px;font-size:12.5px;line-height:1.45;color:#92400e;cursor:pointer}.jn-ck input{width:18px;height:18px;margin-top:1px;flex-shrink:0;accent-color:var(--green)}.jn-bt{display:inline-block;background:var(--green);color:#fff;border-radius:8px;padding:6px 12px;font-weight:600}
 /* pb2-1: new Automated Follow-ups screen (Adviuz house plans) */
 .pb2{--p-ink:#190229;--p-ink2:#3d3450;--p-sub:#6b6580;--p-mute:#9a95aa;--p-line:#ece9f3;--p-soft:#f7f6fb;--p-brand:#4000f3;--p-brand2:#8b2bf7;--p-bsoft:#f1edff;--p-bline:#d9d0fb;--p-grad:linear-gradient(118deg,#4000f3,#8b2bf7 55%,#e65afc);--p-green:#0e9f76;--p-gsoft:#e3f6ef;--p-amber:#c47a10;--p-asoft:#fdf3e1;color:var(--p-ink);font-family:var(--f)}
 .pb2 button{font-family:var(--f);cursor:pointer}
@@ -12240,11 +12240,19 @@ async function joinNudge(lid){
   }catch(_e){}
   if(!m||!m.meet_link){ showToast('No meeting link found for this booking'); return; }
   var msg=_jnMsgs(l, m.meet_link); window._jnCur={lid:lid, meeting_id:m.id, link:m.meet_link, msg:msg};
+  var called=false;
+  try{
+    var md=new Date(); md.setHours(0,0,0,0);
+    var rc=await sbFetch('/rest/v1/lead_activity?lead_id=eq.'+encodeURIComponent(l.dbId)+'&activity_type=eq.call&created_at=gte.'+encodeURIComponent(md.toISOString())+'&select=created_at&order=created_at.desc&limit=1');
+    var dc=await rc.json(); if(Array.isArray(dc)&&dc[0]) called=dc[0].created_at;
+  }catch(_e){}
+  window._jnCur.called=called;
   var esc=_pb2Esc, hasPh=!!l.ph, hasEm=!!l.em;
   var sent=(window._jnSent||{})[lid];
   _pb2Pop('Nudge '+esc(l.name||l.company||'lead')+' to join',
     (sent?'<div class="pb2-note" style="color:#b45309">You already nudged them at '+new Date(sent).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})+'.</div>':'')
     +'<label class="pb2-f">💬 Text'+(hasPh?' to '+esc(l.ph):' — no phone on file')+'</label><div class="jn-pv">'+esc(msg.sms).replace(/\n/g,'<br>')+'</div>'
+    +((called&&hasPh)?'<label class="jn-ck"><input type="checkbox" id="jnCk"><span><b>You already called them today</b> at '+new Date(called).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})+'. Tick the box to still send the text.</span></label>':'')
     +'<label class="pb2-f">✉️ Email'+(hasEm?' to '+esc(l.em):' — no email on file')+'</label><div class="jn-pv"><b>'+esc(msg.subj)+'</b><br><br>'+esc(msg.email).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/\[button:([^|\]]+)\|[^\]]+\]/g,'<span class="jn-bt">$1</span>').replace(/\n/g,'<br>')+'</div>',
     '<button type="button" class="pb2-btn" onclick="closeSheet(\'pb2Sh\')">Cancel</button><button type="button" class="pb2-btn pri" id="jnGo" onclick="joinNudgeSend()"'+(!hasPh&&!hasEm?' disabled':'')+'>Send now</button>');
 }
@@ -12253,8 +12261,11 @@ async function joinNudgeSend(){
   var b=document.getElementById('jnGo'); if(b){ b.disabled=true; b.textContent='Sending…'; }
   var cid=l.client_id||window._clientId||null, ok=[], bad=[];
   var jobs=[];
-  if(l.ph) jobs.push(sbFetch('/functions/v1/twilio-sms?action=send',{method:'POST',body:JSON.stringify({to:l.ph,message:c.msg.sms,lead_id:l.dbId,purpose:'manual'})})
-    .then(function(r){ return r.json().catch(function(){return{};}).then(function(d){ if(!r.ok||d.error||d.ok===false||d.success===false||d.blocked) throw 0; ok.push('text'); }); }).catch(function(){ bad.push('text'); }));
+  var ck=document.getElementById('jnCk'), smsOk=!!l.ph && (!c.called || !!(ck&&ck.checked));
+  var skipped=!!l.ph && !smsOk;
+  if(smsOk) jobs.push(sbFetch('/functions/v1/twilio-sms?action=send',{method:'POST',body:JSON.stringify({to:l.ph,message:c.msg.sms,lead_id:l.dbId,purpose:'manual'})})
+    .then(function(r){ return r.json().catch(function(){return{};}).then(function(d){ if(!r.ok||d.error||d.ok===false||d.success===false||d.blocked) throw 0; ok.push('text');
+      return sbFetch('/rest/v1/lead_activity',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({lead_id:l.dbId,client_id:cid,activity_type:'sms_sent',description:c.msg.sms,direction:'outbound',metadata:{handler:'human',kind:'join_nudge',from_number:d.from||null},created_at:new Date().toISOString()})}).catch(function(){}); }); }).catch(function(){ bad.push('text'); }));
   if(l.em) jobs.push(sbFetch('/functions/v1/client-email',{method:'POST',body:JSON.stringify({client_id:cid,lead_id:l.dbId,campaign_id:l.campaign_id||null,to:l.em,subject:c.msg.subj,message:c.msg.email})})
     .then(function(r){ return r.json().catch(function(){return{};}).then(function(d){ if(!r.ok||d.error||d.ok===false) throw 0; ok.push('email'); }); }).catch(function(){ bad.push('email'); }));
   await Promise.all(jobs);
@@ -12263,7 +12274,7 @@ async function joinNudgeSend(){
     logActivity({lead_id:l.id, client_id:cid, type:'note', label:'📣 Nudged to join', body:'Sent '+ok.join(' + ')+' with the Meet link: '+c.link, meta:{kind:'join_nudge', meeting_id:c.meeting_id}});
   }
   closeSheet('pb2Sh');
-  showToast(ok.length ? ('📣 Nudge sent ('+ok.join(' + ')+')'+(bad.length?' — '+bad.join(' + ')+' failed':'')) : 'Could not send — try again');
+  showToast(ok.length ? ('📣 Nudge sent ('+ok.join(' + ')+')'+(bad.length?' — '+bad.join(' + ')+' failed':'')+(skipped?' — text not sent (box not ticked)':'')) : 'Could not send — try again');
   try{ _reviewHostRefresh(); }catch(_e){}
 }
 // Re-render whichever screen is hosting the review/approval cards right now.
