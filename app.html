@@ -1129,7 +1129,8 @@ body.impersonating .ls-topbar{padding-top:8px}
 .act-chips::-webkit-scrollbar{height:4px}
 .act-chips::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
 @media (min-width:900px){ .act-chips{flex-wrap:wrap;overflow-x:visible;padding-bottom:6px} }
-.lgload{height:30px;width:auto;display:block;overflow:visible}.lgload .dot{transform-box:fill-box;transform-origin:50% 50%;animation:dotblink 1.1s ease-in-out infinite}@keyframes dotblink{0%,100%{opacity:1}50%{opacity:.25}}/* pb2-1: new Automated Follow-ups screen (Adviuz house plans) */
+.lgload{height:30px;width:auto;display:block;overflow:visible}.lgload .dot{transform-box:fill-box;transform-origin:50% 50%;animation:dotblink 1.1s ease-in-out infinite}@keyframes dotblink{0%,100%{opacity:1}50%{opacity:.25}}.fu-tz{margin:7px 2px 0;padding:5px 10px;border-radius:8px;background:var(--bg);font-size:11.5px;color:var(--sub);display:inline-block}.fu-tz b{color:var(--text);font-weight:600}
+/* pb2-1: new Automated Follow-ups screen (Adviuz house plans) */
 .pb2{--p-ink:#190229;--p-ink2:#3d3450;--p-sub:#6b6580;--p-mute:#9a95aa;--p-line:#ece9f3;--p-soft:#f7f6fb;--p-brand:#4000f3;--p-brand2:#8b2bf7;--p-bsoft:#f1edff;--p-bline:#d9d0fb;--p-grad:linear-gradient(118deg,#4000f3,#8b2bf7 55%,#e65afc);--p-green:#0e9f76;--p-gsoft:#e3f6ef;--p-amber:#c47a10;--p-asoft:#fdf3e1;color:var(--p-ink);font-family:var(--f)}
 .pb2 button{font-family:var(--f);cursor:pointer}
 .pb2-seg{display:flex;gap:4px;padding:3px;background:#fff;border:1px solid var(--p-line);border-radius:12px}
@@ -8236,6 +8237,7 @@ function goTab(tab,btn){
   if(tab!=='followups' && typeof fuFabHide==='function') fuFabHide();
   // When the Follow-ups tab opens, refresh from the database so saved
   // follow-ups (incl. ones made on other devices) show, then re-render.
+  if(tab==='followups'){ window._fuMode='appt'; fuSeg='today'; window._fuRange=null; } // fuappt-1: opens on today's appointments
   if(tab==='followups' && typeof loadFollowups==='function'){
     loadFollowups().then(function(){
       if(curTab==='followups'){ var ct=document.getElementById('content'); if(ct) ct.innerHTML=followupsHTML(); }
@@ -10150,7 +10152,7 @@ function fuChipCounts(){
 function followupsHTML(){
   // follow-4 (Ajax redesign): three views — Tasks Pending, Tasks Done,
   // Appointments — with Human/AI and Text/Call/Email filters underneath.
-  var mode=window._fuMode||'pending';
+  var mode=window._fuMode||'appt';
   if(window._seqUp===undefined || (window._seqUpAt && Date.now()-window._seqUpAt>300000)){ try{ loadSeqUpcoming(); }catch(_e){} }
   var cn=fuChipCounts();
   var _re="document.getElementById('content').innerHTML=followupsHTML()";
@@ -12192,10 +12194,23 @@ function fuCalRender(){
 }
 
 function apptTaskItems(){
+  // fuappt-1 (Ajax 2026-11-05): appointments show in YOUR device time (Saskatoon now), so the
+  // day/time match your own calendar; the lead's own local time rides along as a small strip.
+  var myTz=''; try{ myTz=Intl.DateTimeFormat().resolvedOptions().timeZone||''; }catch(_e){}
   return leads.filter(function(l){ return l.appointment_at && !l.meeting_outcome; }).map(function(l){
     var tz = l.timezone || (typeof tzFromPhone==='function' ? tzFromPhone(l.ph) : '') || 'America/Toronto';
-    var z = isoToZonedParts(l.appointment_at, tz);
-    return { _appt:true, lid:l.id, type:'meeting', date:z.date, time:z.time, note:'', done:false };
+    var d = new Date(l.appointment_at); var p=function(n){ return (n<10?'0':'')+n; };
+    var item = { _appt:true, lid:l.id, type:'meeting', date:d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()), time:p(d.getHours())+':'+p(d.getMinutes()), note:'', done:false };
+    try{
+      var mine=d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+      var theirs=d.toLocaleTimeString('en-US',{timeZone:tz,hour:'numeric',minute:'2-digit'});
+      if(theirs!==mine){
+        var zn=''; try{ zn=(new Intl.DateTimeFormat('en-US',{timeZone:tz,timeZoneName:'short'}).formatToParts(d).find(function(x){return x.type==='timeZoneName';})||{}).value||''; }catch(_e){}
+        var dayDiff=d.toLocaleDateString('en-CA',{timeZone:tz})!==d.toLocaleDateString('en-CA');
+        item.theirTime=theirs+(zn?' '+zn:'')+(dayDiff?' ('+d.toLocaleDateString('en-US',{timeZone:tz,weekday:'short'})+')':'');
+      }
+    }catch(_e){}
+    return item;
   });
 }
 // Re-render whichever screen is hosting the review/approval cards right now.
@@ -12641,6 +12656,7 @@ function taskListHTML(apptOnly){
           +   '<span style="font-size:11px;font-weight:600;color:'+(_isSeq?'#7c3aed':dc)+';white-space:nowrap">'+tOnly+'</span>'
           + '</div>'
           + lRow(lead,false,false,true)
+          + (t._appt && t.theirTime ? '<div class="fu-tz">\uD83C\uDF0E Their time: <b>'+t.theirTime+'</b></div>' : '')
           + '</div>';
       }
       var whenLbl = _dl+' '+h12+':'+mm+' '+ap + (fuSeg==='past' ? (_isSeq ? ' &middot; Catching up' : ' &middot; Overdue') : '');
@@ -12669,6 +12685,7 @@ function taskListHTML(apptOnly){
         +   '</span>'
         + '</div>'
         + lRow(lead,false,true)
+        + (t._appt && t.theirTime ? '<div class="fu-tz">\uD83C\uDF0E Their time: <b>'+t.theirTime+'</b></div>' : '')
         + (_isTeam && _teamNote ? '<div style="font-size:12px;color:var(--sub);line-height:1.5;margin:6px 2px 0;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:8px 10px">\uD83E\uDD16 Heard on the call: '+_teamNote.replace(/</g,'&lt;')+'</div>' : '')
         + (_isSeq && t.note ? '<div style="font-size:12px;color:var(--sub);line-height:1.5;margin:6px 2px 0;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:8px 10px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'+_escTxt(t.note)+'</div>' : '')
         + actBar
