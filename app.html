@@ -30350,26 +30350,28 @@ function aoRename(id){
   });
   document.body.appendChild(ov); setTimeout(function(){ var i=ov.querySelector('#aoRnIn'); if(i){ i.focus(); i.select(); } },250);
 }
-function _aoXminLoad(runId){
-  sbFetch('/rest/v1/rpc/run_extra_minutes',{method:'POST',body:JSON.stringify({p_run_id:runId})})
+function _aoRminLoad(runId,key,from,to){
+  _ao.rmin[key]=null;
+  sbFetch('/rest/v1/rpc/run_minutes',{method:'POST',body:JSON.stringify({p_run_id:runId,p_from:from?new Date(from).toISOString():null,p_to:to?new Date(to).toISOString():null})})
     .then(function(r){ return r.ok?r.json():null; }).catch(function(){ return null; })
-    .then(function(x){ if(!x||typeof x!=='object') return; _ao.xmin[runId]=x;
+    .then(function(x){ if(!x||typeof x!=='object') return; _ao.rmin[key]=x;
       if(_ao.view==='report' && _ao.rep && _ao.rep.run && _ao.rep.run.id===runId) aoReport(); });
 }
 function aoReport(){
   var d=_ao.rep, b=_aoBody(); if(!d||!b) return;
   var r=d.run, st=_aoStatus(Object.assign({},r,{left:d.left,following:d.following})), left=Number(d.minutes_left||0);
   var C=_aoCalc(d), m=C.minutes, f=C.funnel, res=C.results, rk=(_ao.range&&_ao.range.k)||'all';
-  // rptmin-1 (2026-11-02, Ajax): each lead keeps only its LAST call's minutes, so retries were missing (Hair Tattoo showed 39, real 53). All time = the round's true total; the gap shows as its own row.
-  // rptmin-5 (Ajax 2026-11-05): a date range that covers the whole round (e.g. Last 30 days on a 9-day-old round) IS All time.
+  // rptmin-6 (Ajax 2026-11-05): minutes come from the database — EVERY AI call charged to this campaign since the
+  // round started, counted on its own date (retries, AI follow-ups, leads calling in, other calls). Matches the balance.
+  // A date range that covers the whole round counts as All time.
   var _rb=_aoRangeBounds(_ao.range), _rs=new Date(r.created_at||0), whole=(rk==='all')||(_rb&&_rb[0]<=_rs&&_rb[1]>=new Date());
-  if(whole){ var _rx=Math.max(0,Number(r.minutes_used||0)-Number(m.total||0)); if(_rx){ m.total+=_rx; m.retry=_rx; } }
-  // rptmin-2 (2026-11-05, Ajax): add minutes charged to this campaign OUTSIDE the round (AI follow-up calls,
-  // leads calling in, other AI calls) so All time adds up to the same number as the balance.
-  var _xm=(_ao.xmin=_ao.xmin||{})[r.id]; if(_xm===undefined){ _ao.xmin[r.id]=null; _aoXminLoad(r.id); }
-  var _xsum=_xm?Number(_xm.followup||0)+Number(_xm.inbound||0)+Number(_xm.other||0):0, allUsed=Number(r.minutes_used||0)+_xsum;
-  if(whole){
-    if(_xm){ m.fu=Number(_xm.followup||0); m.inb=Number(_xm.inbound||0); m.oth=Number(_xm.other||0); m.total+=m.fu+m.inb+m.oth; } }
+  var _mc=(_ao.rmin=_ao.rmin||{}), _ka=r.id+'|all', _kr=whole?_ka:(r.id+'|'+(_rb?(+_rb[0])+'-'+(+_rb[1]):'all'));
+  if(_mc[_ka]===undefined) _aoRminLoad(r.id,_ka,null,null);
+  if(_kr!==_ka && _mc[_kr]===undefined) _aoRminLoad(r.id,_kr,_rb[0],_rb[1]);
+  var _all=_mc[_ka], _rm=_mc[_kr], allUsed=_all?Number(_all.total||0):Number(r.minutes_used||0);
+  if(_rm){ m={ total:Number(_rm.total||0), talk:Number(_rm.talk||0), voicemail:Number(_rm.voicemail||0), short:Number(_rm.short||0),
+               fu:Number(_rm.followup||0), inb:Number(_rm.inbound||0), oth:Number(_rm.other||0) }; }
+  else if(whole){ var _rx=Math.max(0,Number(r.minutes_used||0)-Number(m.total||0)); if(_rx){ m.total+=_rx; m.retry=_rx; } }
   _aoTitle(_aoRoundName(Object.assign({},r,{campaign_name:d.campaign_name})));
   var used=Number(m.total||0), avg=Number(r.called||0)?(allUsed/Number(r.called)):1.6, max=Math.max(1,f.called||0);
   var h='<div class="ao-dhead"><div class="ao-row" style="gap:8px"><span class="ao-pill '+st[1]+'">'+st[0]+'</span>'+(/^\[DEMO\]/.test(r.name||'')?'<span class="ao-demo">Demo</span>':'')+'</div>'
