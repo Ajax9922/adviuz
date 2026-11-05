@@ -34664,9 +34664,50 @@ function calPickDay(ds){
     var z = isoToZonedParts(iso, c.tz); var hh = parseInt(z.time.slice(0,2),10), mm = z.time.slice(3,5);
     var lbl = ((hh%12)||12)+':'+mm+' '+(hh>=12?'PM':'AM');
     return '<button type="button" class="cal-slot" data-iso="'+iso+'" onclick="calPickSlot(this)">'+lbl+'</button>';
-  }).join('');
+  }).join('') + _calCustomHTML();
+  if (head) head.style.display = 'block';
   var sb=document.getElementById('apptSaveBtn'); if(sb) sb.disabled=true;
   var picked=document.getElementById('calPicked'); if(picked){ picked.style.display='none'; }
+}
+// apptcustom-1 (Ajax 2026-11-05): book/reschedule at ANY time (e.g. 1:15 PM his time), not only the open slots.
+function _calLeadTz(){
+  var l=leads.find(function(x){ return (window._apptLeadDbId && x.dbId===window._apptLeadDbId) || x.id===window._apptLeadId; })||{};
+  return l.timezone || (typeof tzFromPhone==='function' ? tzFromPhone(l.ph) : '') || (window._cal||{}).tz || 'America/Toronto';
+}
+function _calCustomHTML(){
+  var c=window._cal||{}, lt=_calLeadTz(), mt=c.tz||lt;
+  if(!c.ctz) c.ctz=lt;
+  var zb=function(z,lbl){ return '<button type="button" class="cal-slot'+(c.ctz===z?' sel':'')+'" style="min-width:0;padding:7px 11px;font-size:12px" onclick="window._cal.ctz=\''+z+'\';calPickDay(window._cal.selDate);calCustomOpen()">'+lbl+'</button>'; };
+  return '<button type="button" class="cal-slot" id="calOtherBtn" onclick="calCustomOpen()">+ Other time</button>'
+    + '<div id="calCustom" style="display:none;width:100%;margin-top:8px;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:10px 12px">'
+    +   '<div style="font-size:12px;color:var(--sub);margin-bottom:7px">Type any time, e.g. <b>1:15 PM</b></div>'
+    +   (lt!==mt ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'+zb(lt,'Their time ('+tzShortLabel(lt)+')')+zb(mt,'My time ('+tzShortLabel(mt)+')')+'</div>' : '')
+    +   '<div style="display:flex;gap:8px"><input class="finp" id="calCustomIn" placeholder="1:15 PM" inputmode="text" style="flex:1;margin:0" onkeydown="if(event.key===\'Enter\')calCustomUse()">'
+    +   '<button type="button" class="btn btn-primary" style="padding:0 16px" onclick="calCustomUse()">Use</button></div>'
+    + '</div>';
+}
+function calCustomOpen(){ var b=document.getElementById('calCustom'); if(b){ b.style.display='block'; var i=document.getElementById('calCustomIn'); if(i) i.focus(); } }
+function calCustomUse(){
+  var c=window._cal; if(!c||!c.selDate){ showToast('Pick the day first'); return; }
+  var v=String((document.getElementById('calCustomIn')||{}).value||'').trim().toLowerCase().replace(/\s+/g,'');
+  var m=v.match(/^(\d{1,2})(?::?(\d{2}))?(am|pm|a|p)?$/); if(!m){ showToast('Type a time like 1:15 PM'); return; }
+  var h=parseInt(m[1],10), mi=parseInt(m[2]||'0',10), ap=m[3]||'';
+  if(mi>59||h>23||(ap&&(h<1||h>12))){ showToast('That time doesn\u2019t look right'); return; }
+  if(ap){ if(ap[0]==='p'&&h<12) h+=12; if(ap[0]==='a'&&h===12) h=0; } else if(h>=1&&h<=7){ h+=12; }
+  var pad=function(n){ return (n<10?'0':'')+n; };
+  var ztz=c.ctz||_calLeadTz();
+  // selDate is a calendar day in the sheet's zone; read the same wall-clock day in the chosen zone.
+  var iso=zonedToUtcISO(c.selDate, pad(h)+':'+pad(mi), ztz);
+  if(new Date(iso).getTime()<Date.now()-5*60000){ showToast('That time has already passed'); return; }
+  c.selIso=iso;
+  document.querySelectorAll('.cal-slot.sel').forEach(function(b){ if(b.id!=='calOtherBtn' && !/time \(/.test(b.textContent)) b.classList.remove('sel'); });
+  var z=isoToZonedParts(iso, c.tz);
+  var dEl=document.getElementById('apptDate'), tEl=document.getElementById('apptTime'); if(dEl) dEl.value=z.date; if(tEl) tEl.value=z.time;
+  var lt=_calLeadTz(), picked=document.getElementById('calPicked');
+  if(picked){ picked.style.display='block';
+    var mine=new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}), theirs=new Date(iso).toLocaleTimeString('en-US',{timeZone:lt,hour:'numeric',minute:'2-digit'});
+    picked.textContent=fmtApptLocal(iso, c.tz)+(theirs!==mine?' \u00b7 their time '+theirs+' ('+tzShortLabel(lt)+')':'')+' \u00b7 '+(c.dur<60?c.dur+' min':(c.dur%60===0?(c.dur/60)+' hr':(c.dur/60).toFixed(1)+' hr')); }
+  var sb=document.getElementById('apptSaveBtn'); if(sb) sb.disabled=false;
 }
 function calPickSlot(btn){
   var c = window._cal; c.selIso = btn.dataset.iso;
