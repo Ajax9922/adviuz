@@ -1287,6 +1287,27 @@ textarea.pb2-in{resize:vertical;line-height:1.55}
 .pb2-compose .pb2-sugg{flex-wrap:wrap!important;overflow:visible!important;margin:0!important;padding:0!important}
 .pb2-ul{gap:14px!important}.pb2-ul button{font-size:13px!important}
 .pb2-pvf{min-height:200px!important}
+
+/* sap-1: Quote menu + Share all plans */
+.sap-body{flex:1;overflow-y:auto;padding:4px 16px 16px}
+.sap-foot{display:flex;gap:10px;padding:12px 16px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--border)}
+.sap-opt{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:10px;cursor:pointer;font-family:var(--f)}
+.sap-ic{flex:0 0 40px;height:40px;border-radius:11px;background:#f1ecff;color:#5b1cf0;display:flex;align-items:center;justify-content:center}.sap-ic svg{width:20px;height:20px}
+.sap-tx{flex:1;min-width:0}.sap-tx b{display:block;font-size:15px;font-weight:600;color:var(--text)}.sap-tx small{display:block;font-size:12.5px;color:var(--sub);margin-top:2px;line-height:1.4}
+.sap-ch{font-size:22px;color:var(--sub)}
+.sap-link{display:block;width:100%;background:none;border:0;color:#5b1cf0;font-family:var(--f);font-size:13px;font-weight:600;padding:10px;cursor:pointer;text-align:center}
+.sap-k{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--sub);margin:4px 0 8px}
+.sap-seg{display:flex;gap:4px;background:var(--bg);border:1px solid var(--border);border-radius:11px;padding:3px}
+.sap-seg button{flex:1;padding:9px 6px;border:0;border-radius:8px;background:none;font-family:var(--f);font-size:13px;font-weight:600;color:var(--sub);cursor:pointer}
+.sap-seg button.on{background:var(--white);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.1)}
+.sap-hint{font-size:12px;color:var(--sub);margin-top:6px}
+.sap-svc{display:block;width:100%;text-align:left;background:var(--white);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:10px;cursor:pointer;font-family:var(--f);position:relative}
+.sap-svc b{display:block;font-size:15.5px;font-weight:600;color:var(--text)}.sap-svc small{display:block;font-size:12.5px;color:var(--sub);margin-top:3px}
+.sap-svc span{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:12.5px;font-weight:600;color:#5b1cf0}
+.sap-to{font-size:13px;color:var(--sub);margin:2px 0 12px}.sap-to b{color:var(--text)}
+.sap-subj{font-size:14px;font-weight:600;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px}
+.sap-frame{width:100%;min-height:420px;border:1px solid var(--border);border-radius:12px;background:#fff}
+.sap-go{background:linear-gradient(118deg,#4000f3,#8b2bf7 55%,#e65afc)!important;color:#fff!important;border:0!important;justify-content:center}
 </style>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -19641,7 +19662,7 @@ function renderLeadScreen(id) {
     // ══ QUOTE | INVOICE (below the leads nav) ══
     h += '<div style="background:var(--white);padding:12px 16px;margin-bottom:4px">';
     h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">';
-    h += ldQuickBtn('📄','Quotes','#fef3c7','#d97706',   'openLeadQuotes('+l.id+')','quotes');
+    h += ldQuickBtn('📄','Quote','#fef3c7','#d97706',   'openQuoteMenu('+l.id+')','quotes');
     h += ldQuickBtn('🧾','Invoices','#d1fae5','#00a884', 'openLeadInvoices('+l.id+')','invoices');
     h += ldQuickBtn('📋','Proposal','#f3efff','#4000f3', 'openProposalWizard('+l.id+')','quotes');
     h += '</div></div>';
@@ -42002,6 +42023,151 @@ async function _pwSend(){
     var sh=document.getElementById('pwSh'); if(sh) sh.remove();
   }catch(e){ showToast('Could not send — try again'); }
   if(btn){ btn.disabled=false; btn.textContent='Send →'; }
+}
+
+
+// ═══ sap-1 (2026-11-06, Ajax "Implement it"): Quote menu → Share a quote / Share all plans / Proposal.
+// "Share all plans" → B2C/B2B + Digital Flyers / AI Conversion Engine / Digital Flyers + AI Engine →
+// builds a plans proposal (prices from the live plans table; Black Friday prices while they last),
+// shows the exact email first, sends ONLY when you press Send. Client picks a plan on the page →
+// proposal-plans makes the quote → normal pay page, invoice and receipt.
+function openQuoteMenu(lid){
+  var l=leads.find(function(x){ return x.id===lid; }); if(!l) return;
+  var miss=[];
+  if(!l.name || l.name===l.company || l.name==='Lead') miss.push({field:'name', label:'Contact Name', placeholder:'e.g. John Smith'});
+  if(!l.em) miss.push({field:'em', label:'Email Address', type:'email', placeholder:'client@email.com'});
+  if(miss.length){ requireLeadInfo(l, miss, 'Quote', function(){ openQuoteMenu(lid); }); return; }
+  var opt=function(ic,t,s,fn){ return '<button type="button" class="sap-opt" onclick="'+fn+'"><span class="sap-ic">'+ic+'</span><span class="sap-tx"><b>'+t+'</b><small>'+s+'</small></span><span class="sap-ch">&rsaquo;</span></button>'; };
+  var I=function(p){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>'; };
+  _sapSheet('sapMenu','Quote · '+_pwEsc((l.name||'').split(' ')[0]),
+    opt(I('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/>'),'Share a quote','One package and price you choose','_sapClose(\'sapMenu\');window._quotesListLid='+lid+';openCreateQuoteSheet('+lid+')')
+   +opt(I('<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>'),'Share all plans','Proposal with every plan, pricing and the presentation','_sapClose(\'sapMenu\');openSharePlans('+lid+')')
+   +opt(I('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4z"/>'),'Custom proposal','Write your own proposal in the Proposal Wizard','_sapClose(\'sapMenu\');openProposalWizard('+lid+')')
+   +'<button type="button" class="sap-link" onclick="_sapClose(\'sapMenu\');openLeadQuotes('+lid+')">See past quotes for this lead</button>');
+}
+function _sapSheet(id,title,body,foot){
+  var old=document.getElementById(id); if(old) old.remove();
+  var ov=document.createElement('div'); ov.className='sheet-ov'; ov.id=id; ov.style.display='flex'; ov.style.zIndex='940';
+  ov.onclick=function(e){ if(e.target===ov) ov.remove(); };
+  ov.innerHTML='<div class="sheet" style="max-height:90dvh;display:flex;flex-direction:column"><div class="sheet-handle"></div>'
+    +'<div class="sheet-head"><div class="sheet-title">'+title+'</div><button class="sheet-x" onclick="_sapClose(\''+id+'\')">&#x2715;</button></div>'
+    +'<div class="sap-body">'+body+'</div>'+(foot?'<div class="sap-foot">'+foot+'</div>':'')+'</div>';
+  document.body.appendChild(ov); return ov;
+}
+function _sapClose(id){ var e=document.getElementById(id); if(e) e.remove(); }
+
+window.SAP_LIVE=false; // sap-1: flip to true after Ajax approves the sample email
+var _SAP_SVC={
+  flyers:{ label:'Digital Flyers', header:'Digital Flyers Proposal', subject:'New Flyers Distribution System', sub:'Growth · Scale · Pro — Digital Flyers bundles' },
+  ai:{ label:'AI Conversion Engine', header:'AI Conversion Engine Proposal', subject:'AI Conversion Engine', sub:'Essential · Pro · Max' },
+  complete:{ label:'Digital Flyers + AI Engine', header:'Digital Flyers + AI Engine Proposal', subject:'Digital Flyers + AI Conversion Engine', sub:'Growth · Scale · Pro — flyers with the AI engine' }
+};
+function openSharePlans(lid){
+  window._sap={ lid:lid, seg:(window._sap&&window._sap.lid===lid&&window._sap.seg)||'b2c' };
+  _sapPlansRender();
+}
+function _sapPlansRender(){
+  var S=window._sap; if(!S) return;
+  var seg=function(v,t){ return '<button type="button" class="'+(S.seg===v?'on':'')+'" onclick="window._sap.seg=\''+v+'\';_sapPlansRender()">'+t+'</button>'; };
+  var svc=function(k){ var x=_SAP_SVC[k]; return '<button type="button" class="sap-svc" onclick="_sapPick(\''+k+'\',this)"><b>'+x.label+'</b><small>'+x.sub+'</small><span>Preview email &rsaquo;</span></button>'; };
+  _sapSheet('sapPlans','Share all plans',
+    '<div class="sap-k">Who is this business selling to?</div><div class="sap-seg">'+seg('b2c','Consumers (B2C)')+seg('b2b','Businesses (B2B)')+'</div>'
+   +'<div class="sap-hint">B2B plans: same prices, half the flyers and AI minutes.</div>'
+   +'<div class="sap-k" style="margin-top:16px">Which proposal?</div>'+svc('flyers')+svc('ai')+svc('complete'));
+}
+function _sapUnits(re,s){ var m=String(s||'').match(re); return m?m[1]:''; }
+async function _sapBuild(svc,seg){
+  var r=await sbFetch('/rest/v1/plans?select=*&in_quote=eq.true&order=sort_order.asc');
+  var rows=r.ok?await r.json():[];
+  var today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Regina'}).format(new Date());
+  var live=function(p){ return !p.valid_until || String(p.valid_until)>=today; };
+  var plans=[], pilot=null, validUntil=null;
+  if(svc==='ai'){
+    rows.filter(function(p){ return p.category==='pkg_engine'; }).forEach(function(p){
+      var short=String(p.name).split(':').pop().trim(), setup=Number(p.setup_fee)||0, price=Number(p.price_cad)||0;
+      var parts=String(p.description||'').split(' · ').map(function(t){ return t.replace(/\.$/,'').replace(/^([^\d]*?)(\d[\d,]*)/,'$1**$2**'); });
+      var items=[{name:p.name, description:p.description||'', unit_price:price}];
+      if(setup) items.push({name:'One-time AI Conversion Engine setup', description:'Your AI agent built and trained on your business', unit_price:setup});
+      plans.push({ key:short.toLowerCase().replace(/[^a-z0-9]+/g,'-'), name:short, sub:parts[0].replace(/\*\*/g,''), price:price+setup,
+        price_note:setup?'incl. $'+setup+' setup · + tax':'one-time + tax', lines:parts.slice(1), items:items, rec:short==='Pro' });
+    });
+  } else {
+    var std=rows.filter(function(p){ return p.category==='pkg_standard' && p.segment===seg; });
+    var off=rows.filter(function(p){ return p.category==='pkg_offer' && p.segment===seg && live(p); });
+    var nm=function(p){ var m=String(p.name).match(/Adviuz (\w+) Plan/); return m?m[1]:String(p.name); };
+    std.forEach(function(s){
+      var o=off.find(function(x){ return nm(x)===nm(s); }), use=o||s, d=s.description;
+      if(o && o.valid_until && (!validUntil || o.valid_until<validUntil)) validUntil=o.valid_until;
+      var v=_sapUnits(/([\d,]+) viewed flyers/,d), m=_sapUnits(/([\d,]+) AI call minutes/,d), t=_sapUnits(/([\d,]+) texts/,d), e=_sapUnits(/edits for (\d+) months?/,d);
+      plans.push({ key:nm(s).toLowerCase(), name:nm(s), sub:v+' viewed flyers', price:Number(use.price_cad), std:Number(s.price_cad),
+        lines:['**'+v+'** people view your flyer for 25 seconds','**'+m+'** AI call minutes to follow up every enquiry','**'+t+'** texts, emails and call minutes','Flyer design + unlimited edits for '+e+' months'],
+        items:[{name:use.name, description:use.description||'', unit_price:Number(use.price_cad)}], rec:nm(s)==='Scale' });
+    });
+    var pp=rows.find(function(p){ return p.category==='pkg_pilot' && p.segment===seg && live(p); });
+    if(pp) pilot={ key:'pilot', name:'Pilot Project', price:Number(pp.price_cad), sub:'Pilot Project · '+_sapUnits(/([\d,]+) viewed flyers/,pp.description)+' viewed flyers · 6 months', items:[{name:pp.name, description:pp.description||'', unit_price:Number(pp.price_cad)}] };
+  }
+  if(!validUntil){ var d=new Date(); d.setDate(d.getDate()+30); validUntil=d.toISOString().slice(0,10); }
+  var X=_SAP_SVC[svc];
+  return { valid_until:validUntil, content:{ kind:'plans', service:svc, segment:seg, header_label:X.header, subject:X.subject,
+    plans:plans, pilot:pilot, presentation_url:'/assets/Adviuz-Presentation.pdf', call_number:'+1 647 250 1152' } };
+}
+function _sapMsg(l,svc,url){
+  var first=String(l.name||'there').trim().split(/\s+/)[0]||'there', X=_SAP_SVC[svc];
+  return 'Hi '+first+',\n\nThank you for your time. As requested, here is your **'+X.label+'** proposal with all our plans and pricing.\n\n'
+    +'[button:View your proposal →|'+url+']\n\nInside you’ll find:\n'
+    +'✓ All plans and pricing, with a secure pay-online button\n'
+    +'✓ Our presentation to download and share with your team\n'
+    +'✓ How '+(svc==='ai'?'the AI Conversion Engine':(svc==='flyers'?'Digital Flyers':'Digital Flyers and the AI Conversion Engine'))+(svc==='ai'?' works':' work')+'\n\n'
+    +'Take your time to discuss it with your team. Any questions? Just reply to this email or call **1 647 250 1152**.';
+}
+async function _sapPick(svc,btn){
+  var S=window._sap; if(!S) return; var l=leads.find(function(x){ return x.id===S.lid; }); if(!l||!l.dbId) return;
+  if(btn){ btn.disabled=true; btn.querySelector('span').textContent='Preparing…'; }
+  try{
+    var b=await _sapBuild(svc,S.seg);
+    if(!b.content.plans.length) throw new Error('No plans found');
+    var pr=await sbFetch('/rest/v1/proposals',{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify({
+      lead_id:l.dbId, lead_name:l.name||'', company:l.company||null, email:l.em, phone:l.ph||null, status:'draft',
+      content:b.content, valid_until:b.valid_until, updated_at:new Date().toISOString() })});
+    var rows=pr.ok?await pr.json():null; var prop=rows&&rows[0]; if(!prop) throw new Error('save');
+    var url=_pwLink(null,prop.id), X=_SAP_SVC[svc];
+    S.svc=svc; S.prop=prop; S.url=url;
+    S.subj='Ref: '+(l.company||l.name)+' | '+X.header;
+    S.msg=_sapMsg(l,svc,url);
+    _sapSendRender(l);
+  }catch(e){ showToast('Could not prepare the proposal — try again'); if(btn){ btn.disabled=false; btn.querySelector('span').innerHTML='Preview email &rsaquo;'; } }
+}
+function _sapSendRender(l){
+  var S=window._sap, X=_SAP_SVC[S.svc];
+  _sapClose('sapPlans');
+  _sapSheet('sapSend',X.label+' proposal',
+    '<div class="sap-to">To <b>'+_pwEsc(l.name||'')+'</b> &middot; '+_pwEsc(l.em)+'</div>'
+   +'<div class="sap-k">Subject</div><div class="sap-subj">'+_pwEsc(S.subj)+'</div>'
+   +'<div class="sap-k">Email</div><iframe id="sapFrame" class="sap-frame" sandbox="allow-same-origin"></iframe>'
+   +'<button type="button" class="sap-link" onclick="window.open(\''+S.url+'&preview=1\',\'_blank\')">Open the proposal page (preview)</button>',
+    '<button type="button" class="btn btn-ghost" style="flex:1" onclick="_sapClose(\'sapSend\');openSharePlans('+S.lid+')">Back</button>'
+   +'<button type="button" class="btn sap-go" id="sapGo" style="flex:2" onclick="_sapSend()">Send email</button>');
+  sbFetch('/functions/v1/client-email',{method:'POST',body:JSON.stringify({ preview:true, client_id:_houseId(), lead_id:l.dbId, campaign_id:l.campaign_id||null, to:l.em, subject:S.subj, message:S.msg })})
+    .then(function(r){ return r.json(); }).then(function(j){
+      var f=document.getElementById('sapFrame'); if(!f||!j||!j.html) return;
+      f.srcdoc=j.html; f.onload=function(){ try{ f.style.height=(f.contentDocument.documentElement.scrollHeight+10)+'px'; }catch(_e){} };
+    }).catch(function(){});
+}
+async function _sapSend(){
+  var S=window._sap; if(!S||!S.prop) return; var l=leads.find(function(x){ return x.id===S.lid; }); if(!l) return;
+  // Until Ajax approves the sample, real sending is limited to his own test inboxes.
+  if(!window.SAP_LIVE && ['mra104@gmail.com','ajaysheria90@gmail.com','sales@adviuz.ca'].indexOf(String(l.em||'').toLowerCase())<0){ showToast('Waiting for approval — test on Ajax Test first'); return; }
+  var b=document.getElementById('sapGo'); if(b){ b.disabled=true; b.textContent='Sending…'; }
+  try{
+    var r=await sbFetch('/functions/v1/client-email',{method:'POST',body:JSON.stringify({ client_id:_houseId(), lead_id:l.dbId, campaign_id:l.campaign_id||null, to:l.em, subject:S.subj, message:S.msg })});
+    var j=await r.json().catch(function(){ return {}; });
+    if(!r.ok || j.error || j.ok===false) throw new Error(j.error||'send');
+    var now=new Date().toISOString();
+    await sbFetch('/rest/v1/proposals?id=eq.'+S.prop.id,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({status:'sent',sent_at:now,updated_at:now})});
+    try{ await sbFetch('/rest/v1/activity_log',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({lead_id:l.dbId,type:'proposal',label:'Proposal Sent',body:'📋 '+_SAP_SVC[S.svc].header+' sent by email: '+S.url,created_at:now})}); }catch(_e){}
+    window._ibEmailsLoaded=false;
+    _sapClose('sapSend'); showToast('✅ Proposal sent to '+l.em);
+  }catch(e){ showToast('Could not send — try again'); if(b){ b.disabled=false; b.textContent='Send email'; } }
 }
 
 async function openLeadQuotes(lid) {
