@@ -1305,6 +1305,7 @@ textarea.pb2-in{resize:vertical;line-height:1.55}
 .sap-svc b{display:block;font-size:15.5px;font-weight:600;color:var(--text)}.sap-svc small{display:block;font-size:12.5px;color:var(--sub);margin-top:3px}
 .sap-svc span{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:12.5px;font-weight:600;color:#5b1cf0}
 .sap-to{font-size:13px;color:var(--sub);margin:2px 0 12px}.sap-to b{color:var(--text)}
+.sap-sms{background:#eef2f7;border-radius:14px 14px 14px 4px;padding:10px 12px;font-size:13px;line-height:1.5;color:var(--text);margin-bottom:10px;word-break:break-word}
 .sap-ig{font-size:12px;font-weight:600;color:var(--sub);margin:4px 0 6px}
 .sap-inc{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
 .sap-ip{display:flex;align-items:center;gap:8px;padding:10px 11px;border:1px solid var(--border);border-radius:12px;background:var(--white);font-family:var(--f);text-align:left;cursor:pointer}
@@ -42223,21 +42224,36 @@ function _sapHtml(l,svc,url,validUntil){
     +'<table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 22px"><tr>'+small('Presentation (PDF)','https://hub.adviuz.ca/assets/Adviuz-Presentation.pdf')+small('How it works',how)+'</tr></table>'
     +'<div style="font-size:13px;color:#9a96a8;line-height:1.6;margin:0">Questions? Reply to this email or call <a href="tel:+16472501152" style="color:#6b7280;text-decoration:none;white-space:nowrap">+1 647 250 1152</a>, Monday to Friday, 10 AM to 6 PM CST.</div>';
 }
+// sap-sms-1 (Ajax 2026-11-06): a text goes out with the proposal email. Until Ajax approves the
+// wording (SAP_SMS_LIVE), it only goes to his own test number.
+window.SAP_SMS_LIVE=false;
+function _sapSmsAllowed(l){ return window.SAP_SMS_LIVE || String((l&&l.ph)||'').replace(/\D/g,'').slice(-10)==='6394709320'; }
+function _sapSms(l,svc,url){
+  var first=String(l.name||'there').trim().split(/\s+/)[0]||'there';
+  return 'Hi '+first+', thanks for your time today. Your Adviuz '+_SAP_SVC[svc].label+' proposal is ready: '+url+'\n\nWe have also emailed it to you. Questions? Reply here or call +1 647 250 1152.\n\nReply STOP to opt out.';
+}
+function _sapSmsTgl(){ var S=window._sap; if(!S) return; S.smsOn=!S.smsOn; var b=document.getElementById('sapSmsCk'); if(b) b.classList.toggle('on',S.smsOn); }
 async function _sapPick(svc,btn){
   var S=window._sap; if(!S) return; var l=leads.find(function(x){ return x.id===S.lid; }); if(!l||!l.dbId) return;
   if(btn){ btn.disabled=true; btn.querySelector('span').textContent='Preparing…'; }
   try{
     var b=await _sapBuild(svc,S.seg);
     if(!b.content.plans.length) throw new Error('No plans found');
-    var pr=await sbFetch('/rest/v1/proposals',{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify({
-      lead_id:l.dbId, lead_name:l.name||'', company:l.company||null, email:l.em, phone:l.ph||null, status:'draft',
-      content:b.content, valid_until:b.valid_until, updated_at:new Date().toISOString() })});
+    // sap-sms-1: short link hub.adviuz.ca/p/<company>-<4 chars> (fits in a text message)
+    var base=_pwSlugify(String(l.company||l.name||'proposal').trim().split(/\s+/)[0])||'proposal';
+    var mk=function(){ return (base.slice(0,20)+'-'+Math.random().toString(36).slice(2,6)).replace(/-+$/,''); };
+    var post=function(slug){ return sbFetch('/rest/v1/proposals',{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify({
+      lead_id:l.dbId, lead_name:l.name||'', company:l.company||null, email:l.em, phone:l.ph||null, status:'draft', slug:slug||null,
+      content:b.content, valid_until:b.valid_until, updated_at:new Date().toISOString() })}); };
+    var pr=await post(mk()); if(!pr.ok) pr=await post(mk()); if(!pr.ok) pr=await post(null);
     var rows=pr.ok?await pr.json():null; var prop=rows&&rows[0]; if(!prop) throw new Error('save');
-    var url=_pwLink(null,prop.id), X=_SAP_SVC[svc];
+    var url=_pwLink(prop.slug||null,prop.id), X=_SAP_SVC[svc];
     S.svc=svc; S.prop=prop; S.url=url;
     S.inc=(b.content.all_plans||[]).filter(function(p){ return !p.pilot; }).map(function(p){ return p.key; }); // sap-2: pilot unticked by default
     S.subj='Ref: '+(l.company||l.name)+' | '+X.header;
     S.msg=_sapMsg(l,svc,url);
+    S.sms=_sapSms(l,svc,url);
+    S.smsOn=!!(l.ph && !l.do_not_contact && _sapSmsAllowed(l));
     _sapSendRender(l);
   }catch(e){ showToast('Could not prepare the proposal — try again'); if(btn){ btn.disabled=false; btn.querySelector('span').innerHTML='Preview email &rsaquo;'; } }
 }
@@ -42249,7 +42265,12 @@ function _sapSendRender(l){
    +'<div class="sap-k">Subject</div><div class="sap-subj">'+_pwEsc(S.subj)+'</div>'
    +'<div class="sap-k">Packages in this proposal</div><div id="sapInc">'+_sapIncHTML()+'</div>'
    +'<div class="sap-k">Email</div><iframe id="sapFrame" class="sap-frame" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>'
-   +'<button type="button" class="sap-link" onclick="window.open(\''+S.url+'&preview=1\',\'_blank\')">Open the proposal page (preview)</button>',
+   +(l.ph?('<div class="sap-k" style="margin-top:14px">Text message</div>'
+     +(_sapSmsAllowed(l)&&!l.do_not_contact
+        ? '<button type="button" id="sapSmsCk" class="sap-ip'+(S.smsOn?' on':'')+'" style="width:100%;margin-bottom:8px" onclick="_sapSmsTgl()"><span class="sap-ib">&#10003;</span><b>Also send this text to '+_pwEsc(l.ph)+'</b></button>'
+        : '<div class="sap-hint" style="margin-bottom:8px">'+(l.do_not_contact?'This lead asked not to be contacted &mdash; no text.':'Text goes to clients after you approve the wording (for now only to your test number).')+'</div>')
+     +'<div class="sap-sms">'+_pwEsc(S.sms).replace(/\n/g,'<br>')+'</div>'):'')
+   +'<button type="button" class="sap-link" onclick="window.open(\''+S.url+(S.url.indexOf('?')>-1?'&':'?')+'preview=1\',\'_blank\')">Open the proposal page (preview)</button>',
     '<button type="button" class="btn btn-ghost" style="flex:1" onclick="_sapClose(\'sapSend\');openSharePlans('+S.lid+')">Back</button>'
    +'<button type="button" class="btn sap-go" id="sapGo" style="flex:2" onclick="_sapSend()">Send email</button>');
   sbFetch('/functions/v1/client-email',{method:'POST',body:JSON.stringify(Object.assign({ preview:true, client_id:_houseId(), lead_id:l.dbId, campaign_id:l.campaign_id||null, to:l.em, subject:S.subj, message:S.msg }, _sapUseV2(l)?{message_html:_sapHtml(l,S.svc,S.url,S.prop&&S.prop.valid_until)}:{}))})
@@ -42290,8 +42311,18 @@ async function _sapSend(){
     var now=new Date().toISOString();
     await sbFetch('/rest/v1/proposals?id=eq.'+S.prop.id,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({status:'sent',sent_at:now,updated_at:now})});
     try{ await sbFetch('/rest/v1/activity_log',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({lead_id:l.dbId,type:'proposal',label:'Proposal Sent',body:'📋 '+_SAP_SVC[S.svc].header+' sent by email: '+S.url,created_at:now})}); }catch(_e){}
+    var smsTxt='';
+    if(S.smsOn && l.ph && !l.do_not_contact && _sapSmsAllowed(l)){
+      try{
+        var rs=await sbFetch('/functions/v1/twilio-sms?action=send',{method:'POST',body:JSON.stringify({to:l.ph,message:S.sms,lead_id:l.dbId,campaign_id:l.campaign_id||null,purpose:'manual'})});
+        var ds=await rs.json().catch(function(){ return {}; });
+        if(!rs.ok||ds.error||ds.ok===false||ds.success===false||ds.blocked) throw 0;
+        smsTxt=' + text';
+        try{ await sbFetch('/rest/v1/lead_activity',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({lead_id:l.dbId,client_id:l.client_id||_houseId(),activity_type:'sms_sent',description:S.sms,direction:'outbound',metadata:{handler:'human',kind:'proposal',to:l.ph,body:S.sms},created_at:new Date().toISOString()})}); }catch(_a){}
+      }catch(_s){ smsTxt=' (text could not be sent)'; }
+    }
     window._ibEmailsLoaded=false;
-    _sapClose('sapSend'); showToast('✅ Proposal sent to '+l.em);
+    _sapClose('sapSend'); showToast('✅ Proposal sent to '+l.em+smsTxt);
   }catch(e){ showToast('Could not send — try again'); if(b){ b.disabled=false; b.textContent='Send email'; } }
 }
 
