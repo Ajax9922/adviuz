@@ -501,6 +501,7 @@
   // stage chips: first 5 + "+N more" (the selected one always stays visible)
   function tidyFilters(){
     if (!MQ.matches) return;
+    hookFilterSheet();
     // filter pills: Campaigns + Locations (or Time) up front, the rest behind "More filters"
     document.querySelectorAll('.lf-pills').forEach(function(row){
       if (row.getAttribute('data-dkt')) return; row.setAttribute('data-dkt','1');
@@ -520,17 +521,58 @@
       var react=row.querySelector(':scope > .lf-react');
       row.insertBefore(m, null); set();
     });
+    // desk-15: stage chips sit on ONE line — as many as fit, the rest behind "+N more"
     document.querySelectorAll('.lf-stages').forEach(function(row){
       if (row.getAttribute('data-dkt')) return; row.setAttribute('data-dkt','1');
-      var kids=[].slice.call(row.children), LIM=5, hidden=0;
-      if (kids.length <= LIM + 1) return;
-      kids.forEach(function(b, i){ if (i >= LIM && !/color:#fff|color:#4000f3/.test(b.getAttribute('style')||'')) { b.classList.add('dk-st-x'); hidden++; } });
-      if (!hidden) return;
-      var m=document.createElement('button'); m.type='button'; m.className='dk-st-more';
-      var set=function(){ row.classList.toggle('dk-st-open', !!window._dkStMore); m.textContent = window._dkStMore ? 'Fewer' : '+' + hidden + ' more'; };
-      m.addEventListener('click', function(e){ e.stopPropagation(); window._dkStMore = !window._dkStMore; set(); });
-      row.appendChild(m); set();
+      fitStages(row);
     });
+  }
+  function _stSel(b){ return /color:#fff|color:#4000f3/.test(b.getAttribute('style')||''); }
+  function fitStages(row){
+    var old=row.querySelector(':scope > .dk-st-more'); if (old) old.remove();
+    var kids=[].slice.call(row.children);
+    kids.forEach(function(b){ b.classList.remove('dk-st-x'); });
+    var open=!!window._dkStMore;
+    row.classList.toggle('dk-st-open', open);
+    var mk=function(txt){ var m=document.createElement('button'); m.type='button'; m.className='dk-st-more'; m.textContent=txt;
+      m.addEventListener('click', function(e){ e.stopPropagation(); window._dkStMore=!window._dkStMore; fitStages(row); }); row.appendChild(m); };
+    if (open) { mk('Fewer'); return; }
+    if (!kids.length) return;
+    // read every position first, then write (no layout thrash)
+    var cs=getComputedStyle(row), W=row.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);
+    if (W<=0) return;
+    var x0=kids[0].offsetLeft, rights=kids.map(function(b){ return b.offsetLeft - x0 + b.offsetWidth; });
+    if (rights[rights.length-1] <= W) return;           // everything fits — no button
+    var avail=W-96, hide=[];
+    kids.forEach(function(b,i){ if (rights[i] > avail && !_stSel(b)) hide.push(b); });
+    hide.forEach(function(b){ b.classList.add('dk-st-x'); });
+    if (hide.length) mk('+' + hide.length + ' more');
+  }
+  var _stRT=null;
+  window.addEventListener('resize', function(){
+    if (!MQ.matches) return; clearTimeout(_stRT);
+    _stRT=setTimeout(function(){ document.querySelectorAll('.lf-stages').forEach(fitStages); }, 150);
+  });
+  // desk-15: Re-activate leads moves into the Filter sheet (the pills row is hidden on desktop)
+  function hookFilterSheet(){
+    if (typeof window.openGlobalFilter !== 'function' || window.openGlobalFilter._dk) return;
+    var o=window.openGlobalFilter;
+    window.openGlobalFilter=function(){
+      var r=o.apply(this, arguments);
+      try {
+        var body=document.getElementById('gfsBody'), ex=document.getElementById('dkGfsRx');
+        if (ex) ex.remove();
+        var rx=window._lfRx;
+        if (MQ.matches && window.curTab==='leads' && body && typeof window.lfReactSheet==='function' && rx && (rx.sms||rx.em||rx.call||rx.ce)) {
+          var b=document.createElement('button'); b.id='dkGfsRx'; b.type='button'; b.className='dk-gfs-rx';
+          b.innerHTML='<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>Re-activate leads';
+          b.addEventListener('click', function(){ var ov=document.getElementById('gfsOverlay'); if (ov) ov.style.display='none'; window.lfReactSheet(); });
+          body.parentNode.insertBefore(b, body);
+        }
+      } catch(e){}
+      return r;
+    };
+    window.openGlobalFilter._dk=true;
   }
 
   function build(){
@@ -622,6 +664,7 @@
     hookLeadRender();
     hookLeadRow();
     hookOpenClose();
+    hookFilterSheet();
     try { if (curTab === 'leads' && typeof render === 'function') render(); } catch(e){}
     var content = document.getElementById('content');
     if (content && window.MutationObserver) {
