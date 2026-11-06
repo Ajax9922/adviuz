@@ -253,6 +253,12 @@
 .pl-ofl{font-style:normal}
 .npintro b{color:#1b1030;font-weight:600}
 .pt-ail{font-weight:600;color:#4000f3;text-decoration:underline;text-decoration-color:#c9b8ff;text-decoration-thickness:2px;text-underline-offset:3px}
+.pp-exp{margin:0 0 22px;padding:16px;border-radius:14px;background:#fff7ed;border:1px solid #fed7aa}
+.pp-exp b{display:block;font-size:15px;color:#9a3412;font-weight:700}
+.pp-exp span{display:block;margin:4px 0 12px;font-size:13px;color:#7c2d12;line-height:1.5}
+.pt-ended{padding:20px 16px;border-radius:16px;border:1px dashed #d9d3e6;background:#faf8fd;text-align:center}
+.pt-ended b{display:block;font-size:15px;color:#1b1030;font-weight:600}
+.pt-ended span{display:block;margin:6px 0 14px;font-size:13px;color:#6b7280}
 </style>
 </head>
 <body>
@@ -379,6 +385,10 @@
     els.forEach(function(e){ io.observe(e); });
     window.addEventListener('beforeprint', function(){ els.forEach(finish); });
   }
+  function ppContactBtns(){
+    var st=window._ppState||{}, n=String(st.call||'+1 647 250 1152');
+    return '<div class="fbtns fbtns3"><a class="fsms" href="sms:'+n.replace(/[^0-9+]/g,'')+'">Text</a><a class="fsms" href="mailto:sales@adviuz.ca?subject='+encodeURIComponent('Re: '+(st.hdr||'Proposal'))+'">Reply</a><a class="fcall" href="'+telHref(n)+'">Call</a></div>';
+  }
   function planTabs(plans, ai, p){
     var G=[['bf','Complete Solution'],['fly','Flyer Pricing'],['ai','AI Engine Pricing']];
     var INTRO={fly:'Digital Flyers only. Every package includes flyer design, distribution on 15+ platforms and live reporting.',
@@ -386,10 +396,13 @@
       bf:'Digital Flyers and the AI Conversion Engine together in one package, at limited-period prices'+(p.valid_until?' &mdash; offer ends '+esc(fmtDate(p.valid_until)):'')+'.'};
     var gs=G.filter(function(g){ return plans.some(function(x){ return (x.g||(ai?'ai':'fly'))===g[0]; }); });
     if(!gs.length) return '';
+    var st=window._ppState||{};
     var first=gs[0][0];
+    if(st.offerEnded && first==='bf' && gs.length>1) first=gs[1][0];
     var bar=gs.length>1?'<div class="pt-tabs" role="tablist">'+gs.map(function(g){ return '<button type="button" role="tab" class="pt-tab'+(g[0]===first?' on':'')+'" data-g="'+g[0]+'" onclick="ppTab(\''+g[0]+'\')">'+g[1]+'</button>'; }).join('')+'</div>':'';
     return bar+gs.map(function(g){
       var xs=plans.filter(function(x){ return (x.g||(ai?'ai':'fly'))===g[0]; });
+      if(g[0]==='bf' && st.offerEnded) return '<div class="pt-pane" data-g="bf"'+(g[0]===first?'':' hidden')+'><div class="pt-ended"><b>The Black Friday offer ended on '+esc(fmtDate(p.valid_until))+'.</b><span>Call or text us and we will share our current offers.</span>'+ppContactBtns()+'</div></div>';
       return '<div class="pt-pane" data-g="'+g[0]+'"'+(g[0]===first?'':' hidden')+'><p class="npintro">'+INTRO[g[0]]+'</p>'+xs.map(function(x){ return planCard2(x, (x.g||(ai?'ai':'fly'))==='ai'); }).join('')+'</div>';
     }).join('');
   }
@@ -455,6 +468,9 @@
   }
   window.ppChoose=function(key,btn){
     var P=window._ppProp; if(!P) return;
+    var st=window._ppState||{};
+    if(st.expired){ ppToast('This proposal has expired. Please call, text or reply and we will send you an updated one.'); return; }
+    if(st.offerEnded && /^bf-/.test(key)){ ppToast('This limited-period offer has ended. Please call or text us.'); return; }
     if(btn){ btn.dataset.t=btn.innerHTML; btn.innerHTML='Opening secure checkout&hellip;'; btn.style.pointerEvents='none'; }
     var done=function(msg){ if(btn){ btn.innerHTML=btn.dataset.t; btn.style.pointerEvents=''; } if(msg) ppToast(msg); };
     fetch('https://crhvvfomwkrgwlnfruad.supabase.co/functions/v1/proposal-plans'+((isPrev||isStaffDev)?'?preview=1':''),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:P.id,key:key})})
@@ -498,11 +514,18 @@
       steps:[['Recharge','Select a package and make payment.'],['Design','We prepare your digital flyer and send for approval.'],['Account Setup','Once approved, we set up your account across all platforms.'],['Go Live','Access your panel and roll out the campaign.'],['Exposure &amp; Lead Generation','Your flyer reaches your audience and interested people become leads in your panel.'],['AI Attends Incoming Calls &amp; Leads','The AI answers incoming calls and reaches every new lead within seconds.'],['AI Manages Follow-ups','On-time follow-ups by call, text and email until the lead is ready.'],['Booking Appointments','The AI books meetings straight into your calendar.'],['No-Show Rescue','Reminders before every meeting, and missed meetings get rebooked.'],['Post-Meeting Follow-ups','Follow-ups after the meeting help you close the deal.']]
     };
     var pilot=c.pilot, v2=c.v===2;
+    // sap-36 (Ajax): after the offer date the Black Friday tab shows "offer ended"; regular prices stay
+    // buyable for 30 days from when the proposal was made; after that a banner says the proposal expired.
+    var today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Regina'}).format(new Date());
+    var plus30=new Date(new Date(p.created_at||Date.now()).getTime()+30*864e5).toISOString().slice(0,10);
+    var regLimit=(p.valid_until&&String(p.valid_until)>plus30)?String(p.valid_until):plus30;
+    window._ppState={ offerEnded: !!(p.valid_until&&String(p.valid_until)<today), expired: regLimit<today, call:callNum, hdr:c.header_label||'Proposal' };
+    var expBanner=window._ppState.expired?'<div class="pp-exp"><b>This proposal has expired.</b><span>Prices may have changed &mdash; call, text or reply and we will send you an updated one.</span>'+ppContactBtns()+'</div>':'';
     var icStar='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"/></svg>';
     var h='<div class="hair"></div>'
       +'<div class="head"><div style="display:flex;align-items:flex-end;gap:7px;flex-shrink:0"><img src="/brand/adviuz-logo-black.png" alt="Adviuz"><span class="est2014">|&nbsp; Est. 2014</span></div>'
       +'<div class="hlabel">'+esc(c.header_label||'Proposal')+'</div></div>'
-      +'<div class="body">'
+      +'<div class="body">'+expBanner
       +'<div class="to"><p>To,</p><p class="co">'+esc(p.company||p.lead_name||'')+'</p><p>Kind Attention,</p><p>'+esc(p.lead_name||'')+'</p></div>'
       +'<div class="subject">Subject &ndash; '+esc(c.subject||'New Flyers Distribution System')+'</div>'
       +'<p class="t">'+T.intro1+'</p><p class="t">'+T.intro2+'</p>'
