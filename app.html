@@ -9366,6 +9366,15 @@ function leadsHTML(){
   var stageChipsBar='';
   if(_scTot){
     stageChipsBar='<div class="lf-row lf-stages">'+_scChip('','All',_scTot,'');
+    // temp-filter-1 (Ajax 2026-11-06): Hot · Warm · Cold chips — each one picks every stage of that temperature
+    var _tpCnt={hot:0,warm:0,cold:0};
+    Object.keys(_scCnt).forEach(function(sn){ var tp=leadTemp(sn); if(tp) _tpCnt[tp]+=_scCnt[sn]; });
+    var _tpOn=_tempOfStages(af.stages);
+    ['hot','warm','cold'].forEach(function(tp){
+      if(!_tpCnt[tp]) return;
+      var u=LEAD_TEMP_UI[tp], on=_tpOn===tp;
+      stageChipsBar+='<button class="lf-temp" onclick="tempChip(\''+tp+'\')" style="flex-shrink:0;display:inline-flex;align-items:center;gap:5px;padding:7px 12px;border-radius:20px;border:1px solid '+(on?u.bg:'var(--border)')+';background:'+(on?u.bg:'#fff')+';color:'+(on?'#fff':u.bg)+';font-family:var(--f);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">'+u.e+' '+u.w+' <span style="font-weight:500;opacity:.8">'+_tpCnt[tp]+'</span></button>';
+    });
     (typeof STAGES!=='undefined'?STAGES:[]).forEach(function(st){
       var n=_scCnt[st.name]||0; if(!n) return;
       stageChipsBar+=_scChip(st.name, st.name.replace(/^\d+\.\s*/,''), n, st.color);
@@ -9557,6 +9566,20 @@ function lfPick(kind){
 // One-tap stage filter from the chip row (single-select toggle; tapping the
 // active chip or All clears it). Writes the same af.stages the advanced filter
 // sheet uses, so both stay in sync.
+// temp-filter-1: which temperature (if any) the current stage filter exactly equals
+function _tempStages(tp){ return (typeof STAGES!=='undefined'?STAGES:[]).map(function(st){ return st.name; }).filter(function(n){ return leadTemp(n)===tp; }); }
+function _tempOfStages(sel){
+  if(!sel||sel.length<2) { if(!sel||!sel.length) return ''; }
+  var key=sel.slice().sort().join('|');
+  for(var i=0,ts=['hot','warm','cold'];i<ts.length;i++){ if(_tempStages(ts[i]).slice().sort().join('|')===key) return ts[i]; }
+  return '';
+}
+function tempChip(tp){
+  var af=window._advFilters||(window._advFilters={stages:[],execs:[],locations:[],partners:[],sources:[],services:[],clients:[]});
+  af.stages = (_tempOfStages(af.stages)===tp) ? [] : _tempStages(tp);
+  var c=document.getElementById('content'); if(c) c.innerHTML=leadsHTML();
+  if(typeof renderCtrlBar==='function') renderCtrlBar();
+}
 function stageChip(name){
   var af=window._advFilters||(window._advFilters={stages:[],execs:[],locations:[],partners:[],sources:[],services:[],clients:[]});
   af.stages = (name && !(af.stages && af.stages.length===1 && af.stages[0]===name)) ? [name] : [];
