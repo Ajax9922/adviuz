@@ -204,6 +204,12 @@
 .pl-pn{margin-top:4px;font-size:11.5px;color:#6b7280;white-space:nowrap}
 .pl-sv{margin-top:4px;font-size:11.5px;color:#6b7280;white-space:nowrap}.pl-sv b{color:#b0218f;font-weight:600}
 .pl-inc{margin:14px 0 -6px;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#15803d}
+.pl-offer{margin:14px 0 0;padding:12px 14px 10px;border:1.5px solid #bfe7cf;border-radius:14px;background:#f3fbf6}
+.pl-offk{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#15803d;margin-bottom:4px}
+.pl-offer ul{list-style:none;margin:0;padding:0}
+.pl-offer li{position:relative;padding:5px 0 5px 24px;font-size:13.5px;color:#1b1030;line-height:1.4}
+.pl-offer li b{font-weight:700}
+.pl-offer li::before{content:"\2713";position:absolute;left:2px;top:5px;color:#15803d;font-weight:700;font-size:13px}
 </style>
 </head>
 <body>
@@ -326,7 +332,21 @@
   };
   var FEAT_FONLY=[['Digital Flyers',['Flyer designed by our team, with your approval','Live on 15+ platforms in one tap','Pay only for flyers viewed for 25 seconds','$0.00 printing cost, 100% distribution guarantee','Audience targeting options']],
     ['Reports and control',['Live dashboard with every view and enquiry','All enquiries managed in one place','Pause anytime']]];
+  // sap-8 (Ajax): Black Friday bundles read like the flyer cards, with the AI extras in their own
+  // "Limited period offer includes" box below. Built from the bundle's own description, so it works
+  // for proposals already sent.
+  function bfShape(x){
+    var d=String(((x.items||[])[0]||{}).description||''), g=function(re){ var m=d.match(re); return m?m[1]:''; };
+    var v=g(/([\d,]+) viewed flyers/), m=g(/([\d,]+) AI call minutes/), sm=g(/([\d,]+) texts/), em=g(/([\d,]+) emails/), cm=g(/([\d,]+) call minutes/), e=g(/edits for (\d+) months?/), val=g(/Valid (\d+) months/)||'12';
+    if(!v) return x;
+    var y={}; for(var k in x) y[k]=x[k];
+    y.title=v+' Flyer Views'; y.for=x.name+' package'; y.cap=''; y.boost=''; y.allow=''; y.inc='Package includes';
+    y.list=[{k:'',t:v+' flyer views',em:'(25-second views)'},{k:'free',t:'Unlimited flyer editing for '+e+' month'+(e==='1'?'':'s')},{k:'free',t:'Account and AI setup included'},{k:'',t:'Package validity: '+val+' months, pause anytime'}];
+    y.offer=['Full access to <b>Adviuz AI Conversion Engine</b>', m?'<b>'+m+'</b> AI minutes':'', sm?'<b>'+sm+'</b> SMS':'', em?'<b>'+em+'</b> Emails':'', cm?'<b>'+cm+'</b> Call Minutes':''].filter(Boolean);
+    return y;
+  }
   function planCard2(x, ai){
+    if(x.g==='bf') x=bfShape(x);
     var save=(x.std&&x.std>x.price)?x.std-x.price:0;
     // sap-7 (Ajax): no "About N people view your flyer" — flyer-only cards drop the box, bundles say "N flyer views"
     var cap=x.g==='fly'?'':String(x.cap||'').replace(/About <b>([\d,]+) people<\/b> view your flyer for 25 seconds/,'<b>$1 flyer views</b> &middot; 25-second views');
@@ -339,6 +359,7 @@
       +(cap?'<div class="pl-cap">'+cap+(x.boost?'<span class="pl-boost">'+esc(x.boost)+'</span>':'')+'</div>':'')
       +'<div class="pl-inc">'+esc(x.inc||(x.g==='bf'?'Limited period offer includes':'Includes'))+'</div>'+'<ul class="pl-list">'+(x.list||[]).map(function(l){ return '<li'+(l.k?' class="pl-'+l.k+'"':'')+'>'+esc(l.t)+(l.em?' <em>'+esc(l.em)+'</em>':'')+'</li>'; }).join('')+'</ul>'
       +(x.allow?'<p class="pl-allow">'+esc(x.allow)+'</p>':'')
+      +(x.offer&&x.offer.length?'<div class="pl-offer"><div class="pl-offk">Limited period offer includes</div><ul>'+x.offer.map(function(t){ return '<li>'+t+'</li>'; }).join('')+'</ul></div>':'')
       +'<details class="pl-feat"><summary><span class="pf-open">See all features</span><span class="pf-close">Hide features</span><span class="pf-chev" aria-hidden="true"></span></summary><div class="pf-body">'+feats+'</div></details>'
       +'<a class="pl-buy" href="#" onclick="ppChoose(\''+esc(x.key)+'\',this);return false;">Buy now</a></div>';
   }
