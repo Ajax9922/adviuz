@@ -162,17 +162,47 @@
     main.appendChild(pin); main.appendChild(col); main.appendChild(work);
     scr.classList.remove('dk-3col'); scr.classList.add('dk-wa');
 
-    // 1 · pinned recording (only when there is something to play)
-    var rec = body.querySelector('#recAudio0, #recPlayBtn0');
-    if (rec) { var rs = sectionOf(rec, body); rs.classList.add('dk-pin-sec'); pin.appendChild(rs); }
-    else { var none = [].slice.call(body.children).filter(function(c){ return /Recent Call Recording/i.test(c.textContent||''); })[0]; if (none) none.remove(); pin.style.display = 'none'; }
+    // 1 · desk-wa2 (Ajax 2026-11-06): no pinned recording on top — each call bubble has its own player
+    var none = [].slice.call(body.children).filter(function(c){ return /Recent Call Recording/i.test(c.textContent||''); })[0]; if (none) none.remove();
+    var rec0 = body.querySelector('#recAudio0, #recPlayBtn0'); if (rec0) { var rs0 = sectionOf(rec0, body); if (rs0 && rs0 !== body) rs0.remove(); }
+    pin.style.display = 'none';
 
     // 2 · activity as chat bubbles, newest at the bottom
     var sec = col.querySelector('.dk-act-sec');
     if (sec) {
       var items = [].slice.call(sec.querySelectorAll(':scope > .ld-act-item'));
       var n = items.length;
-      items.forEach(function(it, i){ it.classList.add('dk-b', 'dk-b-' + actKind(it)); it.style.order = String(n - i + 10); });
+      // desk-wa2: WhatsApp look — day pills ("Today", "Yesterday", "Wed, Nov 4"), time in the bubble corner
+      var now = new Date(), dkey = function(d){ return d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate(); };
+      var tk = dkey(now), yk = dkey(new Date(now.getTime()-864e5));
+      var dayLbl = function(d){ var k = dkey(d); if (k===tk) return 'Today'; if (k===yk) return 'Yesterday';
+        return d.toLocaleDateString('en-CA', (now - d < 6*864e5) ? { weekday:'long' } : { weekday:'short', month:'short', day:'numeric', year: d.getFullYear()===now.getFullYear() ? undefined : 'numeric' }); };
+      var pillDates = {}, prevDate;
+      items.forEach(function(it){ var d0 = new Date(it.getAttribute('data-t') || ''); if (!isNaN(d0.getTime())) pillDates[dkey(d0)] = d0; });
+      [].slice.call(sec.querySelectorAll(':scope > .dk-day')).forEach(function(p){ p.remove(); });
+      var prevKey = null, prevOrder = 0;
+      items.forEach(function(it, i){
+        var k = actKind(it);
+        it.classList.add('dk-b', 'dk-b-' + k);
+        var ord = 2*(n - i) + 20; it.style.order = String(ord);
+        var d = new Date(it.getAttribute('data-t') || ''), ok = !isNaN(d.getTime());
+        // short clock time in the bottom-right corner
+        var bd = it.querySelector(':scope > .ld-act-body');
+        if (ok && bd && k !== 'sys') {
+          var tt = el('span', { 'class':'dk-b-time' }, d.toLocaleTimeString('en-CA', { hour:'numeric', minute:'2-digit' }));
+          bd.appendChild(tt); it.classList.add('dk-has-t');
+        }
+        // items run newest → oldest; a pill goes above the OLDEST item of each day
+        var key = ok ? dkey(d) : prevKey;
+        if (prevKey !== null && key !== prevKey) addPill(prevKey, prevOrder);
+        if (ok) { prevKey = key; prevOrder = ord; prevDate = d; }
+      });
+      if (prevKey !== null) addPill(prevKey, prevOrder);
+      function addPill(key, ord){
+        var d = pillDates[key]; if (!d) return;
+        var p = el('div', { 'class':'dk-day' }, '<span>' + dayLbl(d) + '</span>'); p.style.order = String(ord - 1);
+        sec.appendChild(p);
+      }
     }
 
     // 3 · composer (desk-18): one calm row like WhatsApp — [+] [note] [Call].
