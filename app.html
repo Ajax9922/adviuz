@@ -1305,6 +1305,13 @@ textarea.pb2-in{resize:vertical;line-height:1.55}
 .sap-svc b{display:block;font-size:15.5px;font-weight:600;color:var(--text)}.sap-svc small{display:block;font-size:12.5px;color:var(--sub);margin-top:3px}
 .sap-svc span{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:12.5px;font-weight:600;color:#5b1cf0}
 .sap-to{font-size:13px;color:var(--sub);margin:2px 0 12px}.sap-to b{color:var(--text)}
+.sap-inc{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.sap-ip{display:flex;align-items:center;gap:8px;padding:10px 11px;border:1px solid var(--border);border-radius:12px;background:var(--white);font-family:var(--f);text-align:left;cursor:pointer}
+.sap-ip b{flex:1;font-size:13.5px;font-weight:600;color:var(--text)}
+.sap-ip small{font-size:12px;color:var(--sub)}
+.sap-ib{flex:none;width:20px;height:20px;border-radius:6px;border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff}
+.sap-ip.on{border-color:#c9b8ff;background:#f6f1ff}
+.sap-ip.on .sap-ib{background:linear-gradient(135deg,#4000f3,#8b2bf7 55%,#e65afc);border-color:transparent}
 .sap-subj{font-size:14px;font-weight:600;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px}
 .sap-frame{width:100%;min-height:420px;border:1px solid var(--border);border-radius:12px;background:#fff}
 .sap-go{background:linear-gradient(118deg,#4000f3,#8b2bf7 55%,#e65afc)!important;color:#fff!important;border:0!important;justify-content:center}
@@ -42110,39 +42117,64 @@ function _sapPlansRender(){
 }
 function _sapUnits(re,s){ var m=String(s||'').match(re); return m?m[1]:''; }
 async function _sapBuild(svc,seg){
+  // sap-2 (Ajax 2026-11-06): simple plan cards like adviuz.com/pricing — who it's for, price,
+  // one headline number, a few lines, allowance, "See all features". Pilot is a normal card
+  // (unticked by default in the send sheet).
   var r=await sbFetch('/rest/v1/plans?select=*&in_quote=eq.true&order=sort_order.asc');
   var rows=r.ok?await r.json():[];
   var today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Regina'}).format(new Date());
   var live=function(p){ return !p.valid_until || String(p.valid_until)>=today; };
-  var plans=[], pilot=null, validUntil=null;
+  var num=function(x){ return Number(String(x||'').replace(/,/g,''))||0; };
+  var fmt=function(n){ return Number(n).toLocaleString('en-CA'); };
+  var plans=[], validUntil=null;
   if(svc==='ai'){
-    rows.filter(function(p){ return p.category==='pkg_engine'; }).forEach(function(p){
-      var short=String(p.name).split(':').pop().trim(), setup=Number(p.setup_fee)||0, price=Number(p.price_cad)||0;
-      var parts=String(p.description||'').split(' · ').map(function(t){ return t.replace(/\.$/,'').replace(/^([^\d]*?)(\d[\d,]*)/,'$1**$2**'); });
-      var items=[{name:p.name, description:p.description||'', unit_price:price}];
+    var eng=rows.filter(function(p){ return p.category==='pkg_engine'; }), base=0;
+    var FOR={Essential:'For a business with a steady flow of new leads',Pro:'For a business running regular ad campaigns',Max:'For busy teams with several lead sources'};
+    eng.forEach(function(p){
+      var short=String(p.name).split(':').pop().trim(), setup=Number(p.setup_fee)||0, price=Number(p.price_cad)||0, d=String(p.description||'');
+      var leadsN=num(_sapUnits(/about ([\d,]+) new leads/,d)), mins=_sapUnits(/([\d,]+) AI minutes/,d), txt=_sapUnits(/([\d,]+) texts/,d), days=_sapUnits(/Valid (\d+) days/,d);
+      if(!base) base=leadsN;
+      var list=[];
+      if(/Group texts/.test(d)) list.push({k:'plus',t:'Group texts, emails and AI calls'});
+      var cf=_sapUnits(/(\d+) custom follow-up plans?/,d); if(cf) list.push({k:'plus',t:cf+' custom follow-up plan'+(cf==='1'?'':'s')+' built by our team'});
+      if(/Priority setup/.test(d)) list.push({k:'plus',t:'Priority setup'});
+      if(/review call/.test(d)) list.push({k:'plus',t:'Monthly 30-minute review call'});
+      if(setup) list.push({k:'fee',t:'One-time setup: $'+fmt(setup)}); else list.push({k:'free',t:'Setup by our team included',em:'(a $300 value)'});
+      if(days) list.push({k:'',t:'Lasts '+days+' days',em:'(about '+Math.round(days/30)+' months)'});
+      list.push({k:'',t:'Recharge only when you need more'});
+      var items=[{name:p.name, description:d, unit_price:price}];
       if(setup) items.push({name:'One-time AI Conversion Engine setup', description:'Your AI agent built and trained on your business', unit_price:setup});
-      plans.push({ key:short.toLowerCase().replace(/[^a-z0-9]+/g,'-'), name:short, sub:parts[0].replace(/\*\*/g,''), price:price+setup,
-        price_note:setup?'incl. $'+setup+' setup · + tax':'one-time + tax', lines:parts.slice(1), items:items, rec:short==='Pro' });
+      plans.push({ key:short.toLowerCase().replace(/[^a-z0-9]+/g,'-'), name:short, for:FOR[short]||'', price:price, price_note:'One-time prepaid payment',
+        cap:'Follows up with about <b>'+fmt(leadsN)+' new leads</b>', boost:(base&&leadsN>base)?(Math.round(leadsN/base*10)/10)+'× the leads of '+eng[0].name.split(':').pop().trim():'',
+        list:list, allow:mins+' AI minutes · '+txt+' texts, emails and call minutes', items:items, rec:short==='Pro' });
     });
   } else {
     var std=rows.filter(function(p){ return p.category==='pkg_standard' && p.segment===seg; });
     var off=rows.filter(function(p){ return p.category==='pkg_offer' && p.segment===seg && live(p); });
     var nm=function(p){ var m=String(p.name).match(/Adviuz (\w+) Plan/); return m?m[1]:String(p.name); };
-    std.forEach(function(s){
-      var o=off.find(function(x){ return nm(x)===nm(s); }), use=o||s, d=s.description;
+    var FOR2={Growth:'For a business getting started with digital flyers',Scale:'For a business running regular campaigns',Pro:'For busy teams that want the most reach'};
+    var base2=0, first='';
+    var card=function(p,o,name,isPilot){
+      var use=o||p, d=String(p.description||''), v=num(_sapUnits(/([\d,]+) viewed flyers/,d)), m=_sapUnits(/([\d,]+) AI call minutes/,d), t=_sapUnits(/([\d,]+) texts/,d), e=_sapUnits(/edits for (\d+) months?/,d), vm=_sapUnits(/Valid (\d+) months/,d);
+      if(!isPilot && !base2){ base2=v; first=name; }
       if(o && o.valid_until && (!validUntil || o.valid_until<validUntil)) validUntil=o.valid_until;
-      var v=_sapUnits(/([\d,]+) viewed flyers/,d), m=_sapUnits(/([\d,]+) AI call minutes/,d), t=_sapUnits(/([\d,]+) texts/,d), e=_sapUnits(/edits for (\d+) months?/,d);
-      plans.push({ key:nm(s).toLowerCase(), name:nm(s), sub:v+' viewed flyers', price:Number(use.price_cad), std:Number(s.price_cad),
-        lines:['**'+v+'** people view your flyer for 25 seconds','**'+m+'** AI call minutes to follow up every enquiry','**'+t+'** texts, emails and call minutes','Flyer design + unlimited edits for '+e+' months'],
-        items:[{name:use.name, description:use.description||'', unit_price:Number(use.price_cad)}], rec:nm(s)==='Scale' });
-    });
+      var list=[{k:'free',t:'Flyer design + unlimited edits',em:'('+e+' month'+(e==='1'?'':'s')+')'}];
+      if(!isPilot) list.push({k:'free',t:'Account and AI setup included'});
+      list.push({k:'',t:'AI follows up every enquiry by call, text and email'});
+      list.push({k:'',t:'Valid '+vm+' months'+(isPilot?'':', pause anytime')});
+      return { key:isPilot?'pilot':name.toLowerCase(), name:isPilot?'Pilot Project':name, for:isPilot?'Try it first with a small campaign':(FOR2[name]||''),
+        price:Number(use.price_cad), std:(o&&Number(p.price_cad)>Number(o.price_cad))?Number(p.price_cad):0, price_note:'One-time prepaid payment',
+        cap:'About <b>'+fmt(v)+' people</b> view your flyer for 25 seconds', boost:(!isPilot&&base2&&v>base2)?(Math.round(v/base2*10)/10)+'× the reach of '+first:'',
+        list:list, allow:m+' AI minutes · '+t+' texts, emails and call minutes', items:[{name:use.name, description:use.description||'', unit_price:Number(use.price_cad)}], rec:name==='Scale', pilot:!!isPilot };
+    };
     var pp=rows.find(function(p){ return p.category==='pkg_pilot' && p.segment===seg && live(p); });
-    if(pp) pilot={ key:'pilot', name:'Pilot Project', price:Number(pp.price_cad), sub:'Pilot Project · '+_sapUnits(/([\d,]+) viewed flyers/,pp.description)+' viewed flyers · 6 months', items:[{name:pp.name, description:pp.description||'', unit_price:Number(pp.price_cad)}] };
+    std.forEach(function(s){ var o=off.find(function(x){ return nm(x)===nm(s); }); plans.push(card(s,o,nm(s),false)); });
+    if(pp) plans.unshift(card(pp,null,'Pilot',true));
   }
   if(!validUntil){ var d=new Date(); d.setDate(d.getDate()+30); validUntil=d.toISOString().slice(0,10); }
   var X=_SAP_SVC[svc];
-  return { valid_until:validUntil, content:{ kind:'plans', service:svc, segment:seg, header_label:X.header, subject:X.subject,
-    plans:plans, pilot:pilot, presentation_url:'/assets/Adviuz-Presentation.pdf', call_number:'+1 647 250 1152' } };
+  return { valid_until:validUntil, content:{ kind:'plans', v:2, service:svc, segment:seg, header_label:X.header, subject:X.subject,
+    plans:plans.filter(function(p){ return !p.pilot; }), all_plans:plans, pilot:null, presentation_url:'/assets/Adviuz-Presentation.pdf', call_number:'+1 647 250 1152' } };
 }
 function _sapMsg(l,svc,url){
   var first=String(l.name||'there').trim().split(/\s+/)[0]||'there', X=_SAP_SVC[svc];
@@ -42165,6 +42197,7 @@ async function _sapPick(svc,btn){
     var rows=pr.ok?await pr.json():null; var prop=rows&&rows[0]; if(!prop) throw new Error('save');
     var url=_pwLink(null,prop.id), X=_SAP_SVC[svc];
     S.svc=svc; S.prop=prop; S.url=url;
+    S.inc=(b.content.all_plans||[]).filter(function(p){ return !p.pilot; }).map(function(p){ return p.key; }); // sap-2: pilot unticked by default
     S.subj='Ref: '+(l.company||l.name)+' | '+X.header;
     S.msg=_sapMsg(l,svc,url);
     _sapSendRender(l);
@@ -42176,6 +42209,7 @@ function _sapSendRender(l){
   _sapSheet('sapSend',X.label+' proposal',
     '<div class="sap-to">To <b>'+_pwEsc(l.name||'')+'</b> &middot; '+_pwEsc(l.em)+'</div>'
    +'<div class="sap-k">Subject</div><div class="sap-subj">'+_pwEsc(S.subj)+'</div>'
+   +'<div class="sap-k">Packages in this proposal</div><div class="sap-inc" id="sapInc">'+_sapIncHTML()+'</div>'
    +'<div class="sap-k">Email</div><iframe id="sapFrame" class="sap-frame" sandbox="allow-same-origin"></iframe>'
    +'<button type="button" class="sap-link" onclick="window.open(\''+S.url+'&preview=1\',\'_blank\')">Open the proposal page (preview)</button>',
     '<button type="button" class="btn btn-ghost" style="flex:1" onclick="_sapClose(\'sapSend\');openSharePlans('+S.lid+')">Back</button>'
@@ -42186,12 +42220,27 @@ function _sapSendRender(l){
       f.srcdoc=j.html; f.onload=function(){ try{ f.style.height=(f.contentDocument.documentElement.scrollHeight+10)+'px'; }catch(_e){} };
     }).catch(function(){});
 }
+function _sapIncHTML(){
+  var S=window._sap, all=(S&&S.prop&&S.prop.content&&S.prop.content.all_plans)||[];
+  return all.map(function(p){ var on=S.inc.indexOf(p.key)>-1;
+    return '<button type="button" class="sap-ip'+(on?' on':'')+'" onclick="_sapInc(\''+p.key+'\')"><span class="sap-ib">'+(on?'&#10003;':'')+'</span><b>'+_pwEsc(p.name)+'</b><small>$'+Number(p.price).toLocaleString('en-CA')+'</small></button>'; }).join('');
+}
+function _sapInc(key){
+  var S=window._sap; if(!S||!S.prop) return;
+  var i=S.inc.indexOf(key);
+  if(i>-1){ if(S.inc.length<2){ showToast('Keep at least one package'); return; } S.inc.splice(i,1); } else S.inc.push(key);
+  var box=document.getElementById('sapInc'); if(box) box.innerHTML=_sapIncHTML();
+  var c=S.prop.content; c.plans=(c.all_plans||[]).filter(function(p){ return S.inc.indexOf(p.key)>-1; });
+  clearTimeout(S._incT);
+  S._incT=setTimeout(function(){ sbFetch('/rest/v1/proposals?id=eq.'+S.prop.id,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({content:c,updated_at:new Date().toISOString()})}).catch(function(){}); },250);
+}
 async function _sapSend(){
   var S=window._sap; if(!S||!S.prop) return; var l=leads.find(function(x){ return x.id===S.lid; }); if(!l) return;
   // Until Ajax approves the sample, real sending is limited to his own test inboxes.
   if(!window.SAP_LIVE && ['mra104@gmail.com','ajaysheria90@gmail.com','sales@adviuz.ca'].indexOf(String(l.em||'').toLowerCase())<0){ showToast('Waiting for approval — test on Ajax Test first'); return; }
   var b=document.getElementById('sapGo'); if(b){ b.disabled=true; b.textContent='Sending…'; }
   try{
+    clearTimeout(S._incT); await sbFetch('/rest/v1/proposals?id=eq.'+S.prop.id,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({content:S.prop.content})});
     var r=await sbFetch('/functions/v1/client-email',{method:'POST',body:JSON.stringify({ client_id:_houseId(), lead_id:l.dbId, campaign_id:l.campaign_id||null, to:l.em, subject:S.subj, message:S.msg })});
     var j=await r.json().catch(function(){ return {}; });
     if(!r.ok || j.error || j.ok===false) throw new Error(j.error||'send');
