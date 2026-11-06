@@ -1305,6 +1305,7 @@ textarea.pb2-in{resize:vertical;line-height:1.55}
 .sap-svc b{display:block;font-size:15.5px;font-weight:600;color:var(--text)}.sap-svc small{display:block;font-size:12.5px;color:var(--sub);margin-top:3px}
 .sap-svc span{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:12.5px;font-weight:600;color:#5b1cf0}
 .sap-to{font-size:13px;color:var(--sub);margin:2px 0 12px}.sap-to b{color:var(--text)}
+.sap-ig{font-size:12px;font-weight:600;color:var(--sub);margin:4px 0 6px}
 .sap-inc{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
 .sap-ip{display:flex;align-items:center;gap:8px;padding:10px 11px;border:1px solid var(--border);border-radius:12px;background:var(--white);font-family:var(--f);text-align:left;cursor:pointer}
 .sap-ip b{flex:1;font-size:13.5px;font-weight:600;color:var(--text)}
@@ -42127,7 +42128,10 @@ async function _sapBuild(svc,seg){
   var num=function(x){ return Number(String(x||'').replace(/,/g,''))||0; };
   var fmt=function(n){ return Number(n).toLocaleString('en-CA'); };
   var plans=[], validUntil=null;
-  if(svc==='ai'){
+  // sap-4 (Ajax 2026-11-06): tabs on the page — Flyer pricing (standard), AI Engine pricing, Black Friday.
+  // Every plan carries g:'fly'|'ai'|'bf'; keys are unique across tabs.
+  var wantAi = svc!=='flyers', wantFly = svc!=='ai';
+  if(wantAi){
     var eng=rows.filter(function(p){ return p.category==='pkg_engine'; }), base=0;
     var FOR={Essential:'For a business with a steady flow of new leads',Pro:'For a business running regular ad campaigns',Max:'For busy teams with several lead sources'};
     eng.forEach(function(p){
@@ -42144,32 +42148,33 @@ async function _sapBuild(svc,seg){
       list.push({k:'',t:'Recharge only when you need more'});
       var items=[{name:p.name, description:d, unit_price:price}];
       if(setup) items.push({name:'One-time AI Conversion Engine setup', description:'Your AI agent built and trained on your business', unit_price:setup});
-      plans.push({ key:short.toLowerCase().replace(/[^a-z0-9]+/g,'-'), name:short, for:FOR[short]||'', price:price, price_note:'One-time prepaid payment',
+      plans.push({ g:'ai', key:'ai-'+short.toLowerCase().replace(/[^a-z0-9]+/g,'-'), name:short, for:FOR[short]||'', price:price, price_note:'One-time prepaid payment',
         cap:'Follows up with about <b>'+fmt(leadsN)+' new leads</b>', boost:(base&&leadsN>base)?(Math.round(leadsN/base*10)/10)+'× the leads of '+eng[0].name.split(':').pop().trim():'',
         list:list, allow:mins+' AI minutes · '+txt+' texts, emails and call minutes', items:items, rec:short==='Pro' });
     });
-  } else {
+  }
+  if(wantFly){
     var std=rows.filter(function(p){ return p.category==='pkg_standard' && p.segment===seg; });
     var off=rows.filter(function(p){ return p.category==='pkg_offer' && p.segment===seg && live(p); });
     var nm=function(p){ var m=String(p.name).match(/Adviuz (\w+) Plan/); return m?m[1]:String(p.name); };
     var FOR2={Growth:'For a business getting started with digital flyers',Scale:'For a business running regular campaigns',Pro:'For busy teams that want the most reach'};
-    var base2=0, first='';
-    var card=function(p,o,name,isPilot){
+    var card=function(p,o,name,isPilot,g,base){
       var use=o||p, d=String(p.description||''), v=num(_sapUnits(/([\d,]+) viewed flyers/,d)), m=_sapUnits(/([\d,]+) AI call minutes/,d), t=_sapUnits(/([\d,]+) texts/,d), e=_sapUnits(/edits for (\d+) months?/,d), vm=_sapUnits(/Valid (\d+) months/,d);
-      if(!isPilot && !base2){ base2=v; first=name; }
       if(o && o.valid_until && (!validUntil || o.valid_until<validUntil)) validUntil=o.valid_until;
       var list=[{k:'free',t:'Flyer design + unlimited edits',em:'('+e+' month'+(e==='1'?'':'s')+')'}];
       if(!isPilot) list.push({k:'free',t:'Account and AI setup included'});
       list.push({k:'',t:'AI follows up every enquiry by call, text and email'});
       list.push({k:'',t:'Valid '+vm+' months'+(isPilot?'':', pause anytime')});
-      return { key:isPilot?'pilot':name.toLowerCase(), name:isPilot?'Pilot Project':name, for:isPilot?'Try it first with a small campaign':(FOR2[name]||''),
+      return { g:g, key:(g==='bf'?'bf-':'')+(isPilot?'pilot':name.toLowerCase()), name:isPilot?'Pilot Project':name, for:isPilot?'Try it first with a small campaign':(FOR2[name]||''),
         price:Number(use.price_cad), std:(o&&Number(p.price_cad)>Number(o.price_cad))?Number(p.price_cad):0, price_note:'One-time prepaid payment',
-        cap:'About <b>'+fmt(v)+' people</b> view your flyer for 25 seconds', boost:(!isPilot&&base2&&v>base2)?(Math.round(v/base2*10)/10)+'× the reach of '+first:'',
+        cap:'About <b>'+fmt(v)+' people</b> view your flyer for 25 seconds', boost:(!isPilot&&base&&v>base)?(Math.round(v/base*10)/10)+'× the reach of '+nm(std[0]):'',
         list:list, allow:m+' AI minutes · '+t+' texts, emails and call minutes', items:[{name:use.name, description:use.description||'', unit_price:Number(use.price_cad)}], rec:name==='Scale', pilot:!!isPilot };
     };
+    var b0=std.length?num(_sapUnits(/([\d,]+) viewed flyers/,std[0].description)):0;
     var pp=rows.find(function(p){ return p.category==='pkg_pilot' && p.segment===seg && live(p); });
-    std.forEach(function(s){ var o=off.find(function(x){ return nm(x)===nm(s); }); plans.push(card(s,o,nm(s),false)); });
-    if(pp) plans.unshift(card(pp,null,'Pilot',true));
+    if(pp) plans.push(card(pp,null,'Pilot',true,'fly',0));
+    std.forEach(function(s){ plans.push(card(s,null,nm(s),false,'fly',b0)); });
+    std.forEach(function(s){ var o=off.find(function(x){ return nm(x)===nm(s); }); if(o) plans.push(card(s,o,nm(s),false,'bf',b0)); });
   }
   if(!validUntil){ var d=new Date(); d.setDate(d.getDate()+30); validUntil=d.toISOString().slice(0,10); }
   var X=_SAP_SVC[svc];
@@ -42209,7 +42214,7 @@ function _sapSendRender(l){
   _sapSheet('sapSend',X.label+' proposal',
     '<div class="sap-to">To <b>'+_pwEsc(l.name||'')+'</b> &middot; '+_pwEsc(l.em)+'</div>'
    +'<div class="sap-k">Subject</div><div class="sap-subj">'+_pwEsc(S.subj)+'</div>'
-   +'<div class="sap-k">Packages in this proposal</div><div class="sap-inc" id="sapInc">'+_sapIncHTML()+'</div>'
+   +'<div class="sap-k">Packages in this proposal</div><div id="sapInc">'+_sapIncHTML()+'</div>'
    +'<div class="sap-k">Email</div><iframe id="sapFrame" class="sap-frame" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>'
    +'<button type="button" class="sap-link" onclick="window.open(\''+S.url+'&preview=1\',\'_blank\')">Open the proposal page (preview)</button>',
     '<button type="button" class="btn btn-ghost" style="flex:1" onclick="_sapClose(\'sapSend\');openSharePlans('+S.lid+')">Back</button>'
@@ -42222,8 +42227,13 @@ function _sapSendRender(l){
 }
 function _sapIncHTML(){
   var S=window._sap, all=(S&&S.prop&&S.prop.content&&S.prop.content.all_plans)||[];
-  return all.map(function(p){ var on=S.inc.indexOf(p.key)>-1;
-    return '<button type="button" class="sap-ip'+(on?' on':'')+'" onclick="_sapInc(\''+p.key+'\')"><span class="sap-ib">'+(on?'&#10003;':'')+'</span><b>'+_pwEsc(p.name)+'</b><small>$'+Number(p.price).toLocaleString('en-CA')+'</small></button>'; }).join('');
+  var G={fly:'Digital Flyers pricing',ai:'AI Engine pricing',bf:'Black Friday packages'}, h='';
+  ['fly','ai','bf'].forEach(function(g){
+    var ps=all.filter(function(p){ return (p.g||'fly')===g; }); if(!ps.length) return;
+    h+='<div class="sap-ig">'+G[g]+'</div><div class="sap-inc">'+ps.map(function(p){ var on=S.inc.indexOf(p.key)>-1;
+      return '<button type="button" class="sap-ip'+(on?' on':'')+'" onclick="_sapInc(\''+p.key+'\')"><span class="sap-ib">'+(on?'&#10003;':'')+'</span><b>'+_pwEsc(p.name)+'</b><small>$'+Number(p.price).toLocaleString('en-CA')+'</small></button>'; }).join('')+'</div>';
+  });
+  return h;
 }
 function _sapInc(key){
   var S=window._sap; if(!S||!S.prop) return;

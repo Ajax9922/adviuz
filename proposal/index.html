@@ -188,6 +188,12 @@
 .fbtns3{grid-template-columns:1fr 1fr 1fr}
 .fsms{display:block;text-align:center;background:#fff;border:1px solid #d6c9fb;color:#4000f3;font-size:13px;font-weight:700;padding:13px 4px;border-radius:10px;text-decoration:none}
 .lmgrid .lmwide{grid-column:1/-1}
+.pt-tabs{display:flex;gap:4px;padding:4px;margin:0 0 14px;background:#f3f0f8;border-radius:99px}
+.pt-tab{flex:1;border:0;background:none;border-radius:99px;padding:9px 6px;font:600 12.5px Helvetica,Arial,sans-serif;color:#6b7280;cursor:pointer;white-space:nowrap}
+.pt-tab.on{background:#fff;color:#4000f3;box-shadow:0 1px 3px rgba(35,8,53,.12)}
+.pt-tab[data-g="bf"].on{background:linear-gradient(118deg,#4000f3,#8b2bf7 55%,#e65afc);color:#fff}
+.pt-pane[hidden]{display:none}
+.pt-pane > .pl-rec:first-of-type{margin-top:26px}
 </style>
 </head>
 <body>
@@ -289,6 +295,25 @@
   var FEAT_FLY=[['Digital Flyers',['Flyer designed by our team, with your approval','Live on 15+ platforms in one tap','Pay only for flyers viewed for 25 seconds','$0.00 printing cost, 100% distribution guarantee','Audience targeting options']],
     ['AI Conversion Engine',['Instant text reply to every new lead','AI voice call within 60 seconds','Books appointments into your calendar','Reminders and no-show recovery','Follow-ups by call, text and email for up to 6 months']],
     ['Reports and control',['Live dashboard with every lead, call and booking','Every AI call recorded and transcribed','Listen live, join or take over any call','Pause anytime']]];
+  // sap-4: tabs — Flyer pricing · AI Engine pricing · Black Friday
+  function planTabs(plans, ai, p){
+    var G=[['bf','Black Friday'],['fly','Flyer Pricing'],['ai','AI Engine Pricing']];
+    var INTRO={fly:'Every plan includes flyer design, distribution on 15+ platforms, the AI Conversion Engine, live reporting and setup.',
+      ai:'Prepaid, no monthly fees. Recharge only when you need more.',
+      bf:'Black Friday prices on our Digital Flyers + AI Engine packages'+(p.valid_until?' &mdash; offer ends '+esc(fmtDate(p.valid_until)):'')+'.'};
+    var gs=G.filter(function(g){ return plans.some(function(x){ return (x.g||(ai?'ai':'fly'))===g[0]; }); });
+    if(!gs.length) return '';
+    var first=gs[0][0];
+    var bar=gs.length>1?'<div class="pt-tabs" role="tablist">'+gs.map(function(g){ return '<button type="button" role="tab" class="pt-tab'+(g[0]===first?' on':'')+'" data-g="'+g[0]+'" onclick="ppTab(\''+g[0]+'\')">'+g[1]+'</button>'; }).join('')+'</div>':'';
+    return bar+gs.map(function(g){
+      var xs=plans.filter(function(x){ return (x.g||(ai?'ai':'fly'))===g[0]; });
+      return '<div class="pt-pane" data-g="'+g[0]+'"'+(g[0]===first?'':' hidden')+'><p class="npintro">'+INTRO[g[0]]+'</p>'+xs.map(function(x){ return planCard2(x, (x.g||(ai?'ai':'fly'))==='ai'); }).join('')+'</div>';
+    }).join('');
+  }
+  window.ppTab=function(g){
+    [].forEach.call(document.querySelectorAll('.pt-tab'),function(b){ b.classList.toggle('on', b.getAttribute('data-g')===g); });
+    [].forEach.call(document.querySelectorAll('.pt-pane'),function(d){ d.hidden = d.getAttribute('data-g')!==g; });
+  };
   function planCard2(x, ai){
     var save=(x.std&&x.std>x.price)?x.std-x.price:0;
     var feats=(ai?FEAT_AI:FEAT_FLY).map(function(g){ return '<div class="pf-g"><b>'+g[0]+'</b><ul>'+g[1].map(function(i){ return '<li>'+i+'</li>'; }).join('')+'</ul></div>'; }).join('');
@@ -368,8 +393,8 @@
       +'<h3 class="sec">How to Get Started</h3><div class="hsgrid">'
       +T.steps.map(function(s,i){ return '<div class="hscard"><span class="hsnum">'+(i+1)+'</span><div class="hst">'+s[0]+'</div><div class="hsd">'+s[1]+'</div></div>'; }).join('')
       +'</div>'
-      +(plans.length?'<h3 class="sec">Plans &amp; Pricing</h3><p class="npintro">'+T.plansIntro+'</p>'
-        +(v2?plans.map(function(x){ return planCard2(x,ai); }).join(''):plans.map(planCard).join(''))
+      +(plans.length?'<h3 class="sec">Plans &amp; Pricing</h3>'+(v2?'':'<p class="npintro">'+T.plansIntro+'</p>')
+        +(v2?planTabs(plans,ai,p):plans.map(planCard).join(''))
         +(pilot?'<div class="pilot"><div><b>Want to try it first?</b><span>'+esc(pilot.sub||'Pilot Project')+'</span></div><a href="#" onclick="ppChoose(\''+esc(pilot.key)+'\',this);return false;">'+$m(pilot.price)+' &rarr;</a></div>':''):'')
       +'<h3 class="sec">Final Note</h3>'
       +'<p class="t">We hope our offer is in line with your requirements and look forward to your valuable order and a long-term mutually beneficial association with your esteemed organization. If you have any questions or queries, please reach back out to us.</p>'
