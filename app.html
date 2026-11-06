@@ -20508,7 +20508,7 @@ async function arRemoveCard(btn){
 async function _bilLoadFuel(){
   var el=document.getElementById('bilFuel'); if(!el) return;
   try{
-    var r=await sbFetch('/rest/v1/rpc/my_ai_wallets',{method:'POST',body:'{}'});
+    var r=await _fuelRpc('my_ai_wallets');
     if(!r.ok) throw 0;
     var ws=await r.json();
     var min=0,sms=0,ivr=0,em=0,rows='';
@@ -34881,10 +34881,20 @@ window._aiWallets = null;
 window._designCredits = null; // design-editing months (usage_credits) — 2026-09-22
 window._aiLedger = null;
 window._aiTotals = {};
+/* fuel-va-1 (2026-11-06): staff "Viewing as" a client must see THAT client's
+   AI fuel. my_ai_wallets / my_ai_wallet_ledger only read the signed-in user's
+   own account, so in view-as we call client_ai_wallets(p_client_id) instead.
+   Falls back to the old RPC if the new one isn't there. */
+function _fuelRpc(fn){
+  var old = function(){ return sbFetch('/rest/v1/rpc/'+fn,{method:'POST',body:'{}'}); };
+  if(!(window._viewingAsClient && window._clientId)) return old();
+  return sbFetch('/rest/v1/rpc/'+fn.replace(/^my_/,'client_'),{method:'POST',body:JSON.stringify({p_client_id:window._clientId})})
+    .then(function(r){ return r.ok ? r : old(); }, old);
+}
 async function loadAiFuel(){
   if (window._houseDash && !isClientMode()) return houseLoadFuel();   // dash-3: staff read Adviuz's own fuel
   try{
-    var r = await sbFetch('/rest/v1/rpc/my_ai_wallets',{method:'POST',body:'{}'});
+    var r = await _fuelRpc('my_ai_wallets');
     if(!r.ok) return;
     window._aiWallets = await r.json();
     // 2026-09-22: free design-editing months — fetched for the fuel sheet.
@@ -34894,7 +34904,7 @@ async function loadAiFuel(){
     }catch(eD){}
     // Grant history -> per-campaign totals, so the bars can show used-of-total.
     try{
-      var r2 = await sbFetch('/rest/v1/rpc/my_ai_wallet_ledger',{method:'POST',body:'{}'});
+      var r2 = await _fuelRpc('my_ai_wallet_ledger');
       if(r2.ok){
         window._aiLedger = await r2.json();
         var tot={};
@@ -35105,7 +35115,7 @@ async function openFuelHistory(campId){
   openSheet('fuelHistSh');
   var ov=document.getElementById('fuelHistSh'); if(ov) ov.style.zIndex='960';
   if(!Array.isArray(window._aiLedger)){
-    try{ var r=await sbFetch('/rest/v1/rpc/my_ai_wallet_ledger',{method:'POST',body:'{}'}); if(r.ok) window._aiLedger=await r.json(); }catch(e){}
+    try{ var r=await _fuelRpc('my_ai_wallet_ledger'); if(r.ok) window._aiLedger=await r.json(); }catch(e){}
   }
   var grants=(window._aiLedger||[]).filter(function(g){ return String(g.campaign_id)===String(campId); });
   var w=null; (window._aiWallets||[]).forEach(function(x){ if(x.kind==='campaign'&&String(x.campaign_id)===String(campId)) w=x; });
