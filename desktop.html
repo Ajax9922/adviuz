@@ -6299,8 +6299,12 @@ function onLoginSuccess() {
       showClientUI().then(function(){ applyTelecallerRestrictions(); });
       return;
     }
-    showClientUI();
-    if (window._isDualRole) ensureRoleSwitcher();
+    // onb-1: unfinished setup → the setup wizard replaces the dashboard
+    onbGate().then(function(blocked){
+      if (blocked) return;
+      showClientUI();
+      if (window._isDualRole) ensureRoleSwitcher();
+    });
     return; // client UI owns its own load + render
   } else if (window._isAdviuzStaff) {
     showAdminUI();
@@ -6346,6 +6350,25 @@ function onLoginSuccess() {
   });
 }
 
+// onb-1 (2026-11-06, Ajax "approve onboarding design"): a new client who hasn't finished setup sees the
+// setup wizard / status screens (onb/onb.js) instead of the dashboard. Clients with no onboarding row, or a
+// "live" one, go straight to the dashboard as before.
+function _onbLoad(){
+  if (window.ONB) return Promise.resolve();
+  return new Promise(function(res, rej){
+    var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = '/onb/onb.css?v=1'; document.head.appendChild(l);
+    var s = document.createElement('script'); s.src = '/onb/onb.js?v=1'; s.onload = res; s.onerror = rej; document.head.appendChild(s);
+  });
+}
+function onbGate(){
+  return sbFetch('/rest/v1/rpc/onboarding_get', { method:'POST', body:'{}' })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(o){
+      if (!o || !o.status || o.status === 'live') return false;
+      return _onbLoad().then(function(){ window.ONB.start(o); return true; });
+    })
+    .catch(function(e){ console.warn('[onb] gate', e); return false; });
+}
 function doLogout() {
   auditLog('logout', 'auth', currentUser&&currentUser.id, {email: currentUser&&currentUser.email});
   authToken = null;
