@@ -57,11 +57,11 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);min-height:100v
 .items-table tbody tr:last-child td{border-bottom:none}
 .totals{margin-top:16px;border-top:2px solid var(--text)}
 .total-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;font-size:14px}
-.prov-row{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin:6px 0 4px;cursor:pointer;font-size:14px;background:var(--white)}
+.prov-row{width:100%;font-family:var(--f);text-align:left;-webkit-appearance:none;appearance:none;touch-action:manipulation;display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin:6px 0 4px;cursor:pointer;font-size:14px;background:var(--white)}
 .prov-row .pv-l{font-size:11px;color:var(--sub);display:block;margin-bottom:1px}
 .prov-row .pv-n{font-weight:600;color:var(--text)}
 .prov-row .pv-c{color:#4000f3;font-size:13px;font-weight:600;white-space:nowrap}
-.sheet-ov{position:fixed;inset:0;background:rgba(17,27,33,.45);z-index:1000;display:none;align-items:flex-end;justify-content:center}
+.sheet-ov{position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;-webkit-tap-highlight-color:transparent;background:rgba(17,27,33,.45);z-index:1000;display:none;align-items:flex-end;justify-content:center}
 .sheet-ov.open{display:flex}
 .sheet{background:var(--white);width:100%;max-width:560px;border-radius:18px 18px 0 0;padding:10px 18px calc(18px + env(safe-area-inset-bottom));max-height:85vh;overflow:auto}
 .sheet .grab{width:38px;height:4px;border-radius:2px;background:var(--border);margin:0 auto 12px}
@@ -172,17 +172,35 @@ var PROV_NAME = {SK:"Saskatchewan",ON:"Ontario",AB:"Alberta",BC:"British Columbi
 var PROV_ORDER = ["SK","ON","AB","BC","MB","QC","NB","NS","NL","PE","NT","NU","YT"];
 var _Q = null, _provBusy = false;
 function schedHasPaid(q){ var sc=q&&q.installment_schedule; return Array.isArray(sc) && sc.length>0; }
+function ensureProvSheet(){
+  var ov=document.getElementById("provOv");
+  if(!ov){
+    ov=document.createElement("div"); ov.className="sheet-ov"; ov.id="provOv";
+    ov.innerHTML="<div class='sheet' role='dialog' aria-label='Select your province'><div class='grab'></div><div class='sh-title'>Select your province</div><div class='sh-sub'>Tax is based on where your business is located.</div><div class='prov-grid' id='provGrid'></div><div class='prov-msg' id='provMsg'></div></div>";
+    document.body.appendChild(ov);
+  }
+  if(!ov.__wired){
+    ov.__wired=true;
+    ov.addEventListener("click",function(e){
+      var c=e.target.closest?e.target.closest(".prov-chip"):null;
+      if(c){ pickProv(c.getAttribute("data-k")); return; }
+      if(e.target===ov) closeProvSheet();
+    });
+  }
+  return ov;
+}
 function openProvSheet(){
   if(!_Q) return;
+  var ov=ensureProvSheet();
   var cur = _Q.recipient_province || "SK", h = "";
   PROV_ORDER.forEach(function(k){
     h += "<button type='button' class='prov-chip"+(k===cur?" on":"")+"' data-k='"+k+"'><span>"+PROV_NAME[k]+"<br><small>"+PROV_TAX[k].label+"</small></span>"+(k===cur?"<span>&#10003;</span>":"")+"</button>";
   });
   document.getElementById("provGrid").innerHTML = h;
   document.getElementById("provMsg").textContent = "";
-  document.getElementById("provOv").classList.add("open");
+  ov.classList.add("open"); ov.style.display="flex";
 }
-function closeProvSheet(){ document.getElementById("provOv").classList.remove("open"); }
+function closeProvSheet(){ var ov=document.getElementById("provOv"); if(ov){ ov.classList.remove("open"); ov.style.display="none"; } }
 async function pickProv(k){
   if(_provBusy || !_Q) return;
   if(k === (_Q.recipient_province||"SK")){ closeProvSheet(); return; }
@@ -202,8 +220,8 @@ async function pickProv(k){
   finally{ _provBusy = false; }
 }
 document.addEventListener("click", function(e){
-  var c = e.target.closest && e.target.closest(".prov-chip"); if(c){ pickProv(c.dataset.k); return; }
-  if(e.target && e.target.id === "provOv") closeProvSheet();
+  var r = e.target && e.target.closest ? e.target.closest("#provRow") : null;
+  if(r){ e.preventDefault(); try{ openProvSheet(); }catch(err){ console.error("[prov]",err); } }
 });
 
 var quoteId  = new URLSearchParams(window.location.search).get("id");
@@ -322,7 +340,7 @@ function renderQuote(q){
   html+="<div class='total-row'><span style='color:var(--sub)'>Taxable Amount</span><span style='font-weight:600'>"+fmtCAD(subAfter)+"</span></div>";
   // prov-1: province picker (only while the quote can still be paid and no payment plan has started)
   var provEditable = canPay && !(isPlan && plan) && !(schedHasPaid(q));
-  if(provEditable) html+="<div class='prov-row' onclick='openProvSheet()' role='button' tabindex='0'><span><span class='pv-l'>Your province (for tax)</span><span class='pv-n'>"+(PROV_NAME[province]||province)+"</span></span><span class='pv-c'>Change &#9662;</span></div>";
+  if(provEditable) html+="<button type='button' class='prov-row' id='provRow'><span><span class='pv-l'>Your province (for tax)</span><span class='pv-n'>"+(PROV_NAME[province]||province)+"</span></span><span class='pv-c'>Change &#9662;</span></button>";
   html+="<div class='total-row'><span style='color:var(--sub)'>Tax ("+taxRule.label+")</span><span style='font-weight:600'>"+fmtCAD(taxAmt)+"</span></div>";
   html+="<div class='total-row'><span style='color:var(--sub)'>Total Contract Value</span><span style='font-weight:600'>"+fmtCAD(total)+"</span></div>";
   if(isPlan){
@@ -462,6 +480,7 @@ function renderQuote(q){
     +"</div>";
 
   document.getElementById("main").innerHTML = html;
+  var _pr=document.getElementById("provRow"); if(_pr) _pr.onclick=function(ev){ ev.preventDefault(); ev.stopPropagation(); try{ openProvSheet(); }catch(err){ console.error("[prov]",err); } };
 
   // Store pdfmonkey URL globally for download button
   window._currentPdfUrl = brandFileUrl(q.pdf_url || '');
