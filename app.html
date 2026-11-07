@@ -6558,11 +6558,12 @@ function onbStaffHook(){
   var need = function(){ return new Promise(function(res, rej){
     if (window.ONBR) return res();
     if (!document.querySelector('link[href^="/onb/onb.css"]')) { var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = '/onb/onb.css?v=2'; document.head.appendChild(l); }
-    var s = document.createElement('script'); s.src = '/onb/review.js?v=2'; s.onload = res; s.onerror = rej; document.head.appendChild(s);
+    var s = document.createElement('script'); s.src = '/onb/review.js?v=3'; s.onload = res; s.onerror = rej; document.head.appendChild(s);
   }); };
   need().then(function(){
     var p = new URLSearchParams(location.search);
     if (p.get('onb') === 'review') window.ONBR.open(p.get('id')); else window.ONBR.chip();
+    window.ONBR.map();
   }).catch(function(e){ console.warn('[onb] review', e); });
 }
 function onbGate(){
@@ -40115,8 +40116,11 @@ async function saveNewCampaign() {
 
 function adClientsHTML() {
   var cl = _adminData.clients;
-  var h = '<div style="padding:0 12px 12px"><div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0">';
-  h += '<div style="font-size:12px;color:var(--sub);font-weight:600">'+cl.length+' clients</div>';
+  // onb-3 (2026-11-07, Ajax): new-client setup status shows right here in the client list (no floating bar).
+  var OM = window._onbMap || {};
+  var waitN = Object.keys(OM).filter(function(k){ return OM[k].waiting; }).length;
+  var h = '<div id="adClientsList" style="padding:0 12px 12px"><div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0">';
+  h += '<div style="font-size:12px;color:var(--sub);font-weight:600">'+cl.length+' clients'+(waitN?' \u00b7 <span style="color:#4000f3">'+waitN+' new client'+(waitN>1?'s':'')+' waiting for you</span>':'')+'</div>';
   h += '<button onclick="openAddClientSheet()" style="padding:7px 14px;border-radius:9px;background:var(--green);color:#fff;border:none;font-family:var(--f);font-size:12px;font-weight:500;cursor:pointer">+ Add Client</button></div>';
   if (!cl.length) return h+'</div>';
   h += '<div style="background:var(--white);border-radius:12px;overflow:hidden;border:1px solid var(--border)">';
@@ -40124,8 +40128,10 @@ function adClientsHTML() {
   cl.forEach(function(c, i) {
     var col = COLS[c.business_name.charCodeAt(0)%COLS.length];
     var cL = _adminData.allLeads.filter(function(l){return l.client_id===c.id;}).length;
-    h += '<div onclick="adminViewAsClient(\''+c.id+'\')" style="cursor:pointer" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">'
-      + adRow(c.business_name.charAt(0).toUpperCase(), col, c.business_name, c.email, cL+' leads', c.status==='active'?'Active':'Inactive', c.status==='active'?'var(--green)':'var(--amber)', i>0)
+    var ob = OM[c.id];
+    var click = (ob && window.ONBR) ? 'window.ONBR.open(\''+ob.id+'\')' : 'adminViewAsClient(\''+c.id+'\')';
+    h += '<div onclick="'+click+'" style="cursor:pointer" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">'
+      + adRow(c.business_name.charAt(0).toUpperCase(), col, c.business_name, c.email, ob ? 'New client \u00b7 setup' : cL+' leads', ob ? ob.label : (c.status==='active'?'Active':'Inactive'), ob ? ob.color : (c.status==='active'?'var(--green)':'var(--amber)'), i>0)
       + '</div>';
   });
   return h+'</div></div>';

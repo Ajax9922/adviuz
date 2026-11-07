@@ -157,7 +157,7 @@
       var el = e.target.closest ? e.target.closest('[data-open],[data-do]') : null; if (!el) return;
       if (el.dataset.open) { cur = rows.filter(function (r) { return r.id === el.dataset.open; })[0]; render(); if (cur && cur.status === 'drafting') refresh(); return; }
       var d = el.dataset.do;
-      if (d === 'close') { clearTimeout(timer); root.remove(); root = null; chip(); return; }
+      if (d === 'close') { clearTimeout(timer); root.remove(); root = null; map(); return; }
       if (d === 'back') { cur = null; render(); return; }
       if (d === 'copy') { try { await navigator.clipboard.writeText(cur.draft_html); toast('HTML copied. Paste it into the Ad Builder.'); } catch (er) { editSheet(); } return; }
       if (d === 'edit') { editSheet(); return; }
@@ -180,15 +180,15 @@
     render();
     if (cur && cur.status === 'drafting') refresh();
   }
-  async function chip() {
-    css();
-    var waiting = (await load()).filter(function (o) { return ['submitted', 'draft_ready', 'changes_requested', 'setup'].indexOf(o.status) > -1; }).length;
-    var old = document.getElementById('onrChip'); if (old) old.remove();
-    if (!rows.length) return;
-    var b = document.createElement('button'); b.id = 'onrChip'; b.type = 'button';
-    b.textContent = 'New clients' + (waiting ? ' \u00b7 ' + waiting + ' waiting' : '');
-    b.onclick = function () { open(); };
-    document.body.appendChild(b);
+  // onb-3 (Ajax 2026-11-07): no floating bar. New clients show in Dashboard > Clients with their setup status.
+  var SHORT = { wizard: ['Filling in setup', '#667781'], submitted: ['Needs a draft', '#b45309'], drafting: ['Designing\u2026', '#4000f3'], draft_ready: ['Review the draft', '#b45309'], client_review: ['Client reviewing', '#667781'], changes_requested: ['Changes asked', '#cc0000'], details: ['Client finishing setup', '#667781'], setup: ['Ready to go live', '#4000f3'] };
+  async function map() {
+    var list = await load(), m = {};
+    list.forEach(function (o) { var x = SHORT[o.status] || [o.status, '#667781']; m[o.client_id] = { id: o.id, status: o.status, label: x[0], color: x[1], waiting: ['submitted', 'draft_ready', 'changes_requested', 'setup'].indexOf(o.status) > -1 }; });
+    window._onbMap = m;
+    var el = document.getElementById('adClientsList');
+    if (el && typeof adClientsHTML === 'function') { var tmp = document.createElement('div'); tmp.innerHTML = adClientsHTML(); if (tmp.firstChild) el.replaceWith(tmp.firstChild); }
   }
-  window.ONBR = { open: open, chip: chip };
+  function chip() { var old = document.getElementById('onrChip'); if (old) old.remove(); }
+  window.ONBR = { open: open, chip: chip, map: map };
 })();
