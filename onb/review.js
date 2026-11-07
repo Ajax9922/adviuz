@@ -10,7 +10,7 @@
     wizard: ['Filling in the wizard', '#eef0f3', '#3d4852'], submitted: ['Submitted: needs a draft', '#fff4e5', '#8a4b00'],
     drafting: ['Claude is designing\u2026', '#f4f0ff', '#4000f3'], draft_ready: ['Draft ready: review it', '#fff4e5', '#8a4b00'],
     client_review: ['Waiting for client approval', '#eef0f3', '#3d4852'], changes_requested: ['Client asked for changes', '#fde8e8', '#a11'],
-    setup: ['Approved: set up and go live', '#f4f0ff', '#4000f3'], live: ['Live', '#e6f7f1', '#0b6b52']
+    details: ['Client approved: filling in part 2', '#eef0f3', '#3d4852'], setup: ['Ready: set up and go live', '#f4f0ff', '#4000f3'], live: ['Live', '#e6f7f1', '#0b6b52']
   };
   var KIND = { flyers: 'Digital Flyers', ai: 'AI Conversion Engine', complete: 'Digital Flyers + AI Engine' };
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -52,7 +52,7 @@
   }
 
   async function load() {
-    var r = await sbFetch('/rest/v1/client_onboarding?select=id,client_id,kind,status,step,answers,files,draft_html,draft_ads,draft_log,change_request,submitted_at,created_at,updated_at,clients(business_name,contact_name,email,phone)&status=neq.live&order=updated_at.desc', { method: 'GET' });
+    var r = await sbFetch('/rest/v1/client_onboarding?select=id,client_id,kind,status,step,answers,files,design_slug,draft_html,draft_ads,draft_log,change_request,submitted_at,created_at,updated_at,clients(business_name,contact_name,email,phone)&status=neq.live&order=updated_at.desc', { method: 'GET' });
     rows = r.ok ? await r.json() : [];
     return rows;
   }
@@ -78,12 +78,12 @@
   function kv(k, v) { return v ? '<div class="onr-kv"><span>' + esc(k) + '</span><span>' + esc(v) + '</span></div>' : ''; }
   function answers(o) {
     var a = o.answers || {}, h = '';
-    h += kv('Business', a.biz_name) + kv('Address', a.address) + kv('Website', a.website);
+    h += kv('Campaign', a.campaign_name) + kv('Brand', a.brand_name || a.biz_name) + kv('Target area', [a.region, a.postal_codes].filter(Boolean).join(' \u00b7 ')) + kv('Address', a.address) + kv('Website', a.website);
     if (a.hours) h += kv('Hours', Object.keys(a.hours).map(function (d) { var x = a.hours[d]; return d + ' ' + (x.closed ? 'closed' : (x.text || '')); }).join('\n'));
-    h += kv('Call number', a.call_phone) + kv('Directions', a.directions_address) + kv('Lead alerts', a.alert_email);
+    h += kv('Hours note', a.hours_exceptions) + kv('Call number', a.call_phone) + kv('Lead alerts', [a.alert_email, a.alert_phone].filter(Boolean).join(' \u00b7 '));
     h += kv('Punchline', a.punchline) + kv('Sub-punchline', a.sub_punchline);
     if (a.usps) h += kv('5 reasons', a.usps.filter(Boolean).map(function (x, i) { return (i + 1) + '. ' + x; }).join('\n'));
-    h += kv('Offer', a.offer) + kv('Cities', a.cities) + kv('Postal codes', a.postal_codes) + kv('Ages', (a.ages || []).join(', ')) + kv('Gender', a.gender);
+    h += kv('Offer', a.offer) + kv('Ages', (a.ages || []).join(', ')) + kv('Gender', a.gender);
     if (a.colors) h += kv('Colours', a.colors.join('  '));
     h += kv('What they do', a.what_you_do);
     if (a.services) h += kv('Services', a.services.filter(function (x) { return x && x.name; }).map(function (x) { return x.name + (x.price ? ' \u2014 ' + x.price : ''); }).join('\n'));
@@ -114,6 +114,7 @@
       + (o.status === 'drafting' ? '<div class="onr-note">Claude is designing the page. This usually takes 2\u20135 minutes; this screen updates by itself.</div>' : '')
       + (last.error ? '<div class="onr-note" style="color:#a11">Last attempt failed: ' + esc(last.error) + '</div>' : '')
       + (o.status === 'changes_requested' && o.change_request ? '<div class="onr-note"><b style="color:var(--text,#190229)">Client asked:</b> ' + esc(o.change_request) + '</div>' : '')
+      + (o.design_slug ? '<div class="onr-note">Design link: <a href="https://hub.adviuz.ca/d/' + esc(o.design_slug) + '" target="_blank" rel="noopener">hub.adviuz.ca/d/' + esc(o.design_slug) + '</a></div>' : '')
       + (o.status === 'setup' ? '<div class="onr-note">Before Go live: create the campaign and ad (paste the HTML into the Ad Builder), set up the phone number and the AI. Go live then shows the client their normal dashboard and texts them.</div>' : '')
       + '<div class="onr-acts">' + acts + '</div></div>';
     if (o.draft_html) h += '<div class="onr-card"><h3>Draft landing page (only you can see it until you approve)</h3><iframe class="onr-frame" title="Draft landing page" sandbox="allow-scripts" srcdoc="' + esc(o.draft_html) + '"></iframe>'
