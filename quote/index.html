@@ -57,6 +57,22 @@ body{font-family:var(--f);background:var(--bg);color:var(--text);min-height:100v
 .items-table tbody tr:last-child td{border-bottom:none}
 .totals{margin-top:16px;border-top:2px solid var(--text)}
 .total-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;font-size:14px}
+.prov-row{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin:6px 0 4px;cursor:pointer;font-size:14px;background:var(--white)}
+.prov-row .pv-l{font-size:11px;color:var(--sub);display:block;margin-bottom:1px}
+.prov-row .pv-n{font-weight:600;color:var(--text)}
+.prov-row .pv-c{color:#4000f3;font-size:13px;font-weight:600;white-space:nowrap}
+.sheet-ov{position:fixed;inset:0;background:rgba(17,27,33,.45);z-index:1000;display:none;align-items:flex-end;justify-content:center}
+.sheet-ov.open{display:flex}
+.sheet{background:var(--white);width:100%;max-width:560px;border-radius:18px 18px 0 0;padding:10px 18px calc(18px + env(safe-area-inset-bottom));max-height:85vh;overflow:auto}
+.sheet .grab{width:38px;height:4px;border-radius:2px;background:var(--border);margin:0 auto 12px}
+.sh-title{font-size:16px;font-weight:600;color:var(--text)}
+.sh-sub{font-size:12px;color:var(--sub);margin:2px 0 12px}
+.prov-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.prov-chip{border:1px solid var(--border);border-radius:10px;padding:11px 12px;font-size:13px;color:var(--text);background:var(--white);text-align:left;cursor:pointer;font-family:var(--f);display:flex;justify-content:space-between;align-items:center;gap:6px}
+.prov-chip small{color:var(--sub);font-size:11px}
+.prov-chip.on{border:2px solid #4000f3;color:#4000f3;padding:10px 11px}
+.prov-msg{font-size:12px;color:var(--red);margin-top:10px;min-height:14px}
+@media print{.prov-row .pv-c,.sheet-ov{display:none!important}}
 .total-row.grand{padding-top:12px;border-top:1px solid var(--border);font-size:18px;font-weight:700;color:var(--text)}
 .pay-section{background:#4000f3;background:linear-gradient(135deg,#4000f3,#e65afc);border-radius:14px;padding:24px;text-align:center;margin-bottom:14px}
 .pay-amount-lbl{color:rgba(255,255,255,.75);font-size:13px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px}
@@ -151,6 +167,45 @@ var PROV_TAX = {
   NT:{rate:0.05,label:"GST (5%)"},NU:{rate:0.05,label:"GST (5%)"},YT:{rate:0.05,label:"GST (5%)"}
 };
 
+// prov-1 (2026-11-06, Ajax "approve province picker"): the client can pick their province at checkout; tax + total are saved by quote_set_province.
+var PROV_NAME = {SK:"Saskatchewan",ON:"Ontario",AB:"Alberta",BC:"British Columbia",MB:"Manitoba",QC:"Quebec",NB:"New Brunswick",NS:"Nova Scotia",NL:"Newfoundland and Labrador",PE:"Prince Edward Island",NT:"Northwest Territories",NU:"Nunavut",YT:"Yukon"};
+var PROV_ORDER = ["SK","ON","AB","BC","MB","QC","NB","NS","NL","PE","NT","NU","YT"];
+var _Q = null, _provBusy = false;
+function schedHasPaid(q){ var sc=q&&q.installment_schedule; return Array.isArray(sc) && sc.length>0; }
+function openProvSheet(){
+  if(!_Q) return;
+  var cur = _Q.recipient_province || "SK", h = "";
+  PROV_ORDER.forEach(function(k){
+    h += "<button type='button' class='prov-chip"+(k===cur?" on":"")+"' data-k='"+k+"'><span>"+PROV_NAME[k]+"<br><small>"+PROV_TAX[k].label+"</small></span>"+(k===cur?"<span>&#10003;</span>":"")+"</button>";
+  });
+  document.getElementById("provGrid").innerHTML = h;
+  document.getElementById("provMsg").textContent = "";
+  document.getElementById("provOv").classList.add("open");
+}
+function closeProvSheet(){ document.getElementById("provOv").classList.remove("open"); }
+async function pickProv(k){
+  if(_provBusy || !_Q) return;
+  if(k === (_Q.recipient_province||"SK")){ closeProvSheet(); return; }
+  _provBusy = true;
+  var msg = document.getElementById("provMsg"); msg.style.color = "var(--sub)"; msg.textContent = "Updating your tax…";
+  try{
+    var r = await fetch(SB_URL+"/rest/v1/rpc/quote_set_province",{method:"POST",headers:{"apikey":SB_ANON,"Authorization":"Bearer "+SB_ANON,"Content-Type":"application/json"},body:JSON.stringify({p_id:_Q.id,p_prov:k})});
+    var d = await r.json();
+    if(!r.ok || !d || !d.length){
+      msg.style.color = "var(--red)";
+      msg.textContent = (d && /locked/.test(String(d.message||""))) ? "This quote can no longer be changed. Please contact us." : "Couldn't update. Please try again.";
+      return;
+    }
+    var nq = d[0]; nq._plan = _Q._plan; nq._planJustPaid = _Q._planJustPaid;
+    closeProvSheet(); renderQuote(nq);
+  }catch(e){ msg.style.color = "var(--red)"; msg.textContent = "Couldn't update. Please try again."; }
+  finally{ _provBusy = false; }
+}
+document.addEventListener("click", function(e){
+  var c = e.target.closest && e.target.closest(".prov-chip"); if(c){ pickProv(c.dataset.k); return; }
+  if(e.target && e.target.id === "provOv") closeProvSheet();
+});
+
 var quoteId  = new URLSearchParams(window.location.search).get("id");
 var justPaid = new URLSearchParams(window.location.search).get("paid") === "1";
 var QI_URL = SB_URL+"/functions/v1/quote-installments"; // plan-1
@@ -186,6 +241,7 @@ async function loadQuote(){
 
 function renderQuote(q){
   try {
+  _Q = q;
   var sMap={draft:"Draft",sent:"Sent",viewed:"Viewed",accepted:"Accepted",paid:"Paid",rejected:"Declined",expired:"Expired"};
   var sCls={draft:"s-draft",sent:"s-sent",viewed:"s-viewed",accepted:"s-accepted",paid:"s-paid",rejected:"s-rejected",expired:"s-expired"};
   var pill=document.getElementById("statusPill"); // may be null - that's ok
@@ -264,6 +320,9 @@ function renderQuote(q){
   html+="<div class='total-row'><span style='color:var(--sub)'>Subtotal</span><span style='font-weight:600'>"+fmtCAD(sub)+"</span></div>";
   if(discount>0) html+="<div class='total-row' style='color:var(--red)'><span>Discount</span><span>- "+fmtCAD(discount)+"</span></div>";
   html+="<div class='total-row'><span style='color:var(--sub)'>Taxable Amount</span><span style='font-weight:600'>"+fmtCAD(subAfter)+"</span></div>";
+  // prov-1: province picker (only while the quote can still be paid and no payment plan has started)
+  var provEditable = canPay && !(isPlan && plan) && !(schedHasPaid(q));
+  if(provEditable) html+="<div class='prov-row' onclick='openProvSheet()' role='button' tabindex='0'><span><span class='pv-l'>Your province (for tax)</span><span class='pv-n'>"+(PROV_NAME[province]||province)+"</span></span><span class='pv-c'>Change &#9662;</span></div>";
   html+="<div class='total-row'><span style='color:var(--sub)'>Tax ("+taxRule.label+")</span><span style='font-weight:600'>"+fmtCAD(taxAmt)+"</span></div>";
   html+="<div class='total-row'><span style='color:var(--sub)'>Total Contract Value</span><span style='font-weight:600'>"+fmtCAD(total)+"</span></div>";
   if(isPlan){
@@ -559,5 +618,6 @@ function showCopyToast(){
 
 loadQuote();
 </script>
+<div class="sheet-ov" id="provOv" aria-hidden="true"><div class="sheet" role="dialog" aria-label="Select your province"><div class="grab"></div><div class="sh-title">Select your province</div><div class="sh-sub">Tax is based on where your business is located.</div><div class="prov-grid" id="provGrid"></div><div class="prov-msg" id="provMsg"></div></div></div>
 </body>
 </html>
