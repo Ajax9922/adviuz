@@ -5117,6 +5117,13 @@ var APP_VERSION = 'v2026-10-31 desk-19 (desktop preview)';
   }catch(e){}
 })();
 var SB_URL = 'https://crhvvfomwkrgwlnfruad.supabase.co';
+// sec-4 (2026-11-08): call recordings are private — play them through the login-checked `rec` function.
+function recUrl(u){
+  if(!u || /\/functions\/v1\/rec\?/.test(u)) return u;
+  var t=(typeof authToken!=='undefined' && authToken) ? authToken : '';
+  if(!t) return u;
+  return SB_URL+'/functions/v1/rec?u='+encodeURIComponent(u)+'&at='+encodeURIComponent(t);
+}
 var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNyaHZ2Zm9td2tyZ3dsbmZydWFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMjA3MDYsImV4cCI6MjA5Mjc5NjcwNn0.lTHjU0bHTGGiTPJl04iefIenI6KiqiS3u2h_WyHZ0aw';
 
 
@@ -15080,7 +15087,7 @@ function callsHTML(){
       var det='';
       if(isSms && c.note) det+='<div style="font-size:11px;font-weight:600;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">'+c.note+'</div>';
       if(isSms && c.body) det+='<div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:11px 13px;font-size:13.5px;color:var(--text);line-height:1.55;margin-bottom:8px;white-space:pre-wrap">'+String(c.body).replace(/</g,'&lt;')+'</div>';
-      if(c.rec) det+='<audio src="'+c.rec+'" preload="none" controls style="width:100%;height:36px;outline:none;margin-bottom:8px"></audio>';
+      if(c.rec) det+='<audio src="'+recUrl(c.rec)+'" preload="none" controls style="width:100%;height:36px;outline:none;margin-bottom:8px"></audio>';
       if(!isSms && c.note && !/^call completed/i.test(c.note)) det+='<div style="font-size:12.5px;color:var(--sub);line-height:1.5;margin-bottom:4px">\uD83D\uDCDD '+String(c.note).replace(/</g,'&lt;')+'</div>';
       // Outcome fixer — for the days the machines get it wrong (a human call
       // that hit voicemail looks "answered" to the phone network). One tap
@@ -17060,6 +17067,7 @@ function _recFileName(l, item){
 // name sticks (the browser's built-in player can't be renamed); falls back to
 // opening the file directly if the fetch is blocked.
 async function dlRecording(url, fname){
+  url = recUrl(url); // sec-4: private recordings
   try{
     if (window.showToast) showToast('Preparing download…');
     var res = await fetch(url);
@@ -19132,7 +19140,7 @@ function renderLeadScreen(id) {
     // Player row — full width
     h += '<div style="display:flex;align-items:center;gap:10px;background:var(--bg);border-radius:12px;padding:10px 12px">';
     if (recentCall.rec && recentCall.recording_url) {
-      h += '<audio id="recAudio0" src="'+recentCall.recording_url+'" preload="metadata" style="flex:1;min-width:0;height:36px;border-radius:8px;outline:none" controls></audio>';
+      h += '<audio id="recAudio0" src="'+recUrl(recentCall.recording_url)+'" preload="metadata" style="flex:1;min-width:0;height:36px;border-radius:8px;outline:none" controls></audio>';
     } else if (recentCall.rec) {
       h += '<button id="recPlayBtn0" onclick="toggleDummyRec(0)" style="width:32px;height:32px;border-radius:50%;background:var(--red);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg id="recPlayIco0" fill="white" viewBox="0 0 24 24" style="width:10px;height:10px;margin-left:2px"><polygon points="5,3 19,12 5,21"/></svg></button>';
       h += '<div style="flex:1;min-width:0"><div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden"><div id="recProgBar0" style="height:100%;width:35%;background:linear-gradient(90deg,var(--red),#f87171);border-radius:3px"></div></div></div>';
@@ -19144,7 +19152,7 @@ function renderLeadScreen(id) {
     if (recentCall.transfer_recording_url) {
       h += '<div style="margin-top:8px;background:var(--bg);border-radius:12px;padding:10px 12px">';
       h += '<div style="font-size:11px;font-weight:500;color:var(--sub);margin-bottom:4px">Team conversation (after transfer)</div>';
-      h += '<audio src="'+recentCall.transfer_recording_url+'" preload="metadata" style="width:100%;height:36px;outline:none" controls></audio>';
+      h += '<audio src="'+recUrl(recentCall.transfer_recording_url)+'" preload="metadata" style="width:100%;height:36px;outline:none" controls></audio>';
       h += '</div>';
     }
     // AI call transcript (toggle) — only present for Retell voice calls
@@ -19394,10 +19402,10 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
       if (item.recording_url) {
         h += '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:9px 12px;margin-bottom:8px">';
         if (item.transfer_recording_url) h += '<div style="font-size:11px;font-weight:500;color:#6b7280;margin-bottom:4px">AI conversation</div>';
-        h += '<audio src="'+item.recording_url+'" preload="none" style="width:100%;height:36px;outline:none" controls></audio>';
+        h += '<audio src="'+recUrl(item.recording_url)+'" preload="none" style="width:100%;height:36px;outline:none" controls></audio>';
         if (item.transfer_recording_url) {
           h += '<div style="font-size:11px;font-weight:500;color:#6b7280;margin:8px 0 4px">Team conversation (after transfer)</div>';
-          h += '<audio src="'+item.transfer_recording_url+'" preload="none" style="width:100%;height:36px;outline:none" controls></audio>';
+          h += '<audio src="'+recUrl(item.transfer_recording_url)+'" preload="none" style="width:100%;height:36px;outline:none" controls></audio>';
         }
         h += '</div>';
       }
@@ -21490,7 +21498,7 @@ function buildTopupHtml(firstName, email) {
 
 function playRec(btn, url) {
   if(window._recAudio && !window._recAudio.paused){ window._recAudio.pause(); return; }
-  window._recAudio = new Audio(url+'.mp3');
+  window._recAudio = new Audio(recUrl(url+'.mp3'));
   window._recAudio.play().catch(function(){ window.open(url,'_blank'); });
 }
 function formatDur(secs) {
@@ -29829,7 +29837,7 @@ function aoPlayRec(btn,i){
   var c=(_ao.repList||[])[i]; if(!c||!c.recording) return;
   var box=btn.closest('.ao-cdet'); if(!box) return;
   var old=box.querySelector('audio'); if(old){ try{ old.play(); }catch(_e){} return; }
-  var a=document.createElement('audio'); a.controls=true; a.preload='auto'; a.src=c.recording; a.className='ao-cdet-audio';
+  var a=document.createElement('audio'); a.controls=true; a.preload='auto'; a.src=recUrl(c.recording); a.className='ao-cdet-audio';
   box.insertBefore(a, box.querySelector('.ao-cdet-act'));
   btn.style.display='none';
   var p=a.play(); if(p&&p.catch) p.catch(function(){});
@@ -42347,7 +42355,7 @@ function renderMeetingScreen(l, meetings, state) {
       if (m.notes) h += '<div class="task-note">'+m.notes+'</div>';
       h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">';
       if (m.meet_link) h += '<a href="'+m.meet_link+'" target="_blank" style="font-size:11px;font-weight:600;color:var(--purple);text-decoration:none">🔗 Join</a>';
-      if (m.recording_url) h += '<a href="'+m.recording_url+'" target="_blank" style="font-size:11px;font-weight:600;color:var(--blue);text-decoration:none">🎥 Recording</a>';
+      if (m.recording_url) h += '<a href="'+recUrl(m.recording_url)+'" target="_blank" style="font-size:11px;font-weight:600;color:var(--blue);text-decoration:none">🎥 Recording</a>';
       if (m.transcript_url) h += '<a href="'+m.transcript_url+'" target="_blank" style="font-size:11px;font-weight:600;color:var(--green);text-decoration:none">📝 Transcript</a>';
       if (m.summary) h += '<div style="font-size:11px;color:var(--sub);width:100%;margin-top:4px;background:var(--bg);padding:8px;border-radius:8px">🤖 '+m.summary+'</div>';
       h += '</div></div>';
