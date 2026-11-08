@@ -18,6 +18,12 @@ export async function onRequest(context) {
     return new Response('Not found', { status: 404 });
   }
 
+  // sec-4 (2026-11-08): call recordings are private — they are only played through the
+  // login-checked `rec` function, never through this public relay.
+  if (/^recordings\//i.test(path) || path.indexOf('..') !== -1) {
+    return new Response('Not found', { status: 404 });
+  }
+
   const target = `${SUPABASE_PUBLIC}/${path}`;
 
   const upstream = await fetch(target, {
