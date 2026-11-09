@@ -19537,6 +19537,9 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
       h += '</div></div>';
       if (isInboundSms) h += '<button onclick="lsQuickSmsReply('+l.id+')" style="margin-top:6px;padding:5px 12px;border-radius:20px;border:1.5px solid var(--green);background:#fff;color:var(--green);font-size:12px;font-weight:500;cursor:pointer;font-family:var(--f)">↩ Reply</button>';
 
+    } else if (item.type==='note' && /Demo notes \(Gemini\)/.test(String(item.body||''))) {
+      // ── MEETING NOTES (Gemini) — meetnote-1 ──
+      h += mnActHTML(item, l, i);
     } else {
       // ── DEFAULT ACTIVITY ──
       h += '<div class="ld-act-dot">'+(icons[item.type]||'📋')+'</div>';
@@ -23058,6 +23061,42 @@ function showEmailOpens(localId, emailId, subject){
   openSheet('emOpensSh');
 }
 
+// meetnote-1 (Ajax 2026-11-09): Gemini demo notes get their own "Meeting Notes" card — short view (what happened +
+// what to do next) and a "Show full notes" toggle with three boxes: Summary, What to do next, Details.
+function mnActHTML(item, l, i){
+  var raw=String(item.body||'');
+  var dm=raw.match(/Demo notes \(Gemini\)\s*[—-]\s*([^\n]+)/); var dLbl=dm?dm[1].trim():'';
+  var txt=raw.replace(/^[^\n]*Demo notes \(Gemini\)[^\n]*\n*/,'');
+  var cut=function(s,a,b){ var x=s.indexOf(a); if(x<0) return ''; x+=a.length; var y=b?s.indexOf(b,x):-1; return (y<0?s.slice(x):s.slice(x,y)).trim(); };
+  var sum=cut(txt,'Summary:\n','\n\nNext steps:') || cut(txt,'Summary:\n','\n\nDetails:');
+  var nxt=cut(txt,'Next steps:\n','\n\nDetails:');
+  var det=cut(txt,'Details:\n','');
+  if(!sum&&!nxt&&!det) sum=txt.trim();
+  var lines=function(s){ return s.split('\n').map(function(x){return x.trim();}).filter(Boolean); };
+  // Short view: first summary sentence + the topic headings; next steps as "Who · Action".
+  var sL=lines(sum), first=(sL.find(function(x){return x.indexOf('• ')===0;})||'').replace(/^•\s*/,'');
+  var topics=sL.filter(function(x){return x.indexOf('▸')===0;}).map(function(x){return x.replace(/^▸\s*/,'');});
+  var shortWhat=(first?first:'')+(topics.length?(first?' ':'')+'Topics: '+topics.join(', ')+'.':'');
+  var acts=lines(nxt).map(function(x){ var m=x.match(/^•\s*\[([^\]]+)\]\s*([^:]+):/); if(m){ var who=m[1].trim(); return (who.charAt(0).toUpperCase()+who.slice(1))+' · '+m[2].trim(); } return x.replace(/^•\s*/,''); });
+  var key='mn_'+String(item.id||(l.id+'_'+i)); window._emOpen=window._emOpen||{}; var open=!!window._emOpen[key];
+  var box=function(title,color,body,clamp){ return '<div style="margin-top:8px;background:var(--bg);border-left:3px solid '+color+';border-radius:0 10px 10px 0;padding:9px 12px">'
+    +'<div style="font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:'+color+';margin-bottom:4px">'+title+'</div>'
+    +'<div style="font-size:13px;color:var(--text);line-height:1.55;white-space:pre-line'+(clamp?';overflow:hidden;display:-webkit-box;-webkit-line-clamp:'+clamp+';-webkit-box-orient:vertical':'')+'">'+body+'</div></div>'; };
+  var h='<div class="ld-act-dot">🎥</div>';
+  h+='<div class="ld-act-body" style="width:100%">';
+  h+='<span class="ld-act-label">Meeting Notes</span><span class="ld-act-time">'+item.time+'</span>';
+  if(dLbl) h+='<div style="margin-top:3px;font-size:11.5px;color:var(--sub)">Demo on '+dLbl+' · by Gemini</div>';
+  if(open){
+    if(sum) h+=box('Summary','#7c3aed',sum,0);
+    if(nxt) h+=box('What to do next','var(--green)',lines(nxt).map(function(x){ var m=x.match(/^•\s*\[([^\]]+)\]\s*([^:]+):\s*(.*)$/); if(!m) return x; var who=m[1].trim(); return '• <b>'+(who.charAt(0).toUpperCase()+who.slice(1))+' · '+m[2].trim()+'</b> — '+m[3].trim(); }).join('\n'),0);
+    if(det) h+=box('Details','#64748b',det,0);
+  } else {
+    if(shortWhat) h+=box('What happened','#7c3aed',shortWhat,3);
+    if(acts.length) h+=box('What to do next','var(--green)','• '+acts.slice(0,4).join('\n• ')+(acts.length>4?'\n+'+(acts.length-4)+' more':''),0);
+  }
+  h+='<button onclick="emTgl(\''+key+'\','+l.id+')" style="margin-top:8px;padding:6px 14px;border-radius:20px;border:1.5px solid var(--border);background:#fff;color:var(--text);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--f)">'+(open?'Show less ▴':'Show full notes ▾')+'</button>';
+  return h;
+}
 function emTgl(key, lid){
   window._emOpen = window._emOpen || {};
   window._emOpen[key] = !window._emOpen[key];
