@@ -32,7 +32,7 @@ const SKIP_WHEN_OBF = (rel) =>
 // Copied but never transformed (client ad pages written by the admin panel, email templates).
 const NO_TRANSFORM = (rel) => /^(ads|ad|brand)\//.test(rel);
 
-let terser, Obfuscator;
+let terser, Obfuscator, CleanCSS;
 const stats = { files: 0, html: 0, js: 0, scripts: 0, kept: 0, inBytes: 0, outBytes: 0 };
 const warn = (m) => console.warn('[build] WARN ' + m);
 
@@ -176,6 +176,17 @@ async function transformHtml(html, rel) {
         out.push(html.slice(last, tagEnd), min);
         last = close; stats.scripts++;
       }
+    } else if (tag === 'style') {
+      // Design styles: drop /* notes */ and spaces so they read as one long line too.
+      const css = html.slice(tagEnd, close);
+      let min = css;
+      try {
+        const r = new CleanCSS({ level: 1, returnPromise: false, inline: false, rebase: false }).minify(css);
+        if (!r.errors.length && r.styles && !/<\/style/i.test(r.styles)) min = r.styles;
+      } catch (_) { /* keep original */ }
+      if (min === css) stats.kept++;
+      out.push(html.slice(last, tagEnd), min);
+      last = close; stats.styles = (stats.styles || 0) + 1;
     }
     i = close + 2;
   }
@@ -213,9 +224,10 @@ fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT, { recursive: true });
 if (OBF) {
   terser = await import('terser');
+  CleanCSS = (await import('clean-css')).default;
   if (OBF >= 2) Obfuscator = (await import('javascript-obfuscator')).default;
 }
 await walk('');
 const kb = (b) => (b / 1024).toFixed(0) + ' KB';
 console.log(`[build] OBF=${OBF} — ${stats.files} files copied to dist/ in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
-if (OBF) console.log(`[build] ${stats.html} html + ${stats.js} js transformed, ${stats.scripts} inline scripts, ${stats.kept} kept as-is; ${kb(stats.inBytes)} -> ${kb(stats.outBytes)}`);
+if (OBF) console.log(`[build] ${stats.html} html + ${stats.js} js transformed, ${stats.scripts} inline scripts, ${stats.styles||0} style blocks, ${stats.kept} kept as-is; ${kb(stats.inBytes)} -> ${kb(stats.outBytes)}`);
