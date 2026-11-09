@@ -17,7 +17,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
-const DEFAULT_OBF = '0'; // obf-preview branch sets this to '1'
+const DEFAULT_OBF = '1'; // obf-preview branch: minified by default
 const OBF = Number(process.env.OBF ?? DEFAULT_OBF) || 0;
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
