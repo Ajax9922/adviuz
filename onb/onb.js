@@ -255,7 +255,7 @@
     // 2026-11-10 (Ajax): a clear "working on it" state while the website is read
     var btnHtml = btn.innerHTML, steps = ['Opening your website\u2026', 'Reading your services and offers\u2026', 'Picking out what makes you different\u2026', 'Writing your page details\u2026', 'Almost done\u2026'], si = 0;
     btn.disabled = true; btn.innerHTML = '<span class="onb-spin"></span><span>Reading\u2026</span>';
-    function busy(t) { if (msg) { msg.style.color = ''; msg.innerHTML = '<span class="onb-busy"><span class="onb-bar"></span><b>' + esc(t) + '</b> This takes about 20 seconds.</span>'; } }
+    function busy(t) { if (msg) { msg.style.color = ''; msg.innerHTML = '<span class="onb-busy"><span class="onb-load"></span><b>' + esc(t) + '</b> This takes about 20 seconds.</span>'; } }
     busy(steps[0]);
     var tick = setInterval(function () { si = Math.min(si + 1, steps.length - 1); busy(steps[si]); }, 5000);
     try {
