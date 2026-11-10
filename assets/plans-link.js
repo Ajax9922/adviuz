@@ -5,7 +5,10 @@
    already filled in, and Amber greets them by name. Loaded by operator-console; app.html / desktop.html unchanged.
    v2 (2026-11-10, Ajax: "a button ... send plans and pricing ... the moment I click on it, it should automatically send an
    email and a text message to the client"): a 4th option "Send plans link" in the lead's Quote sheet (under Custom
-   proposal; Adviuz Sales leads, staff only). One tap shows what will go out, then sends the email + text with the lead's own pre-filled plans link. */
+   proposal; Adviuz Sales leads, staff only). One tap shows what will go out, then sends the email + text with the lead's own pre-filled plans link.
+   v3 (2026-11-10, Ajax: "train Amber to handle post meeting follow up calls to take it to conversion"): a 5th option
+   "Amber follow-up call" (Adviuz Sales leads after the demo, staff only). Amber calls now with the demo notes and the quote,
+   answers questions, finds what is holding them back, and can text the secure payment link. You can listen live and jump in. */
 (function () {
   'use strict';
   if (window.__advPlansLink) return; window.__advPlansLink = 1;
@@ -99,6 +102,38 @@
       if (window.showToast) showToast(ok.length ? ('📨 Plans sent (' + ok.join(' + ') + ')' + (bad.length ? ' — ' + bad.join(' + ') + ' failed' : '')) : 'Could not send. Please try again.');
     });
   };
+
+  /* ── "Amber follow-up call" (v3) ── */
+  function afterDemo(l) { var st = String(l && l.stage || ''); return /^(6|7|8)\b/.test(st) || /meeting done|negotiat|thinking/i.test(st); }
+  window.advClosingCall = function (lid) {
+    var l = lid != null && typeof leads !== 'undefined' ? leads.find(function (x) { return x.id === lid; }) : curLead(); if (!okLead(l)) return;
+    var ov = document.createElement('div'); ov.id = 'spOv';
+    ov.innerHTML = '<div class="sp" role="dialog" aria-label="Amber follow-up call"><h3>Amber follow-up call</h3><p class="s">Amber calls ' + e(l.name || 'this lead') + ' now about their demo with you.</p>'
+      + '<div class="pv">• She knows the demo notes and the quote you sent.\n• She answers questions and finds what is holding them back.\n• If they are ready, she texts the secure payment link.\n• If they want you, she connects you or books a time.\n\nYou can listen live and jump in at any time.</div>'
+      + '<p class="s" style="margin-top:10px">Only for leads who agreed to AI calls. Amber never offers discounts or promises results.</p>'
+      + '<div class="bt"><button type="button" data-x>Cancel</button><button type="button" class="go" data-go>Call now</button></div></div>';
+    document.body.appendChild(ov);
+    ov.addEventListener('click', async function (ev) {
+      if (ev.target === ov || ev.target.closest('[data-x]')) { ov.remove(); return; }
+      var go = ev.target.closest('[data-go]'); if (!go || go.disabled) return;
+      go.disabled = true; go.textContent = 'Starting…';
+      var data = {}, ok = false;
+      try {
+        var r = await sbFetch('/functions/v1/ai-call-lead', { method: 'POST', body: JSON.stringify({ lead_id: l.dbId, closing: true }) });
+        data = await r.json().catch(function () { return {}; });
+        ok = r.ok && data && data.ok && !data.blocked && !data.skipped && !data.deferred;
+      } catch (_) {}
+      ov.remove();
+      var f = first(l.name) || 'the lead';
+      if (ok) {
+        if (window.showToast) showToast('🤖 Amber is calling ' + f + ' now');
+        try { logActivity({ lead_id: l.id, client_id: l.client_id || HOUSE, type: 'note', label: '🤖 Amber follow-up call', body: 'Started an Amber follow-up call after the demo', meta: { kind: 'closing_call' } }); } catch (_) {}
+        if (data.call_id && typeof openLiveCall === 'function') { window._liveDetailAllow = 12; openLiveCall(data.call_id, f); }
+      } else if (window.showToast) {
+        showToast(data && data.deferred ? ('⏳ Postponed: ' + (data.reason || 'the lead is busy right now')) : ('🚫 Call did not start' + ((data && (data.skipped || data.error || data.reason)) ? ': ' + (data.skipped || data.error || data.reason) : '')));
+      }
+    });
+  };
   /* 4th option in the Quote sheet (openQuoteMenu → #sapMenu), under "Custom proposal" */
   var qLid = null;
   if (typeof window.openQuoteMenu === 'function') { var oq = window.openQuoteMenu; window.openQuoteMenu = function (lid) { qLid = lid; return oq.apply(this, arguments); }; }
@@ -112,6 +147,13 @@
     b.innerHTML = '<span class="sap-ic"><svg fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg></span><span class="sap-tx"><b>Send plans link</b><small>Text + email with their own plans page, details filled in</small></span><span class="sap-ch">&rsaquo;</span>';
     b.addEventListener('click', function () { try { _sapClose('sapMenu'); } catch (_) {} window.advSendPlans(lid); });
     last.parentNode.insertBefore(b, last.nextSibling);
+    if (afterDemo(l)) {
+      var c = document.createElement('button');
+      c.type = 'button'; c.className = 'sap-opt adv-sp-opt adv-cc-opt';
+      c.innerHTML = '<span class="sap-ic"><svg fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 01-2.2 2 19.8 19.8 0 01-8.6-3.1 19.5 19.5 0 01-6-6A19.8 19.8 0 012.1 4.2 2 2 0 014.1 2h3a2 2 0 012 1.7c.1.9.4 1.8.7 2.7a2 2 0 01-.5 2.1L8 9.8a16 16 0 006 6l1.3-1.3a2 2 0 012.1-.4c.9.3 1.8.6 2.7.7a2 2 0 011.7 2z"/></svg></span><span class="sap-tx"><b>Amber follow-up call</b><small>Amber calls about the demo and quote, and can text the payment link</small></span><span class="sap-ch">&rsaquo;</span>';
+      c.addEventListener('click', function () { try { _sapClose('sapMenu'); } catch (_) {} window.advClosingCall(lid); });
+      b.parentNode.insertBefore(c, b.nextSibling);
+    }
   }
   var tq = 0; new MutationObserver(function () { if (tq) return; tq = setTimeout(function () { tq = 0; addBtn(); }, 150); }).observe(document.body, { childList: true, subtree: true });
 })();
