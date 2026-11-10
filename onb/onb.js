@@ -60,7 +60,7 @@
         return '<button type="button" class="' + c + '" data-go="' + k + '"><span class="onb-dot">' + (k < cur ? ICON.check : k) + '</span><span>' + esc(x[1]) + '</span></button>';
       }).join('') + '<div class="onb-rail-f">Your answers save as you go. You can come back anytime.</div></nav>';
     }
-    root.innerHTML = '<header class="onb-top"><div class="onb-brand"><span class="onb-mark"></span><span>Adviuz</span></div>'
+    root.innerHTML = '<header class="onb-top"><div class="onb-brand"><img src="/brand/adviuz-logo-black.png" alt="Adviuz" class="onb-logo"></div>'
       + '<button type="button" class="onb-out" data-act="out">Sign out</button></header>'
       + '<div class="onb-wrap">' + rail + '<div class="onb-main">' + inner + '</div></div>';
   }
@@ -153,9 +153,8 @@
       return head('The basics', 'A few details so we can design your page.')
         + siteBlock()
         + fld('campaign_name', 'Campaign name', 'Spring Invisalign offer', 'Just for you and us, so we can tell your campaigns apart.')
-        + fld('brand_name', 'Brand name', 'Bright Smile Dental', 'The name people should see on your page.')
-        + fld('region', 'Region or city to target', 'Saskatoon, SK')
-        + fld('postal_codes', 'Postal codes (optional)', 'S7K, S7H, S7N', 'The first 3 characters are enough.');
+        + fld('brand_name', 'Brand name', 'Bright Smile Dental', 'The name people should see on your page.');
+      // 2026-11-10 (Ajax): no targeting questions while designing; region/postal codes are asked in part 2 (Audience).
     },
     message: function () {
       var u = v('usps', ['', '', '', '', '']), ph = ['20+ years of experience', 'Same-week appointments', 'Payment plans available', 'Free parking', '5-star Google reviews'];
@@ -220,7 +219,7 @@
     var st = steps(), rows = [];
     function r(lbl, val, key) { var ix = 1; for (var i = 0; i < st.length; i++) if (st[i][0] === key) ix = i + 1; rows.push('<button type="button" data-go="' + ix + '"><span>' + esc(lbl) + '</span><span>' + esc(val || 'Not added') + '</span></button>'); }
     var keys = st.map(function (x) { return x[0]; });
-    if (keys.indexOf('basics') > -1) { r('Campaign', v('campaign_name'), 'basics'); r('Brand', v('brand_name'), 'basics'); r('Target area', [v('region'), v('postal_codes')].filter(Boolean).join(' \u00b7 '), 'basics'); }
+    if (keys.indexOf('basics') > -1) { r('Campaign', v('campaign_name'), 'basics'); r('Brand', v('brand_name'), 'basics'); }
     if (keys.indexOf('message') > -1) { r('Punchline', v('punchline'), 'message'); r('Reasons', v('usps', []).filter(Boolean).length + ' of 5 added', 'message'); }
     if (keys.indexOf('contact') > -1) { r('Call number', v('call_phone'), 'contact'); r('Address', v('address'), 'contact'); }
     if (keys.indexOf('look') > -1) { r('Logo', (O.files || []).some(function (f) { return f.slot === 'logo'; }) ? 'Added' : '', 'look'); r('Photos and videos', String((O.files || []).filter(function (f) { return f.slot === 'media'; }).length), 'look'); }
@@ -238,7 +237,6 @@
     errs = {};
     var digits = function (s) { return String(s || '').replace(/\D/g, '').length; };
     if (key === 'basics' && !String(v('brand_name')).trim()) errs.brand_name = 'Please add your brand name.';
-    if (key === 'basics' && !String(v('region')).trim() && !String(v('postal_codes')).trim()) errs.region = 'Add a region, city or postal code.';
     if (key === 'basics_ai' && !String(v('brand_name')).trim()) errs.brand_name = 'Please add your business name.';
     if (key === 'contact' && digits(v('call_phone')) < 10) errs.call_phone = 'Please add a 10-digit phone number.';
     if (key === 'message' && !String(v('punchline')).trim()) errs.punchline = 'Please add a punchline.';
@@ -254,12 +252,18 @@
   async function fillFromSite(btn) {
     var url = String(v('website')).trim(), msg = document.getElementById('onbSiteMsg');
     if (!url) { if (msg) { msg.style.color = 'var(--red,#cc0000)'; msg.textContent = 'Type your website first.'; } return; }
-    btn.disabled = true; if (msg) { msg.style.color = ''; msg.textContent = 'Reading your website\u2026 this takes about 20 seconds.'; }
+    // 2026-11-10 (Ajax): a clear "working on it" state while the website is read
+    var btnHtml = btn.innerHTML, steps = ['Opening your website\u2026', 'Reading your services and offers\u2026', 'Picking out what makes you different\u2026', 'Writing your page details\u2026', 'Almost done\u2026'], si = 0;
+    btn.disabled = true; btn.innerHTML = '<span class="onb-spin"></span><span>Reading\u2026</span>';
+    function busy(t) { if (msg) { msg.style.color = ''; msg.innerHTML = '<span class="onb-busy"><span class="onb-bar"></span><b>' + esc(t) + '</b> This takes about 20 seconds.</span>'; } }
+    busy(steps[0]);
+    var tick = setInterval(function () { si = Math.min(si + 1, steps.length - 1); busy(steps[si]); }, 5000);
     try {
       var r = await sbFetch('/functions/v1/onboarding-draft', { method: 'POST', body: JSON.stringify({ action: 'site', url: url }) });
       var j = await r.json().catch(function () { return {}; });
       if (!r.ok || !j.ok) throw new Error(j.error || 'failed');
-      var f = j.facts || {}, a = A(), got = 0;
+      var f = j.facts || {}, a = A(), got = 0, found = 0;
+      ['brand_name', 'phone', 'address', 'offer', 'what_you_do', 'usps', 'services', 'faqs', 'hours'].forEach(function (k) { var x = f[k]; if (x && (!Array.isArray(x) || x.length)) found++; });
       function put(k, val) { if (val && !String(a[k] || '').trim()) { a[k] = val; got++; } }
       put('brand_name', f.brand_name); put('call_phone', f.phone); put('address', f.address); put('offer', f.offer); put('what_you_do', f.what_you_do);
       if (Array.isArray(f.usps) && f.usps.length && !(a.usps || []).some(Boolean)) { a.usps = f.usps.slice(0, 5).concat(['', '', '', '', '']).slice(0, 5); got++; }
@@ -269,10 +273,12 @@
         var open = DAYS.filter(function (d) { return f.hours[d] && !f.hours[d].closed && f.hours[d].open; });
         if (open.length) { a.open_days = open; a.open_time = to12(f.hours[open[0]].open) || '9:00 AM'; a.close_time = to12(f.hours[open[0]].close) || '6:00 PM'; syncHours(); got++; }
       }
+      clearInterval(tick);
       await save(O.step); render();
       var m2 = document.getElementById('onbSiteMsg');
-      if (m2) m2.textContent = got ? 'Done. We filled in ' + got + ' item' + (got > 1 ? 's' : '') + ' from your website. Please check them as you go.' : "We read your website but didn't find details to add.";
+      if (m2) { m2.style.color = got ? '#047857' : ''; m2.textContent = got ? '\u2713 Done. We filled in ' + got + ' item' + (got > 1 ? 's' : '') + ' from your website. Please check them as you go.' : (found ? '\u2713 Done. Your details were already filled in, so we kept what you wrote.' : "We read your website but didn't find details to add. Please fill them in yourself."); }
     } catch (e) {
+      clearInterval(tick); btn.innerHTML = btnHtml;
       btn.disabled = false;
       if (msg) { msg.style.color = 'var(--red,#cc0000)'; msg.textContent = "We couldn't read that website. Please check the address, or fill in the details yourself."; }
     }
