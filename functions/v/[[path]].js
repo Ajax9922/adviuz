@@ -241,7 +241,8 @@ function mainPage(d, code) {
     + (d.house
       ? '<p style="margin-top:10px">Just answer these in your own words — the questions show on screen while you record:</p><ul class="tips"><li><b>1</b>Who you are and what your business does</li><li><b>2</b>What was hard before Adviuz</li><li><b>3</b>What Adviuz did for you</li><li><b>4</b>What you liked most</li><li><b>5</b>Who you’d recommend Adviuz to</li></ul>'
         + '<p class="howto">📱 Hold your phone upright, face a window, quiet room. 2–3 takes is normal. Please share only your own real experience — no need for numbers or prices.</p>'
-      : '<ul class="tips"><li><b>1</b>Your first name</li><li><b>2</b>Why you chose ' + brand + '</li><li><b>3</b>How it went — what changed for you</li><li><b>4</b>Would you recommend us?</li></ul>')
+      : '<p style="margin-top:10px">Just answer these in your own words — the questions show on screen while you record:</p><ul class="tips"><li><b>1</b>Your first name</li><li><b>2</b>Why you chose ' + brand + '</li><li><b>3</b>How it went — what changed for you</li><li><b>4</b>Would you recommend ' + brand + '?</li></ul>'
+        + '<p class="howto">📱 Hold your phone upright, face a window, quiet room. 2–3 takes is normal — just be yourself.</p>')
     + '<button class="btn btn-p" onclick="vrStart()">🎥 Record a video</button>'
     + '<button class="btn btn-s" onclick="document.getElementById(\'file\').click()">📁 Upload a video from my phone</button>'
     + '<button class="btn btn-l" onclick="vrWrite()">I’d rather write a few words</button>'
