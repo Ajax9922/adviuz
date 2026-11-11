@@ -80,7 +80,7 @@ const JS = `
 var D=window.__VR__||{}, FN=${JSON.stringify(FN)};
 var $=function(id){return document.getElementById(id)};
 var MAX_SEC=120, stream=null, rec=null, chunks=[], blob=null, blobMime='', dur=0, t0=0, tick=null, facing='user', rating=0, fileMode=false;
-var PROMPTS=D.house?['Who you are and what your business does','What was hard before Adviuz?','What did Adviuz do for you?','What did you like most?','Who would you recommend Adviuz to?']:['Say your first name','What made you choose '+D.brand+'?','How did it go \\u2014 what changed for you?','Would you recommend '+D.brand+'? Why?'];
+var PROMPTS=D.house?['Introduce your business','When did you start using Adviuz?','Are you satisfied with Adviuz?','How is Adviuz helping you?','How easy is it working with Ajay?','Who would you recommend Adviuz to?']:['Say your first name','What made you choose '+D.brand+'?','How did it go \\u2014 what changed for you?','Would you recommend '+D.brand+'? Why?'];
 var pi=0;
 function paintPrompt(){ var e=$('prompt'); if(e) e.innerHTML='<small>'+(pi+1)+' of '+PROMPTS.length+'</small>'+PROMPTS[pi].replace(/[&<>]/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[m]})+(pi<PROMPTS.length-1?'<em>Tap for next \\u203A</em>':''); }
 window.vrNext=function(){ if(pi<PROMPTS.length-1){ pi++; paintPrompt(); } };
@@ -239,7 +239,7 @@ function mainPage(d, code) {
     + '<h1>' + hi + '</h1>'
     + '<p>Would you share a quick video about your experience with <b>' + brand + '</b>? 30–60 seconds on your phone is perfect — no need to be polished.</p>'
     + (d.house
-      ? '<p style="margin-top:10px">Just answer these in your own words — the questions show on screen while you record:</p><ul class="tips"><li><b>1</b>Who you are and what your business does</li><li><b>2</b>What was hard before Adviuz</li><li><b>3</b>What Adviuz did for you</li><li><b>4</b>What you liked most</li><li><b>5</b>Who you’d recommend Adviuz to</li></ul>'
+      ? '<p style="margin-top:10px">Just answer these in your own words — the questions show on screen while you record:</p><ul class="tips"><li><b>1</b>Introduce your business</li><li><b>2</b>When did you start using Adviuz?</li><li><b>3</b>Are you satisfied with Adviuz?</li><li><b>4</b>How is Adviuz helping you?</li><li><b>5</b>How easy is it working with Ajay?</li><li><b>6</b>Who would you recommend Adviuz to?</li></ul>'
         + '<p class="howto">📱 Hold your phone upright, face a window, quiet room. 2–3 takes is normal. Please share only your own real experience — no need for numbers or prices.</p>'
       : '<p style="margin-top:10px">Just answer these in your own words — the questions show on screen while you record:</p><ul class="tips"><li><b>1</b>Your first name</li><li><b>2</b>Why you chose ' + brand + '</li><li><b>3</b>How it went — what changed for you</li><li><b>4</b>Would you recommend ' + brand + '?</li></ul>'
         + '<p class="howto">📱 Hold your phone upright, face a window, quiet room. 2–3 takes is normal — just be yourself.</p>')
