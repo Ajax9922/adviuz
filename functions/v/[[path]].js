@@ -90,7 +90,7 @@ var D=window.__VR__||{}, FN=${JSON.stringify(FN)};
 var $=function(id){return document.getElementById(id)};
 var MAX_SEC=120, stream=null, rec=null, chunks=[], blob=null, blobMime='', dur=0, t0=0, tick=null, facing='user', rating=0, fileMode=false;
 var PROMPTS=D.house?['Introduce your business','When did you start using Adviuz?','Are you satisfied with Adviuz?','How is Adviuz helping you?','How easy is it working with Ajay?','Who would you recommend Adviuz to?']:['Say your first name','What made you choose '+D.brand+'?','How did it go \\u2014 what changed for you?','Would you recommend '+D.brand+'? Why?'];
-var pi=0, QSEC=20, qStart=0;
+var pi=0, QSEC=10, qStart=0;
 function paintPrompt(){ var e=$('prompt'); if(e) e.innerHTML='<small>'+(pi+1)+' of '+PROMPTS.length+'<span class="qs" id="qs"></span></small><span class="qb"><i id="qb"></i></span>'+PROMPTS[pi].replace(/[&<>]/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[m]})+(pi<PROMPTS.length-1?'<em>Tap for next \\u203A</em>':''); }
 window.vrNext=function(){ if(pi<PROMPTS.length-1){ pi++; qStart=Date.now(); paintPrompt(); } };
 function paintQ(){ if(!qStart)return; var left=Math.max(0,QSEC-(Date.now()-qStart)/1000), a=$('qs'), b=$('qb'); if(a)a.textContent=' \\u00B7 '+Math.ceil(left)+'s'; if(b)b.style.width=(left/QSEC*100)+'%'; }
