@@ -43,7 +43,10 @@ p{font-size:15px;line-height:1.55;color:#334155}
 .pill{pointer-events:auto;background:rgba(0,0,0,.55);color:#fff;font-size:13px;font-weight:700;padding:6px 11px;border-radius:20px;display:inline-flex;align-items:center;gap:6px;border:none;font-family:var(--f)}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--red);animation:blink 1s infinite}
 @keyframes blink{50%{opacity:.25}}
-.prompt{position:absolute;left:12px;right:12px;bottom:12px;background:rgba(0,0,0,.6);color:#fff;border-radius:12px;padding:10px 12px;font-size:14px;line-height:1.4;font-weight:600;text-align:center}
+.prompt{position:absolute;left:12px;right:12px;bottom:12px;background:rgba(0,0,0,.62);color:#fff;border:none;border-radius:12px;padding:10px 12px;font-family:var(--f);font-size:15px;line-height:1.4;font-weight:700;text-align:center;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.prompt small{display:block;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;opacity:.7;margin-bottom:2px}
+.prompt em{display:block;font-style:normal;font-size:11px;font-weight:600;opacity:.65;margin-top:4px}
+.howto{font-size:13px;line-height:1.5;color:var(--sub);margin:-6px 0 16px}
 .ctrls{display:flex;align-items:center;justify-content:center;gap:28px;padding:18px 0 4px}
 .rec{width:74px;height:74px;border-radius:50%;border:4px solid #fff;box-shadow:0 0 0 2px var(--line);background:var(--red);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .12s}
 .rec:active{transform:scale(.94)}
@@ -77,7 +80,10 @@ const JS = `
 var D=window.__VR__||{}, FN=${JSON.stringify(FN)};
 var $=function(id){return document.getElementById(id)};
 var MAX_SEC=120, stream=null, rec=null, chunks=[], blob=null, blobMime='', dur=0, t0=0, tick=null, facing='user', rating=0, fileMode=false;
-var PROMPTS=['Say your first name'+(D.house?' and your business':''),'What made you choose '+D.brand+'?','How did it go \\u2014 what changed for you?','Would you recommend '+D.brand+'? Why?'];
+var PROMPTS=D.house?['Who you are and what your business does','What was hard before Adviuz?','What did Adviuz do for you?','What did you like most?','Who would you recommend Adviuz to?']:['Say your first name','What made you choose '+D.brand+'?','How did it go \\u2014 what changed for you?','Would you recommend '+D.brand+'? Why?'];
+var pi=0;
+function paintPrompt(){ var e=$('prompt'); if(e) e.innerHTML='<small>'+(pi+1)+' of '+PROMPTS.length+'</small>'+PROMPTS[pi].replace(/[&<>]/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[m]})+(pi<PROMPTS.length-1?'<em>Tap for next \\u203A</em>':''); }
+window.vrNext=function(){ if(pi<PROMPTS.length-1){ pi++; paintPrompt(); } };
 function show(id){['sIntro','sRec','sCheck','sForm','sUp','sDone','sOld'].forEach(function(k){var e=$(k);if(e)e.hidden=(k!==id)});window.scrollTo(0,0)}
 function err(id,msg){var e=$(id);if(!e)return;e.textContent=msg||'';e.classList.toggle('show',!!msg)}
 function stopStream(){if(stream){stream.getTracks().forEach(function(t){t.stop()});stream=null}}
@@ -103,7 +109,7 @@ async function openCam(){
 }
 window.vrStart=async function(){
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia||!pickMime()){ $('file').click(); return; }
-  show('sRec'); $('recBtn').classList.remove('on'); $('timer').textContent='0:00 / 2:00'; $('recDot').hidden=true; $('prompt').textContent=PROMPTS[0];
+  show('sRec'); $('recBtn').classList.remove('on'); $('timer').textContent='0:00 / 2:00'; $('recDot').hidden=true; pi=0; paintPrompt();
   $('flip').hidden=false; $('cancel').hidden=false;
   await openCam();
 };
@@ -128,11 +134,11 @@ window.vrToggle=function(){
   };
   rec.start(1000); t0=Date.now();
   $('recBtn').classList.add('on'); $('recDot').hidden=false; $('flip').hidden=true; $('cancel').hidden=true;
-  var pi=0;
+  pi=0; paintPrompt(); var lastAuto=0;
   tick=setInterval(function(){
     var s=(Date.now()-t0)/1000;
     $('timer').textContent=fmt(s)+' / 2:00';
-    var np=Math.min(PROMPTS.length-1,Math.floor(s/12)); if(np!==pi){pi=np;$('prompt').textContent=PROMPTS[pi];}
+    var np=Math.min(PROMPTS.length-1,Math.floor(s/12)); if(np>lastAuto){ lastAuto=np; if(np>pi){pi=np;paintPrompt();} }
     if(s>=MAX_SEC&&rec&&rec.state==='recording')rec.stop();
   },250);
 };
@@ -232,7 +238,10 @@ function mainPage(d, code) {
     + '<div id="sIntro" hidden>'
     + '<h1>' + hi + '</h1>'
     + '<p>Would you share a quick video about your experience with <b>' + brand + '</b>? 30–60 seconds on your phone is perfect — no need to be polished.</p>'
-    + '<ul class="tips"><li><b>1</b>Your first name' + (d.house ? ' and your business' : '') + '</li><li><b>2</b>Why you chose ' + brand + '</li><li><b>3</b>How it went — what changed for you</li><li><b>4</b>Would you recommend us?</li></ul>'
+    + (d.house
+      ? '<p style="margin-top:10px">Just answer these in your own words — the questions show on screen while you record:</p><ul class="tips"><li><b>1</b>Who you are and what your business does</li><li><b>2</b>What was hard before Adviuz</li><li><b>3</b>What Adviuz did for you</li><li><b>4</b>What you liked most</li><li><b>5</b>Who you’d recommend Adviuz to</li></ul>'
+        + '<p class="howto">📱 Hold your phone upright, face a window, quiet room. 2–3 takes is normal. Please share only your own real experience — no need for numbers or prices.</p>'
+      : '<ul class="tips"><li><b>1</b>Your first name</li><li><b>2</b>Why you chose ' + brand + '</li><li><b>3</b>How it went — what changed for you</li><li><b>4</b>Would you recommend us?</li></ul>')
     + '<button class="btn btn-p" onclick="vrStart()">🎥 Record a video</button>'
     + '<button class="btn btn-s" onclick="document.getElementById(\'file\').click()">📁 Upload a video from my phone</button>'
     + '<button class="btn btn-l" onclick="vrWrite()">I’d rather write a few words</button>'
@@ -243,7 +252,7 @@ function mainPage(d, code) {
     + '<div id="sRec" hidden>'
     + '<div class="stage"><video id="live" playsinline autoplay muted class="mirror"></video>'
     + '<div class="hud"><span class="pill"><i class="dot" id="recDot" hidden></i><span id="timer">0:00 / 2:00</span></span><button class="pill" id="cancel" onclick="vrCancel()">✕ Cancel</button></div>'
-    + '<div class="prompt" id="prompt"></div></div>'
+    + '<button type="button" class="prompt" id="prompt" onclick="vrNext()"></button></div>'
     + '<div class="ctrls"><span class="side" hidden></span><button class="rec" id="recBtn" onclick="vrToggle()" aria-label="Start or stop recording"><span></span></button><button class="side" id="flip" onclick="vrFlip()" aria-label="Switch camera">🔄</button></div>'
     + '<p class="muted center">Tap the red button to start. Tap again to stop (2 minutes max).</p>'
     + '<div class="err" id="eRec"></div>'
@@ -263,9 +272,9 @@ function mainPage(d, code) {
     + '<div class="stars" id="stars">' + [1, 2, 3, 4, 5].map((n) => '<button type="button" onclick="vrStar(' + n + ')" aria-label="' + n + ' star' + (n > 1 ? 's' : '') + '">★</button>').join('') + '</div>'
     + '<label class="fl" id="textLbl" for="txt">Anything you’d like to add? (optional)</label>'
     + '<textarea class="inp" id="txt" maxlength="3000" placeholder="A sentence or two is plenty"></textarea>'
-    + '<label class="fl" for="nm">Your name as it should appear</label>'
+    + '<label class="fl" for="nm">' + (d.house ? 'Your name and business, as they should appear' : 'Your name as it should appear') + '</label>'
     + '<input class="inp" id="nm" maxlength="80" autocomplete="name" value="' + esc(d.first_name || '') + '">'
-    + '<label class="chk"><input type="checkbox" id="ok"><span>' + brand + ' may share my review on their website and social media.</span></label>'
+    + '<label class="chk"><input type="checkbox" id="ok"><span>' + (d.house ? 'Adviuz may use my video, name and business name on its website, social media and ads.' : brand + ' may share my review on their website and social media.') + '</span></label>'
     + '<div style="height:16px"></div>'
     + '<button class="btn btn-p" id="send" onclick="vrSubmit()">Send my review</button>'
     + '<div class="err" id="eForm"></div>'
