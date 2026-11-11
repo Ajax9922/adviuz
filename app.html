@@ -1818,6 +1818,15 @@ textarea.pb2-in{resize:vertical;line-height:1.55}
 .lf-pill svg:last-child{color:var(--sub);flex:none}
 .lf-pill.on{border-color:#c9b8ff;background:#f3efff;color:#4000f3}
 .lf-pill.on svg:last-child{color:#4000f3}
+/* lf-onerow (Ajax 2026-11-11): Filters chip + Clear chip share the stage-chip row */
+.lf-fchip{flex:none;display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border:1px solid var(--border);border-radius:20px;background:var(--white);color:var(--text);font-family:var(--f);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+.lf-fchip.on{border-color:#c9b8ff;background:#f3efff;color:#4000f3}
+.lf-fchip .lf-fn{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#4000f3;color:#fff;font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box}
+.lf-clr{flex:none;display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border:1px solid #c9b8ff;border-radius:20px;background:#4000f3;color:#fff;font-family:var(--f);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+.lf-frow{display:flex;align-items:center;gap:12px;width:100%;padding:14px 2px;border:0;border-bottom:1px solid var(--border);background:none;font-family:var(--f);font-size:15px;color:var(--text);cursor:pointer;text-align:left}
+.lf-frow .lf-fv{flex:none;max-width:52%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px;color:var(--sub)}
+.lf-frow.on .lf-fv{color:#4000f3;font-weight:600}
+.lf-frow:last-child{border-bottom:0}
 .lf-rxcard{margin:12px 16px 2px;padding:10px 10px 10px;background:var(--white);border:1px solid var(--border);border-radius:16px}
 .lf-rxcard .lf-rxl{padding:0 4px 8px}
 .lf-rxg{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
@@ -9471,8 +9480,9 @@ function leadsHTML(){
     return '<button onclick="stageChip(\''+String(name).replace(/'/g,"\\'")+'\')" style="flex-shrink:0;display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:20px;border:1px solid '+(on?(col||'#c9b8ff'):'var(--border)')+';background:'+(on?(col||'#f3efff'):'var(--white)')+';color:'+(on?(col?'#fff':'#4000f3'):'var(--sub)')+';font-size:13px;font-weight:500;height:34px;box-sizing:border-box;cursor:pointer;font-family:var(--f);white-space:nowrap">'+lbl+'<span style="font-size:10.5px;font-weight:600;opacity:.85">'+cnt+'</span></button>';
   };
   var stageChipsBar='';
+  var _lfLead=window._isPartnerMode?'':_lfPillsHTML(af); // lf-onerow: Clear + Filters chips lead the row
   if(_scTot){
-    stageChipsBar='<div class="lf-row lf-stages">'+_scChip('','All',_scTot,'');
+    stageChipsBar='<div class="lf-row lf-stages">'+_lfLead+_scChip('','All',_scTot,'');
     // temp-filter-1 (Ajax 2026-11-06): Hot · Warm · Cold chips — each one picks every stage of that temperature
     var _tpCnt={hot:0,warm:0,cold:0};
     Object.keys(_scCnt).forEach(function(sn){ var tp=leadTemp(sn); if(tp) _tpCnt[tp]+=_scCnt[sn]; });
@@ -9487,10 +9497,10 @@ function leadsHTML(){
       stageChipsBar+=_scChip(st.name, st.name.replace(/^\d+\.\s*/,''), n, st.color);
     });
     stageChipsBar+='</div>';
-  }
+  } else if(_lfLead){ stageChipsBar='<div class="lf-row lf-stages">'+_lfLead+'</div>'; }
   return (anySel?'<div style="background:#e7f8ee;padding:8px 16px;font-size:12px;font-weight:600;color:var(--green);display:flex;align-items:center;justify-content:space-between"><span>'+selIds.size+' selected</span><span onclick="selectAllVisible()" style="cursor:pointer;text-decoration:underline">Select all '+vis.length+'</span></div>':'')
     + bulkTiles
-    + '<div class="lf-bar">'+(window._isPartnerMode?'':_lfPillsHTML(af))+stageChipsBar+'</div>'
+    + '<div class="lf-bar">'+stageChipsBar+'</div>'
     + _lfExpandBtn()
     +'<div class="lead-list">'+rowsHTML
     +(vis.length?'<div class="list-end">'+vis.length+' lead'+(vis.length!==1?'s':'')+' · end of list<div class="app-ver">'+APP_VERSION+'</div></div>':'')
@@ -9507,31 +9517,69 @@ function _lfCampName(id){
 }
 var _LF_TIME=[['','All time'],['today','Today'],['7','Last 7 days'],['30','Last 30 days'],['90','Last 90 days']];
 function _lfTimeLbl(af){ var k=(af&&af._lfTime)||''; var t=_LF_TIME.find(function(x){ return x[0]===k; }); return (k&&t)?t[1]:(af&&(af.dateFrom||af.dateTo)?'Custom dates':'All time'); }
+// lf-onerow (Ajax 2026-11-11): the old two rows (Re-activate · Campaign · Source · Time … pills, then
+// stage chips) are now ONE row: [From Reports ✕ / Clear ✕] [Filters n] [All] [Hot] [Warm] [Cold] [stages…].
+// "Filters" opens one bottom sheet holding Campaign, Source, When, Location, Service, Team & more and
+// Re-activate leads (each row opens the same picker sheets as before).
+function _lfActiveCount(af){
+  af=af||{}; var n=0;
+  ['campaigns','sources','locations','services'].forEach(function(k){ if(af[k]&&af[k].length) n++; });
+  if(af._lfTime||af.dateFrom||af.dateTo) n++;
+  if((af.telecallers&&af.telecallers.length)||(af.managers&&af.managers.length)||(af.partners&&af.partners.length)||(af.clients&&af.clients.length)) n++;
+  Object.keys(af).forEach(function(k){ if(k.indexOf('cf:')===0 && af[k] && af[k].length) n++; });
+  return n;
+}
 function _lfPillsHTML(af){
-  var ic={
-    camp:'<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>',
-    src:'<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
-    time:'<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>'
-  };
-  var car='<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 8h14l-7 9z"/></svg>';
-  var cs=(af.campaigns||[]), ss=(af.sources||[]);
-  var cl=cs.length===1?_lfCampName(cs[0]):(cs.length?cs.length+' campaigns':'All campaigns');
+  var n=_lfActiveCount(af), st=!!(af.stages&&af.stages.length);
+  if(window._lfFromRpt && !n && !st) window._lfFromRpt=false; // nothing left from the report
+  var x='<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+  var clr=(window._lfFromRpt||n)?'<button class="lf-clr" onclick="lfClearAll()" aria-label="Clear all filters">'+(window._lfFromRpt?'From Reports':'Clear')+x+'</button>':'';
+  var ic='<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>';
+  return clr+'<button class="lf-fchip'+(n?' on':'')+'" onclick="lfFiltersSheet()">'+ic+'Filters'+(n?'<span class="lf-fn">'+n+'</span>':'')+'</button>';
+}
+function lfClearAll(){
+  window._advFilters={stages:[],execs:[],locations:[],partners:[],sources:[],services:[],clients:[]};
+  window._lfFromRpt=false;
+  if(typeof schPartners!=='undefined' && schPartners) schPartners.clear();
+  if(typeof updateFilterDot==='function') try{ updateFilterDot(); }catch(_e){}
+  var c=document.getElementById('content'); if(c && curTab==='leads') c.innerHTML=leadsHTML(); else if(typeof render==='function') render();
+  if(typeof renderCtrlBar==='function') renderCtrlBar();
+  if(typeof showToast==='function') showToast('Filters cleared');
+}
+function lfFiltersSheet(){
+  var af=window._advFilters||(window._advFilters={stages:[],execs:[],locations:[],partners:[],sources:[],services:[],clients:[]});
+  var cs=(af.campaigns||[]), ss=(af.sources||[]), ls=(af.locations||[]), vs=(af.services||[]);
   var _hasUp=(leads||[]).some(function(l){ return srcLabel(l.src||'')==='Uploaded'; });
-  var sl=ss.length===1?ss[0]:(ss.length?ss.length+' sources':(_hasUp?'Current leads':'All sources'));
-  var tl=_lfTimeLbl(af), ton=!!((af._lfTime)||af.dateFrom||af.dateTo);
-  var P=function(on,fn,i,t){ return '<button class="lf-pill'+(on?' on':'')+'" onclick="'+fn+'">'+i+'<span>'+_lfEsc(t)+'</span>'+car+'</button>'; };
-  ic.loc='<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.1-7-11a7 7 0 0 1 14 0c0 4.9-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>';
-  ic.svc='<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.3"/></svg>';
-  ic.more='<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>';
-  var ls=(af.locations||[]), vs=(af.services||[]);
   var hasLoc=(leads||[]).some(function(l){ return String(l.location||'').trim(); }), hasSvc=(leads||[]).some(function(l){ return String(l.svc||'').trim(); });
   var staffOn=!!((af.telecallers&&af.telecallers.length)||(af.managers&&af.managers.length)||(af.partners&&af.partners.length)||(af.clients&&af.clients.length));
-  var rx=window._lfRx, rxBtn=(rx&&(rx.sms||rx.em||rx.call||rx.ce))?'<button class="lf-react" onclick="lfReactSheet()"><svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>Re-activate leads</button>':'';
-  return '<div class="lf-row lf-pills">'+rxBtn+P(!!cs.length,'lfPick(\'camp\')',ic.camp,cl)+P(!!ss.length,'lfPick(\'src\')',ic.src,sl)+P(ton,'lfPick(\'time\')',ic.time,tl)
-    +((hasLoc||ls.length)?P(!!ls.length,'lfPick(\'loc\')',ic.loc,ls.length===1?ls[0]:(ls.length?ls.length+' locations':'All locations')):'')
-    +((hasSvc||vs.length)?P(!!vs.length,'lfPick(\'svc\')',ic.svc,vs.length===1?vs[0]:(vs.length?vs.length+' services':'All services')):'')
-    +(window._isAdviuzStaff?P(staffOn,'if(typeof openGlobalFilter===\'function\')openGlobalFilter()',ic.more,'Team & more'):'')
-    +'</div>';
+  var rx=window._lfRx, n=_lfActiveCount(af);
+  var rows=[
+    ['camp','Campaign', cs.length===1?_lfCampName(cs[0]):(cs.length?cs.length+' campaigns':'All campaigns'), !!cs.length],
+    ['src','Source', ss.length===1?ss[0]:(ss.length?ss.length+' sources':(_hasUp?'Current leads':'All sources')), !!ss.length],
+    ['time','When the lead came in', _lfTimeLbl(af), !!(af._lfTime||af.dateFrom||af.dateTo)]
+  ];
+  if(hasLoc||ls.length) rows.push(['loc','Location', ls.length===1?ls[0]:(ls.length?ls.length+' locations':'All locations'), !!ls.length]);
+  if(hasSvc||vs.length) rows.push(['svc','Service', vs.length===1?vs[0]:(vs.length?vs.length+' services':'All services'), !!vs.length]);
+  if(window._isAdviuzStaff) rows.push(['team','Team & more', staffOn?'On':'All', staffOn]);
+  var chev='<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true" style="color:var(--sub);flex:none"><path d="M9 6l6 6-6 6"/></svg>';
+  var bolt='<svg width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>';
+  var ov=document.createElement('div'); ov.className='sheet-ov open'; ov.style.zIndex='880';
+  ov.innerHTML='<div class="sheet" style="max-height:80vh;display:flex;flex-direction:column"><div class="sheet-handle"></div>'
+    +'<div class="sheet-head"><div class="sheet-title">Filters</div>'+(n||window._lfFromRpt?'<button data-clear style="margin-left:auto;margin-right:8px;border:0;background:none;color:#4000f3;font-family:var(--f);font-size:14px;font-weight:600;cursor:pointer">Clear all</button>':'')+'<button class="sheet-x" data-x aria-label="Close">&#x2715;</button></div>'
+    +'<div class="sh-body" style="padding:4px 16px calc(24px + env(safe-area-inset-bottom,0px));overflow-y:auto">'
+    +rows.map(function(r){ return '<button class="lf-frow'+(r[3]?' on':'')+'" data-k="'+r[0]+'"><span style="flex:1;min-width:0">'+r[1]+'</span><span class="lf-fv">'+_lfEsc(r[2])+'</span>'+chev+'</button>'; }).join('')
+    +((rx&&(rx.sms||rx.em||rx.call||rx.ce))?'<button class="lf-react" data-k="rx" style="width:100%;justify-content:center;height:46px;border-radius:12px;margin-top:16px">'+bolt+'Re-activate leads</button>':'')
+    +'</div></div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click',function(e){
+    if(e.target===ov || e.target.closest('[data-x]')){ ov.remove(); return; }
+    if(e.target.closest('[data-clear]')){ ov.remove(); lfClearAll(); return; }
+    var b=e.target.closest('[data-k]'); if(!b) return;
+    var k=b.getAttribute('data-k'); ov.remove();
+    if(k==='rx') lfReactSheet();
+    else if(k==='team'){ if(typeof openGlobalFilter==='function') openGlobalFilter(); }
+    else lfPick(k);
+  });
 }
 // import-10zz8: the upload notification opens Leads showing that sheet's leads
 function _ntfOpenUploads(cid){
@@ -15065,6 +15113,7 @@ function rptDrill(spec){
   window._advFilters.campaigns=(_rf.campaigns||[]).slice();
   window._advFilters.dateFrom=_rf.from||'';
   window._advFilters.dateTo=_rf.to||'';
+  window._lfFromRpt=true; // lf-onerow: Leads shows a "From Reports ✕" chip that clears all of this
   var lb = document.getElementById('tab-leads');
   if (lb) goTab('leads', lb); else { curTab='leads'; render(); }
   // Operator only: goTab clears the partner filter (which by default hides
