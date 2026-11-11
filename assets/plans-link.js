@@ -6,6 +6,8 @@
    v2 (2026-11-10, Ajax: "a button ... send plans and pricing ... the moment I click on it, it should automatically send an
    email and a text message to the client"): a 4th option "Send plans link" in the lead's Quote sheet (under Custom
    proposal; Adviuz Sales leads, staff only). One tap shows what will go out, then sends the email + text with the lead's own pre-filled plans link.
+   v5 (2026-11-10, Ajax: "separate option ... is not required ... it's directly proportional to the sales stage"): no choice —
+   AI Call on a Meeting Done / Proposal Sent / Negotiating lead IS the after-demo follow-up; a short note says so.
    v4 (2026-11-10, Ajax: "keep it under the AI call button in communication section ... only if the stage is meeting done,
    proposal sent, negotiating"): the follow-up call moved out of the Quote sheet into the AI call sheet, as a choice
    ("After-demo follow-up" / "Regular AI call"), only for those three stages.
@@ -137,14 +139,8 @@
         var gate = document.getElementById('aiCsGate'), go = document.getElementById('aiCsGo');
         if (!gate || !okLead(l) || !afterDemo(l) || (go && go.disabled)) return res;
         ccPick = 'followup';
-        var box = document.createElement('div'); box.className = 'adv-cc-pick';
-        box.innerHTML = '<style>.adv-cc-pick{margin-top:12px;display:grid;gap:8px}.adv-cc-pick label{display:flex;gap:10px;align-items:flex-start;border:1.5px solid var(--border,#e5e7eb);border-radius:12px;padding:11px 12px;cursor:pointer;font-size:13px;line-height:1.45;color:var(--text)}.adv-cc-pick label.on{border-color:#7c3aed;background:#f5f3ff}.adv-cc-pick input{margin-top:3px;accent-color:#7c3aed}.adv-cc-pick b{display:block;font-size:14px}.adv-cc-pick small{color:var(--sub,#667781)}</style>'
-          + '<label class="on"><input type="radio" name="advCcPick" value="followup" checked><span><b>After-demo follow-up</b><small>Amber knows the demo notes and the quote, finds what is holding them back, and can text the payment link.</small></span></label>'
-          + '<label><input type="radio" name="advCcPick" value="regular"><span><b>Regular AI call</b><small>The usual AI call.</small></span></label>';
-        box.addEventListener('change', function (ev) {
-          var v = ev.target && ev.target.value; if (!v) return; ccPick = v;
-          box.querySelectorAll('label').forEach(function (x) { x.classList.toggle('on', !!x.querySelector('input:checked')); });
-        });
+        var box = document.createElement('div'); box.className = 'adv-cc-note';
+        box.innerHTML = '<div style="margin-top:10px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;padding:10px 12px;font-size:12.5px;color:#4c1d95;line-height:1.5">🎯 <b>After-demo follow-up</b> — this lead is past the demo, so Amber uses the demo notes and the quote, finds what is holding them back, and can text the payment link.</div>';
         gate.appendChild(box);
       } catch (_) {}
       return res;
