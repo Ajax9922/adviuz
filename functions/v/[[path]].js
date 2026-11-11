@@ -45,6 +45,9 @@ p{font-size:15px;line-height:1.55;color:#334155}
 @keyframes blink{50%{opacity:.25}}
 .prompt{position:absolute;left:12px;right:12px;bottom:12px;background:rgba(0,0,0,.62);color:#fff;border:none;border-radius:12px;padding:10px 12px;font-family:var(--f);font-size:15px;line-height:1.4;font-weight:700;text-align:center;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .prompt small{display:block;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;opacity:.7;margin-bottom:2px}
+.prompt .qs{text-transform:none;letter-spacing:0}
+.prompt .qb{display:block;height:3px;border-radius:2px;background:rgba(255,255,255,.22);margin:2px auto 6px;max-width:160px;overflow:hidden}
+.prompt .qb i{display:block;height:100%;width:100%;background:#fff;border-radius:2px;transition:width .25s linear}
 .prompt em{display:block;font-style:normal;font-size:11px;font-weight:600;opacity:.65;margin-top:4px}
 .cd{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:96px;font-weight:800;color:#fff;text-shadow:0 4px 24px rgba(0,0,0,.5);pointer-events:none}
 .cd[hidden]{display:none!important}
@@ -87,9 +90,10 @@ var D=window.__VR__||{}, FN=${JSON.stringify(FN)};
 var $=function(id){return document.getElementById(id)};
 var MAX_SEC=120, stream=null, rec=null, chunks=[], blob=null, blobMime='', dur=0, t0=0, tick=null, facing='user', rating=0, fileMode=false;
 var PROMPTS=D.house?['Introduce your business','When did you start using Adviuz?','Are you satisfied with Adviuz?','How is Adviuz helping you?','How easy is it working with Ajay?','Who would you recommend Adviuz to?']:['Say your first name','What made you choose '+D.brand+'?','How did it go \\u2014 what changed for you?','Would you recommend '+D.brand+'? Why?'];
-var pi=0;
-function paintPrompt(){ var e=$('prompt'); if(e) e.innerHTML='<small>'+(pi+1)+' of '+PROMPTS.length+'</small>'+PROMPTS[pi].replace(/[&<>]/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[m]})+(pi<PROMPTS.length-1?'<em>Tap for next \\u203A</em>':''); }
-window.vrNext=function(){ if(pi<PROMPTS.length-1){ pi++; paintPrompt(); } };
+var pi=0, QSEC=20, qStart=0;
+function paintPrompt(){ var e=$('prompt'); if(e) e.innerHTML='<small>'+(pi+1)+' of '+PROMPTS.length+'<span class="qs" id="qs"></span></small><span class="qb"><i id="qb"></i></span>'+PROMPTS[pi].replace(/[&<>]/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[m]})+(pi<PROMPTS.length-1?'<em>Tap for next \\u203A</em>':''); }
+window.vrNext=function(){ if(pi<PROMPTS.length-1){ pi++; qStart=Date.now(); paintPrompt(); } };
+function paintQ(){ if(!qStart)return; var left=Math.max(0,QSEC-(Date.now()-qStart)/1000), a=$('qs'), b=$('qb'); if(a)a.textContent=' \\u00B7 '+Math.ceil(left)+'s'; if(b)b.style.width=(left/QSEC*100)+'%'; }
 function show(id){['sIntro','sRec','sCheck','sForm','sUp','sDone','sOld'].forEach(function(k){var e=$(k);if(e)e.hidden=(k!==id)});window.scrollTo(0,0)}
 function err(id,msg){var e=$(id);if(!e)return;e.textContent=msg||'';e.classList.toggle('show',!!msg)}
 function stopStream(){if(stream){stream.getTracks().forEach(function(t){t.stop()});stream=null}}
@@ -115,7 +119,7 @@ async function openCam(){
 }
 window.vrStart=async function(){
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia||!pickMime()){ $('file').click(); return; }
-  show('sRec'); $('recBtn').classList.remove('on'); $('timer').textContent='0:00 / 2:00'; $('recDot').hidden=true; pi=0; paintPrompt();
+  show('sRec'); $('recBtn').classList.remove('on'); $('timer').textContent='0:00 / 2:00'; $('recDot').hidden=true; pi=0; qStart=0; paintPrompt();
   $('flip').hidden=false; $('cancel').hidden=false;
   await openCam();
 };
@@ -145,11 +149,12 @@ function go(){
   };
   rec.start(1000); t0=Date.now();
   $('recBtn').classList.add('on'); $('recDot').hidden=false; $('flip').hidden=true; $('cancel').hidden=true;
-  pi=0; paintPrompt(); var lastAuto=0;
+  pi=0; qStart=Date.now(); paintPrompt(); paintQ();
   tick=setInterval(function(){
     var s=(Date.now()-t0)/1000;
     $('timer').textContent=fmt(s)+' / 2:00';
-    var np=Math.min(PROMPTS.length-1,Math.floor(s/12)); if(np>lastAuto){ lastAuto=np; if(np>pi){pi=np;paintPrompt();} }
+    if(pi<PROMPTS.length-1&&(Date.now()-qStart)/1000>=QSEC){ pi++; qStart=Date.now(); paintPrompt(); }
+    paintQ();
     if(s>=MAX_SEC&&rec&&rec.state==='recording')rec.stop();
   },250);
 }
