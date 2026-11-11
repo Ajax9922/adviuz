@@ -46,6 +46,12 @@ p{font-size:15px;line-height:1.55;color:#334155}
 .prompt{position:absolute;left:12px;right:12px;bottom:12px;background:rgba(0,0,0,.62);color:#fff;border:none;border-radius:12px;padding:10px 12px;font-family:var(--f);font-size:15px;line-height:1.4;font-weight:700;text-align:center;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .prompt small{display:block;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;opacity:.7;margin-bottom:2px}
 .prompt em{display:block;font-style:normal;font-size:11px;font-weight:600;opacity:.65;margin-top:4px}
+.cd{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:96px;font-weight:800;color:#fff;text-shadow:0 4px 24px rgba(0,0,0,.5);pointer-events:none}
+.cd[hidden]{display:none!important}
+.up{margin-top:22px;padding:18px;border-radius:16px;background:linear-gradient(135deg,#f7f5ff,#fdf4ff);border:1px solid #ebe5ff;text-align:left}
+.up h2{font-size:17px;font-weight:800;letter-spacing:-.01em;margin-bottom:6px}
+.up p{font-size:14px;margin-bottom:14px}
+.pw{display:inline-block;margin-top:6px}
 .howto{font-size:13px;line-height:1.5;color:var(--sub);margin:-6px 0 16px}
 .ctrls{display:flex;align-items:center;justify-content:center;gap:28px;padding:18px 0 4px}
 .rec{width:74px;height:74px;border-radius:50%;border:4px solid #fff;box-shadow:0 0 0 2px var(--line);background:var(--red);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .12s}
@@ -116,9 +122,14 @@ window.vrStart=async function(){
 window.vrFlip=async function(){ if(rec&&rec.state==='recording')return; facing=(facing==='user'?'environment':'user'); await openCam(); };
 window.vrCancel=function(){ if(rec&&rec.state==='recording'){try{rec.onstop=null;rec.stop()}catch(_){}} clearInterval(tick); stopStream(); show('sIntro'); };
 function fmt(s){s=Math.max(0,Math.floor(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')}
+var counting=false;
 window.vrToggle=function(){
   if(rec&&rec.state==='recording'){ rec.stop(); return; }
-  if(!stream)return;
+  if(!stream||counting)return;
+  var cd=$('cd'), n=3; counting=true; $('flip').hidden=true; $('cancel').hidden=true; cd.hidden=false; cd.textContent=n;
+  var iv=setInterval(function(){ n--; if(n>0){ cd.textContent=n; return; } clearInterval(iv); cd.hidden=true; counting=false; if(stream) go(); },800);
+};
+function go(){
   var mime=pickMime(); chunks=[];
   try{ rec=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:2000000,audioBitsPerSecond:96000}); }
   catch(_){ try{ rec=new MediaRecorder(stream); }catch(e2){ err('eRec','Recording isn\\u2019t supported in this browser. Please tap Cancel and use \\u201CUpload a video\\u201D.'); return; } }
@@ -141,7 +152,7 @@ window.vrToggle=function(){
     var np=Math.min(PROMPTS.length-1,Math.floor(s/12)); if(np>lastAuto){ lastAuto=np; if(np>pi){pi=np;paintPrompt();} }
     if(s>=MAX_SEC&&rec&&rec.state==='recording')rec.stop();
   },250);
-};
+}
 window.vrRedo=function(){ blob=null; err('eIntro',''); if(fileMode){ $('file').value=''; $('file').click(); } else window.vrStart(); };
 window.vrUse=function(){ $('formTitle').textContent='Almost done'; $('textLbl').textContent='Anything you\\u2019d like to add? (optional)'; show('sForm'); };
 window.vrWrite=function(){ blob=null; $('formTitle').textContent='Write a quick review'; $('textLbl').textContent='Your review'; show('sForm'); setTimeout(function(){$('txt').focus()},50); };
@@ -179,11 +190,11 @@ function putFile(url,file,mime){
     x.send(file);
   });
 }
-window.vrSubmit=async function(){
+window.vrSubmit=async function(share){
   err('eForm','');
-  var text=$('txt').value.trim(), name=$('nm').value.trim(), consent=$('ok').checked;
+  var text=$('txt').value.trim(), name=$('nm').value.trim(), consent=share!==false;
   if(!blob&&text.length<10){ err('eForm','Please write a few words (at least a sentence).'); return; }
-  var btn=$('send'); btn.disabled=true;
+  var btn=$('send'), btn2=$('sendP'); btn.disabled=true; if(btn2)btn2.disabled=true;
   try{
     var path='';
     if(blob){
@@ -197,7 +208,7 @@ window.vrSubmit=async function(){
     show('sDone');
   }catch(e){
     show('sForm'); err('eForm',e.message||'Something went wrong. Please try again.');
-  }finally{ btn.disabled=false; }
+  }finally{ btn.disabled=false; if(btn2)btn2.disabled=false; }
 };
 window.vrAgain=function(){ show('sIntro'); };
 window.addEventListener('pagehide',stopStream);
@@ -253,7 +264,7 @@ function mainPage(d, code) {
     + '<div id="sRec" hidden>'
     + '<div class="stage"><video id="live" playsinline autoplay muted class="mirror"></video>'
     + '<div class="hud"><span class="pill"><i class="dot" id="recDot" hidden></i><span id="timer">0:00 / 2:00</span></span><button class="pill" id="cancel" onclick="vrCancel()">✕ Cancel</button></div>'
-    + '<button type="button" class="prompt" id="prompt" onclick="vrNext()"></button></div>'
+    + '<div class="cd" id="cd" hidden></div><button type="button" class="prompt" id="prompt" onclick="vrNext()"></button></div>'
     + '<div class="ctrls"><span class="side" hidden></span><button class="rec" id="recBtn" onclick="vrToggle()" aria-label="Start or stop recording"><span></span></button><button class="side" id="flip" onclick="vrFlip()" aria-label="Switch camera">🔄</button></div>'
     + '<p class="muted center">Tap the red button to start. Tap again to stop (2 minutes max).</p>'
     + '<div class="err" id="eRec"></div>'
@@ -275,9 +286,10 @@ function mainPage(d, code) {
     + '<textarea class="inp" id="txt" maxlength="3000" placeholder="A sentence or two is plenty"></textarea>'
     + '<label class="fl" for="nm">' + (d.house ? 'Your name and business, as they should appear' : 'Your name as it should appear') + '</label>'
     + '<input class="inp" id="nm" maxlength="80" autocomplete="name" value="' + esc(d.first_name || '') + '">'
-    + '<label class="chk"><input type="checkbox" id="ok"><span>' + (d.house ? 'Adviuz may use my video, name and business name on its website, social media and ads.' : brand + ' may share my review on their website and social media.') + '</span></label>'
-    + '<div style="height:16px"></div>'
-    + '<button class="btn btn-p" id="send" onclick="vrSubmit()">Send my review</button>'
+    + '<div style="height:20px"></div>'
+    + '<button class="btn btn-p" id="send" onclick="vrSubmit(true)">' + (d.house ? 'Send &amp; let Adviuz share it' : 'Send &amp; let ' + brand + ' share it') + '</button>'
+    + '<p class="muted center" style="margin-top:10px">' + (d.house ? 'Adviuz may then use your video, name and business name on its website, social media and ads.' : brand + ' may then share your review on their website and social media.') + ' Want it taken down later? Just reply to our text.</p>'
+    + '<button class="btn btn-l" id="sendP" onclick="vrSubmit(false)">Send privately (don’t share it)</button>'
     + '<div class="err" id="eForm"></div>'
     + '</div>'
     // 5) Uploading
@@ -289,6 +301,9 @@ function mainPage(d, code) {
     + '<div id="sDone" hidden class="center">'
     + '<div class="big">🙏</div><h1>Thank you' + (d.first_name ? ', ' + esc(d.first_name) : '') + '!</h1>'
     + '<p>Your review has been sent to ' + brand + '. It really means a lot.</p>'
+    + (d.house
+      ? '<div class="up"><h2>Want reviews like this from your own customers?</h2><p>This same review page is part of Adviuz. Your customers get a link by text, record on their phone, and you see every video in your dashboard.</p><a class="btn btn-p" href="sms:+16472501152?&body=' + encodeURIComponent('Hi AJ, I just sent my review. I\'d like the video review system for my own customers.') + '">💬 Text AJ about it</a></div>'
+      : '')
     + '</div>'
     // 7) Already sent before
     + '<div id="sOld" hidden class="center">'
@@ -297,7 +312,7 @@ function mainPage(d, code) {
     + '<div style="height:16px"></div><button class="btn btn-s" onclick="vrAgain()">Send a new one</button>'
     + '</div>'
     + '</div></div>'
-    + '<div class="foot">Sent privately to ' + brand + '.' + (d.house ? '<br>Questions? <a href="tel:+16472501152">+1 647 250 1152</a>' : '') + '</div>';
+    + '<div class="foot">Your review goes straight to ' + brand + '.' + (d.house ? '<br>Questions? <a href="tel:+16472501152">+1 647 250 1152</a>' : '<br><a class="pw" href="https://adviuz.com/?utm_source=video_review" target="_blank" rel="noopener">Video reviews by Adviuz</a>') + '</div>';
 }
 
 export async function onRequest(context) {
