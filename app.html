@@ -5429,7 +5429,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-11 email-19';
+var APP_VERSION = 'v2026-11-11 email-20';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -12753,7 +12753,7 @@ async function joinNudgeSend(){
   if(smsOk) jobs.push(sbFetch('/functions/v1/twilio-sms?action=send',{method:'POST',body:JSON.stringify({to:l.ph,message:c.msg.sms,lead_id:l.dbId,purpose:'manual'})})
     .then(function(r){ return r.json().catch(function(){return{};}).then(function(d){ if(!r.ok||d.error||d.ok===false||d.success===false||d.blocked) throw 0; ok.push('text');
       return sbFetch('/rest/v1/lead_activity',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({lead_id:l.dbId,client_id:cid,activity_type:'sms_sent',description:c.msg.sms,direction:'outbound',metadata:{handler:'human',kind:'join_nudge',from_number:d.from||null},created_at:new Date().toISOString()})}).catch(function(){}); }); }).catch(function(){ bad.push('text'); }));
-  if(l.em) jobs.push(sbFetch('/functions/v1/client-email',{method:'POST',body:JSON.stringify({client_id:cid,lead_id:l.dbId,campaign_id:l.campaign_id||null,to:l.em,subject:c.msg.subj,message:c.msg.email})})
+  if(l.em) jobs.push(sbFetch('/functions/v1/client-email',{method:'POST',body:JSON.stringify({origin:'auto',client_id:cid,lead_id:l.dbId,campaign_id:l.campaign_id||null,to:l.em,subject:c.msg.subj,message:c.msg.email})})
     .then(function(r){ return r.json().catch(function(){return{};}).then(function(d){ if(!r.ok||d.error||d.ok===false) throw 0; ok.push('email'); }); }).catch(function(){ bad.push('email'); }));
   await Promise.all(jobs);
   if(ok.length){
@@ -16195,7 +16195,7 @@ async function approveAiAction(){
       var d=await r.json().catch(function(){return {};});
       okSend=r.ok && !d.error; if(!okSend) errMsg=(d&&d.error)||('HTTP '+r.status);
     } else if(item.action_type==='email'){
-      var r2=await sbFetch('/functions/v1/client-email',{ method:'POST', body: JSON.stringify({
+      var r2=await sbFetch('/functions/v1/client-email',{ method:'POST', body: JSON.stringify({ origin:'ai',
         client_id: item.client_id||window._clientId||null, lead_id: item.lead_id||null,
         to: p.to||'', subject: subj||p.subject||'', message: msg }) });
       var d2=await r2.json().catch(function(){return {};});
@@ -17873,6 +17873,7 @@ async function loadLeadActivity(localId, dbId) {
         email_body:    emailBody,
         email_id:      (row.metadata && row.metadata.email_id) ? String(row.metadata.email_id) : '',
         email_from:    (row.metadata && row.metadata.from) ? String(row.metadata.from) : '',
+        email_src:     _emSrcAct(row),
         // Anything logged here as sms_sent was typed by a person in the hub.
         sender_tag:   (type === 'sms_sent') ? 'Human' : ''
       };
@@ -17942,6 +17943,7 @@ async function loadLeadActivity(localId, dbId) {
         out.email_subject = String(subj||'').replace(/^Ref:\s*[^|]+\|\s*/,'').trim();
         out.email_body = mt.body ? String(mt.body) : '';
         out.email_id = mt.email_id ? String(mt.email_id) : '';
+        out.email_src = _emSrcLog(row);
         out.body = out.email_subject || body;
       }
       return out;
@@ -17958,6 +17960,7 @@ async function loadLeadActivity(localId, dbId) {
         if(!twin){ keep.push(a); return; }
         if(!twin.email_id && a.email_id) twin.email_id = a.email_id;
         if(!twin.email_body && a.email_body) twin.email_body = a.email_body;
+        twin.email_src=_emSrcPick(twin.email_src,a.email_src);
       });
       norm2 = keep;
     })();
@@ -17991,7 +17994,7 @@ async function loadLeadActivity(localId, dbId) {
     });
 
     // Merge both, sort newest first
-    var all = norm1.concat(norm3).concat(norm2).sort(function(a,b){ return new Date(b.time)-new Date(a.time); });
+    var all = _emMergeTwins(norm1.concat(norm3).concat(norm2).sort(function(a,b){ return new Date(b.time)-new Date(a.time); }));
 
     // Format timestamps
     var dbActs = all.map(function(row) {
@@ -22853,6 +22856,7 @@ window._ceLead = null;
 window._ceFrom = null;   // cached { from_email, from_name, enabled }
 
 function openClientEmail(id, replySubj){
+  window._emAiDraft=false;
   var l = leads.find(function(x){return x.id===id;});
   if(!l){ if(typeof showToast==='function') showToast('Lead not found'); return; }
   window._ceLead = l;
@@ -22991,6 +22995,7 @@ function sendClientEmail(){
   var btn=document.getElementById('ceSendBtn'); if(btn){ btn.textContent='Sending\u2026'; btn.disabled=true; }
   var _atts=(window._ceAtt||[]).map(function(a){ return {filename:a.filename, content:a.content}; });
   sbFetch('/functions/v1/client-email',{ method:'POST', body: JSON.stringify({
+    origin: (window._emAiDraft?'ai':'human'),
     client_id: window._clientId||null, lead_id: (l&&l.dbId)||l.id||null,
     to: to, subject: subject, message: message,
     message_html: messageHtml||undefined,
@@ -23285,12 +23290,14 @@ function _emxAiApprove(ix){
     var sj=document.getElementById('ceSubj'); if(sj) sj.value=subj;
     var bd=document.getElementById('ceBody'); if(bd) bd.value=body;
     try{ var pv=document.getElementById('cePvBox'); if(pv&&pv.style.display!=='none') cePaintPreview(); }catch(_e){}
+    window._emAiDraft=true;
   } else {
     var sj2=document.getElementById('emailSubj');
     if(sj2){ sj2.value=subj; if(typeof subjValidate==='function') subjValidate(); }
     var bd2=document.getElementById('emailBody');
     if(bd2) bd2.value=(typeof emStripSignoff==='function')?emStripSignoff(body):body;
     window._emAiChat=st.hist.slice();
+    window._emAiDraft=true;
   }
   var ov=document.getElementById('emxAiOv'); if(ov) ov.remove();
   showToast('Draft added to the email');
@@ -23386,6 +23393,43 @@ function aiCallRescheduleSave(localId, btn){
     })
     .catch(function(){ showToast('Could not save \u2014 try again'); if(btn){ btn.disabled=false; btn.textContent='Save time'; } });
 }
+// email-20: who wrote each email. 'human' = typed/sent by a person in the hub,
+// 'ai' = written by the AI (AI agent, or an AI draft that was approved),
+// 'auto' = the system sent it (follow-ups, reminders, welcome, plans, confirmations).
+function _emSrcLog(row){
+  if((row.type||'')==='email_received') return 'in';
+  var mt=row.meta||{};
+  if(mt.ai_draft||mt.ai===true||mt.handler==='ai') return 'ai';
+  if(mt.type==='transactional') return 'auto';
+  if(/welcome/i.test(row.label||'')) return 'auto';
+  if(/^\uD83D\uDCE7/.test(row.body||'')||Object.prototype.hasOwnProperty.call(mt,'cc')) return 'human';
+  return 'auto';
+}
+function _emSrcAct(row){
+  if((row.activity_type||'')==='email_received') return 'in';
+  var md=row.metadata||{}, p=String(row.performed_by||'').toLowerCase();
+  if(md.origin==='ai'||md.origin==='human'||md.origin==='auto') return md.origin;
+  if(md.ai_draft||md.ai===true||md.handler==='ai'||p==='ai') return 'ai';
+  // older rows from client-email all say 'client': a hub-typed email carries the "Ref: Company |" or "Re:" subject
+  if(p==='client' && /^\s*(ref|re|fwd?):/i.test(String(md.subject||row.description||''))) return 'human';
+  if(!p||p==='system'||p==='client'||p==='cron'||p==='lead') return 'auto';
+  return 'human';
+}
+// The same send can sit in lead_activity AND activity_log: keep one row, keep the best "who".
+function _emMergeTwins(list){
+  var keep=[], norm=function(x){ return String(x||'').replace(/^Ref:\s*[^|]+\|\s*/,'').trim().toLowerCase(); };
+  list.forEach(function(a){
+    if(a.type!=='email_sent'){ keep.push(a); return; }
+    var ta=new Date(a._rawTime||a.time).getTime(), sa=norm(a.email_subject);
+    var tw=keep.find(function(b){ return b.type==='email_sent' && Math.abs(new Date(b._rawTime||b.time).getTime()-ta)<120000 && norm(b.email_subject)===sa; });
+    if(!tw){ keep.push(a); return; }
+    if(!tw.email_id && a.email_id) tw.email_id=a.email_id;
+    if(!tw.email_body && a.email_body) tw.email_body=a.email_body;
+    tw.email_src=_emSrcPick(tw.email_src,a.email_src);
+  });
+  return keep;
+}
+function _emSrcPick(a,b){ var r={ai:3,human:2,auto:1}; return (r[b]||0)>(r[a]||0)?b:(a||b); }
 // \uD83D\uDCE7 Inbox email loader: pulls email rows for all leads in view and merges them into leadAct.
 function emNormLogRow(row){
   var body=(row.body||'').replace(/\s*\(SID:[^)]+\)/g,'').trim();
@@ -23400,6 +23444,7 @@ function emNormLogRow(row){
     o.email_id=mt.email_id?String(mt.email_id):'';
     o.email_from=mt.from?String(mt.from):'';
     o.email_cc=mt.cc?String(mt.cc):'';
+    o.email_src=_emSrcLog(row);
     o.body=o.email_subject||body;
   }
   return o;
@@ -23411,7 +23456,7 @@ function emNormActRow(row){
   return { type:type, label:(type==='email_received'?'Email Received':'Email Sent'), time:row.created_at, body:rawBody, rec:false, id:row.id,
     direction:(row.direction||'').toLowerCase(), isInbound:(type==='email_received'),
     email_subject:String(md.subject||rawBody).replace(/^Ref:\s*[^|]+\|\s*/,'').trim(), email_body:md.body?String(md.body):'',
-    email_id:md.email_id?String(md.email_id):'', email_from:md.from?String(md.from):'', email_html:md.html?String(md.html):'', email_to:md.to?String(md.to):'' };
+    email_id:md.email_id?String(md.email_id):'', email_from:md.from?String(md.from):'', email_html:md.html?String(md.html):'', email_to:md.to?String(md.to):'', email_src:_emSrcAct(row) };
 }
 function ensureInboxEmails(done){
   if(window._ibEmailsLoaded||window._ibEmailsLoading) return;
@@ -23425,7 +23470,7 @@ function ensureInboxEmails(done){
   chunks.forEach(function(ch){
     var inList='in.('+ch.join(',')+')';
     reqs.push(sbFetch('/rest/v1/activity_log?lead_id='+inList+'&type=in.(email_sent,email,email_received,email_event)&select=id,lead_id,type,label,body,meta,created_at&order=created_at.desc&limit=600').then(function(r){ return r&&r.ok?r.json():[]; }).then(function(rows){ return {kind:'log',rows:rows||[]}; }).catch(function(){ return {kind:'log',rows:[]}; }));
-    reqs.push(sbFetch('/rest/v1/lead_activity?lead_id='+inList+'&activity_type=in.(email_sent,email_received)&select=id,lead_id,activity_type,description,direction,metadata,created_at&order=created_at.desc&limit=400').then(function(r){ return r&&r.ok?r.json():[]; }).then(function(rows){ return {kind:'act',rows:rows||[]}; }).catch(function(){ return {kind:'act',rows:[]}; }));
+    reqs.push(sbFetch('/rest/v1/lead_activity?lead_id='+inList+'&activity_type=in.(email_sent,email_received)&select=id,lead_id,activity_type,description,direction,metadata,performed_by,created_at&order=created_at.desc&limit=400').then(function(r){ return r&&r.ok?r.json():[]; }).then(function(rows){ return {kind:'act',rows:rows||[]}; }).catch(function(){ return {kind:'act',rows:[]}; }));
     reqs.push(sbFetch('/rest/v1/email_opens?lead_id='+inList+'&select=lead_id,occurred_at,resend_id,kind,link&order=occurred_at.desc&limit=600').then(function(r){ return r&&r.ok?r.json():[]; }).then(function(rows){ return {kind:'opens',rows:rows||[]}; }).catch(function(){ return {kind:'opens',rows:[]}; }));
   });
   Promise.all(reqs).then(function(res){
@@ -23452,6 +23497,7 @@ function ensureInboxEmails(done){
         if(!twin){ keep.push(a); return; }
         if(!twin.email_id && a.email_id) twin.email_id=a.email_id;
         if(!twin.email_body && a.email_body) twin.email_body=a.email_body;
+        twin.email_src=_emSrcPick(twin.email_src,a.email_src);
       });
       var fresh=keep.map(function(row){ return Object.assign({}, row, {time:fmt(row.time), _rawTime:row.time}); });
       var existing=(leadAct[lid]||[]).filter(function(a){ return a.type!=='email_sent' && a.type!=='email_received'; });
@@ -23720,7 +23766,7 @@ function _emibCss(){
    +'.emib-row.unread{border-left:3px solid #8b2bf7}'
    +'.emib-tg.sent{background:#f1f1f4;color:#3f3f46}'
    +'.emib-tg.open{background:#f3efff;color:#4000f3}.emib-tg.click{background:#fdf0fe;color:#b11fd0}'
-   +'.emib-tg.sched{background:#f3efff;color:#6d28d9}.emib-tg.ai{background:#f6f3ff;color:#8b2bf7}'
+   +'.emib-tg.sched{background:#f3efff;color:#6d28d9}.emib-tg.ai{background:#f6f3ff;color:#8b2bf7}.emib-tg.auto{background:#f1f2f6;color:#5b6170}'
    // emib-hd2: header matches the lead screen (same back arrow, title sizes and square buttons)
    +'.emib-top{padding:calc(8px + var(--st,0px)) 10px 10px;gap:8px;top:0}'
    +'.emib-bk{width:36px;height:36px;background:none;border-radius:50%;color:rgba(255,255,255,.8)}'
@@ -23839,7 +23885,7 @@ function _emibRows(l){
     out.push({ kind:'mail', i:ai, dir:(a.type==='email_received')?'in':'out',
       subject:String(a.email_subject||'').trim()||String(a.body||'').slice(0,80)||'(no subject)',
       body:String(a.email_body||a.body||''), from:String(a.email_from||''),
-      eid:String(a.email_id||''), ai:!!a.is_ai, ms:isNaN(d)?Date.now():d.getTime(), raw:raw });
+      eid:String(a.email_id||''), src:(a.type==='email_received'?'in':(a.is_ai?'ai':(a.email_src||'auto'))), ms:isNaN(d)?Date.now():d.getTime(), raw:raw });
   });
   return out;
 }
@@ -23936,8 +23982,9 @@ function _emibRender(l){
   var list=rows.slice();
   if(st.tab==='recv') list=recv.slice();
   if(st.tab==='sent') list=sent.slice();
-  if(st.kind==='human') list=list.filter(function(r){return !r.ai;});
-  if(st.kind==='auto')  list=list.filter(function(r){return r.ai;});
+  if(st.kind==='human') list=list.filter(function(r){return r.src==='human'||r.src==='in';});
+  if(st.kind==='ai')    list=list.filter(function(r){return r.src==='ai';});
+  if(st.kind==='auto')  list=list.filter(function(r){return r.src==='auto';});
   if(st.sort==='old') list.sort(function(a,b){return a.ms-b.ms;});
   else if(st.sort==='opened') list.sort(function(a,b){return _emibOpenCount(l,b)-_emibOpenCount(l,a) || b.ms-a.ms;});
   else list.sort(function(a,b){return b.ms-a.ms;});
@@ -23958,6 +24005,7 @@ function _emibRender(l){
    +'<div class="emib-frow">'
    +'<div class="emib-fc'+(st.kind==='all'?' on':'')+'" onclick="_emibSet(\'kind\',\'all\')">Everything</div>'
    +'<div class="emib-fc'+(st.kind==='human'?' on':'')+'" onclick="_emibSet(\'kind\',\'human\')">Human</div>'
+   +'<div class="emib-fc'+(st.kind==='ai'?' on':'')+'" onclick="_emibSet(\'kind\',\'ai\')">AI</div>'
    +'<div class="emib-fc'+(st.kind==='auto'?' on':'')+'" onclick="_emibSet(\'kind\',\'auto\')">Automated</div>'
    +'<div class="emib-sort" onclick="_emibSort()">'+_emibI('sort',13)+' '+(st.sort==='old'?'Oldest':st.sort==='opened'?'Most opened':'Newest')+'</div>'
    +'</div></div>'
@@ -24012,7 +24060,7 @@ function _emibPaintOnly(){
      +'<div class="emib-av '+(r.dir==='in'?'in':'out')+'">'+_emibEsc((l.name||'?').trim().charAt(0).toUpperCase()||'?')+'</div>'
      +'<div class="emib-bd"><div class="emib-l1"><div class="emib-sj">'+_emibEsc(r.subject)+'</div><div class="emib-tm">'+_emibTime(r.ms)+'</div></div>'
      +'<div class="emib-sn">'+_emibEsc(_emibSnip(r))+'</div>'
-     +'<div class="emib-tags">'+_emibLastTag(l,r)+(r.ai?'<span class="emib-tg ai">Automated</span>':'')+'</div>'
+     +'<div class="emib-tags">'+_emibLastTag(l,r)+(r.src==='ai'?'<span class="emib-tg ai">AI</span>':(r.src==='auto'?'<span class="emib-tg auto">Automated</span>':''))+'</div>'
      +'</div></div>';
   });
   box.innerHTML=h;
@@ -26895,6 +26943,7 @@ function openEmail(id){
   var firstName = nm ? nm.split(' ')[0] : 'there';
   var company = l.company || l.name || '';
   // Fresh draft for THIS lead — reset the parts that must never carry over, before anything else runs.
+  window._emAiDraft=false;
   try{
     if(document.getElementById('emailSubj')) document.getElementById('emailSubj').value = '';
     if(document.getElementById('emailBody')) document.getElementById('emailBody').value = 'Hi '+firstName+',\n\n';
@@ -28847,10 +28896,11 @@ async function sendEmail(){
       type:      'email_sent',
       label:     'Email Sent',
       body:      '📧 From: '+_sendFrom+' → To: '+to+'\n'+subj,
-      meta:      { from:_sendFrom, to:to, subject:fullSubj, body:String(body||'').slice(0,4000), email_id:(data&&data.id)||null, cc:(cc||null) }
+      meta:      { from:_sendFrom, to:to, subject:fullSubj, body:String(body||'').slice(0,4000), email_id:(data&&data.id)||null, cc:(cc||null), ai_draft:!!window._emAiDraft }
     });
 
     window._emAtt=[]; if(typeof emPaintAtts==='function') emPaintAtts();
+    setTimeout(function(){ window._emAiDraft=false; }, 0);
     closeSheet('emailSh');
     showToast('Sent from '+_sendFrom);
     // eminbox-1: the sent email replaces any draft; refresh the inbox if open.
@@ -28859,7 +28909,7 @@ async function sendEmail(){
       var _lidNow=_emailLeadId; if(_lidNow!=null){
         if(!leadAct[_lidNow]) leadAct[_lidNow]=[];
         leadAct[_lidNow].unshift({ type:'email_sent', label:'Email Sent', time:'Just now', _rawTime:new Date().toISOString(), body:subj, rec:false,
-          email_subject:String(fullSubj||subj).replace(/^Ref:\s*[^|]+\|\s*/,'').trim(), email_body:String(body||''), email_id:(data&&data.id)||'', email_cc:(cc||'') });
+          email_subject:String(fullSubj||subj).replace(/^Ref:\s*[^|]+\|\s*/,'').trim(), email_body:String(body||''), email_id:(data&&data.id)||'', email_cc:(cc||''), email_src:(window._emAiDraft?'ai':'human') });
       }
       window._ibEmailsLoaded=false;
       if(_emLeadRow && _emLeadRow.dbId && typeof loadLeadActivity==='function') setTimeout(function(){ loadLeadActivity(_emLeadRow.id, _emLeadRow.dbId); }, 1500);
@@ -32056,7 +32106,7 @@ async function preloadActivity() {
         var dir=(row.direction||'').toLowerCase();
         var isInbound=dir==='inbound'||type==='sms_received'||type==='email_received';
         if(type==='call') label=isInbound?'📞 Inbound Call':'📞 Outbound Call';
-        return {by:row.actor_name||((row.metadata&&(row.metadata.handler==='ai'||row.metadata.ai===true))?'AI':''), sender_tag:(type==='sms_sent')?'Human':'', via:(row.metadata&&(row.metadata.from_number||row.metadata.line))||'', is_ai:!!(row.metadata&&(row.metadata.handler==='ai'||row.metadata.ai===true)), voicemail:(function(){ var o=(row.metadata&&row.metadata.outcome_override)||''; if(o==='voicemail') return true; if(o==='answered'||o==='missed') return false; if(row.metadata&&row.metadata.voicemail===true) return true; return /voicemail/i.test(row.description||''); })(), transcript:(row.metadata&&row.metadata.transcript)||'', type:type,label:label,time:row.created_at,body:body,rec:!!row.recording_url,recording_url:row.recording_url||null,dur:durStr,duration_seconds:durSec,call_sid:row.call_sid||null,direction:dir,callType:isInbound?'inbound':'outbound',isInbound:isInbound,summary:row.ai_summary||row.summary||null,id:row.id,call_note:row.call_note||null,email_subject:emailSubj,email_body:emailBody,email_id:(row.metadata&&row.metadata.email_id)?String(row.metadata.email_id):'',email_from:(row.metadata&&row.metadata.from)?String(row.metadata.from):''};
+        return {by:row.actor_name||((row.metadata&&(row.metadata.handler==='ai'||row.metadata.ai===true))?'AI':''), sender_tag:(type==='sms_sent')?'Human':'', via:(row.metadata&&(row.metadata.from_number||row.metadata.line))||'', is_ai:!!(row.metadata&&(row.metadata.handler==='ai'||row.metadata.ai===true)), voicemail:(function(){ var o=(row.metadata&&row.metadata.outcome_override)||''; if(o==='voicemail') return true; if(o==='answered'||o==='missed') return false; if(row.metadata&&row.metadata.voicemail===true) return true; return /voicemail/i.test(row.description||''); })(), transcript:(row.metadata&&row.metadata.transcript)||'', type:type,label:label,time:row.created_at,body:body,rec:!!row.recording_url,recording_url:row.recording_url||null,dur:durStr,duration_seconds:durSec,call_sid:row.call_sid||null,direction:dir,callType:isInbound?'inbound':'outbound',isInbound:isInbound,summary:row.ai_summary||row.summary||null,id:row.id,call_note:row.call_note||null,email_subject:emailSubj, email_src:_emSrcAct(row),email_body:emailBody,email_id:(row.metadata&&row.metadata.email_id)?String(row.metadata.email_id):'',email_from:(row.metadata&&row.metadata.from)?String(row.metadata.from):''};
       });
       // outcome-1: drop the flagless shell row of an AI call (see lead-screen loader).
       norm1 = norm1.filter(function(a){
@@ -32082,6 +32132,7 @@ async function preloadActivity() {
           o.email_subject=String(subj||'').replace(/^Ref:\s*[^|]+\|\s*/,'').trim();
           o.email_body=mt.body?String(mt.body):'';
           o.email_id=mt.email_id?String(mt.email_id):'';
+          o.email_src=_emSrcLog(row);
           o.body=o.email_subject||body;
         }
         return o;
@@ -32095,6 +32146,7 @@ async function preloadActivity() {
           if(!twin){ keep.push(a); return; }
           if(!twin.email_id && a.email_id) twin.email_id=a.email_id;
           if(!twin.email_body && a.email_body) twin.email_body=a.email_body;
+          twin.email_src=_emSrcPick(twin.email_src,a.email_src);
         });
         norm2=keep;
       })();
@@ -32118,7 +32170,7 @@ async function preloadActivity() {
         var t2=new Date(a2.time).getTime(); if(isNaN(t2)) return true;
         return !norm1.concat(norm3).some(function(a1){ if(go(a1.type)!==g) return false; var t1=new Date(a1.time).getTime(); return !isNaN(t1) && Math.abs(t1-t2)<=90000; });
       });
-      var all = norm1.concat(norm3).concat(norm2).sort(function(a,b){ return new Date(b.time)-new Date(a.time); });
+      var all = _emMergeTwins(norm1.concat(norm3).concat(norm2).sort(function(a,b){ return new Date(b.time)-new Date(a.time); }));
       var dbActs = all.map(function(row){ return Object.assign({}, row, {time:fmt(row.time), _rawTime: row.time}); });
       var existing = leadAct[localId]||[];
       var justNow = existing.filter(function(a){ return a.time==='Just now'; });
@@ -43016,7 +43068,7 @@ async function _sapSend(){
   var b=document.getElementById('sapGo'); if(b){ b.disabled=true; b.textContent='Sending…'; }
   try{
     clearTimeout(S._incT); await sbFetch('/rest/v1/proposals?id=eq.'+S.prop.id,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({content:S.prop.content})});
-    var r=await sbFetch('/functions/v1/client-email',{method:'POST',body:JSON.stringify(Object.assign({ client_id:_houseId(), lead_id:l.dbId, campaign_id:l.campaign_id||null, to:l.em, subject:S.subj, message:S.msg }, _sapUseV2(l)?{message_html:_sapHtml(l,S.svc,S.url,S.prop&&S.prop.valid_until)}:{}))});
+    var r=await sbFetch('/functions/v1/client-email',{method:'POST',body:JSON.stringify(Object.assign({ origin:'auto', client_id:_houseId(), lead_id:l.dbId, campaign_id:l.campaign_id||null, to:l.em, subject:S.subj, message:S.msg }, _sapUseV2(l)?{message_html:_sapHtml(l,S.svc,S.url,S.prop&&S.prop.valid_until)}:{}))});
     var j=await r.json().catch(function(){ return {}; });
     if(!r.ok || j.error || j.ok===false) throw new Error(j.error||'send');
     var now=new Date().toISOString();
