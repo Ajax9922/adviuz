@@ -5427,7 +5427,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-12 email-23';
+var APP_VERSION = 'v2026-11-12 email-24';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -24318,6 +24318,12 @@ function emOpensFor(localId, emailId, sentAt){
   var m = (window._leadOpens||{})[localId];
   var raw = (m && m[emailId]) || null;
   if(!raw) return null;
+  // open-1 (2026-11-12): always measure from the real send time of THIS email when we know it
+  // (some screens passed nothing, so mail-scanner pings seconds after sending showed as opens).
+  try{
+    var _sa=(window.leadAct&&leadAct[localId])||(typeof leadAct!=='undefined'?leadAct[localId]:null)||[];
+    for(var _i=0;_i<_sa.length;_i++){ var _a=_sa[_i]; if(_a && _a.email_id===emailId && (_a.type==='email_sent'||_a.type==='email')){ sentAt=_a._rawTime||_a.time||sentAt; break; } }
+  }catch(_e){}
   // Mail apps fire several "opened" pings per real open (image proxies, our BCC copy, retries).
   // Collapse anything within 10 minutes into one open, and ignore pings in the first 60 s after send.
   var sentMs = sentAt ? new Date(sentAt).getTime() : NaN;
@@ -42493,10 +42499,19 @@ async function _pwEvents(i){
     var ids={};
     (acts||[]).forEach(function(a){ var m=a.meta||{}; if(a.type==='email_sent' && m.email_id && String(m.body||'').indexOf(pr.slug?('/p/'+pr.slug):pr.id)>=0) ids[m.email_id]=m.subject||''; });
     (acts||[]).forEach(function(a){ var m=a.meta||{}; if(a.type==='email_sent' && m.email_id && String(m.body||'').indexOf(pr.id)>=0) ids[m.email_id]=m.subject||''; });
+    var _pwSeen={};
     (acts||[]).forEach(function(a){ var m=a.meta||{};
       if(a.type==='email_sent' && ids[m.email_id]!=null) ev.push({t:a.created_at, ic:'📤', a:'Proposal email sent', b:m.to||''});
       if(a.type==='email_event' && ids[m.email_id]!=null){
-        if(m.event==='email.opened') ev.push({t:a.created_at, ic:'📧', a:'Email opened', b:'Email tracking — may include mail scanners'});
+        // open-1: ignore mail-scanner pings (first minute after sending) and repeat pings within 10 min
+        var _st=_pwSeen, _t=new Date(a.created_at).getTime();
+        if(m.event==='email.opened'){
+          var _snt=(acts||[]).find(function(x){ return x.type==='email_sent' && x.meta && x.meta.email_id===m.email_id; });
+          var _sMs=_snt?new Date(_snt.created_at).getTime():NaN;
+          if(!isNaN(_sMs) && _t-_sMs<60000) return;
+          var _k='o'+m.email_id; if(_st[_k] && Math.abs(_st[_k]-_t)<600000) return; _st[_k]=_t;
+        }
+        if(m.event==='email.opened') ev.push({t:a.created_at, ic:'📧', a:'Email opened', b:'Email tracking'});
         else if(m.event==='email.clicked') ev.push({t:a.created_at, ic:'🔗', a:'Email link clicked', b:'Email tracking'});
       }
     });
