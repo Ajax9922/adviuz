@@ -5391,7 +5391,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-11 email-9';
+var APP_VERSION = 'v2026-11-11 email-10';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -23608,6 +23608,8 @@ function _emibCss(){
   st.textContent=''
    +'#emibOv{position:fixed;inset:0;z-index:830;background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch}'
    +'#emibDet{position:fixed;inset:0;z-index:832;background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch}'
+   +'#emibOv,#emibDet{overscroll-behavior-y:none}'
+   +'#emibDet .emib-card{margin-bottom:12px}'
    +'.emib-gl{display:none}'
    +'.emib-top{background:var(--top,#170f2a);padding:calc(10px + env(safe-area-inset-top)) 16px 11px;display:flex;align-items:center;gap:12px;position:sticky;top:2px;z-index:6}'
    +'.emib-bk{width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff;cursor:pointer;flex-shrink:0}'
@@ -23736,7 +23738,7 @@ function _emibBodyCard(subject, bodyTxt){
   var t=String(bodyTxt||'');
   // A real HTML email renders in a sandboxed frame (no scripts can run there).
   if(/<\s*(!doctype|html|body|table|div|td|tr|h[1-6]|p|img|a)\b/i.test(t)){
-    return '<div class="emib-card" style="overflow:hidden"><iframe sandbox srcdoc="'+_emibEsc(t)+'" style="width:100%;height:460px;border:none;background:#fff;display:block"></iframe></div>';
+    return '<div class="emib-card" style="overflow:hidden"><iframe sandbox="allow-same-origin" onload="_emibFitFrame(this)" srcdoc="'+_emibEsc(t)+'" style="width:100%;height:460px;border:none;background:#fff;display:block"></iframe></div>';
   }
   var plain=t.replace(/\s+/g,' ').trim();
   if(!plain || plain===String(subject||'').replace(/\s+/g,' ').trim()){
@@ -23823,7 +23825,8 @@ async function openEmailInbox(id, keep){
   window._emib.lid=l.id; window._emib.ro=_ro;
   var ov=document.getElementById('emibOv');
   if(!ov){ ov=document.createElement('div'); ov.id='emibOv'; document.body.appendChild(ov); _emibPull(ov); }
-  ov.innerHTML='<div class="emib-gl"></div><div class="emib-top"><div class="emib-bk" onclick="closeEmailInbox()">'+_emibI('back',22)+'</div><div style="flex:1;min-width:0"><div class="emib-nm">Emails · '+_emibEsc(l.name||'Lead')+'</div><div class="emib-em">'+_emibEsc(l.em||'no email on file')+(l.company?(' · '+_emibEsc(l.company)):'')+'</div></div></div>'
+  // a refresh keeps the current list (and header) on screen while the new emails load
+  if(!(keep && ov.querySelector('#emibList'))) ov.innerHTML='<div class="emib-gl"></div><div class="emib-top"><div class="emib-bk" onclick="closeEmailInbox()">'+_emibI('back',22)+'</div><div style="flex:1;min-width:0"><div class="emib-nm">Emails · '+_emibEsc(l.name||'Lead')+'</div><div class="emib-em">'+_emibEsc(l.em||'no email on file')+(l.company?(' · '+_emibEsc(l.company)):'')+'</div></div></div>'
     +'<div style="text-align:center;padding:70px 0"><div class="ai-spin"></div><div style="font-size:13px;color:var(--sub);margin-top:10px">Loading emails…</div></div>';
   try{
     if(l.dbId && typeof loadLeadActivity==='function' && (window._emibFresh!==l.id || !(typeof leadAct!=='undefined'&&leadAct[l.id]))){
@@ -23837,6 +23840,15 @@ async function openEmailInbox(id, keep){
   }
   if(!document.getElementById('emibOv')) return; // closed while loading
   _emibRender(l);
+}
+// emib-fit (2026-11-11, Ajax): the designed email shows at its full height inside its card,
+// so the card ends with its own bottom edge above Reply/Forward instead of scrolling inside itself
+function _emibFitFrame(fr){
+  try{ var d=fr.contentDocument; if(!d||!d.body) return;
+    var h=Math.max(d.body.scrollHeight, d.documentElement.scrollHeight);
+    if(h>40) fr.style.height=Math.min(h+4, 6000)+'px';
+    setTimeout(function(){ try{ var h2=Math.max(d.body.scrollHeight, d.documentElement.scrollHeight); if(h2>40) fr.style.height=Math.min(h2+4,6000)+'px'; }catch(_e){} },600);
+  }catch(_e){}
 }
 // emib-pull (2026-11-11, Ajax): pull the email list down from the top to reload the emails
 function _emibPull(ov){
@@ -24088,7 +24100,7 @@ async function _emibLoadHtml(emailId){
   var box=document.getElementById('emibBodyCard'); if(!box) return;
   var cached=window._emibHtml[emailId];
   if(cached===''){ return; } // already tried — nothing stored at the provider
-  if(cached){ box.innerHTML='<div class="emib-card" style="overflow:hidden"><iframe sandbox srcdoc="'+_emibEsc(cached)+'" style="width:100%;height:520px;border:none;background:#fff;display:block"></iframe></div>'; return; }
+  if(cached){ box.innerHTML='<div class="emib-card" style="overflow:hidden"><iframe sandbox="allow-same-origin" onload="_emibFitFrame(this)" srcdoc="'+_emibEsc(cached)+'" style="width:100%;height:520px;border:none;background:#fff;display:block"></iframe></div>'; return; }
   var note=document.createElement('div');
   note.style.cssText='font-size:11px;color:var(--sub);text-align:center;padding:2px 0 6px';
   note.textContent='Loading the designed email…';
@@ -24099,7 +24111,7 @@ async function _emibLoadHtml(emailId){
     var html=(d&&d.ok&&d.html)?String(d.html):'';
     window._emibHtml[emailId]=html;
     var box2=document.getElementById('emibBodyCard'); if(!box2) return;
-    if(html){ box2.innerHTML='<div class="emib-card" style="overflow:hidden"><iframe sandbox srcdoc="'+_emibEsc(html)+'" style="width:100%;height:520px;border:none;background:#fff;display:block"></iframe></div>'; }
+    if(html){ box2.innerHTML='<div class="emib-card" style="overflow:hidden"><iframe sandbox="allow-same-origin" onload="_emibFitFrame(this)" srcdoc="'+_emibEsc(html)+'" style="width:100%;height:520px;border:none;background:#fff;display:block"></iframe></div>'; }
     else if(d&&d.ok&&d.text){ box2.innerHTML='<div class="emib-card" style="padding:17px 16px;font-size:14px;line-height:1.75;color:var(--text);white-space:pre-wrap">'+_emibEsc(String(d.text))+'</div>'; }
     else { note.remove(); }
   }catch(_e){ try{ note.remove(); }catch(_e2){} }
