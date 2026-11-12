@@ -5427,7 +5427,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-12 lead-hz-9';
+var APP_VERSION = 'v2026-11-12 lead-hz-10';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -19937,7 +19937,8 @@ function _hzCss(){
     '.hz-about{background:#faf8ff;border:1px solid #ece6ff;border-radius:12px;padding:10px 12px;margin-top:10px;font-size:13px;line-height:1.5;color:#374151}',
     '.hz-about b{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#4000f3;font-weight:600;margin-bottom:3px}',
     '.hz-panel{padding:10px}',
-    '.hz-panel .hz-ac{padding:2px 0;gap:4px}',
+    '.hz-panel .hz-ac{padding:9px 0 8px;gap:5px;border:1px solid #ece9f5;border-radius:16px}',
+    '.hz-panel .hz-grid{gap:8px}',
     '.hz-panel .hz-ac .ic{width:42px;height:42px;border-radius:14px}',
     '.hz-panel .hz-orb{width:42px;height:42px}',
     '.hz-hr{margin:10px 2px}',
@@ -20173,6 +20174,88 @@ function _hzHeardSlide(l, t){
     +(note?'<div style="font-size:12.5px;color:#92400e;line-height:1.45;margin-top:3px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'+_hzE(note)+'</div>':'')
     +'<div style="display:flex;gap:6px;margin-top:10px"><button class="hz-btn pri" onclick="fuTeamApprove('+t.id+',this)">Approve</button><button class="hz-btn" onclick="fuTeamPick('+t.id+')">Reschedule</button><button class="hz-btn red" onclick="markDone('+t.id+')">Cancel</button></div>';
 }
+// ── lead-hz-10: first slider card = "Next up" — whatever happens next for this lead ──
+function _hzNextList(l){
+  var now=Date.now(), out=[];
+  if(l.appointment_at && !l.meeting_outcome){ var md=new Date(l.appointment_at).getTime(); if(!isNaN(md)) out.push({k:'meet',t:md}); }
+  var hasAiTask=false;
+  (typeof tasks!=='undefined'?tasks:[]).forEach(function(t){
+    if(t.lid!==l.id || t.done) return;
+    if(typeof _fuIsTeam==='function' && _fuIsTeam(t)) return; // shown as its own "AI heard a time" card
+    var ms=t.dueIso?new Date(t.dueIso).getTime():new Date((t.date||'')+'T'+String(t.time||'09:00').slice(0,5)).getTime();
+    if(isNaN(ms)) return;
+    if(t.type==='ai_call'){ hasAiTask=true; out.push({k:'ai',t:ms,task:t}); }
+    else out.push({k:'fu',t:ms,task:t});
+  });
+  var sc=(window._hzSchedCache||{})[l.dbId]||[];
+  sc.forEach(function(x){
+    if(x.type==='sched_aicall'){ if(!hasAiTask) out.push({k:'ai',t:x._when,s:x}); return; }
+    var w=typeof x._when==='number'?x._when:new Date(x._when).getTime(); if(isNaN(w)) return;
+    if(x.type==='sched_smsman'||x.type==='sched_sms') out.push({k:'sms',t:w,s:x});
+    else if(x.type==='sched_email') out.push({k:'email',t:w,s:x});
+    else if(x.type==='sched_pb') out.push({k:'pb',t:w,s:x});
+  });
+  // keep things that are still ahead (a meeting / follow-up up to a day overdue still needs you)
+  out=out.filter(function(x){ return x.t > now-(x.k==='meet'||x.k==='fu'?864e5:36e5); });
+  out.sort(function(a,b){ return a.t-b.t; });
+  return out;
+}
+function _hzIn(ms){
+  var m=Math.round((ms-Date.now())/60000);
+  if(m<0){ var a=-m; return a<60?a+'m overdue':Math.round(a/60)+'h overdue'; }
+  if(m<1) return 'now'; if(m<60) return 'in '+m+' min';
+  var h=Math.round(m/60); if(h<36) return 'in '+h+'h';
+  return 'in '+Math.round(h/24)+' days';
+}
+function _hzWhen(ms){
+  var d=new Date(ms), k=function(x){ return x.toLocaleDateString('en-CA'); };
+  var day=k(d)===k(new Date())?'Today':k(d)===k(new Date(Date.now()+864e5))?'Tomorrow':d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+  return day+' · '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+}
+function _hzNextLabel(x){
+  return x.k==='meet'?'Meeting':x.k==='fu'?'Follow-up':x.k==='ai'?'AI call':x.k==='sms'?'Text':x.k==='email'?'Email':'Automated '+(String((x.s&&x.s.label)||'').indexOf('Email')>-1?'email':String((x.s&&x.s.label)||'').indexOf('Text')>-1?'text':'step');
+}
+function _hzNextBody(l){
+  var list=_hzNextList(l), x=list[0], nx=list[1];
+  var then=nx?'<div class="hz-sub" style="margin-top:8px;display:flex;align-items:center;gap:5px">'+_hzI('clock',12)+'Then: '+_hzE(_hzNextLabel(nx).toLowerCase())+' '+_hzE(_hzWhen(nx.t))+'</div>':'';
+  if(!x){
+    return '<div style="display:flex;justify-content:space-between;align-items:center"><span class="hz-lb" style="color:#8a8fa3">'+_hzI('cal',13)+' Next up</span></div>'
+      +'<div style="font-size:15px;font-weight:600;margin-top:3px">Nothing scheduled</div>'
+      +'<div style="display:flex;gap:6px;margin-top:10px"><button class="hz-btn" onclick="hzFuFocus()">Set follow-up</button><button class="hz-btn pri" onclick="openApptSheet('+l.id+')">Book a meeting</button></div>';
+  }
+  if(x.k==='meet') return _hzMeetingSlide(l).replace('<span class="hz-lb"','<span class="hz-lb" data-nu="1"').replace(/(<span class="hz-lb"[^>]*>)(<svg[\s\S]*?<\/svg>)\s/,'$1$2 Next up · ')+then;
+  var ic={fu:'clock',ai:'spark',sms:'sms',email:'mail',pb:'bolt'}[x.k]||'clock';
+  var head='<div style="display:flex;justify-content:space-between;align-items:center"><span class="hz-lb" style="color:#4000f3">'+_hzI(ic,13)+' Next up · '+_hzE(_hzNextLabel(x))+(x.k==='ai'||x.k==='sms'||x.k==='email'?' scheduled':'')+'</span></div>'
+    +'<div style="font-size:15px;font-weight:600;margin-top:3px">'+_hzE(_hzWhen(x.t))+' <span class="hz-sub" style="font-weight:400">· '+_hzE(_hzIn(x.t))+'</span></div>';
+  var note='', btns='';
+  if(x.k==='fu'){
+    note=String(x.task.note||'');
+    btns='<button class="hz-btn" onclick="hzFuFocus()">Change time</button><button class="hz-btn" onclick="markDone('+x.task.id+');setTimeout(function(){renderLeadScreen('+l.id+')},150)">Done</button><button class="hz-btn pri" onclick="lsDoIvrCall()">Call now</button>';
+  } else if(x.k==='ai'){
+    note=x.task?String(x.task.note||''):'Autopilot will call automatically.';
+    btns=(x.task?'<button class="hz-btn" onclick="fuAiChange('+x.task.id+')">Change time</button><button class="hz-btn red" onclick="fuAiCancel('+x.task.id+',this)">Cancel</button>':'<button class="hz-btn" onclick="openApSheet('+l.id+')">Manage</button>')
+      +'<button class="hz-btn pri" onclick="lsDoIvrCall()">Call myself</button>';
+  } else if(x.k==='sms'){
+    note=String(x.s.body||'');
+    btns=(x.s.type==='sched_smsman'&&x.s._schedId?'<button class="hz-btn red" onclick="smsSchedCancel(\''+x.s._schedId+'\','+l.id+')">Cancel</button>':'')+'<button class="hz-btn pri" onclick="openSmsSheet()">Open texts</button>';
+  } else if(x.k==='email'){
+    note=String(x.s.body||'');
+    btns=(x.s._schedId?'<button class="hz-btn red" onclick="ceCancelSchedAnywhere(\''+x.s._schedId+'\','+l.id+')">Cancel</button>':'')+'<button class="hz-btn pri" onclick="openEmailInbox('+l.id+')">Open email</button>';
+  } else {
+    note=String(x.s.body||'').split('\n')[0];
+    btns='<button class="hz-btn" onclick="openApSheet('+l.id+')">Manage autopilot</button>';
+  }
+  note=_hzPlain(note.replace(/^[\p{Extended_Pictographic}️\s]+/u,''));
+  return head+(note?'<div style="font-size:12.5px;color:#4b5563;margin-top:3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+_hzE(note)+'</div>':'')
+    +'<div style="display:flex;gap:6px;margin-top:10px">'+btns+'</div>'+then;
+}
+function hzFuFocus(){
+  var i=document.getElementById('lsFuDatetime'); if(!i) return;
+  hzTab('c'); i.scrollIntoView({behavior:'smooth',block:'center'});
+  setTimeout(function(){ try{ i.focus(); i.showPicker(); }catch(e){ try{ i.click(); }catch(_e){} } }, 350);
+}
+function _hzNextPaint(l){ var n=document.getElementById('hzNext'); if(n) n.innerHTML=_hzNextBody(l); }
+
 // lead-hz-8: tapping anywhere on a slider card opens its details (same as the expand icon); buttons inside still do their own job
 function hzCardTap(e, el){
   if(e.target.closest('button,a,select,input,textarea')) return;
@@ -20182,11 +20265,11 @@ function _hzSlider(l){
   var hasMeet=!!(l.appointment_at && !l.meeting_outcome), heard=_hzHeardTask(l);
   var sl=[];
   if(heard) sl.push(['<div>'+_hzHeardSlide(l,heard)+'</div>','background:#fffbeb;border-color:#f59e0b']);
-  sl.push(['<div>'+_hzMeetingSlide(l)+'</div>','']);
+  sl.push(['<div id="hzNext">'+_hzNextBody(l)+'</div>','']); // lead-hz-10: Next up
   sl.push(['<div>'+_hzSummarySlide(l)+'</div>','background:#faf8ff']);
   sl.push(['<div id="hzSlCompany">'+_hzBriefBody('company')+'</div>','']);
   sl.push(['<div id="hzSlStrategy">'+_hzBriefBody('strategy')+'</div>','']);
-  var n=sl.length, start=heard?0:(hasMeet?(heard?1:0):(heard?2:1));
+  var n=sl.length, start=0;
   var d=function(ix){ var x='<div class="hz-dots">'; for(var i=0;i<n;i++) x+='<span'+(i===ix?' class="on"':'')+'></span>'; return x+'</div>'; };
   var h='<div class="hz-sl" id="hzSl" data-start="'+start+'" data-n="'+n+'">';
   sl.forEach(function(s,i){ h+='<div class="hz-slide"><div class="hz-slc" onclick="hzCardTap(event,this)"'+(s[1]?' style="'+s[1]+'"':'')+'>'+s[0]+d(i)+'</div></div>'; });
@@ -20348,6 +20431,7 @@ function _hzAfterRender(l){
     var raf=0; sl.addEventListener('scroll', function(){ if(raf) return; raf=requestAnimationFrame(function(){ raf=0; var ix=Math.round(sl.scrollLeft/Math.max(1,sl.clientWidth)); window._hzSlideIx=ix; _hzDots(ix); }); }, {passive:true});
   }
   try{ _hzHold(l); }catch(_e){}
+  try{ _hzNextPaint(l); }catch(_e){ console.warn('[hz next]',_e); }
   _hzBriefLoad(l);
   // top player
   var au=document.getElementById('recAudio0');
@@ -21193,6 +21277,7 @@ function renderLeadScreen(id) {
         body: (p.channel==='email'&&p.subject?(p.subject+'\n'):'')+String(p.body||'').slice(0,180)+_pH });
     });
     _schedItems.sort(function(x,y){ return x._when-y._when; });
+    try{ (window._hzSchedCache=window._hzSchedCache||{})[l.dbId]=_schedItems.slice(); }catch(_e){}
   }catch(e){}
   if(actFilter==='payment' && window._hidePayments) actFilter='all'; // rev-1
   var filteredActs = (actFilter==='payment') ? _pmtItems : (actFilter==='sched') ? _schedItems : acts.filter(filterGroups[actFilter]||filterGroups.all);
