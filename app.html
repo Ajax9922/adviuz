@@ -5427,7 +5427,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-12 lead-hz-13';
+var APP_VERSION = 'v2026-11-12 lead-hz-14';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -19946,6 +19946,11 @@ function _hzCss(){
     '.hzA-up .r{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid #f3f1f8}.hzA-up .r:last-child{border-bottom:none;padding-bottom:2px}',
     '.hzA-up .x{flex:1;min-width:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
     '.hzA-up .cd{font-size:11px;font-weight:600;border-radius:8px;padding:2px 7px;white-space:nowrap}',
+    '.hzA-up .r{align-items:flex-start}.hzA-up .x{white-space:normal}',
+    '.hzA-ub{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}',
+    '.hzA-ub button{font-size:11.5px;font-weight:600;color:#4000f3;background:#fff;border:1px solid #e6e0fb;border-radius:9px;padding:4px 9px;cursor:pointer;font-family:var(--f)}',
+    '.hzA-ub button.red{color:#c0392b;border-color:#f3d0d0}',
+    'button.bd{border:none;cursor:pointer;font-family:var(--f)}',
     '.hzA-fc{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:12px -10px 0;padding:0 10px}.hzA-fc::-webkit-scrollbar{display:none}',
     '.hzA-f{border:1px solid #e6e0fb;background:#fff;border-radius:14px;padding:5px 10px;font-size:11.5px;color:#4b5563;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-family:var(--f);flex-shrink:0}',
     '.hzA-f.on{background:#4000f3;border-color:#4000f3;color:#fff}',
@@ -20285,7 +20290,7 @@ function _hzNextBody(l){
     btns='<button class="hz-btn" onclick="hzFuFocus()">Change time</button><button class="hz-btn" onclick="markDone('+x.task.id+');setTimeout(function(){renderLeadScreen('+l.id+')},150)">Done</button><button class="hz-btn pri" onclick="lsDoIvrCall()">Call now</button>';
   } else if(x.k==='ai'){
     note=x.task?String(x.task.note||''):'Autopilot will call automatically.';
-    btns=(x.task?'<button class="hz-btn" onclick="fuAiChange('+x.task.id+')">Change time</button><button class="hz-btn red" onclick="fuAiCancel('+x.task.id+',this)">Cancel</button>':'<button class="hz-btn" onclick="openApSheet('+l.id+')">Manage</button>')
+    btns=(x.task?'<button class="hz-btn" onclick="fuAiChange('+x.task.id+')">Change time</button><button class="hz-btn red" onclick="fuAiCancel('+x.task.id+',this)">Cancel</button>':'<button class="hz-btn" onclick="aiCallReschedule('+l.id+')">Change time</button><button class="hz-btn red" onclick="aiCallCancel('+l.id+',this)">Cancel</button>')
       +'<button class="hz-btn pri" onclick="lsDoIvrCall()">Call myself</button>';
   } else if(x.k==='sms'){
     note=String(x.s.body||'');
@@ -20295,7 +20300,7 @@ function _hzNextBody(l){
     btns=(x.s._schedId?'<button class="hz-btn red" onclick="ceCancelSchedAnywhere(\''+x.s._schedId+'\','+l.id+')">Cancel</button>':'')+'<button class="hz-btn pri" onclick="openEmailInbox('+l.id+')">Open email</button>';
   } else {
     note=String(x.s.body||'').split('\n')[0];
-    btns='<button class="hz-btn" onclick="openApSheet('+l.id+')">Manage autopilot</button>';
+    btns=(x.s._pbEnr?'<button class="hz-btn red" onclick="pbSkipOne(\''+x.s._pbEnr+'\','+Number(x.s._pbStep)+',this)">Skip this step</button>':'')+'<button class="hz-btn" onclick="openApSheet('+l.id+')">Autopilot settings</button>';
   }
   note=_hzPlain(note.replace(/^[\p{Extended_Pictographic}️\s]+/u,''));
   return head+(note?'<div style="font-size:12.5px;color:#4b5563;margin-top:3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+_hzE(note)+'</div>':'')
@@ -20364,7 +20369,8 @@ function _hzA(a, lid){
 }
 function _hzAgoShort(ms){ var m=Math.round(ms/60000); if(m<60) return Math.max(1,m)+'m'; var h=Math.round(m/60); if(h<48) return h+'h'; return Math.round(h/24)+'d'; }
 function _hzActCalc(l, acts){
-  var list=(acts||[]).filter(function(a){ return a && a.type!=='email_opened'; }).map(function(a){ var x=_hzA(a,l.id); x.a=a; x.t=new Date(a._rawTime||'').getTime(); return x; });
+  var list=(acts||[]).filter(function(a){ return a && a.type!=='email_opened'; }).map(function(a,ix){ var x=_hzA(a,l.id); x.a=a; x.i=ix; x.t=new Date(a._rawTime||'').getTime(); return x; });
+  window._hzActRows=list;
   // replies: for each message from our side, did the client answer before our next message?
   var asc=list.filter(function(x){ return x.comm && !isNaN(x.t); }).sort(function(p,q){ return p.t-q.t; });
   var outs=0, replied=0, gaps=[];
@@ -20407,10 +20413,11 @@ function _hzActivity(l, acts, sched){
     up.forEach(function(x){
       var ic={meet:['cal','meet'],fu:['clock','st'],ai:['spark','ai'],sms:['sms','sms'],email:['mail','em'],pb:['bolt','st']}[x.k]||['clock','st'];
       var sub=x.k==='meet'?_hzProduct(l)+' demo':x.k==='fu'?String(x.task&&x.task.note||''):(x.s&&x.s.body)?String(x.s.body):x.task?String(x.task.note||''):'';
-      sub=_hzPlain(sub.replace(/^[\p{Extended_Pictographic}️\s]+/u,''));
-      var cd=_hzIn(x.t); var d=new Date(x.t), tomorrow=d.toLocaleDateString('en-CA')===new Date(Date.now()+864e5).toLocaleDateString('en-CA');
-      h+='<div class="r"><span class="hz-ei k-'+ic[1]+'" style="width:26px;height:26px;border-radius:8px">'+_hzI(ic[0],13)+'</span><div class="x"><b style="font-weight:600">'+_hzE(_hzNextLabel(x))+'</b> <span class="hz-sub">· '+_hzE(sub?sub.slice(0,40):d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}))+'</span></div>'
-        +'<span class="cd k-'+ic[1]+'">'+_hzE(tomorrow?'Tomorrow':(Date.now()+36*36e5>x.t?cd:_hzWhen(x.t).split(' · ')[0]))+'</span></div>';
+      sub=_hzPlain(sub.replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u,''));
+      var d=new Date(x.t), tomorrow=d.toLocaleDateString('en-CA')===new Date(Date.now()+864e5).toLocaleDateString('en-CA');
+      var when=_hzWhen(x.t)+' · '+(tomorrow?'tomorrow':_hzIn(x.t));
+      h+='<div class="r"><span class="hz-ei k-'+ic[1]+'" style="width:26px;height:26px;border-radius:8px">'+_hzI(ic[0],13)+'</span><div class="x"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><b style="font-weight:600">'+_hzE(_hzNextLabel(x))+'</b>'+(sub?' <span class="hz-sub">· '+_hzE(sub.slice(0,60))+'</span>':'')+'</div>'
+        +'<div class="hz-sub" style="font-size:11px">'+_hzE(when)+'</div>'+_hzUpBtns(l,x)+'</div></div>';
     });
     h+='</div>';
   }
@@ -20440,6 +20447,33 @@ function _hzActivity(l, acts, sched){
   if(items.length>N) h+='<div style="text-align:center;margin-top:6px"><button class="hzA-f" style="color:#4000f3;font-weight:600" onclick="window._hzActN=(window._hzActN||30)+30;hzActRedraw()">Load older activity</button></div>';
   return h+'</div>';
 }
+// lead-hz-14: what you can do with each upcoming item (only actions the hub already supports)
+function _hzUpBtns(l, x){
+  var b=function(lbl,fn,cls){ return '<button class="'+(cls||'')+'" onclick="event.stopPropagation();'+fn+'">'+lbl+'</button>'; }, o='';
+  if(x.k==='meet') o=b('Reschedule','openApptSheet('+l.id+')')+b('Cancel','apptCancelDirect('+l.id+')','red');
+  else if(x.k==='fu') o=b('Change time','hzFuFocus()')+b('Done','markDone('+x.task.id+');setTimeout(function(){renderLeadScreen('+l.id+')},150)');
+  else if(x.k==='ai') o=x.task?(b('Reschedule','fuAiChange('+x.task.id+')')+b('Cancel','fuAiCancel('+x.task.id+',this)','red')):(b('Reschedule','aiCallReschedule('+l.id+')')+b('Cancel','aiCallCancel('+l.id+',this)','red'));
+  else if(x.k==='sms') o=(x.s.type==='sched_smsman'&&x.s._schedId?b('Cancel','smsSchedCancel(\''+x.s._schedId+'\','+l.id+')','red'):'')+b('Open texts','openSmsSheet()');
+  else if(x.k==='email') o=(x.s._schedId?b('Cancel','ceCancelSchedAnywhere(\''+x.s._schedId+'\','+l.id+')','red'):'')+b('Open email','openEmailInbox('+l.id+')');
+  else if(x.k==='pb') o=(x.s._pbEnr?b('Skip this step','pbSkipOne(\''+x.s._pbEnr+'\','+Number(x.s._pbStep)+',this)','red'):'')+b('Autopilot settings','openApSheet('+l.id+')');
+  return o?'<div class="hzA-ub">'+o+'</div>':'';
+}
+// lead-hz-14: email preview from the activity list
+function hzEmPrev(ix){
+  var x=(window._hzActRows||[])[ix]; if(!x) return; var a=x.a;
+  var subj=a.email_subject||x.title||'Email', body=String(a.email_html||a.email_body||a.body||'');
+  var isHtml=/<[a-z][\s\S]*>/i.test(body), doc='';
+  try{ doc=(typeof edEmailShellHTML==='function' && !x.inb)?edEmailShellHTML(subj, body, isHtml):''; }catch(_e){}
+  if(!doc) doc='<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font-family:Inter,Arial,sans-serif;font-size:14px;line-height:1.55;color:#111318;margin:16px;word-break:break-word}</style></head><body>'+(isHtml?body:_hzE(body).replace(/\n/g,'<br>'))+'</body></html>';
+  var ov=document.getElementById('hzEmPrevSh');
+  if(!ov){ ov=document.createElement('div'); ov.className='sheet-ov'; ov.id='hzEmPrevSh'; ov.onclick=function(e){ if(e.target===ov) closeSheet('hzEmPrevSh'); }; document.body.appendChild(ov); }
+  ov.innerHTML='<div class="sheet" style="max-height:90vh;display:flex;flex-direction:column"><div class="sh-head"><div class="sh-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_hzE(subj)+'</div><button class="sh-x" onclick="closeSheet(\'hzEmPrevSh\')">&#x2715;</button></div>'
+    +'<div class="hz-sub" style="padding:0 18px 8px">'+(x.inb?'From '+_hzE(a.email_from||'the client'):'Sent')+(isNaN(x.t)?'':' · '+_hzE(_hzWhen(x.t)))+(x.opens?' · opened '+x.opens+'×':'')+'</div>'
+    +'<iframe id="hzEmPrevF" sandbox="" style="flex:1;width:100%;min-height:60vh;border:none;border-top:1px solid #ece9f5;background:#fff"></iframe>'
+    +'<div style="display:flex;gap:8px;padding:10px 16px calc(12px + var(--sb,0px))"><button class="hz-btn" style="flex:1" onclick="closeSheet(\'hzEmPrevSh\')">Close</button><button class="hz-btn pri" style="flex:1" onclick="closeSheet(\'hzEmPrevSh\');openEmailInbox('+(window._hzActCtx&&window._hzActCtx.lid)+')">Open email box</button></div></div>';
+  openSheet('hzEmPrevSh');
+  var f=document.getElementById('hzEmPrevF'); if(f) f.srcdoc=doc;
+}
 function _hzClockT(t){ return isNaN(t)?'':new Date(t).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}); }
 function _hzActRow(l, x){
   var a=x.a, tag={cl:String(l.name||'Client').split(' ')[0],you:'You',ai:'AI',auto:'Auto',sys:''}[x.who]||'';
@@ -20451,13 +20485,14 @@ function _hzActRow(l, x){
     +(x.body?'<div class="d">'+_hzE(x.body)+'</div>':'');
   if(a.recording_url) h+='<audio controls preload="none" src="'+recUrl(a.recording_url)+'"></audio>';
   var bd='';
-  if(x.opens) bd+='<span class="bd">'+_hzI('eye',11)+'Opened '+x.opens+'×</span>';
+  if(x.opens) bd+='<button class="bd" onclick="showEmailOpens('+l.id+',\''+_jsq(a.email_id||'')+'\',\''+_jsq(a.email_subject||'')+'\')">'+_hzI('eye',11)+'Opened '+x.opens+'× ›</button>';
   if(x.replyIn) bd+='<span class="bd">'+_hzI('check',11)+'Replied in '+_hzAgoShort(x.replyIn)+'</span>';
   if(bd) h+='<div>'+bd+'</div>';
   var ac='';
   if(x.inb && x.comm==='sms') ac+='<button onclick="openSmsSheet()">'+_hzI('sms',12)+'Reply</button>';
   if(x.inb && x.comm==='email') ac+='<button onclick="openEmailInbox('+l.id+')">'+_hzI('mail',12)+'Reply</button>';
   if(x.inb && x.comm==='call') ac+='<button onclick="lsDoIvrCall()">'+_hzI('phone',12)+'Call back</button>';
+  if(x.comm==='email') ac+='<button onclick="hzEmPrev('+x.i+')">'+_hzI('eye',12)+'Preview</button>';
   if(a.transcript) ac+='<button onclick="var n=this.parentNode.nextElementSibling;n.style.display=n.style.display===\'none\'?\'\':\'none\'">'+_hzI('doc',12)+'Transcript</button>';
   if(ac) h+='<div class="ac">'+ac+'</div>';
   if(a.transcript) h+='<div style="display:none;white-space:pre-wrap;font-size:12px;color:#4b5563;line-height:1.55;margin-top:8px;max-height:260px;overflow:auto">'+_hzE(a.transcript)+'</div>';
