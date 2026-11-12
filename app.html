@@ -5427,7 +5427,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-12 email-24';
+var APP_VERSION = 'v2026-11-12 lead-hz-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -7212,6 +7212,7 @@ function mapLead(l, i) {
     t: timeAgo(l.last_activity_at || l.first_inquiry_at || l.created_at), // inq-date-1: last contact, else original inquiry — never the import date
     created_at: l.created_at || null,
     first_inquiry_at: l.first_inquiry_at || null,
+    submitted_at: l.submitted_at || null, // lead-hz-1: last enquiry
     basis: l.contact_basis || null, // imp-smart-1: why we may contact them (calling time limit)
     last_activity_at: l.last_activity_at || null,
     stage_changed_at: l.stage_changed_at || null, // closed-sink-1
@@ -19746,6 +19747,454 @@ function _lsAudioBusy(){
   }catch(e){}
   return false;
 }
+// ═══════════════════════════════════════════════════════════════════════════
+// lead-hz-1 (2026-11-12, Ajax "go lead redesign only for adviuz"): the NEW lead
+// screen top for ADVIUZ (house) leads only. Client / partner leads keep the old
+// screen untouched. Layout (approved previews):
+//   header C (initials · company · name · stage ▾ · temp · Autopilot | Partner |
+//   Enquiry strip · email Biz/Personal · phone · Google · Edit)
+//   → slider (Meeting · Summary · Company profile · Demo strategy, expand icon)
+//   → latest call player → tabs [Communication | Latest activity]
+//   → the existing page continues (quote/invoice/proposal, full activity…).
+// ═══════════════════════════════════════════════════════════════════════════
+function _hzOn(l){
+  try{
+    if(!l || !_isHouseLead(l)) return false;
+    if(typeof isClientMode==='function' && isClientMode()) return false;
+    if(typeof isPartnerMode==='function' && isPartnerMode()) return false;
+    return true;
+  }catch(e){ return false; }
+}
+function _hzE(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function _hzI(n, sz, col){
+  var P={
+    down:'<polyline points="6 9 12 15 18 9"/>', back:'<polyline points="15 18 9 12 15 6"/>', fwd:'<polyline points="9 6 15 12 9 18"/>',
+    edit:'<path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4z"/>',
+    pen:'<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/>',
+    google:'<path d="M20.5 12.2c0-.6-.1-1.2-.2-1.8H12v3.5h4.8a4.1 4.1 0 01-1.8 2.7v2.2h2.9c1.7-1.6 2.6-3.9 2.6-6.6z"/><path d="M12 21c2.4 0 4.5-.8 6-2.2l-2.9-2.2c-.8.5-1.8.9-3.1.9-2.4 0-4.4-1.6-5.1-3.8H3.9v2.3A9 9 0 0012 21z"/><path d="M6.9 13.7a5.4 5.4 0 010-3.4V8H3.9a9 9 0 000 8z"/><path d="M12 6.6c1.3 0 2.5.5 3.4 1.4L18 5.4A9 9 0 003.9 8l3 2.3C7.6 8.2 9.6 6.6 12 6.6z"/>',
+    mail:'<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/>',
+    phone:'<path d="M22 16.9v3a2 2 0 01-2.2 2 19.8 19.8 0 01-8.6-3.1 19.5 19.5 0 01-6-6A19.8 19.8 0 012.1 4.2 2 2 0 014.1 2h3a2 2 0 012 1.7c.1 1 .4 1.9.7 2.8a2 2 0 01-.5 2.1L8.1 9.9a16 16 0 006 6l1.3-1.3a2 2 0 012.1-.4c.9.3 1.8.6 2.8.7a2 2 0 011.7 2z"/>',
+    copy:'<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>',
+    sms:'<path d="M21 11.5a8.4 8.4 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.4 8.4 0 01-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.4 8.4 0 013.8-.9h.5a8.5 8.5 0 018 8v.5z"/>',
+    wa:'<path d="M12 3a9 9 0 00-7.7 13.7L3 21l4.4-1.2A9 9 0 1012 3z"/><path d="M8.6 9.2c.3 2.7 3.5 5.9 6.2 6.2l1.5-1.5-2.1-1-.9.7c-.9-.4-1.9-1.4-2.3-2.3l.7-.9-1-2.1z" stroke-width="1.4"/>',
+    cal:'<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+    expand:'<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>',
+    play:'<polygon points="7 4 20 12 7 20 7 4" fill="currentColor" stroke="none"/>', pause:'<rect x="6" y="4" width="4" height="16" fill="currentColor" stroke="none"/><rect x="14" y="4" width="4" height="16" fill="currentColor" stroke="none"/>',
+    doc:'<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>',
+    spark:'<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/>',
+    building:'<rect x="4" y="3" width="16" height="18" rx="1"/><line x1="9" y1="7" x2="9" y2="7.01"/><line x1="15" y1="7" x2="15" y2="7.01"/><line x1="9" y1="11" x2="9" y2="11.01"/><line x1="15" y1="11" x2="15" y2="11.01"/><path d="M10 21v-4h4v4"/>',
+    target:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+    refresh:'<polyline points="23 4 23 10 17 10"/><path d="M20.5 15a9 9 0 11-2.1-9.4L23 10"/>',
+    note:'<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>',
+    clock:'<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>',
+    flame:'<path d="M12 3c1 3 4 4.5 4 8.5a4 4 0 01-8 0c0-1.6.7-2.7 1.5-3.5C10 10 11 9 12 3z"/>'
+  };
+  return '<svg width="'+(sz||16)+'" height="'+(sz||16)+'" viewBox="0 0 24 24" fill="none" stroke="'+(col||'currentColor')+'" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="display:block;flex-shrink:0">'+(P[n]||'')+'</svg>';
+}
+function _hzCss(){
+  if(document.getElementById('hzCss')) return;
+  var s=document.createElement('style'); s.id='hzCss';
+  s.textContent=[
+    '#leadScreen.hz .ls-topbar{display:none}',
+    '.hz-hd{background:#140c28;color:#fff;padding:calc(10px + var(--st)) 14px 14px;position:relative}',
+    '.hz-hd:after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;background:linear-gradient(90deg,#4000f3,#8b2bf7,#e65afc)}',
+    '.hz-ib{width:32px;height:32px;border-radius:10px;background:rgba(255,255,255,.1);border:none;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}',
+    '.hz-gr{background:linear-gradient(135deg,#4000f3,#8b2bf7,#e65afc)}',
+    '.hz-chip{display:inline-flex;align-items:center;gap:4px;border-radius:10px;padding:4px 9px;font-size:12px;font-weight:500;white-space:nowrap;position:relative}',
+    '.hz-chip select{position:absolute;inset:0;opacity:0;width:100%;cursor:pointer}',
+    '.hz-strip{display:flex;margin-top:11px;background:rgba(255,255,255,.07);border-radius:12px;overflow:hidden}',
+    '.hz-strip>div{flex:1;padding:7px 9px;min-width:0;cursor:pointer}',
+    '.hz-strip>div+div{border-left:1px solid rgba(255,255,255,.08)}',
+    '.hz-mt{font-size:11px;color:rgba(255,255,255,.55)}',
+    '.hz-sv{font-size:12.5px;font-weight:500;margin-top:2px;display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.hz-sw{width:26px;height:15px;border-radius:8px;position:relative;display:inline-block;flex-shrink:0}',
+    '.hz-sw b{position:absolute;top:2px;width:11px;height:11px;border-radius:50%;background:#fff}',
+    '.hz-ct{display:flex;align-items:center;gap:6px;font-size:12.5px;background:rgba(255,255,255,.07);border-radius:10px;padding:7px 9px;min-width:0}',
+    '.hz-ct span.v{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.hz-ct button{background:none;border:none;color:#fff;opacity:.5;padding:0;cursor:pointer;flex-shrink:0}',
+    '.hz-card{background:#fff;border:1px solid #ece9f5;border-radius:16px;margin:10px 10px 0;padding:11px 12px;font-family:var(--f)}',
+    '.hz-lb{font-size:11px;letter-spacing:.06em;color:#8a8fa3;font-weight:600;text-transform:uppercase;display:flex;align-items:center;gap:5px}',
+    '.hz-sub{font-size:11.5px;color:#8a8fa3}',
+    '.hz-sl{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;margin-top:10px}',
+    '.hz-sl::-webkit-scrollbar{display:none}',
+    '.hz-sl>.hz-slide{flex:0 0 100%;scroll-snap-align:center;box-sizing:border-box;padding:0 10px}',
+    '.hz-slc{background:#fff;border:1.5px solid #4000f3;border-radius:16px;padding:11px 12px;min-height:118px;box-sizing:border-box}',
+    '.hz-ex{width:30px;height:30px;border-radius:9px;background:#f3efff;color:#4000f3;border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}',
+    '.hz-dots{display:flex;gap:5px;justify-content:center;margin-top:8px}',
+    '.hz-dots span{width:6px;height:6px;border-radius:50%;background:#d9d3ef;transition:width .2s}',
+    '.hz-dots span.on{width:16px;border-radius:4px;background:#4000f3}',
+    '.hz-btn{flex:1;text-align:center;border-radius:11px;padding:9px 0;font-size:12.5px;font-weight:600;border:1px solid #ddd2ff;color:#4000f3;background:#fff;cursor:pointer;font-family:var(--f)}',
+    '.hz-btn.pri{background:linear-gradient(135deg,#4000f3,#8b2bf7,#e65afc);color:#fff;border:none}',
+    '.hz-btn.red{border-color:#f3d0d0;color:#c0392b}',
+    '.hz-seg{display:flex;margin:12px 10px 0;background:#ece9f5;border-radius:13px;padding:3px}',
+    '.hz-seg button{flex:1;text-align:center;font-size:13px;padding:9px 0;border-radius:10px;color:#6b7280;font-weight:500;border:none;background:none;cursor:pointer;font-family:var(--f)}',
+    '.hz-seg button.on{background:#fff;color:#4000f3;font-weight:600;box-shadow:0 1px 3px rgba(20,12,40,.08)}',
+    '.hz-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:10px 10px 0}',
+    '.hz-ac{background:#fff;border:1px solid #ece9f5;border-radius:14px;padding:11px 0 9px;display:flex;flex-direction:column;align-items:center;gap:5px;font-size:12px;font-weight:500;color:#111318;cursor:pointer;font-family:var(--f)}',
+    '.hz-ac .ic{color:#4000f3;height:22px;display:flex;align-items:center}',
+    '.hz-ac.dnc{border-style:dashed;color:#9aa0b0}.hz-ac.dnc .ic{color:#c2c5d1}',
+    '@keyframes hzEq{0%,100%{transform:scaleY(.45)}50%{transform:scaleY(1)}}',
+    '@keyframes hzGlow{0%,100%{box-shadow:0 0 5px rgba(139,43,247,.35)}50%{box-shadow:0 0 12px rgba(230,90,252,.55)}}',
+    '.hz-orb{width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,#4000f3,#8b2bf7 55%,#e65afc);display:flex;align-items:center;justify-content:center;gap:2px;animation:hzGlow 2.4s ease-in-out infinite}',
+    '.hz-orb i{display:block;width:2.5px;border-radius:2px;background:#fff;animation:hzEq 1.1s ease-in-out infinite}',
+    '.hz-fl{font-size:11px;letter-spacing:.06em;color:#8a8fa3;font-weight:600;text-transform:uppercase;margin-bottom:5px}',
+    '.hz-fd{width:100%;box-sizing:border-box;background:#fff;border:1.5px solid #ddd2ff;border-radius:12px;padding:10px 11px;font-size:13px;font-family:var(--f);color:#111318;outline:none;-webkit-appearance:none;appearance:none}',
+    '.hz-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:9px}',
+    '.hz-chips button{border:1px solid #e6e0fb;border-radius:12px;padding:6px 10px;font-size:12px;color:#4b5563;background:#fff;cursor:pointer;font-family:var(--f)}',
+    '.hz-ev{display:flex;gap:9px;padding:9px 12px;background:#fff;border-bottom:1px solid #f2f0f8}',
+    '.hz-ei{width:30px;height:30px;border-radius:10px;background:#f3efff;color:#4000f3;display:flex;align-items:center;justify-content:center;flex-shrink:0}',
+    '.hz-tag{font-size:11px;border-radius:7px;padding:1px 6px;font-weight:500;margin-left:4px}',
+    '.hz-fa{position:absolute;top:56%;z-index:5;width:26px;height:44px;background:rgba(20,12,40,.32);color:#fff;border:none;display:none;align-items:center;justify-content:center;cursor:pointer;padding:0}',
+    '#leadScreen.hz .hz-fa{display:flex}',
+    '.hz-fa:disabled{opacity:.25}',
+    '.hz-sec{font-size:13px;line-height:1.55;color:#374151;margin-top:10px}',
+    '.hz-sec b{font-weight:600;color:#111318;display:block;margin-bottom:2px}'
+  ].join('\n');
+  document.head.appendChild(s);
+}
+function _hzTz(l){ try{ var e=(typeof effLeadTz==='function')?effLeadTz(l):null; return (e&&e.tz)||l.timezone||(typeof tzFromPhone==='function'?tzFromPhone(l.ph):'')||'America/Toronto'; }catch(_e){ return 'America/Toronto'; } }
+function _hzDay(d, tz){
+  try{
+    var f=function(x){ return x.toLocaleDateString('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'}); };
+    var t=f(new Date()), tm=f(new Date(Date.now()+864e5)), x=f(d);
+    if(x===t) return 'Today'; if(x===tm) return 'Tomorrow';
+    return d.toLocaleDateString('en-CA',{timeZone:tz,weekday:'short',month:'short',day:'numeric'});
+  }catch(_e){ return ''; }
+}
+function _hzTime(d, tz){ try{ return d.toLocaleTimeString('en-US',{timeZone:tz,hour:'numeric',minute:'2-digit',hour12:true}); }catch(_e){ return ''; } }
+function _hzShort(iso){ try{ var d=new Date(iso); if(isNaN(d)) return ''; return d.toLocaleDateString('en-CA',{month:'short',day:'numeric'}); }catch(_e){ return ''; } }
+function _hzProduct(l){
+  var s=String(l.svc||'').trim();
+  if(/flyer/i.test(s)) return 'Digital Flyers';
+  if(/ai|engine|call/i.test(s)) return 'AI Conversion Engine';
+  return s && s.length<=28 ? s : 'Adviuz';
+}
+
+// ── Header C ──
+function _hzHeader(l, camp){
+  var nm = l.company || l.name || 'Lead';
+  var ini = String(nm).split(/\s+/).filter(Boolean).map(function(w){ return w[0]; }).join('').slice(0,2).toUpperCase() || '?';
+  var src = (typeof srcLabel==='function' && l.src) ? srcLabel(l.src) : (l.src||'');
+  var nameSpan = '<span id="lsInlineName" onclick="event.stopPropagation();startInlineNameEdit()" style="cursor:pointer;border-bottom:1px dashed rgba(255,255,255,.35)">'+(_hzE(l.name)||'+ Add name')+'</span>';
+  var sub = l.company ? nameSpan+(src?' · '+_hzE(src):'') : (src?_hzE(src):'');
+  var h = '<div class="hz-hd">';
+  h += '<div style="display:flex;align-items:center;gap:8px;font-size:12.5px">'
+     + '<button class="hz-ib" style="background:none;width:28px" onclick="closeLead()" aria-label="Back">'+_hzI('back',20)+'</button>'
+     + '<span style="flex:1;opacity:.7">Leads</span>'
+     + '<button class="hz-ib" onclick="hzGoogle()" aria-label="Search on Google">'+_hzI('google',16)+'</button>'
+     + '<button class="hz-ib" onclick="openEditLead(curLid)" aria-label="Edit lead">'+_hzI('edit',16)+'</button></div>';
+  // stage chip (native select over the chip) + temperature
+  var stOpts=''; var ms=(typeof matchStageName==='function')?matchStageName(l.stage):l.stage;
+  (typeof STAGES!=='undefined'?STAGES:[]).forEach(function(s){ stOpts+='<option value="'+_hzE(s.name)+'"'+(s.name===ms?' selected':'')+'>'+_hzE(s.name)+'</option>'; });
+  var tp = (typeof LEAD_TEMP_UI!=='undefined' && typeof leadTemp==='function') ? LEAD_TEMP_UI[leadTemp(l.stage)] : null;
+  var tChip = tp ? '<span class="hz-chip" onclick="event.stopPropagation();openTempInfo('+l.id+')" style="background:'+(tp.w==='Hot'?'rgba(230,90,252,.22);color:#f7b2ff':tp.w==='Warm'?'rgba(251,146,60,.2);color:#fdba74':'rgba(147,197,253,.18);color:#bfdbfe')+';cursor:pointer">'+_hzI('flame',12)+tp.w+'</span>' : '';
+  h += '<div style="display:flex;gap:11px;align-items:center;margin-top:8px">'
+     + '<div class="hz-gr" style="width:46px;height:46px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:16px;flex-shrink:0">'+_hzE(ini)+'</div>'
+     + '<div style="flex:1;min-width:0"><div style="font-size:16.5px;font-weight:600;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_hzE(nm)+'</div>'
+     + '<div style="font-size:12px;opacity:.72;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+sub+'</div>'
+     + '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">'
+     +   '<span class="hz-chip" style="background:#fff;color:#140c28"><span id="hzStageTxt">'+_hzE(ms||'Stage')+'</span> '+_hzI('down',12)+'<select id="hzStageChip" onchange="lsSetStage(this.value);var t=document.getElementById(\'hzStageTxt\');if(t)t.textContent=this.value;var s2=document.getElementById(\'lsStageSelect\');if(s2)s2.value=this.value">'+stOpts+'</select></span>'
+     +   tChip
+     + '</div></div></div>';
+  // strip: Autopilot | Partner | Enquiry
+  var apAi=(camp && camp.settings && camp.settings.ai)||null, apMasterOff=!!(!apAi || apAi.outbound_on!==true), apStop=l.do_not_contact===true;
+  var off=(typeof _apOffList==='function')?_apOffList(l):[];
+  var apOn=!apStop && !apMasterOff && !l.human_only && off.length<5, apPart=apOn && off.length>0;
+  var apClick=apStop?('apStopInfo('+l.id+')'):apMasterOff?('apGoToAiSettings(\''+String((camp&&camp.id)||'')+'\')'):('openApSheet('+l.id+')');
+  var apTxt=apStop?'Off · STOP':apMasterOff?'Off':apOn?(apPart?'Partly on':'On'):'Off';
+  var apCol=apOn?(apPart?'#fcd34d':'#7ff0c4'):'rgba(255,255,255,.6)';
+  var sw='<span class="hz-sw" style="background:'+(apOn?(apPart?'#d97706':'#0f9f6e'):'rgba(255,255,255,.25)')+'"><b style="'+(apOn?'right:2px':'left:2px')+'"></b></span>';
+  var partner=(window._allPartners && l.partner_id)?window._allPartners.find(function(p){ return p.id===l.partner_id; }):null;
+  var pTxt=partner?_hzE(partner.full_name||partner.email||'Partner'):'+ Assign';
+  var first=l.first_inquiry_at||l.created_at, last=l.submitted_at||l.last_activity_at;
+  var fS=_hzShort(first), lS=_hzShort(last);
+  var enq=fS?(fS+(lS&&lS!==fS?' <span class="hz-mt">→</span> <span style="color:#f7b2ff">'+lS.replace(/^([A-Za-z]+) /, fS.split(' ')[0]===lS.split(' ')[0]?'':'$1 ')+'</span>':'')):'—';
+  h += '<div class="hz-strip">'
+     + '<div onclick="'+apClick+'"><div class="hz-mt">Autopilot</div><div class="hz-sv" id="hzApTxt" style="color:'+apCol+'">'+apTxt+' '+sw+'</div></div>'
+     + '<div onclick="openAssignPartnerSheet('+l.id+')"><div class="hz-mt">Partner</div><div class="hz-sv" style="color:'+(partner?'#fff':'#c9b8ff')+'">'+pTxt+'</div></div>'
+     + '<div><div class="hz-mt">Enquiry</div><div class="hz-sv">'+enq+'</div></div>'
+     + '</div>';
+  h += '<div id="apHold_'+l.id+'" style="display:none"></div>';
+  // email + phone
+  var em=String(l.em||''), personal=/@(gmail|yahoo|hotmail|outlook|live|icloud|me|aol|protonmail|proton|msn|ymail|gmx|mail)\./i.test(em);
+  h += '<div style="display:flex;gap:6px;margin-top:7px">';
+  if(em) h += '<div class="hz-ct" style="flex:1.45"><span style="color:#c9b8ff">'+_hzI('mail',14)+'</span><span class="v">'+_hzE(em)+'</span><span style="font-size:11px;margin-left:auto;padding-left:4px;color:'+(personal?'#fcd34d':'#7ff0c4')+'">'+(personal?'Personal':'Biz')+'</span><button onclick="hzCopy(\''+_hzE(em).replace(/'/g,'')+'\')" aria-label="Copy email">'+_hzI('copy',13)+'</button></div>';
+  if(l.ph) h += '<div class="hz-ct" style="flex:1"><span style="color:#c9b8ff">'+_hzI('phone',14)+'</span><span class="v">'+_hzE(String(l.ph).replace(/^\+1\s?/,''))+'</span><button onclick="hzCopy(\''+_hzE(l.ph).replace(/'/g,'')+'\')" aria-label="Copy phone" style="margin-left:auto">'+_hzI('copy',13)+'</button></div>';
+  h += '</div></div>';
+  return h;
+}
+
+// ── Slider ──
+function _hzMeetingSlide(l){
+  var ex='<button class="hz-ex" onclick="openMeetingScreen('+l.id+')" aria-label="Open meeting">'+_hzI('expand',14)+'</button>';
+  if(l.appointment_at && !l.meeting_outcome){
+    var tz=_hzTz(l), d=new Date(l.appointment_at), past=d.getTime()<Date.now();
+    var mine='America/Regina';
+    var h='<div style="display:flex;justify-content:space-between;align-items:center"><span class="hz-lb" style="color:'+(past?'#b45309':'#4000f3')+'">'+_hzI('cal',13)+' '+_hzE(_hzProduct(l))+' demo · '+_hzE(_hzDay(d,tz))+'</span>'+ex+'</div>';
+    h+='<div style="font-size:15px;font-weight:600;margin-top:2px">'+_hzE(_hzTime(d,tz))+' his time <span class="hz-sub" style="font-weight:400">· '+_hzE(_hzTime(d,mine))+' yours</span></div>';
+    if(!past){
+      h+='<div style="display:flex;gap:6px;margin-top:10px"><button class="hz-btn" onclick="openApptSheet('+l.id+')">Reschedule</button><button class="hz-btn red" onclick="apptCancelDirect('+l.id+')">Cancel</button><button class="hz-btn pri" onclick="openMeetingScreen('+l.id+')">Join</button></div>';
+    } else {
+      h+='<div class="hz-sub" style="color:#92400e;margin-top:2px">Time passed. How did it go?</div>'
+       +'<div style="display:flex;gap:6px;margin-top:8px"><button class="hz-btn" style="border-color:#bfe8d8;color:#0f9f6e" onclick="apptOutcomeDirect('+l.id+',\'done\')">Done</button><button class="hz-btn red" onclick="apptOutcomeDirect('+l.id+',\'no_show\')">No-show</button><button class="hz-btn" onclick="openApptSheet('+l.id+')">Reschedule</button></div>';
+    }
+    return h;
+  }
+  return '<div style="display:flex;justify-content:space-between;align-items:center"><span class="hz-lb" style="color:#4000f3">'+_hzI('cal',13)+' Meeting</span>'+ex+'</div>'
+    +'<div style="font-size:14px;font-weight:600;margin-top:4px">No meeting booked yet</div>'
+    +'<div class="hz-sub" style="margin-top:2px">Book a demo and it shows here with his time and yours.</div>'
+    +'<div style="display:flex;gap:6px;margin-top:10px"><button class="hz-btn pri" onclick="openApptSheet('+l.id+')">Book a meeting</button></div>';
+}
+function _hzSummarySlide(l){
+  var t=l.call_summary||l.note||('Interested in '+(l.svc||'Adviuz')+'. Stage: '+(l.stage||'')+'.');
+  var last=_hzShort(l.submitted_at||l.last_activity_at);
+  return '<div style="display:flex;justify-content:space-between;align-items:center"><span class="hz-lb" style="color:#4000f3">'+_hzI('spark',13)+' Summary</span><button class="hz-ex" onclick="hzBriefOpen(\'summary\')" aria-label="Open summary">'+_hzI('expand',14)+'</button></div>'
+    +'<div style="font-size:13px;line-height:1.5;margin-top:4px;color:#111318;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical">'+_hzE(t)+'</div>'
+    +(last?'<div class="hz-sub" style="margin-top:4px">Last enquiry '+_hzE(last)+'</div>':'');
+}
+function _hzBriefBody(kind){
+  var l=lsGetLead&&lsGetLead(); var b=l?((window._hzBrief||{})[l.dbId]):null;
+  var lbl=kind==='company'?(_hzI('building',13)+' Company profile'):(_hzI('target',13)+' Demo strategy');
+  var head='<div style="display:flex;justify-content:space-between;align-items:center"><span class="hz-lb" style="color:#4000f3">'+lbl+'</span><button class="hz-ex'+(kind==='strategy'?' hz-gr':'')+'" style="'+(kind==='strategy'?'color:#fff':'')+'" onclick="hzBriefOpen(\''+kind+'\')" aria-label="Open full">'+_hzI('expand',14)+'</button></div>';
+  if(b===undefined) return head+'<div class="hz-sub" style="margin-top:8px">Loading…</div>';
+  if(!b || b.status==='error') return head+'<div style="font-size:13px;margin-top:6px;color:#111318">'+(b&&b.status==='error'?'Research didn’t finish.':'Not researched yet.')+'</div><div style="display:flex;gap:6px;margin-top:9px"><button class="hz-btn pri" onclick="hzResearch(true)">Research now</button></div>';
+  if(b.status==='running') return head+'<div style="font-size:13px;margin-top:6px;color:#111318">Researching the company online…</div><div class="hz-sub" style="margin-top:3px">Takes about a minute. You can keep working.</div>';
+  var c=b.company||{}, st=b.strategy||{};
+  if(kind==='company'){
+    var bits=[c.what_they_do,c.location,c.google_rating?('Google '+c.google_rating+(c.reviews?' ('+c.reviews+')':'')):'',c.ads?('Ads: '+c.ads):''].filter(function(x){ return x && !/not found/i.test(x); });
+    return head+'<div style="font-size:13px;line-height:1.5;margin-top:4px;color:#111318;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical">'+_hzE(c.one_line||bits.join(' · ')||'Not found online.')+'</div>'
+      +(c.website?'<div class="hz-sub" style="margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_hzE(c.website)+'</div>':'');
+  }
+  return head+'<div style="font-size:13px;line-height:1.5;margin-top:4px;color:#111318;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical">'+_hzE(st.one_line||st.how_adviuz_helps||'')+'</div>'
+    +(st.suggested_plan?'<div class="hz-sub" style="margin-top:4px">Plan: '+_hzE(st.suggested_plan)+'</div>':'');
+}
+function _hzSlider(l){
+  var hasMeet=!!(l.appointment_at && !l.meeting_outcome);
+  var h='<div class="hz-sl" id="hzSl" data-start="'+(hasMeet?0:1)+'">';
+  h+='<div class="hz-slide"><div class="hz-slc">'+_hzMeetingSlide(l)+'</div></div>';
+  h+='<div class="hz-slide"><div class="hz-slc" style="background:#faf8ff">'+_hzSummarySlide(l)+'</div></div>';
+  h+='<div class="hz-slide"><div class="hz-slc" id="hzSlCompany">'+_hzBriefBody('company')+'</div></div>';
+  h+='<div class="hz-slide"><div class="hz-slc" id="hzSlStrategy">'+_hzBriefBody('strategy')+'</div></div>';
+  h+='</div><div class="hz-dots" id="hzDots"><span></span><span></span><span></span><span></span></div>';
+  return h;
+}
+
+// ── Latest call ──
+function _hzLatestCall(l, acts){
+  var rc=acts.find(function(a){ return a.type==='call' && a.recording_url; });
+  if(!rc && l.call_recording_url) rc={ recording_url:l.call_recording_url, dur:(l.call_duration_sec&&typeof _fmtDur==='function'?_fmtDur(l.call_duration_sec):''), time:'', _ai:true };
+  if(!rc) return '<div class="hz-card" style="padding:10px 12px;display:flex;align-items:center;gap:9px"><span style="color:#c2c5d1">'+_hzI('phone',18)+'</span><span class="hz-sub" style="font-size:12.5px">No call recordings yet</span></div>';
+  var who=(rc._ai||rc.is_ai)?'AI':'You', dir=(rc.isInbound||String(rc.callType||rc.label||'').toLowerCase().indexOf('inbound')>-1)?'inbound':'outbound';
+  var dur=(rc.dur&&rc.dur!=='—')?rc.dur:'';
+  var tx=l.call_transcript?'<button onclick="hzTx()" aria-label="Transcript" style="background:none;border:none;color:#4000f3;cursor:pointer;padding:2px">'+_hzI('doc',18)+'</button>':'';
+  return '<div class="hz-card" style="padding:9px 12px">'
+    +'<div style="display:flex;align-items:center;gap:9px">'
+    +'<button id="hzPlayBtn" onclick="hzPlay()" class="hz-gr" aria-label="Play" style="width:36px;height:36px;border-radius:50%;border:none;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0">'+_hzI('play',14)+'</button>'
+    +'<div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Latest call · '+who+' · '+dir+(dur?' · '+_hzE(dur):'')+'</div>'
+    +'<div style="display:flex;align-items:center;gap:6px;margin-top:5px"><div style="flex:1;height:4px;border-radius:4px;background:#e6e0fb;overflow:hidden"><div id="hzProg" style="width:0;height:100%;background:#4000f3"></div></div><span id="hzTime" class="hz-sub" style="font-size:11px">'+_hzE(rc.time||'')+'</span></div></div>'
+    +'<button id="hzSpeed" onclick="hzSpeed()" style="font-size:11.5px;border:1px solid #e6e0fb;color:#4000f3;background:#fff;border-radius:9px;padding:3px 7px;cursor:pointer;font-family:var(--f)">1×</button>'+tx
+    +'</div>'
+    +'<audio id="recAudio0" src="'+recUrl(rc.recording_url)+'" preload="none" style="display:none"></audio>'
+    +(l.call_transcript?'<div id="hzTxBox" style="display:none;white-space:pre-wrap;font-size:12.5px;color:#4b5563;line-height:1.6;margin-top:9px;max-height:280px;overflow:auto;background:#faf8ff;border-radius:10px;padding:10px 12px">'+_hzE(l.call_transcript)+'</div>':'')
+    +'</div>';
+}
+
+// ── Tabs: Communication | Latest activity ──
+function _hzComm(l, acts, fuItems){
+  var dnc=window._ldDncLead!=null;
+  var t=function(ic,lbl,fn){ return dnc?'<button class="hz-ac dnc" onclick="dncInfo('+l.id+')"><span class="ic">'+ic+'</span>'+lbl+'</button>':'<button class="hz-ac" onclick="'+fn+'"><span class="ic">'+ic+'</span>'+lbl+'</button>'; };
+  var orb='<span class="hz-orb"><i style="height:7px"></i><i style="height:13px;animation-delay:.2s"></i><i style="height:9px;animation-delay:.4s"></i><i style="height:6px;animation-delay:.6s"></i></span>';
+  var h='<div class="hz-seg"><button id="hzTabC" class="on" onclick="hzTab(\'c\')">Communication</button><button id="hzTabA" onclick="hzTab(\'a\')">Latest activity</button></div>';
+  h+='<div id="hzPaneC">';
+  h+='<div class="hz-grid">'
+    + t(_hzI('mail',21),'Email','openEmailInbox('+l.id+')')
+    + t(_hzI('sms',21),'Text','openSmsSheet()')
+    + t(_hzI('wa',21),'WhatsApp','lsDoWa()')
+    + '<button class="hz-ac" onclick="openMeetingScreen('+l.id+')"><span class="ic">'+_hzI('cal',21)+'</span>Meeting</button>'
+    + t(orb,'AI call','lsDoAiCall()')
+    + t(_hzI('phone',21),'Call','lsDoIvrCall()')
+    + '</div>';
+  // stage + follow-up
+  var ms=(typeof matchStageName==='function')?matchStageName(l.stage):l.stage, opts='';
+  (typeof STAGES!=='undefined'?STAGES:[]).forEach(function(s){ opts+='<option value="'+_hzE(s.name)+'"'+(s.name===ms?' selected':'')+'>'+_hzE(s.name)+'</option>'; });
+  var coarse=('ontouchstart' in window)||(navigator.maxTouchPoints>0);
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 10px 0">'
+    +'<div style="min-width:0"><div class="hz-fl">Sales stage</div><select id="lsStageSelect" class="hz-fd" style="color:#4000f3;font-weight:600" onchange="lsSetStage(this.value);var c=document.getElementById(\'hzStageChip\');if(c)c.value=this.value;var t=document.getElementById(\'hzStageTxt\');if(t)t.textContent=this.value">'+opts+'</select></div>'
+    +'<div style="min-width:0"><div class="hz-fl">Follow-up</div><div style="position:relative"><input type="datetime-local" id="lsFuDatetime" class="hz-fd" value="" oninput="window._lsFuTouched=true;var hn=document.getElementById(\'lsFuHint\');if(hn)hn.style.display=this.value?\'none\':\'\'" '+(coarse?'onblur="lsFuBlur('+l.id+')"':'')+' style="color:#111318"><span id="lsFuHint" style="position:absolute;left:11px;top:50%;transform:translateY(-50%);pointer-events:none;color:#9aa0b0;font-size:13px;background:#fff;padding-right:20px">Pick date &amp; time</span></div>'
+    +(coarse?'':'<button class="hz-btn pri" style="margin-top:6px;width:100%" onclick="lsQuickSaveFu('+l.id+')">Save follow-up</button>')+'</div>'
+    +'</div>';
+  if(fuItems && fuItems.length){
+    h+='<div style="margin:8px 10px 0">';
+    fuItems.forEach(function(x){
+      h+='<div style="display:flex;align-items:center;gap:9px;background:#f3efff;border-radius:11px;padding:9px 12px;margin-bottom:6px"><span style="color:#4000f3">'+_hzI('clock',15)+'</span><div style="flex:1;font-size:12.5px;font-weight:500;color:#111318">'+_hzE((typeof TYPES!=='undefined'&&TYPES[x.type])||'Follow-up')+' · '+_hzE(fmtDate(x.date))+' at '+_hzE(fmtTime(x.time))+'</div><button onclick="markDone('+x.id+');renderLeadScreen('+l.id+')" style="padding:4px 10px;border-radius:8px;background:#fff;border:1px solid #ddd2ff;color:#4000f3;font-size:11.5px;font-weight:600;cursor:pointer;font-family:var(--f)">Done</button></div>';
+    });
+    h+='</div>';
+  }
+  // notes
+  h+='<div class="hz-card" style="margin-top:12px"><div class="hz-fl" style="margin-bottom:8px">Notes</div><div class="hz-chips">';
+  ['No answer','Busy','Interested','Voicemail','Not interested','Call back later'].forEach(function(c){ h+='<button onclick="hzChip(this.textContent)">'+c+'</button>'; });
+  h+='</div><textarea id="lsNoteInp" class="hz-fd" placeholder="Add a note about this lead…" style="min-height:70px;resize:vertical;line-height:1.5"></textarea>'
+    +'<button id="lsSaveNoteBtn" class="hz-btn pri" style="width:100%;margin-top:9px;padding:11px 0;font-size:13.5px" onclick="lsAddNote('+l.id+')">Save note</button></div>';
+  h+='<div id="ld-loc-row" style="display:none"></div><div id="ld-cf-rows" style="display:none"></div>';
+  h+='</div>';
+  // latest activity (shortcut)
+  h+='<div id="hzPaneA" style="display:none"><div style="margin:10px 10px 0;border-radius:14px;overflow:hidden;border:1px solid #ece9f5">'+_hzActRows(acts)+'</div>'
+    +'<div style="margin:8px 10px 0"><button class="hz-btn" style="width:100%" onclick="hzFullActivity()">See full activity</button></div></div>';
+  return h;
+}
+function _hzActRows(acts){
+  var list=(acts||[]).filter(function(a){ return a && a.type!=='email_opened'; }).slice(0,6);
+  if(!list.length) return '<div class="hz-ev" style="border-bottom:none"><span class="hz-sub">No activity yet</span></div>';
+  return list.map(function(a,i){
+    var ty=String(a.type||''), ic='note', who='', bg='#f3efff', col='#4000f3';
+    if(ty==='call'){ ic='phone'; } else if(ty.indexOf('sms')===0){ ic='sms'; } else if(ty.indexOf('email')===0){ ic='mail'; } else if(ty==='appointment'||ty==='meeting'){ ic='cal'; }
+    if(a.is_ai||a._ai){ who='<span class="hz-tag" style="background:#fdf0ff;color:#b02fc9">AI</span>'; }
+    else if(a.email_src==='auto'||/^(system|client|cron)$/i.test(String(a.by||a.performed_by||''))){ who='<span class="hz-tag" style="background:#f1f2f6;color:#5b6170">Automated</span>'; bg='#f1f2f6'; col='#5b6170'; }
+    var body=String(a.email_subject||a.body||a.note||'').replace(/\s+/g,' ').slice(0,80);
+    return '<div class="hz-ev"'+(i===list.length-1?' style="border-bottom:none"':'')+'><div class="hz-ei" style="background:'+bg+';color:'+col+'">'+_hzI(ic,15)+'</div><div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:500">'+_hzE(a.label||ty)+who+'</div>'
+      +(body?'<div class="hz-sub" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#4b5563">'+_hzE(body)+'</div>':'')
+      +'<div class="hz-sub" style="font-size:11px">'+_hzE(a.time||'')+'</div></div></div>';
+  }).join('');
+}
+
+// ── The whole new top ──
+function _hzTop(l, ctx){
+  _hzCss();
+  var h=_hzHeader(l, ctx.camp);
+  if(l.do_not_contact && typeof dncBannerHTML==='function') h+=dncBannerHTML(l);
+  h+=_hzSlider(l);
+  h+=_hzLatestCall(l, ctx.acts);
+  return h;
+}
+function _hzAfterRender(l){
+  var scr=document.getElementById('leadScreen'); if(!scr) return;
+  var on=_hzOn(l);
+  scr.classList.toggle('hz', on);
+  var fl=document.getElementById('hzFaL'), fr=document.getElementById('hzFaR');
+  if(on && !fl){
+    _hzCss();
+    fl=document.createElement('button'); fl.id='hzFaL'; fl.className='hz-fa'; fl.style.cssText='left:0;border-radius:0 10px 10px 0'; fl.setAttribute('aria-label','Previous lead'); fl.innerHTML=_hzI('back',16); fl.onclick=function(){ navLead(-1); };
+    fr=document.createElement('button'); fr.id='hzFaR'; fr.className='hz-fa'; fr.style.cssText='right:0;border-radius:10px 0 0 10px'; fr.setAttribute('aria-label','Next lead'); fr.innerHTML=_hzI('fwd',16); fr.onclick=function(){ navLead(1); };
+    scr.appendChild(fl); scr.appendChild(fr);
+  }
+  if(!on) return;
+  try{ var idx=leads.findIndex(function(x){ return x.id===l.id; }); if(fl) fl.disabled=idx<=0; if(fr) fr.disabled=idx>=leads.length-1; }catch(_e){}
+  // slider: start on Meeting (if booked) else Summary; keep dots in sync
+  var sl=document.getElementById('hzSl');
+  if(sl){
+    var st=parseInt(sl.getAttribute('data-start')||'0',10);
+    if(window._hzSlideFor===l.dbId && window._hzSlideIx!=null) st=window._hzSlideIx;
+    window._hzSlideFor=l.dbId;
+    sl.scrollLeft=st*sl.clientWidth; _hzDots(st);
+    var raf=0; sl.addEventListener('scroll', function(){ if(raf) return; raf=requestAnimationFrame(function(){ raf=0; var ix=Math.round(sl.scrollLeft/Math.max(1,sl.clientWidth)); window._hzSlideIx=ix; _hzDots(ix); }); }, {passive:true});
+  }
+  // AI paused-today state into the Autopilot cell
+  try{ _hzHold(l); }catch(_e){}
+  // research: load, auto-start once for a lead that has none
+  _hzBriefLoad(l);
+  // player wiring
+  var au=document.getElementById('recAudio0');
+  if(au){
+    au.addEventListener('timeupdate', function(){ var p=document.getElementById('hzProg'), tm=document.getElementById('hzTime'); if(p&&au.duration) p.style.width=(100*au.currentTime/au.duration)+'%'; if(tm&&au.duration){ var s=Math.floor(au.currentTime); tm.textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); } });
+    var sync=function(){ var b=document.getElementById('hzPlayBtn'); if(b) b.innerHTML=_hzI(au.paused?'play':'pause',14); };
+    au.addEventListener('play', sync); au.addEventListener('pause', sync); au.addEventListener('ended', sync);
+  }
+}
+function _hzDots(ix){ var d=document.getElementById('hzDots'); if(!d) return; for(var i=0;i<d.children.length;i++) d.children[i].className=(i===ix?'on':''); }
+function _hzHold(l){
+  if(!l||!l.dbId) return;
+  sbFetch('/rest/v1/lead_human_hold?lead_id=eq.'+encodeURIComponent(l.dbId)+'&until=gt.'+encodeURIComponent(new Date().toISOString())+'&select=until,mode&limit=1')
+    .then(function(r){ return r.ok?r.json():[]; }).then(function(j){
+      var hd=j&&j[0]; var c=document.getElementById('hzApTxt'); if(!hd||!c) return;
+      c.style.color='#fcd34d';
+      c.innerHTML=(hd.mode==='day'?'Paused today':'Paused')+' <span onclick="event.stopPropagation();apHoldResume('+l.id+');setTimeout(function(){renderLeadScreen('+l.id+')},900)" style="color:#fff;font-weight:600;margin-left:2px">Resume</span>';
+    }).catch(function(){});
+}
+function hzTab(w){
+  var c=document.getElementById('hzPaneC'), a=document.getElementById('hzPaneA');
+  if(c) c.style.display=w==='c'?'':'none'; if(a) a.style.display=w==='a'?'':'none';
+  var tc=document.getElementById('hzTabC'), ta=document.getElementById('hzTabA');
+  if(tc) tc.className=w==='c'?'on':''; if(ta) ta.className=w==='a'?'on':'';
+}
+function hzFullActivity(){ var x=document.getElementById('hzActAnchor'); if(x) x.scrollIntoView({behavior:'smooth',block:'start'}); }
+function hzPlay(){ var au=document.getElementById('recAudio0'); if(!au) return; if(au.paused){ au.play().catch(function(){ showToast('Could not play this recording'); }); } else au.pause(); }
+function hzSpeed(){ var au=document.getElementById('recAudio0'), b=document.getElementById('hzSpeed'); if(!au||!b) return; var r=au.playbackRate>=2?1:au.playbackRate>=1.5?2:1.5; au.playbackRate=r; b.textContent=(r===1?'1':r)+'×'; }
+function hzTx(){ var b=document.getElementById('hzTxBox'); if(b) b.style.display=b.style.display==='none'?'block':'none'; }
+function hzChip(txt){ var el=document.getElementById('lsNoteInp'); if(!el) return; var v=el.value.trim(); el.value=v?(v+(/[.!?]$/.test(v)?' ':'. ')+txt):txt; el.focus(); }
+function hzCopy(v){ try{ navigator.clipboard.writeText(String(v)); showToast('Copied'); }catch(e){ showToast('Copy not available'); } }
+function hzGoogle(){ var l=lsGetLead&&lsGetLead(); if(!l) return; var q=(l.company||l.name||'')+(l.location?' '+l.location:''); window.open('https://www.google.com/search?q='+encodeURIComponent(q.trim()),'_blank','noopener'); }
+
+// ── Research (demo brief) ──
+window._hzBrief=window._hzBrief||{};
+function _hzBriefLoad(l){
+  if(!l||!l.dbId) return;
+  sbFetch('/rest/v1/lead_research?lead_id=eq.'+encodeURIComponent(l.dbId)+'&select=status,company,strategy,sources,model,error,updated_at&limit=1')
+    .then(function(r){ return r.ok?r.json():null; }).then(function(j){
+      if(j===null) return;
+      var row=j&&j[0]||null; window._hzBrief[l.dbId]=row;
+      _hzBriefPaint();
+      if(!row && !window['_hzAuto_'+l.dbId]){ window['_hzAuto_'+l.dbId]=1; hzResearch(false); }
+      else if(row && row.status==='running') _hzBriefPoll(l.dbId);
+    }).catch(function(){});
+}
+function _hzBriefPaint(){
+  var a=document.getElementById('hzSlCompany'), b=document.getElementById('hzSlStrategy');
+  if(a) a.innerHTML=_hzBriefBody('company'); if(b) b.innerHTML=_hzBriefBody('strategy');
+}
+function _hzBriefPoll(dbId){
+  if(window._hzPollT) clearTimeout(window._hzPollT);
+  var n=0;
+  var tick=function(){
+    n++;
+    sbFetch('/rest/v1/lead_research?lead_id=eq.'+encodeURIComponent(dbId)+'&select=status,company,strategy,sources,model,error,updated_at&limit=1')
+      .then(function(r){ return r.ok?r.json():[]; }).then(function(j){
+        var row=j&&j[0]; if(row) window._hzBrief[dbId]=row;
+        var cur=lsGetLead&&lsGetLead(); if(cur && cur.dbId===dbId) _hzBriefPaint();
+        if(row && row.status==='running' && n<40) window._hzPollT=setTimeout(tick, 6000);
+        else if(row && row.status==='done' && cur && cur.dbId===dbId) showToast('Company research ready');
+      }).catch(function(){ if(n<40) window._hzPollT=setTimeout(tick, 8000); });
+  };
+  window._hzPollT=setTimeout(tick, 6000);
+}
+function hzResearch(force){
+  var l=lsGetLead&&lsGetLead(); if(!l||!l.dbId) return;
+  window._hzBrief[l.dbId]={status:'running'}; _hzBriefPaint();
+  sbFetch('/functions/v1/demo-brief',{method:'POST',body:JSON.stringify({lead_id:l.dbId, force:!!force})})
+    .then(function(r){ return r.json().catch(function(){ return {}; }); })
+    .then(function(d){
+      if(d && d.status==='done'){ _hzBriefLoad(l); return; }
+      if(d && d.error){ window._hzBrief[l.dbId]={status:'error',error:d.error}; _hzBriefPaint(); return; }
+      _hzBriefPoll(l.dbId);
+    }).catch(function(){ window._hzBrief[l.dbId]={status:'error'}; _hzBriefPaint(); });
+}
+function hzBriefOpen(kind){
+  var l=lsGetLead&&lsGetLead(); if(!l) return;
+  var b=(window._hzBrief||{})[l.dbId]||null, c=(b&&b.company)||{}, st=(b&&b.strategy)||{};
+  var sec=function(t,v){ if(!v||(Array.isArray(v)&&!v.length)) return ''; var x=Array.isArray(v)?('<ul style="margin:2px 0 0;padding-left:18px">'+v.filter(Boolean).map(function(i){ return '<li>'+_hzE(typeof i==='string'?i:(i.q?(i.q+' → '+(i.a||'')):JSON.stringify(i)))+'</li>'; }).join('')+'</ul>'):_hzE(v); return '<div class="hz-sec"><b>'+t+'</b>'+x+'</div>'; };
+  var body='';
+  if(kind==='summary'){
+    body=sec('Summary', l.call_summary||l.note||'')+sec('What they asked about', l.svc||'')+sec('How they came in', (typeof srcLabel==='function'&&l.src)?srcLabel(l.src):l.src)
+      +sec('First enquiry', l.first_inquiry_at?new Date(l.first_inquiry_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'')
+      +sec('Last enquiry', l.submitted_at?new Date(l.submitted_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'');
+  } else if(!b || b.status!=='done'){
+    body='<div class="hz-sec">'+(b&&b.status==='running'?'Still researching, give it a minute.':'Not researched yet.')+'</div><div style="margin-top:12px"><button class="hz-btn pri" style="width:100%" onclick="closeSheet(\'hzBriefSh\');hzResearch(true)">Research now</button></div>';
+  } else {
+    body=sec('Opening line', st.opening_line)+sec('How Adviuz helps', st.how_adviuz_helps)+sec('What to show', st.what_to_show)+sec('Suggested plan', [st.suggested_plan, st.b2b_or_b2c].filter(Boolean).join(' · '))
+      +sec('Questions to ask', st.questions)+sec('Likely objections', st.objections)+sec('Next step', st.next_step)
+      +'<div style="height:1px;background:#ece9f5;margin:14px 0 2px"></div>'
+      +sec('About the company', c.what_they_do)+sec('Customers', c.customers)+sec('Location', c.location)+sec('Size', c.size)+sec('Google', c.google_rating?(c.google_rating+(c.reviews?' · '+c.reviews:'')):'')+sec('Ads', c.ads)+sec('Socials', c.socials)+sec('Competitors', c.competitors)+sec('Marketing gaps', c.marketing_gaps)+sec('Website', c.website);
+    var srcs=(b.sources||[]).filter(function(s){ return s&&s.url&&/^https?:\/\//i.test(s.url); });
+    if(srcs.length) body+='<div class="hz-sec"><b>Sources</b>'+srcs.map(function(s){ return '<div style="margin-top:3px"><a href="'+_hzE(s.url)+'" target="_blank" rel="noopener" style="color:#4000f3;text-decoration:none">'+_hzE(s.title||s.url)+'</a></div>'; }).join('')+'</div>';
+    body+='<div style="display:flex;gap:6px;margin-top:14px"><button class="hz-btn" onclick="closeSheet(\'hzBriefSh\');hzResearch(true)">'+'Refresh research</button></div>'
+      +'<div class="hz-sub" style="margin-top:8px">Researched '+_hzE(b.updated_at?new Date(b.updated_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'')+'. AI research can be wrong: check the sources.</div>';
+  }
+  var ttl=kind==='summary'?'Summary':kind==='company'?'Company profile':'Demo strategy';
+  var ov=document.getElementById('hzBriefSh');
+  if(!ov){ ov=document.createElement('div'); ov.className='sheet-ov'; ov.id='hzBriefSh'; ov.onclick=function(e){ if(e.target===ov) closeSheet('hzBriefSh'); }; document.body.appendChild(ov); }
+  ov.innerHTML='<div class="sheet" style="max-height:88vh"><div class="sh-head"><div class="sh-title">'+ttl+' · '+_hzE(l.company||l.name||'')+'</div><button class="sh-x" onclick="closeSheet(\'hzBriefSh\')">&#x2715;</button></div><div class="sh-body" style="padding:6px 18px 22px">'+body+'</div></div>';
+  openSheet('hzBriefSh');
+}
+
 function renderLeadScreen(id) {
   // stability-1: the list renumbers itself on every reload, so trust the database
   // id of the lead that was actually opened — this is what made another lead's
@@ -19798,10 +20247,12 @@ function renderLeadScreen(id) {
   var dtDef  = tmrw.getFullYear()+'-'+String(tmrw.getMonth()+1).padStart(2,'0')+'-'+String(tmrw.getDate()).padStart(2,'0')+'T10:00';
 
   var h = '';
+  var _HZ = _hzOn(l); // lead-hz-1: Adviuz leads get the new top section
   // dnc-2: Do-not-contact lock — red bar on top; every contact button below is greyed.
   window._ldDncLead = l.do_not_contact ? l.id : null;
-  if (l.do_not_contact) h += dncBannerHTML(l);
+  if (l.do_not_contact && !_HZ) h += dncBannerHTML(l);
 
+  if (_HZ) { h += _hzTop(l, { camp:_camp, acts:acts, fuItems:fuItems }); } else {
   // ══════════════════════════════════════════════
   // SECTION 1 — LEAD INFO CARD (white)
   // ══════════════════════════════════════════════
@@ -19892,6 +20343,7 @@ function renderLeadScreen(id) {
 
   h += '</div>'; // end info card
   h += '<div style="height:4px;background:var(--bg)"></div>';
+  } // lead-hz-1: end old section 1
 
   // ── \uD83D\uDCCC Approve / Reschedule / Cancel — the AI heard a preferred time
   //    on a call. Same approval path as the Follow-ups tab (fuTeamApprove /
@@ -19970,7 +20422,7 @@ function renderLeadScreen(id) {
   // ── Appointment card — shown until an outcome is recorded. Upcoming =
   //    green with Reschedule/Cancel; time passed = amber with Done/No-show,
   //    which record the outcome and then the card retires itself.
-  if (l.appointment_at && !l.meeting_outcome) {
+  if (l.appointment_at && !l.meeting_outcome && !_HZ) {
     var _apEff = (typeof effLeadTz==='function') ? effLeadTz(l) : null;
     var _apTz = (_apEff&&_apEff.tz) || l.timezone || tzFromPhone(l.ph) || 'America/Toronto';
     var _apClin = !!(_apEff&&_apEff.clinic);
@@ -20007,7 +20459,7 @@ function renderLeadScreen(id) {
   // amber hint when this lead's switch is ON but the campaign's Autopilot master
   // (AI Employee → "AI can call my leads") is OFF, so the two switches explain
   // each other instead of silently fighting. ══
-  if (typeof isClientMode!=='function' || !isClientMode() || window._clientAiEnabled===true){
+  if (!_HZ && (typeof isClientMode!=='function' || !isClientMode() || window._clientAiEnabled===true)){
     var _apAi = (_camp && _camp.settings && _camp.settings.ai) || null;
     var _apMasterOff = !!(!_apAi || _apAi.outbound_on !== true);
     // The switch shows the EFFECTIVE state: campaign master AND this lead.
@@ -20035,6 +20487,7 @@ function renderLeadScreen(id) {
     if (_apEffOn){ h += '<div id="apHold_'+l.id+'"></div>'; _apHoldLoad(l); }
   }
 
+  if (!_HZ) { // lead-hz-1: old communication / stage / nav (Adviuz leads have these in the new top)
   // ══ SECTION 2 — COMMUNICATION & CALL (moved up to just under the lead info) ══
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
   h += '<div style="font-size:11px;font-weight:500;color:var(--sub);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px">Communication</div>';
@@ -20125,6 +20578,7 @@ function renderLeadScreen(id) {
   h += 'Next<svg viewBox="0 0 24 24"><polyline points="9 6 15 12 9 18"/></svg></button>';
   h += '</div>';
   h += '<div style="height:4px;background:var(--bg)"></div>';
+  } else { h += _hzComm(l, acts, fuItems) + '<div style="height:12px"></div>'; } // lead-hz-1: end old communication / stage / nav
 
   // Quotes/Invoices cards: operator/admin only — hidden for clients
   if(window._staffRole !== 'client'){
@@ -20162,6 +20616,7 @@ function renderLeadScreen(id) {
   // (Follow-up Date is now in the Stage + Follow-up row near the top)
   // ══════════════════════════════════════════════
 
+  if (!_HZ) { // lead-hz-1: old recording + notes (Adviuz leads have them in the new top)
   // ══ RECENT CALL RECORDING (above notes) — compact: title·duration·time, then direction + player ══
   h += '<div style="background:var(--white);padding:14px 16px;margin-bottom:4px">';
   var recentCall = acts.find(function(a){ return a.type==='call' && a.recording_url; }) || acts.find(function(a){ return a.type==='call'; });
@@ -20246,6 +20701,8 @@ function renderLeadScreen(id) {
   h += '</div>';
 
   h += '<div style="height:4px;background:var(--bg)"></div>';
+  } // lead-hz-1: end old recording + notes
+  h += '<div id="hzActAnchor"></div>';
 
   // ══════════════════════════════════════════════
   // SECTION 7 — ACTIVITY THREAD
@@ -20630,6 +21087,7 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
   h += '</div>'; // end activity section
 
   document.getElementById('lsBody').innerHTML = h;
+  try{ _hzAfterRender(l); }catch(_e){ console.warn('[hz]', _e); }
   if (typeof loadLeadPayments === 'function') loadLeadPayments(l.dbId);
   loadLeadCustomFields(l);
 }
