@@ -5427,7 +5427,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-12 lead-hz-10';
+var APP_VERSION = 'v2026-11-12 lead-hz-11';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -20216,14 +20216,22 @@ function _hzNextLabel(x){
   return x.k==='meet'?'Meeting':x.k==='fu'?'Follow-up':x.k==='ai'?'AI call':x.k==='sms'?'Text':x.k==='email'?'Email':'Automated '+(String((x.s&&x.s.label)||'').indexOf('Email')>-1?'email':String((x.s&&x.s.label)||'').indexOf('Text')>-1?'text':'step');
 }
 function _hzNextBody(l){
-  var list=_hzNextList(l), x=list[0], nx=list[1];
+  // lead-hz-11: an upcoming meeting/call/text beats an overdue follow-up; overdue ones get their own small line
+  var all=_hzNextList(l), now=Date.now();
+  var pastMeet=all.filter(function(i){ return i.k==='meet' && i.t<=now; });
+  var ahead=all.filter(function(i){ return i.t>now; });
+  var overdue=all.filter(function(i){ return i.t<=now && i.k!=='meet'; });
+  var x=pastMeet[0]||ahead[0]||overdue[0]||null;
+  var nx=ahead.filter(function(i){ return i!==x; })[0];
+  var od=overdue.filter(function(i){ return i!==x && i.k==='fu'; })[0];
+  var odLine=od?'<div class="hz-sub" style="margin-top:8px;display:flex;align-items:center;gap:6px;color:#b45309">'+_hzI('clock',12)+'<span style="flex:1;min-width:0">Overdue follow-up · '+_hzE(_hzWhen(od.t))+'</span><button class="hz-btn" style="flex:none;padding:3px 10px;font-size:11.5px" onclick="markDone('+od.task.id+');setTimeout(function(){renderLeadScreen('+l.id+')},150)">Done</button></div>':'';
   var then=nx?'<div class="hz-sub" style="margin-top:8px;display:flex;align-items:center;gap:5px">'+_hzI('clock',12)+'Then: '+_hzE(_hzNextLabel(nx).toLowerCase())+' '+_hzE(_hzWhen(nx.t))+'</div>':'';
   if(!x){
     return '<div style="display:flex;justify-content:space-between;align-items:center"><span class="hz-lb" style="color:#8a8fa3">'+_hzI('cal',13)+' Next up</span></div>'
       +'<div style="font-size:15px;font-weight:600;margin-top:3px">Nothing scheduled</div>'
       +'<div style="display:flex;gap:6px;margin-top:10px"><button class="hz-btn" onclick="hzFuFocus()">Set follow-up</button><button class="hz-btn pri" onclick="openApptSheet('+l.id+')">Book a meeting</button></div>';
   }
-  if(x.k==='meet') return _hzMeetingSlide(l).replace('<span class="hz-lb"','<span class="hz-lb" data-nu="1"').replace(/(<span class="hz-lb"[^>]*>)(<svg[\s\S]*?<\/svg>)\s/,'$1$2 Next up · ')+then;
+  if(x.k==='meet') return _hzMeetingSlide(l).replace('<span class="hz-lb"','<span class="hz-lb" data-nu="1"').replace(/(<span class="hz-lb"[^>]*>)(<svg[\s\S]*?<\/svg>)\s/,'$1$2 Next up · ')+then+odLine;
   var ic={fu:'clock',ai:'spark',sms:'sms',email:'mail',pb:'bolt'}[x.k]||'clock';
   var head='<div style="display:flex;justify-content:space-between;align-items:center"><span class="hz-lb" style="color:#4000f3">'+_hzI(ic,13)+' Next up · '+_hzE(_hzNextLabel(x))+(x.k==='ai'||x.k==='sms'||x.k==='email'?' scheduled':'')+'</span></div>'
     +'<div style="font-size:15px;font-weight:600;margin-top:3px">'+_hzE(_hzWhen(x.t))+' <span class="hz-sub" style="font-weight:400">· '+_hzE(_hzIn(x.t))+'</span></div>';
@@ -20247,7 +20255,7 @@ function _hzNextBody(l){
   }
   note=_hzPlain(note.replace(/^[\p{Extended_Pictographic}️\s]+/u,''));
   return head+(note?'<div style="font-size:12.5px;color:#4b5563;margin-top:3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+_hzE(note)+'</div>':'')
-    +'<div style="display:flex;gap:6px;margin-top:10px">'+btns+'</div>'+then;
+    +'<div style="display:flex;gap:6px;margin-top:10px">'+btns+'</div>'+then+odLine;
 }
 function hzFuFocus(){
   var i=document.getElementById('lsFuDatetime'); if(!i) return;
