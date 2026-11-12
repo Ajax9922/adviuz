@@ -2308,6 +2308,10 @@ body.ao-open #aiFab{display:none}
 .emA-cc{font-size:12.5px;font-weight:600;color:#4000f3;cursor:pointer;padding:6px 2px}
 .emA-ref{flex-shrink:0;max-width:42%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:#f3efff;color:#4000f3;border-radius:7px;padding:3px 8px;font-size:12px;font-weight:600}
 .emA-ref:has(#subjCompany:empty){display:none}
+.emA-subj{display:block;padding:10px 12px 8px}
+.emA-sh{display:flex;align-items:center;gap:8px;min-width:0;margin-bottom:4px}
+.emA-subj .emA-ref{max-width:none;flex:0 1 auto;min-width:0}
+.emA-st{display:block;width:100%;resize:none;overflow:hidden;line-height:1.45;padding:2px 0 4px;min-height:24px;font-size:15px}
 .emA-bad .emA-l{color:#dc2626}
 .emA-msg{background:var(--white);border:1px solid #ece9f5;border-radius:16px;padding:10px 12px 12px}
 .emA-mh{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
@@ -2388,10 +2392,10 @@ body.ao-open #aiFab{display:none}
           <div class="emA-row"><span class="emA-l">CC</span><input class="emA-in" id="emailCc" type="email" placeholder="cc@email.com" onfocus="emCcFocus()"></div>
           <div id="emailCcSug" style="display:none;flex-wrap:wrap;gap:6px;padding:0 12px 10px"></div>
         </div>
-        <div class="emA-row" id="subjWrapper">
-          <span class="emA-l">Subject</span>
-          <span id="subjPrefix" class="emA-ref"><span id="subjCompany"></span></span>
-          <input class="emA-in" id="emailSubj" placeholder="Subject" oninput="subjValidate()">
+        <!-- emA-subj (Ajax picked 1): client tag next to the label, the subject gets its own full line and wraps -->
+        <div class="emA-row emA-subj" id="subjWrapper">
+          <div class="emA-sh"><span class="emA-l" style="width:auto">Subject</span><span id="subjPrefix" class="emA-ref">Ref: <span id="subjCompany"></span></span></div>
+          <textarea class="emA-in emA-st" id="emailSubj" rows="1" placeholder="Type the subject" oninput="subjValidate()" onkeydown="if(event.key==='Enter'){event.preventDefault();}"></textarea>
         </div>
       </div>
       <span id="emCcWrap" style="display:none"></span><span id="subjPreview" style="display:none"></span>
@@ -5402,7 +5406,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-11 email-14';
+var APP_VERSION = 'v2026-11-11 email-15';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -28033,6 +28037,14 @@ function buildDesignCompleteHtml(clientName, campaignName, designUrl) {
 
 
 // Auto-prefix all email subjects with: Ref: [Business Name] |
+// emA-subj: the subject box grows to show the whole subject, however it gets filled
+// (typed, a template, the AI, a reply) — the value setter of this one box also resizes it.
+(function(){ try{
+  var el=document.getElementById('emailSubj'); if(!el || el.tagName!=='TEXTAREA') return;
+  var d=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value');
+  Object.defineProperty(el,'value',{ configurable:true, get:function(){ return d.get.call(this); },
+    set:function(v){ d.set.call(this, String(v==null?'':v).replace(/[\r\n]+/g,' ')); var me=this; requestAnimationFrame(function(){ me.style.height='auto'; me.style.height=Math.max(24, me.scrollHeight)+'px'; }); } });
+}catch(_e){} })();
 function subjValidate() {
   var el = document.getElementById('emailSubj');
   var wrapper = document.getElementById('subjWrapper');
@@ -28040,6 +28052,7 @@ function subjValidate() {
   var company = (document.getElementById('subjCompany')||{}).textContent || '';
   var val = el ? el.value.trim() : '';
   if (wrapper) wrapper.classList.toggle('emA-bad', !val);
+  if (el && el.tagName==='TEXTAREA'){ el.value=el.value.replace(/[\r\n]+/g,' '); el.style.height='auto'; el.style.height=Math.max(24, el.scrollHeight)+'px'; }
   if (preview) {
     var full = 'Ref: ' + (company || '[Company]') + ' | ' + (val || 'Type subject here...');
     preview.textContent = full;
