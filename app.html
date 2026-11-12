@@ -4825,7 +4825,7 @@ body.ao-open #aiFab{display:none}
 <div class="sheet-ov" id="clientEmailSh" style="align-items:stretch" onclick="if(event.target===this)closeSheet('clientEmailSh')">
   <!-- ce-A (2026-11-12, Ajax "push the same design to our clients"): client compose = the hub's design A -->
   <div class="sheet" style="height:calc(100dvh - var(--kb,0px));max-height:calc(100dvh - var(--kb,0px));border-radius:0;max-width:none"><div class="emx-gl"></div>
-    <div class="sh-head"><div class="sh-title" id="ceTitle">New email</div><button class="sh-x" onclick="closeSheet('clientEmailSh')">&#x2715;</button></div>
+    <div class="sh-head"><div class="sh-title" id="ceTitle">New email</div><span class="emx-saved" id="ceDraftSaved">✓ Draft saved</span><button class="sh-x" onclick="closeSheet('clientEmailSh')">&#x2715;</button></div>
     <div class="sh-body" style="padding:14px 16px">
       <div class="emA-card">
         <div class="emA-row"><span class="emA-l">From</span><div class="emA-v" id="ceFrom">Loading…</div></div>
@@ -5427,7 +5427,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-12 email-21';
+var APP_VERSION = 'v2026-11-12 email-22';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -22988,6 +22988,7 @@ function sendClientEmail(){
         showToast('\uD83D\uDD52 Scheduled for '+whenD.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+whenD.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}));
         window._ibSchedEmails=undefined;
         if(btnS){ btnS.textContent='Send'; btnS.disabled=false; }
+        try{ if(l&&l.dbId) localStorage.removeItem('adv_emdraft_'+l.dbId); }catch(_e){}
         closeSheet('clientEmailSh');
         try{ if(document.getElementById('emibOv')){ window._emibFresh=null; setTimeout(function(){ openEmailInbox(window._emib&&window._emib.lid, true); }, 800); } }catch(_e){}
       })
@@ -23008,6 +23009,7 @@ function sendClientEmail(){
       if(!r.ok || !r.d || r.d.ok===false) throw new Error((r.d&&r.d.error)||'Could not send');
       showToast('Email sent');
       if(btn){ btn.textContent='Send'; btn.disabled=false; }
+      try{ if(l&&l.dbId) localStorage.removeItem('adv_emdraft_'+l.dbId); }catch(_e){}
       closeSheet('clientEmailSh');
       try{ if(document.getElementById('emibOv')){ window._emibFresh=null; setTimeout(function(){ openEmailInbox(window._emib&&window._emib.lid, true); }, 1800); } }catch(_e){}
       if(typeof loadActivity==='function' && l && (l.dbId||l.id)) loadActivity(l.dbId||l.id);
@@ -23800,21 +23802,23 @@ function _emDraftGet(dbId){ try{ var r=localStorage.getItem('adv_emdraft_'+dbId)
 function _emDraftClear(localId){ try{ var l=leads.find(function(x){return x.id===localId;}); if(l&&l.dbId) localStorage.removeItem('adv_emdraft_'+l.dbId); }catch(e){} }
 document.addEventListener('input', function(ev){
   var t=ev.target; if(!t) return;
-  if(t.id!=='emailSubj' && t.id!=='emailBody') return;
-  if(typeof _emailLeadId==='undefined' || _emailLeadId==null) return;
+  var _ce=(t.id==='ceSubj'||t.id==='ceBody');
+  if(t.id!=='emailSubj' && t.id!=='emailBody' && !_ce) return;
+  if(!_ce && (typeof _emailLeadId==='undefined' || _emailLeadId==null)) return;
   clearTimeout(window._emDraftT);
   window._emDraftT=setTimeout(function(){
     try{
-      var l=leads.find(function(x){return x.id===_emailLeadId;}); if(!l||!l.dbId) return;
-      var sj=(document.getElementById('emailSubj')||{}).value||'';
-      var bEl=document.getElementById('emailBody');
+      // ce-drafts (2026-11-12): the client compose saves drafts the same way
+      var l=_ce?(window._ceLead||null):leads.find(function(x){return x.id===_emailLeadId;}); if(!l||!l.dbId) return;
+      var sj=(document.getElementById(_ce?'ceSubj':'emailSubj')||{}).value||'';
+      var bEl=document.getElementById(_ce?'ceBody':'emailBody');
       var bd=bEl?(bEl.tagName==='TEXTAREA'?bEl.value:(bEl.innerText||'')):'';
       var rest=String(bd).replace(/^Hi\s+[^,\n]*,?\s*/i,'').trim();
       var k='adv_emdraft_'+l.dbId;
       if(!sj.trim() && rest.length<2) localStorage.removeItem(k);
       else{
         localStorage.setItem(k, JSON.stringify({ subj:sj, body:bd, at:new Date().toISOString() }));
-        var _ds=document.getElementById('emDraftSavedOp');
+        var _ds=document.getElementById(_ce?'ceDraftSaved':'emDraftSavedOp');
         if(_ds){ _ds.style.display='inline-block'; clearTimeout(window._emDsT); window._emDsT=setTimeout(function(){ _ds.style.display='none'; },2200); }
       }
     }catch(_e){}
@@ -23993,7 +23997,7 @@ function _emibRender(l){
   else if(st.sort==='opened') list.sort(function(a,b){return _emibOpenCount(l,b)-_emibOpenCount(l,a) || b.ms-a.ms;});
   else list.sort(function(a,b){return b.ms-a.ms;});
   var tabs=st.ro
-    ? [['all','All',rows.length],['recv','Received',recv.length],['sent','Sent',sent.length],['sched','Scheduled',sched.length]]
+    ? [['all','All',rows.length],['recv','Received',recv.length],['sent','Sent',sent.length],['drafts','Drafts',draft?1:0],['sched','Scheduled',sched.length]]
     : [['all','All',rows.length],['recv','Received',recv.length],['sent','Sent',sent.length],['drafts','Drafts',draft?1:0],['sched','Scheduled',sched.length]];
   var h='<div class="emib-gl"></div>'
    +'<div class="emib-top"><div class="emib-bk" onclick="closeEmailInbox()">'+_emibI('back',22)+'</div><div style="flex:1;min-width:0"><div class="emib-nm">Emails · '+_emibEsc(l.name||'Lead')+'</div><div class="emib-em">'+_emibEsc(l.em||'no email on file')+(l.company?(' · '+_emibEsc(l.company)):'')+'</div></div><div class="emib-nb" title="Refresh" onclick="window._emibFresh=null;openEmailInbox(window._emib.lid,true)">'+_emibI('refresh',18)+'</div><div class="emib-nb" style="cursor:default">'+rows.length+' email'+(rows.length===1?'':'s')+'</div></div>'
@@ -24100,6 +24104,15 @@ function _emibReplyClient(ai){
 function _emibResumeDraft(){
   var l=leads.find(function(x){return x.id===window._emib.lid;}); if(!l) return;
   var d=l.dbId?_emDraftGet(l.dbId):null; if(!d) return;
+  if(window._emib.ro){
+    openClientEmail(l.id);
+    try{
+      var cs=document.getElementById('ceSubj'); if(cs){ cs.value=d.subj||''; _ceSubjGrow(cs); }
+      var cb=document.getElementById('ceBody'); if(cb) cb.value=d.body||'';
+      var ct=document.getElementById('ceTitle'); if(ct) ct.textContent='Draft';
+    }catch(_e){}
+    return;
+  }
   openEmail(l.id);
   setTimeout(function(){
     try{
