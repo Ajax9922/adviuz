@@ -2337,6 +2337,22 @@ body.ao-open #aiFab{display:none}
 .emf-ic:active{background:#f6f3ff}
 .emf-send{flex:1.6 1 0;min-width:0;display:flex;align-items:center;justify-content:center;gap:9px;border:none;border-radius:14px;background:linear-gradient(90deg,#4000f3,#8b2bf7,#e65afc);color:#fff;font-size:16px;font-weight:700;font-family:var(--f);padding:14px 10px;cursor:pointer;box-shadow:0 6px 16px rgba(64,0,243,.25)}
 .emf-send::after{content:'';width:18px;height:18px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M22 2L11 13'/%3E%3Cpath d='M22 2l-7 20-4-9-9-4z'/%3E%3C/svg%3E") center/contain no-repeat}
+.sl-lbl{font-size:10.5px;font-weight:600;letter-spacing:.06em;color:#8a8fa3;margin-bottom:6px}
+.sl-when{display:block;position:relative;border:1.5px solid #ddd2ff;border-radius:14px;padding:12px 14px;cursor:pointer;background:var(--white)}
+.sl-when input{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer}
+.sl-big{font-size:15.5px;font-weight:700;color:var(--text)}
+.sl-sub{font-size:12px;color:#6d28d9;margin-top:3px}
+.sl-tip{font-size:11.5px;color:#8a8fa3;margin:6px 2px 0}
+.sl-best{background:#f6f3ff;border-radius:14px;padding:12px 14px;margin-top:14px;font-size:12.5px;color:var(--sub)}
+.sl-bh{font-size:13.5px;font-weight:700;color:var(--text)}
+.sl-bs{font-size:11.5px;color:#6b7280;margin-top:2px}
+.sl-strip{display:flex;gap:2px;align-items:flex-end;height:28px;margin:10px 0 4px}
+.sl-strip span{flex:1;border-radius:3px;background:#e4dcff}
+.sl-ax{display:flex;justify-content:space-between;font-size:10.5px;color:#8a8fa3}
+.sl-chips{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.sl-chip{display:flex;justify-content:space-between;align-items:center;gap:10px;border:1.5px solid #ddd2ff;border-radius:12px;padding:11px 12px;font-size:13.5px;font-weight:600;color:#4000f3;background:var(--white);cursor:pointer}
+.sl-chip small{font-size:11.5px;font-weight:500;color:#8a8fa3;text-align:right}
+.sl-chip.on{border-color:#4000f3;background:#f6f3ff}
 .emsq{flex:1;min-width:0;padding:10px 6px;border:1.5px solid #ddd2ff;border-radius:12px;background:var(--white);color:#4000f3;font-size:12.5px;font-weight:600;font-family:var(--f);cursor:pointer;white-space:nowrap}
 .emsq:active{background:#f6f3ff}
 .emf-sched::after{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7v5l3 2'/%3E%3C/svg%3E")}
@@ -5411,7 +5427,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-11 email-16';
+var APP_VERSION = 'v2026-11-11 email-17';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -28494,74 +28510,117 @@ function previewEmail(){
 }
 
 // ── Send later: pick a time, then sendEmail() stores the finished email instead of sending it ──
+// sl-2 (2026-11-11, Ajax): SEND LATER shows every time in the CLIENT's time first and yours underneath,
+// and recommends the client's best TIME OF DAY (from when they open emails) instead of a weekday.
+var _SL_TZN={'America/Toronto':'Eastern','America/Montreal':'Eastern','America/New_York':'Eastern','America/Halifax':'Atlantic','America/St_Johns':'Newfoundland','America/Winnipeg':'Central','America/Chicago':'Central','America/Regina':'Saskatchewan','America/Edmonton':'Mountain','America/Denver':'Mountain','America/Vancouver':'Pacific','America/Los_Angeles':'Pacific','America/Whitehorse':'Yukon'};
+function _slLead(){ return (typeof _emailLeadId!=='undefined' && _emailLeadId!=null) ? leads.find(function(x){return x.id===_emailLeadId;}) : null; }
+function _slTz(l){ var z=(l&&l.timezone)||((l&&typeof tzFromPhone==='function')?tzFromPhone(l.ph):'')||'America/Toronto'; try{ new Intl.DateTimeFormat('en-CA',{timeZone:z}); return z; }catch(e){ return 'America/Toronto'; } }
+function _slFirst(l){ var n=String((l&&l.name)||'').trim(); if(!n||/^(inbound|unknown|caller\b|lead\b)/i.test(n)||/\d{3}/.test(n)) return 'the client'; return n.split(/\s+/)[0]; }
+// the client's wall clock (y-m-d h:m) → real moment
+function _slAt(tz, y, mo, d, h, mi){
+  var g=Date.UTC(y,mo-1,d,h,mi,0);
+  for(var i=0;i<2;i++){ var p=_slParts(g,tz); g=Date.UTC(y,mo-1,d,h,mi,0)-(Date.UTC(p.y,p.mo-1,p.d,p.h,p.mi,0)-g); }
+  return g;
+}
+function _slParts(ms,tz){
+  var a=new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date(ms));
+  var g=function(t){ var x=a.find(function(z){return z.type===t;}); return x?Number(x.value):0; };
+  return {y:g('year'),mo:g('month'),d:g('day'),h:g('hour')%24,mi:g('minute')};
+}
+function _slFmt(ms,tz,withDay){ var o={timeZone:tz,hour:'numeric',minute:'2-digit'}; if(withDay){ o.weekday='short'; o.month='short'; o.day='numeric'; } return new Date(ms).toLocaleString('en-US',o); }
+function _slMyTz(){ try{ return Intl.DateTimeFormat().resolvedOptions().timeZone||'America/Regina'; }catch(e){ return 'America/Regina'; } }
+function _slSame(tz){ var a=_slParts(Date.now(),tz), b=_slParts(Date.now(),_slMyTz()); return a.h===b.h && a.mi===b.mi; }
+function _slSet(ms){
+  window._slPick=ms;
+  var inp=document.getElementById('emSchedWhen');
+  if(inp){ var d=new Date(ms), p=function(n){return (n<10?'0':'')+n;}; inp.value=d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes()); }
+  _slPaint();
+}
+function _slPaint(){
+  var l=_slLead(), tz=_slTz(l), who=_slFirst(l), ms=window._slPick;
+  var big=document.getElementById('slBig'), sub=document.getElementById('slSub');
+  if(!big||!ms) return;
+  var same=_slSame(tz);
+  big.textContent=_slFmt(ms,tz,true)+(same?'':' '+(who==='the client'?'their':who+'’s')+' time');
+  sub.textContent=same?('Same time for you and '+who):(_slFmt(ms,_slMyTz(),false)+' your time · '+who+' is on '+(_SL_TZN[tz]||tz.replace(/_/g,' '))+' time');
+  document.querySelectorAll('.sl-chip').forEach(function(c){ c.classList.toggle('on', Number(c.getAttribute('data-ms'))===ms); });
+}
+function _slNextAt(tz, hour, dayOffsetMin){
+  var now=Date.now(), p=_slParts(now,tz);
+  for(var add=dayOffsetMin||0; add<8; add++){
+    var dt=new Date(Date.UTC(p.y,p.mo-1,p.d+add));
+    var ms=_slAt(tz, dt.getUTCFullYear(), dt.getUTCMonth()+1, dt.getUTCDate(), hour, 0);
+    if(ms>now+30*60000) return ms;
+  }
+  return now+3600000;
+}
+function _slMonday(tz, hour){
+  var p=_slParts(Date.now(),tz), dow=new Date(Date.UTC(p.y,p.mo-1,p.d)).getUTCDay(), add=(8-dow)%7||7;
+  var dt=new Date(Date.UTC(p.y,p.mo-1,p.d+add));
+  return _slAt(tz, dt.getUTCFullYear(), dt.getUTCMonth()+1, dt.getUTCDate(), hour, 0);
+}
 function emSchedOpen(){
-  var d=new Date(Date.now()+3600000); d.setMinutes(0,0,0);
-  var pad=function(n){ return (n<10?'0':'')+n; };
-  var val=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
+  var l=_slLead(), tz=_slTz(l), who=_slFirst(l);
   var ov=document.createElement('div'); ov.className='sheet-ov'; ov.style.display='flex'; ov.style.zIndex='10001';
-  ov.innerHTML='<div class="sheet" style="max-height:70vh"><div class="sh-head"><div class="sh-title"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#4000f3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:7px"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Send this email later</div><button class="sh-x" onclick="this.closest(\'.sheet-ov\').remove()">\u2715</button></div>'
+  var clock='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#4000f3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:7px"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+  ov.innerHTML='<div class="sheet" style="max-height:88vh"><div class="sh-head"><div class="sh-title">'+clock+'Send this email later</div><button class="sh-x" onclick="this.closest(\'.sheet-ov\').remove()">✕</button></div>'
     +'<div class="sh-body" style="padding:14px 16px calc(28px + env(safe-area-inset-bottom))">'
-    +'<div style="font-size:13px;color:var(--sub);margin-bottom:10px">Pick when it should go out (your local time). It will appear under Inbox \u2192 Scheduled and on the lead\u2019s timeline until then, where you can cancel it.</div>'
-    +'<input id="emSchedWhen" type="datetime-local" value="'+val+'" style="width:100%;padding:12px 14px;border:1.5px solid #ddd2ff;border-radius:14px;font-family:var(--f);font-size:15px;color:var(--text);background:var(--white)">'
-    +'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
-    +'<button class="emsq" onclick="emSchedQuick(1)">In 1 hour</button>'
-    +'<button class="emsq" onclick="emSchedQuick(\'tomorrow9\')">Tomorrow 9 AM</button>'
-    +'<button class="emsq" onclick="emSchedQuick(\'monday9\')">Monday 9 AM</button>'
-    +'</div>'
-    +'<div id="emBestTime" style="margin-top:14px;font-size:12.5px;color:var(--sub)">Looking at when your emails get opened\u2026</div>'
+    +'<div class="sl-lbl">SENDS AT</div>'
+    +'<label class="sl-when"><div id="slBig" class="sl-big">…</div><div id="slSub" class="sl-sub"></div>'
+    +'<input id="emSchedWhen" type="datetime-local" onchange="var d=new Date(this.value); if(!isNaN(d)){ window._slPick=d.getTime(); _slPaint(); }"></label>'
+    +'<div class="sl-tip">Tap the time to pick any date and time.</div>'
+    +'<div id="emBestTime" class="sl-best">Looking at when '+sanitize(who)+' opens emails…</div>'
+    +'<div id="slChips" class="sl-chips"></div>'
     +'<button class="emf-send emf-sched" style="width:100%;margin-top:14px" onclick="emSchedConfirm(this)">Schedule email</button>'
     +'</div></div>';
   document.body.appendChild(ov);
+  _slSet(_slNextAt(tz, 9, 1));
   emBestTimeLoad();
 }
-// \uD83D\uDCC8 When do people open the emails sent from this hub? Learned from real open events.
 async function emBestTimeLoad(){
   var box=document.getElementById('emBestTime'); if(!box) return;
+  var l=_slLead(), tz=_slTz(l), who=_slFirst(l), same=_slSame(tz);
+  var rows=[], whose='';
   try{
-    var rows=window._emOpenStats;
-    if(!rows){
-      var r=await sbFetch('/rest/v1/email_logs?opened_at=not.is.null&select=opened_at&order=opened_at.desc&limit=800');
-      rows=r.ok?await r.json():[];
-      try{ var r2=await sbFetch('/rest/v1/email_opens?kind=eq.opened&select=occurred_at&order=occurred_at.desc&limit=800'); if(r2.ok){ (await r2.json()).forEach(function(x){ rows.push({opened_at:x.occurred_at}); }); } }catch(e){}
-      window._emOpenStats=rows;
+    var _m=(window._leadOpens||{})[_emailLeadId]||{}; var lo=[];
+    Object.keys(_m).forEach(function(k){ (_m[k].opens||[]).forEach(function(o){ lo.push(o.at); }); (_m[k].clicks||[]).forEach(function(o){ lo.push(o.at); }); });
+    if(lo.length>=3){ rows=lo; whose='From '+lo.length+' opens by '+who; }
+    else{
+      var all=window._emOpenStats;
+      if(!all){
+        all=[];
+        var r=await sbFetch('/rest/v1/email_logs?opened_at=not.is.null&select=opened_at&order=opened_at.desc&limit=800'); if(r.ok) (await r.json()).forEach(function(x){ all.push({opened_at:x.opened_at}); });
+        try{ var r2=await sbFetch('/rest/v1/email_opens?kind=eq.opened&select=occurred_at&order=occurred_at.desc&limit=800'); if(r2.ok){ (await r2.json()).forEach(function(x){ all.push({opened_at:x.occurred_at}); }); } }catch(e){}
+        window._emOpenStats=all;
+      }
+      rows=all.map(function(x){ return x.opened_at; });
+      whose=(lo.length?(who+' has only '+lo.length+' open'+(lo.length>1?'s':'')+' so far — '):'')+'from '+rows.length+' opens across all your emails';
     }
-    // This lead's own opening habit comes first (when we have enough of it), then everyone's.
-    var _lo=null; try{ var _m=(window._leadOpens||{})[_emailLeadId]||{}; _lo=[]; Object.keys(_m).forEach(function(k){ (_m[k].opens||[]).forEach(function(o){ _lo.push({opened_at:o.at}); }); (_m[k].clicks||[]).forEach(function(o){ _lo.push({opened_at:o.at}); }); }); }catch(e){ _lo=null; }
-    var _who='your emails';
-    if(_lo && _lo.length>=3){ rows=_lo; _who='this lead\u2019s opens'; }
-    else if(_lo && _lo.length){ _who='your emails (this lead has only '+_lo.length+' open'+(_lo.length>1?'s':'')+' so far)'; }
-    if(!rows.length){ box.innerHTML='No opens recorded yet \u2014 once people start opening your emails, the best send time will show here.'; return; }
-    var hrs=new Array(24).fill(0), days=new Array(7).fill(0);
-    rows.forEach(function(x){ var d=new Date(x.opened_at); if(isNaN(d)) return; hrs[d.getHours()]++; days[d.getDay()]++; });
-    var bestH=hrs.indexOf(Math.max.apply(null,hrs)); var bestD=days.indexOf(Math.max.apply(null,days));
-    var dn=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  }catch(e){}
+  var hrs=new Array(24).fill(0);
+  rows.forEach(function(a){ var t=new Date(a).getTime(); if(!isNaN(t)) hrs[_slParts(t,tz).h]++; });
+  var mx=Math.max.apply(null,hrs);
+  var chips=document.getElementById('slChips');
+  var bestH=9;
+  if(!rows.length||!mx){ box.innerHTML='<b>No opens recorded yet.</b> Mornings around 9 AM '+(same?'':'their time ')+'are a safe choice.'; }
+  else{
+    bestH=hrs.indexOf(mx); if(bestH<7) bestH=9; // never suggest the middle of the night
     var h12=function(h){ return (h%12||12)+(h<12?' AM':' PM'); };
-    var mx=Math.max.apply(null,hrs)||1;
-    var bars=hrs.map(function(v,h){ return '<div title="'+h12(h)+': '+v+'" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:2px"><div style="width:100%;height:'+Math.max(2,Math.round(v/mx*36))+'px;border-radius:3px 3px 0 0;background:'+(h===bestH?'#4000f3':'#e4dcff')+'"></div></div>'; }).join('');
-    var mxd=Math.max.apply(null,days)||1;
-    var dbars=days.map(function(v,i){ return '<div style="flex:1;text-align:center"><div style="height:'+Math.max(2,Math.round(v/mxd*28))+'px;margin:0 3px;border-radius:3px 3px 0 0;background:'+(i===bestD?'#4000f3':'#e4dcff')+'"></div><div style="font-size:9.5px;color:var(--sub);margin-top:2px">'+dn[i].slice(0,3)+'</div></div>'; }).join('');
-    box.innerHTML='<div style="font-weight:600;color:var(--text);margin-bottom:4px">\uD83D\uDCC8 Best time to send: '+dn[bestD]+' around '+h12(bestH)+'</div>'
-      +'<div style="margin-bottom:6px">Based on '+rows.length+' opens \u2014 '+_who+'. Opens by hour of day (green = busiest):</div>'
-      +'<div style="display:flex;align-items:flex-end;gap:2px;height:40px">'+bars+'</div>'
-      +'<div style="display:flex;justify-content:space-between;font-size:9.5px;color:var(--sub);margin-top:2px"><span>12 AM</span><span>6 AM</span><span>12 PM</span><span>6 PM</span><span>11 PM</span></div>'
-      +'<div style="margin-top:10px;margin-bottom:4px">Opens by weekday:</div><div style="display:flex;align-items:flex-end;height:44px">'+dbars+'</div>'
-      +'<button class="btn btn-ghost" style="width:100%;justify-content:center;margin-top:10px;border:1.5px solid #ddd2ff;color:#4000f3;font-weight:600;border-radius:14px;background:#f6f3ff" onclick="emSchedUseBest('+bestD+','+bestH+')">Use this time (next '+dn[bestD]+' '+h12(bestH)+')</button>';
-  }catch(e){ box.textContent=''; }
+    var bars=hrs.map(function(v,h){ return '<span style="height:'+Math.max(3,Math.round(v/mx*26))+'px;'+(h===hrs.indexOf(mx)?'background:#4000f3':'')+'"></span>'; }).join('');
+    box.innerHTML='<div class="sl-bh">'+sanitize(who==='the client'?'This client':who)+' opens emails most around '+h12(bestH)+(same?'':(' '+(who==='the client'?'their':who+'\u2019s')+' time'))+'</div>'
+      +'<div class="sl-bs">'+sanitize(whose)+(same?'':' · shown in '+(_SL_TZN[tz]||'their')+' time')+'</div>'
+      +'<div class="sl-strip">'+bars+'</div><div class="sl-ax"><span>12 AM</span><span>6 AM</span><span>12 PM</span><span>6 PM</span><span>11 PM</span></div>';
+  }
+  if(chips){
+    var best=_slNextAt(tz,bestH,0), inHour=Date.now()+3600000, mon=_slMonday(tz,9);
+    var bestDay=_slParts(best,tz).d===_slParts(Date.now(),tz).d?'Today':'Tomorrow';
+    var mk=function(lbl,ms,rec){ return '<div class="sl-chip'+(rec?' rec':'')+'" data-ms="'+ms+'" onclick="_slSet('+ms+')"><span>'+lbl+'</span><small>'+_slFmt(ms,tz,false)+(same?'':' theirs · '+_slFmt(ms,_slMyTz(),false)+' yours')+'</small></div>'; };
+    chips.innerHTML=mk(bestDay+' at '+(rows.length&&mx?((who==='the client'?'their':who+'\u2019s')+' best time'):'9 AM'),best,true)+mk('In 1 hour',inHour,false)+mk('Monday morning',mon,false);
+    _slSet(best);
+  }
 }
-function emSchedUseBest(dow, hour){
-  var d=new Date(); d.setSeconds(0,0); d.setMinutes(0); d.setHours(hour);
-  var add=(dow-d.getDay()+7)%7; if(add===0 && d.getTime()<=Date.now()) add=7; d.setDate(d.getDate()+add);
-  var pad=function(n){ return (n<10?'0':'')+n; };
-  var inp=document.getElementById('emSchedWhen'); if(inp) inp.value=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
-}
-function emSchedQuick(k){
-  var d=new Date();
-  if(k===1){ d=new Date(Date.now()+3600000); }
-  else if(k==='tomorrow9'){ d.setDate(d.getDate()+1); d.setHours(9,0,0,0); }
-  else if(k==='monday9'){ var add=(8-d.getDay())%7||7; d.setDate(d.getDate()+add); d.setHours(9,0,0,0); }
-  var pad=function(n){ return (n<10?'0':'')+n; };
-  var inp=document.getElementById('emSchedWhen'); if(inp) inp.value=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
-}
+function emSchedUseBest(){ /* replaced by the chips in sl-2 */ }
+function emSchedQuick(){ /* replaced by the chips in sl-2 */ }
 function emSchedConfirm(btn){
   var inp=document.getElementById('emSchedWhen'); var d=inp?new Date(inp.value):null;
   if(!d||isNaN(d)){ showToast('Pick a date and time'); return; }
