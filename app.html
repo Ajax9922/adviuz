@@ -5427,7 +5427,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-12 email-22';
+var APP_VERSION = 'v2026-11-12 email-23';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -22988,7 +22988,7 @@ function sendClientEmail(){
         showToast('\uD83D\uDD52 Scheduled for '+whenD.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+whenD.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}));
         window._ibSchedEmails=undefined;
         if(btnS){ btnS.textContent='Send'; btnS.disabled=false; }
-        try{ if(l&&l.dbId) localStorage.removeItem('adv_emdraft_'+l.dbId); }catch(_e){}
+        try{ if(l&&l.dbId){ localStorage.removeItem('adv_emdraft_'+l.dbId); _emDraftDbDel(l.dbId); } }catch(_e){}
         closeSheet('clientEmailSh');
         try{ if(document.getElementById('emibOv')){ window._emibFresh=null; setTimeout(function(){ openEmailInbox(window._emib&&window._emib.lid, true); }, 800); } }catch(_e){}
       })
@@ -23009,7 +23009,7 @@ function sendClientEmail(){
       if(!r.ok || !r.d || r.d.ok===false) throw new Error((r.d&&r.d.error)||'Could not send');
       showToast('Email sent');
       if(btn){ btn.textContent='Send'; btn.disabled=false; }
-      try{ if(l&&l.dbId) localStorage.removeItem('adv_emdraft_'+l.dbId); }catch(_e){}
+      try{ if(l&&l.dbId){ localStorage.removeItem('adv_emdraft_'+l.dbId); _emDraftDbDel(l.dbId); } }catch(_e){}
       closeSheet('clientEmailSh');
       try{ if(document.getElementById('emibOv')){ window._emibFresh=null; setTimeout(function(){ openEmailInbox(window._emib&&window._emib.lid, true); }, 1800); } }catch(_e){}
       if(typeof loadActivity==='function' && l && (l.dbId||l.id)) loadActivity(l.dbId||l.id);
@@ -23799,7 +23799,36 @@ function _emibTime(ms){
 }
 // drafts: one per lead, auto-saved while typing in the compose sheet
 function _emDraftGet(dbId){ try{ var r=localStorage.getItem('adv_emdraft_'+dbId); return r?JSON.parse(r):null; }catch(e){ return null; } }
-function _emDraftClear(localId){ try{ var l=leads.find(function(x){return x.id===localId;}); if(l&&l.dbId) localStorage.removeItem('adv_emdraft_'+l.dbId); }catch(e){} }
+function _emDraftClear(localId){ try{ var l=leads.find(function(x){return x.id===localId;}); if(l&&l.dbId){ localStorage.removeItem('adv_emdraft_'+l.dbId); _emDraftDbDel(l.dbId); } }catch(e){} }
+// email-23 (2026-11-12, Ajax): drafts also live in the database (public.email_drafts, one per lead per
+// person, RLS = own rows only) so they follow you to every device. localStorage stays as the instant cache.
+function _emDraftDbDel(dbId){ try{ clearTimeout((window._emDbT||{})[dbId]); sbFetch('/rest/v1/email_drafts?lead_id=eq.'+encodeURIComponent(dbId),{ method:'DELETE', headers:{'Prefer':'return=minimal'} }).catch(function(){}); }catch(e){} }
+function _emDraftDbPush(l, sj, bd){
+  if(!l||!l.dbId) return;
+  window._emDbT=window._emDbT||{};
+  clearTimeout(window._emDbT[l.dbId]);
+  window._emDbT[l.dbId]=setTimeout(function(){
+    sbFetch('/rest/v1/email_drafts?on_conflict=lead_id,user_id',{ method:'POST',
+      headers:{'Prefer':'resolution=merge-duplicates,return=minimal'},
+      body: JSON.stringify({ lead_id:l.dbId, client_id:l.client_id||window._clientId||null, subject:String(sj||'').slice(0,1000), body:String(bd||'').slice(0,60000), updated_at:new Date().toISOString() }) }).catch(function(){});
+  }, 1200);
+}
+// Bring the database copy down (newest wins) — returns true when the local copy changed.
+async function _emDraftPull(l){
+  if(!l||!l.dbId) return false;
+  try{
+    var r=await sbFetch('/rest/v1/email_drafts?lead_id=eq.'+encodeURIComponent(l.dbId)+'&select=subject,body,updated_at&limit=1');
+    if(!r||!r.ok) return false;
+    var rows=await r.json(); var db=rows&&rows[0]; var k='adv_emdraft_'+l.dbId;
+    var loc=_emDraftGet(l.dbId);
+    if(db){
+      if(!loc || new Date(db.updated_at).getTime() > new Date(loc.at||0).getTime()+1000){
+        localStorage.setItem(k, JSON.stringify({ subj:db.subject||'', body:db.body||'', at:db.updated_at })); return true;
+      }
+    } else if(loc){ _emDraftDbPush(l, loc.subj, loc.body); }   // a draft from before email-23 — upload it
+  }catch(e){}
+  return false;
+}
 document.addEventListener('input', function(ev){
   var t=ev.target; if(!t) return;
   var _ce=(t.id==='ceSubj'||t.id==='ceBody');
@@ -23815,9 +23844,10 @@ document.addEventListener('input', function(ev){
       var bd=bEl?(bEl.tagName==='TEXTAREA'?bEl.value:(bEl.innerText||'')):'';
       var rest=String(bd).replace(/^Hi\s+[^,\n]*,?\s*/i,'').trim();
       var k='adv_emdraft_'+l.dbId;
-      if(!sj.trim() && rest.length<2) localStorage.removeItem(k);
+      if(!sj.trim() && rest.length<2){ if(localStorage.getItem(k)){ localStorage.removeItem(k); _emDraftDbDel(l.dbId); } }
       else{
         localStorage.setItem(k, JSON.stringify({ subj:sj, body:bd, at:new Date().toISOString() }));
+        _emDraftDbPush(l, sj, bd);
         var _ds=document.getElementById(_ce?'ceDraftSaved':'emDraftSavedOp');
         if(_ds){ _ds.style.display='inline-block'; clearTimeout(window._emDsT); window._emDsT=setTimeout(function(){ _ds.style.display='none'; },2200); }
       }
@@ -23930,6 +23960,7 @@ async function openEmailInbox(id, keep){
   }catch(_e){}
   window._emibSched=[]; window._emibLogs={};
   try{ window._emibSched=await _emibLoadSched(l, _ro); }catch(_e){}
+  _emDraftPull(l).then(function(ch){ if(ch && document.getElementById('emibList') && window._emib && window._emib.lid===l.id) _emibRender(l); });
   if(l.dbId){
     try{ var er=await sbFetch('/rest/v1/email_logs?lead_id=eq.'+l.dbId+'&select=resend_id,bounced_at&bounced_at=not.is.null&limit=50'); if(er.ok){ (await er.json()||[]).forEach(function(x){ if(x.resend_id) window._emibLogs[x.resend_id]=x; }); } }catch(_e){}
   }
