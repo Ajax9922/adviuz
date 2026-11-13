@@ -5427,7 +5427,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-12 lead-hz-15';
+var APP_VERSION = 'v2026-11-12 lead-hz-16';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -17695,7 +17695,7 @@ function openLead(id) {
   // every reload. Remember the database id so a background refresh can never
   // swap this screen onto a different lead.
   try{ var _ol = leads.find(function(x){ return x.id === id; }); window._curLeadDb = (_ol && _ol.dbId) || null; }catch(e){ window._curLeadDb = null; }
-  renderLeadScreen(id);
+  try{ renderLeadScreen(id); }catch(_re){ console.error('[renderLeadScreen]', _re); try{ showToast('Part of this lead could not load. Pull down to refresh.'); }catch(_e){} }
   document.getElementById('leadScreen').classList.add('open');
   initLeadPullToRefresh();
   document.querySelector('.tabbar').style.display = 'none';
@@ -20275,6 +20275,14 @@ function _hzNextBody(l){
   var od=overdue.filter(function(i){ return i!==x && i.k==='fu'; })[0];
   var odLine=od?'<div class="hz-sub" style="margin-top:8px;display:flex;align-items:center;gap:6px;color:#b45309">'+_hzI('clock',12)+'<span style="flex:1;min-width:0">Overdue follow-up · '+_hzE(_hzWhen(od.t))+'</span><button class="hz-btn" style="flex:none;padding:3px 10px;font-size:11.5px" onclick="markDone('+od.task.id+');setTimeout(function(){renderLeadScreen('+l.id+')},150)">Done</button></div>':'';
   var then=nx?'<div class="hz-sub" style="margin-top:8px;display:flex;align-items:center;gap:5px">'+_hzI('clock',12)+'Then: '+_hzE(_hzNextLabel(nx).toLowerCase())+' '+_hzE(_hzWhen(nx.t))+'</div>':'';
+  if(!x && l.meeting_outcome && l.appointment_at){ // lead-hz-16: right after a meeting, ask what's next
+    var md=new Date(l.appointment_at), ns=l.meeting_outcome==='no_show';
+    return '<div style="display:flex;justify-content:space-between;align-items:center"><span class="hz-lb" style="color:'+(ns?'#b45309':'#0f9f6e')+'">'+_hzI(ns?'clock':'check',13)+' '+(ns?'No-show':'Meeting done')+' · '+_hzE(_hzWhen(md.getTime()))+'</span></div>'
+      +'<div style="font-size:15px;font-weight:600;margin-top:3px">'+(ns?'Rebook the meeting':'What\u2019s the next step?')+'</div>'
+      +'<div style="display:flex;gap:6px;margin-top:10px">'+(ns
+        ?'<button class="hz-btn" onclick="openSmsSheet()">Text him</button><button class="hz-btn pri" onclick="openApptSheet('+l.id+')">Rebook</button>'
+        :'<button class="hz-btn" onclick="hzFuFocus()">Follow-up</button><button class="hz-btn" onclick="openApptSheet('+l.id+')">Next meeting</button><button class="hz-btn pri" onclick="openProposalWizard('+l.id+')">Proposal</button>')+'</div>'+odLine;
+  }
   if(!x){
     return '<div style="display:flex;justify-content:space-between;align-items:center"><span class="hz-lb" style="color:#8a8fa3">'+_hzI('cal',13)+' Next up</span></div>'
       +'<div style="font-size:15px;font-weight:600;margin-top:3px">Nothing scheduled</div>'
@@ -20370,7 +20378,7 @@ function _hzA(a, lid){
 function _hzAgoShort(ms){ var m=Math.round(ms/60000); if(m<60) return Math.max(1,m)+'m'; var h=Math.round(m/60); if(h<48) return h+'h'; return Math.round(h/24)+'d'; }
 function _hzActCalc(l, acts){
   var list=(acts||[]).filter(function(a){ return a && a.type!=='email_opened'; }).map(function(a,ix){ var x=_hzA(a,l.id); x.a=a; x.i=ix; x.t=new Date(a._rawTime||'').getTime(); return x; });
-  window._hzActRows=list;
+  window._hzActList=list;
   // replies: for each message from our side, did the client answer before our next message?
   var asc=list.filter(function(x){ return x.comm && !isNaN(x.t); }).sort(function(p,q){ return p.t-q.t; });
   var outs=0, replied=0, gaps=[];
@@ -20460,7 +20468,7 @@ function _hzUpBtns(l, x){
 }
 // lead-hz-14: email preview from the activity list
 function hzEmPrev(ix){
-  var x=(window._hzActRows||[])[ix]; if(!x) return; var a=x.a;
+  var x=(window._hzActList||[])[ix]; if(!x) return; var a=x.a;
   var subj=a.email_subject||x.title||'Email', body=String(a.email_html||a.email_body||a.body||'');
   var isHtml=/<[a-z][\s\S]*>/i.test(body), doc='';
   try{ doc=(typeof edEmailShellHTML==='function' && !x.inb)?edEmailShellHTML(subj, body, isHtml):''; }catch(_e){}
