@@ -5429,7 +5429,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-12 lead-hz-25';
+var APP_VERSION = 'v2026-11-12 lead-hz-26';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -19937,6 +19937,10 @@ function _hzCss(){
     '.hz-slide>.hz-slc{height:100%;display:flex;flex-direction:column;cursor:pointer}',
     '.hz-slc .hz-dots{margin-top:auto;padding-top:10px}',
     '.hz-seg{margin:12px 10px 0}',
+    '.hzC-opr{display:flex;align-items:center;gap:5px;width:100%;margin-top:6px;background:#ecfdf5;border:1px solid #bfe8d8;color:#047857;border-radius:9px;padding:5px 8px;font-size:11.5px;cursor:pointer;font-family:var(--f);text-align:left;box-sizing:border-box}',
+    '.hzC-opr b{font-weight:600}.hzC-opr.no{background:#f6f5fa;border-color:#ece9f5;color:#8a8fa3;cursor:default}',
+    '.hzA-all{font-size:11px;font-weight:600;color:#4000f3;background:#fff;border:1px solid #e6e0fb;border-radius:8px;padding:3px 8px;cursor:pointer;font-family:var(--f);letter-spacing:0;text-transform:none;margin-right:6px}',
+    '.hzS-r{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid #f3f1f8}.hzS-r:last-child{border-bottom:none}',
     '.hzC{margin:12px -10px 0;padding:8px 12px 14px;background-color:#f1eefb;background-image:radial-gradient(#e2dcf7 1px,transparent 1px);background-size:14px 14px}',
     '.hzC-lg{display:flex;justify-content:space-between;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin:2px 2px 0}',
     '.hzC-day{display:flex;justify-content:center;margin:12px 0 6px}.hzC-day span{font-size:11px;font-weight:500;color:#4b5563;background:#fff;border-radius:8px;padding:4px 10px;box-shadow:0 1px 1px rgba(20,12,40,.06)}',
@@ -20304,7 +20308,7 @@ function _hzNextList(l){
     else if(x.type==='sched_pb'){ if(!_hzPbPaused(l)) out.push({k:'pb',t:w,s:x}); }
   });
   // keep things that are still ahead (a meeting / follow-up up to a day overdue still needs you)
-  out=out.filter(function(x){ return x.t > now-(x.k==='meet'||x.k==='fu'?864e5:36e5); });
+  out=out.filter(function(x){ return x.t > now-(x.k==='fu'?7*864e5:x.k==='meet'?864e5:36e5); }); // lead-hz-26: overdue follow-ups stay visible for a week so they can be cleared
   out.sort(function(a,b){ return a.t-b.t; });
   return out;
 }
@@ -20333,7 +20337,8 @@ function _hzNextBody(l){
   var x=meetAny||ahead[0]||overdue[0]||null; // lead-hz-12: a booked meeting always comes first
   var nx=ahead.filter(function(i){ return i!==x; })[0];
   var od=overdue.filter(function(i){ return i!==x && i.k==='fu'; })[0];
-  var odLine=od?'<div class="hz-sub" style="margin-top:8px;display:flex;align-items:center;gap:6px;color:#b45309">'+_hzI('clock',12)+'<span style="flex:1;min-width:0">Overdue follow-up · '+_hzE(_hzWhen(od.t))+'</span><button class="hz-btn" style="flex:none;padding:3px 10px;font-size:11.5px" onclick="markDone('+od.task.id+');setTimeout(function(){renderLeadScreen('+l.id+')},150)">Done</button></div>':'';
+  var odAll=overdue.filter(function(i){ return i.k==='fu'; });
+  var odLine=(od && !(x.t<=Date.now() && x.k==='fu'))?'<div class="hz-sub" style="margin-top:8px;display:flex;align-items:center;gap:6px;color:#b45309">'+_hzI('clock',12)+'<span style="flex:1;min-width:0">Overdue follow-up · '+_hzE(_hzWhen(od.t))+'</span><button class="hz-btn" style="flex:none;padding:3px 10px;font-size:11.5px" onclick="markDone('+od.task.id+');setTimeout(function(){renderLeadScreen('+l.id+')},150)">Done</button></div>':'';
   var then=nx?'<div class="hz-sub" style="margin-top:8px;display:flex;align-items:center;gap:5px">'+_hzI('clock',12)+'Then: '+_hzE(_hzNextLabel(nx).toLowerCase())+' '+_hzE(_hzWhen(nx.t))+'</div>':'';
   if(!x && l.meeting_outcome && l.appointment_at){ // lead-hz-16: right after a meeting, ask what's next
     var md=new Date(l.appointment_at), ns=l.meeting_outcome==='no_show';
@@ -20350,8 +20355,10 @@ function _hzNextBody(l){
   }
   if(x.k==='meet') return _hzMeetingSlide(l).replace('<span class="hz-lb"','<span class="hz-lb" data-nu="1"').replace(/(<span class="hz-lb"[^>]*>)(<svg[\s\S]*?<\/svg>)\s/,'$1$2 Next up · ')+then+odLine;
   var ic={fu:'clock',ai:'spark',sms:'sms',email:'mail',pb:'bolt'}[x.k]||'clock';
-  var head='<div style="display:flex;justify-content:space-between;align-items:center"><span class="hz-lb" style="color:#4000f3">'+_hzI(ic,13)+' Next up · '+_hzE(_hzNextLabel(x))+(x.k==='ai'||x.k==='sms'||x.k==='email'?' scheduled':'')+'</span></div>'
-    +'<div style="font-size:15px;font-weight:600;margin-top:3px">'+_hzE(_hzWhen(x.t))+' <span class="hz-sub" style="font-weight:400">· '+_hzE(_hzIn(x.t))+'</span></div>';
+  var _isOd=x.t<=Date.now() && x.k==='fu'; // lead-hz-26: an old follow-up is labelled overdue, not "next up"
+  var head='<div style="display:flex;justify-content:space-between;align-items:center"><span class="hz-lb" style="color:'+(_isOd?'#b45309':'#4000f3')+'">'+_hzI(ic,13)+(_isOd?' Overdue follow-up'+(odAll.length>1?'s · '+odAll.length:''):' Next up · '+_hzE(_hzNextLabel(x))+(x.k==='ai'||x.k==='sms'||x.k==='email'?' scheduled':''))+'</span>'
+    +(_isOd&&odAll.length>1?'<button class="hz-btn" style="flex:none;padding:3px 10px;font-size:11.5px" onclick="event.stopPropagation();hzFuAllDone()">Mark all done</button>':'')+'</div>'
+    +'<div style="font-size:15px;font-weight:600;margin-top:3px">'+_hzE(_hzWhen(x.t))+' <span class="hz-sub" style="font-weight:400'+(_isOd?';color:#b45309':'')+'">· '+_hzE(_hzIn(x.t))+'</span></div>';
   var note='', btns='';
   if(x.k==='fu'){
     note=String(x.task.note||'');
@@ -20373,6 +20380,12 @@ function _hzNextBody(l){
   note=_hzFill(_hzPlain(note.replace(/^[\p{Extended_Pictographic}️\s]+/u,'')), l);
   return head+(note?'<div style="font-size:12.5px;color:#4b5563;margin-top:3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+_hzE(note)+'</div>':'')
     +'<div style="display:flex;gap:6px;margin-top:10px">'+btns+'</div>'+then+odLine;
+}
+function hzFuAllDone(){ // lead-hz-26: clear every overdue follow-up on this lead
+  var l=lsGetLead&&lsGetLead(); if(!l) return; var now=Date.now(), n=0;
+  (typeof tasks!=='undefined'?tasks:[]).forEach(function(t){ if(t.lid!==l.id||t.done) return; if(typeof _fuIsTeam==='function'&&_fuIsTeam(t)) return; if(t.type==='ai_call') return;
+    var ms=t.dueIso?new Date(t.dueIso).getTime():new Date((t.date||'')+'T'+String(t.time||'09:00').slice(0,5)).getTime(); if(!isNaN(ms)&&ms<=now){ markDone(t.id); n++; } });
+  showToast(n?(n+' overdue follow-up'+(n>1?'s':'')+' marked done'):'Nothing overdue'); setTimeout(function(){ renderLeadScreen(l.id); },200);
 }
 function hzFuFocus(){
   var i=document.getElementById('lsFuDatetime'); if(!i) return;
@@ -20456,7 +20469,7 @@ function _hzActCalc(l, acts){
   for(var i=0;i<asc.length;i++){ var x=asc[i]; if(x.inb || x.comm==='call') continue; outs++;
     for(var j=i+1;j<asc.length;j++){ var y=asc[j]; if(y.inb){ replied++; gaps.push(y.t-x.t); x.replyIn=y.t-x.t; break; } if(!y.inb && y.comm!=='call') break; } }
   gaps.sort(function(p,q){ return p-q; });
-  var opens=0; list.forEach(function(x){ if(x.comm==='email' && !x.inb && x.a.email_id && typeof emOpensFor==='function'){ var o=emOpensFor(l.id,x.a.email_id); x.opens=o?o.opens.length:0; opens+=x.opens; } });
+  var opens=0; list.forEach(function(x){ if(x.comm==='email' && !x.inb && x.a.email_id && typeof emOpensFor==='function'){ var o=emOpensFor(l.id,x.a.email_id); x.opens=o?o.opens.length:0; x.lastOpen=(o&&o.opens[0])?o.opens[0].at:null; x.tracked=true; opens+=x.opens; } });
   var lastComm=list.filter(function(x){ return x.comm; })[0];
   return { list:list, calls:list.filter(function(x){ return x.comm==='call'; }).length, outs:outs, replied:replied,
     gap:gaps.length?_hzAgoShort(gaps[Math.floor(gaps.length/2)]):'—', opens:opens, waiting:(lastComm&&lastComm.inb)?lastComm:null };
@@ -20488,12 +20501,13 @@ function _hzActivity(l, acts, sched){
   // coming up
   var up=(typeof _hzNextList==='function'?_hzNextList(l):[]).filter(function(x){ return x.t>Date.now(); }).slice(0,4);
   var _pbP=_hzPbPaused(l), _pbR=(window._pbEnrState||{}).reason||'';
-  if(up.length || _pbP){
+  { // lead-hz-26: always shown, so 'See all' is always reachable
     var _pbE=window._pbEnrState||{}, _canStop=!!(_pbE.id && _pbE.lid===l.id && _pbE.status!=='stopped');
     var _nC=up.length+(_pbP?1:0);
     h+='<div class="hzA-up"><div class="l" style="display:flex;align-items:center"><span style="flex:1;display:flex;align-items:center;gap:5px">'+_hzI('clock',12)+' Coming up'+(_nC>1?' · '+_nC:'')+'</span>'
-      +(_canStop?'<button class="hzA-stop" onclick="hzPbStop(this)">Stop all for this lead</button>':'')+'</div><div class="hzA-upv" id="hzUpV">';
+      +'<button class="hzA-all" onclick="hzSchedAll()">See all</button>'+(_canStop?'<button class="hzA-stop" onclick="hzPbStop(this)">Stop all</button>':'')+'</div><div class="hzA-upv" id="hzUpV">';
     if(_pbP) h+='<div class="r"><span class="hz-ei k-st" style="width:26px;height:26px;border-radius:8px">'+_hzI('robot',13)+'</span><div class="x" style="white-space:normal"><b style="font-weight:600">Automated follow-ups paused</b><div class="hz-sub" style="font-size:11px">'+(_pbR==='lead_replied'||_pbR==='ai_drafted'?'They replied, so we\u2019re waiting for them.':_pbR==='manual'?'Paused by you.':'Waiting for their reply.')+' Nothing automated goes out until you resume.</div><div class="hzA-ub"><button onclick="event.stopPropagation();hzPbSet(\'resume\')">Resume</button></div></div></div>';
+    if(!up.length && !_pbP) h+='<div class="r"><div class="x hz-sub" style="padding:10px 0">Nothing coming up.'+(_hzNextList(l).some(function(y){ return y.k==='fu'; })?' There are overdue follow-ups, tap See all.':'')+'</div></div>';
     up.forEach(function(x){
       var ic={meet:['cal','meet'],fu:['clock','st'],ai:['spark','ai'],sms:['sms','sms'],email:['mail','em'],pb:['bolt','st']}[x.k]||['clock','st'];
       var sub=x.k==='meet'?_hzProduct(l)+' demo':x.k==='fu'?String(x.task&&x.task.note||''):(x.s&&x.s.body)?String(x.s.body):x.task?String(x.task.note||''):'';
@@ -20645,6 +20659,10 @@ function _hzChatRow(l, x){
     if(what) h+='<div class="hzA-what"><b>What happened</b><div class="w">'+_hzE(what)+'</div></div>';
     if(a.recording_url) h+=_hzPlayerHTML(recUrl(a.recording_url), (a.dur&&a.dur!=='—')?a.dur:'');
   } else if(x.body){ h+='<div class="hzC-tx">'+_hzE(x.body)+'</div>'; }
+  if(!left && x.comm==='email'){ // lead-hz-26: opens shown clearly under every email we sent
+    if(x.opens) h+='<button class="hzC-opr" onclick="event.stopPropagation();showEmailOpens('+l.id+',\''+_jsq(a.email_id||'')+'\',\''+_jsq(a.email_subject||'')+'\')">'+_hzI('eye',12)+'<b>Opened '+x.opens+(x.opens===1?' time':' times')+'</b>'+(x.lastOpen?' · last '+_hzE(_hzAgo(new Date(x.lastOpen)).toLowerCase()):'')+' <span style="margin-left:auto">›</span></button>';
+    else if(x.tracked && a.email_id) h+='<div class="hzC-opr no">'+_hzI('eye',12)+'Not opened yet</div>';
+  }
   var ac='';
   if(left && x.comm==='sms') ac+='<button onclick="openSmsSheet()">'+_hzI('sms',11)+'Reply</button>';
   if(left && x.comm==='email') ac+='<button onclick="openEmailInbox('+l.id+')">'+_hzI('mail',11)+'Reply</button>';
@@ -20655,9 +20673,32 @@ function _hzChatRow(l, x){
   if(a.transcript) h+='<div class="hzA-tx" style="display:none">'+_hzE(a.transcript)+'</div>';
   var st=tm;
   if(!left && x.comm==='sms') st+=' <span class="tk">'+_hzI('check',11)+'</span>';
-  if(x.opens) st+=' <button class="hzC-op" onclick="showEmailOpens('+l.id+',\''+_jsq(a.email_id||'')+'\',\''+_jsq(a.email_subject||'')+'\')">'+_hzI('eye',11)+'Opened '+x.opens+'×</button>';
+  // opens now shown under the email (lead-hz-26)
   if(x.replyIn) st+=' <span class="hzC-rp">replied in '+_hzAgoShort(x.replyIn)+'</span>';
   return h+'<div class="hzC-st">'+st+'</div></div></div>';
+}
+// lead-hz-26: every scheduled thing for this lead, with filters
+function hzSchedAll(f){
+  var l=lsGetLead&&lsGetLead(); if(!l) return; f=f||window._hzSchF||'all'; window._hzSchF=f;
+  var now=Date.now(), all=_hzNextList(l).filter(function(x){ return x.t>now || x.k==='fu'; });
+  var grp=function(x){ return x.k==='ai'?'ai':x.k==='sms'?'sms':x.k==='email'?'email':x.k==='pb'?(/email/i.test(String(x.s&&x.s.label||''))?'email':/text/i.test(String(x.s&&x.s.label||''))?'sms':/call/i.test(String(x.s&&x.s.label||''))?'ai':'auto'):x.k; };
+  var cnt={all:all.length}; all.forEach(function(x){ var g=grp(x); cnt[g]=(cnt[g]||0)+1; });
+  var chips=[['all','All'],['ai','AI calls'],['sms','Texts'],['email','Emails'],['fu','Follow-ups'],['meet','Meetings']].map(function(c){ return '<button class="hzA-f'+(f===c[0]?' on':'')+'" onclick="hzSchedAll(\''+c[0]+'\')">'+c[1]+' '+(cnt[c[0]]||0)+'</button>'; }).join('');
+  var list=all.filter(function(x){ return f==='all'||grp(x)===f; });
+  var rows=list.map(function(x){
+    var ic={meet:['cal','meet'],fu:['clock','st'],ai:['spark','ai'],sms:['sms','sms'],email:['mail','em'],pb:['bolt','st']}[x.k]||['clock','st'];
+    var sub=x.k==='meet'?_hzProduct(l)+' demo':x.k==='fu'?String(x.task&&x.task.note||''):(x.s&&x.s.body)?String(x.s.body):x.task?String(x.task.note||''):'';
+    sub=_hzFill(_hzPlain(sub.replace(/^[\p{Extended_Pictographic}️\s]+/u,'')), l);
+    var od=x.t<=now;
+    return '<div class="hzS-r"><span class="hz-ei k-'+ic[1]+'" style="width:30px;height:30px;border-radius:9px">'+_hzI(ic[0],14)+'</span><div style="flex:1;min-width:0"><div style="display:flex;gap:6px;align-items:baseline"><b style="font-weight:600;font-size:13px;flex:1">'+_hzE(_hzNextLabel(x))+'</b><span style="font-size:11px;font-weight:600;color:'+(od?'#b45309':'#4000f3')+'">'+_hzE(od?'overdue':_hzIn(x.t))+'</span></div>'
+      +'<div class="hz-sub" style="font-size:11.5px">'+_hzE(_hzWhen(x.t))+'</div>'+(sub?'<div style="font-size:12px;color:#4b5563;margin-top:2px;line-height:1.4">'+_hzE(sub.slice(0,160))+'</div>':'')+_hzUpBtns(l,x)+'</div></div>';
+  }).join('')||'<div class="hz-sub" style="text-align:center;padding:24px 0">Nothing scheduled here.</div>';
+  var ov=document.getElementById('hzSchSh');
+  if(!ov){ ov=document.createElement('div'); ov.className='sheet-ov'; ov.id='hzSchSh'; ov.onclick=function(e){ if(e.target===ov) closeSheet('hzSchSh'); }; document.body.appendChild(ov); }
+  var open=ov.classList.contains('open');
+  ov.innerHTML='<div class="sheet" style="max-height:88vh;display:flex;flex-direction:column"><div class="sh-head"><div class="sh-title">Scheduled for '+_hzE(String(l.name||l.company||'this lead').split(' ')[0])+'</div><button class="sh-x" onclick="closeSheet(\'hzSchSh\')">&#x2715;</button></div>'
+    +'<div class="hzA-fc" style="margin:0;padding:0 16px 8px">'+chips+'</div><div class="hzA-up" style="margin:0 12px 16px;overflow:auto;flex:1">'+rows+'</div></div>';
+  _hzCss(); if(!open) openSheet('hzSchSh');
 }
 function _hzClockT(t){ return isNaN(t)?'':new Date(t).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}); }
 function _hzActRow(l, x){
@@ -20797,7 +20838,7 @@ function _hzComm(l, acts, fuItems, camp){
   var ms=(typeof matchStageName==='function')?matchStageName(l.stage):l.stage, opts='';
   (typeof STAGES!=='undefined'?STAGES:[]).forEach(function(s){ opts+='<option value="'+_hzE(s.name)+'"'+(s.name===ms?' selected':'')+'>'+_hzE(s.name)+'</option>'; });
   var coarse=('ontouchstart' in window)||(navigator.maxTouchPoints>0);
-  var nx=(fuItems||[]).filter(function(x){ return x && x.date; }).sort(function(a,b){ return (a.date+(a.time||'')).localeCompare(b.date+(b.time||'')); })[0];
+  var nx=(fuItems||[]).filter(function(x){ if(!x||!x.date) return false; var ms=x.dueIso?new Date(x.dueIso).getTime():new Date(x.date+'T'+String(x.time||'09:00').slice(0,5)).getTime(); return !isNaN(ms)&&ms>Date.now(); }).sort(function(a,b){ return (a.date+(a.time||'')).localeCompare(b.date+(b.time||'')); })[0]; // lead-hz-26: only a future follow-up fills this box
   var fuVal=nx?(nx.date+'T'+String(nx.time||'10:00').slice(0,5)):'';
   h+='<div class="hz-panel"><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
     +'<div style="min-width:0"><div class="hz-fl">Sales stage</div><select id="lsStageSelect" class="hz-fd" style="color:#4000f3;font-weight:600" onchange="hzStagePick(this.value)">'+opts+'</select></div>'
