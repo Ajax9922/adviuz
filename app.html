@@ -5429,7 +5429,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-12 lead-hz-20';
+var APP_VERSION = 'v2026-11-12 lead-hz-21';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -17721,6 +17721,22 @@ function openLead(id) {
 async function loadLeadActivity(localId, dbId) {
   try {
     window._lastActLead = { localId: localId, dbId: dbId };
+    // lead-hz-21: start the main activity fetch first so it runs alongside the slower lookups below
+    var _lLead  = (typeof leads!=='undefined' ? leads : []).find(function(x){ return x.id === localId; });
+    var _last10 = String((_lLead && _lLead.ph) || '').replace(/\D/g,'').slice(-10);
+    var _hzActP = Promise.all([
+      sbFetch('/rest/v1/lead_activity?lead_id=eq.'+dbId+'&select=*&order=created_at.desc&limit=50'),
+      sbFetch('/rest/v1/activity_log?lead_id=eq.'+dbId+'&select=*&order=created_at.desc&limit=50'),
+      // to_number holds the last 10 digits, so matching the LEAD's number means a
+      // client_alert can never leak in — those are sent to the client's phone.
+      // status=sent only: a message that never arrived must not look delivered.
+      _last10
+        ? sbFetch('/rest/v1/sms_guard_log?lead_id=eq.'+dbId+'&to_number=eq.'+encodeURIComponent(_last10)
+            +'&status=eq.sent&select=body_preview,purpose,created_at&order=created_at.desc&limit=50')
+        : Promise.resolve(null),
+      // Every open / click Resend has reported for this lead's emails.
+      sbFetch('/rest/v1/email_opens?lead_id=eq.'+dbId+'&select=resend_id,kind,link,occurred_at&order=occurred_at.desc&limit=300')
+    ]);
     // \uD83C\uDF93 Manager notes: open script-improvement cards for this lead
     try {
       var _ci = await sbFetch('/rest/v1/ai_pending_actions?lead_id=eq.'+dbId+'&action_type=eq.script_improvement&select=id,status,payload,campaign_id,created_at&order=created_at.desc&limit=20');
@@ -17729,9 +17745,10 @@ async function loadLeadActivity(localId, dbId) {
     // \uD83D\uDCC5 Remaining automated follow-ups for this lead -> Scheduled section
     try{
       window._pbSched = [];
-      var _en = await sbFetch('/rest/v1/playbook_enrollments?lead_id=eq.'+dbId+'&status=in.(active,paused)&select=id,campaign_id,stage_key,next_step_no,next_at,entered_at,skipped_steps&order=status.asc&limit=1');
+      var _en = await sbFetch('/rest/v1/playbook_enrollments?lead_id=eq.'+dbId+'&status=in.(active,paused)&select=id,status,pause_reason,campaign_id,stage_key,next_step_no,next_at,entered_at,skipped_steps&order=status.asc&limit=1');
       var _enr = _en.ok ? await _en.json() : [];
       var en = _enr[0] || null;
+      window._pbEnrState = en ? { lid: localId, id: en.id, status: en.status, reason: en.pause_reason||'' } : { lid: localId };
       if (en){
         var _st = await sbFetch('/rest/v1/playbook_steps?campaign_id=eq.'+en.campaign_id+'&stage_key=eq.'+encodeURIComponent(en.stage_key)+'&active=eq.true&select=step_no,delay_hours,channel,subject,body,send_at_local&order=delay_hours.asc,step_no.asc');
         var _steps = _st.ok ? await _st.json() : [];
@@ -17779,21 +17796,7 @@ async function loadLeadActivity(localId, dbId) {
     //   sms_guard_log — every outbound SMS Twilio actually sent to this lead.
     // Outbound SMS was never written to lead_activity, which is why the timeline
     // showed replies with nothing to reply to.
-    var _lLead  = (typeof leads!=='undefined' ? leads : []).find(function(x){ return x.id === localId; });
-    var _last10 = String((_lLead && _lLead.ph) || '').replace(/\D/g,'').slice(-10);
-    var [r1, r2, r3, r4] = await Promise.all([
-      sbFetch('/rest/v1/lead_activity?lead_id=eq.'+dbId+'&select=*&order=created_at.desc&limit=50'),
-      sbFetch('/rest/v1/activity_log?lead_id=eq.'+dbId+'&select=*&order=created_at.desc&limit=50'),
-      // to_number holds the last 10 digits, so matching the LEAD's number means a
-      // client_alert can never leak in — those are sent to the client's phone.
-      // status=sent only: a message that never arrived must not look delivered.
-      _last10
-        ? sbFetch('/rest/v1/sms_guard_log?lead_id=eq.'+dbId+'&to_number=eq.'+encodeURIComponent(_last10)
-            +'&status=eq.sent&select=body_preview,purpose,created_at&order=created_at.desc&limit=50')
-        : Promise.resolve(null),
-      // Every open / click Resend has reported for this lead's emails.
-      sbFetch('/rest/v1/email_opens?lead_id=eq.'+dbId+'&select=resend_id,kind,link,occurred_at&order=occurred_at.desc&limit=300')
-    ]);
+    var [r1, r2, r3, r4] = await _hzActP; // lead-hz-21: started at the top, in parallel
 
     var rows1 = (r1.ok ? await r1.json().catch(function(){return[];}) : []) || [];
     var rows2 = (r2.ok ? await r2.json().catch(function(){return[];}) : []) || [];
@@ -19790,6 +19793,7 @@ function _hzI(n, sz, col){
     note:'<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>',
     clock:'<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>',
     search:'<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.6" y2="16.6"/>',
+    refresh:'<path d="M20 11a8 8 0 1 0-2.3 5.7"/><polyline points="20 4 20 11 13 11"/>',
     robot:'<rect x="4" y="8" width="16" height="12" rx="3"/><line x1="12" y1="4" x2="12" y2="8"/><circle cx="12" cy="3.5" r="1"/><circle cx="9" cy="14" r="1.2" fill="currentColor"/><circle cx="15" cy="14" r="1.2" fill="currentColor"/>',
     receipt:'<path d="M5 3v18l2.5-1.5L10 21l2-1.5 2 1.5 2.5-1.5L19 21V3l-2.5 1.5L14 3l-2 1.5L10 3 7.5 4.5z"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="13" x2="15" y2="13"/>',
     quote:'<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M14 11h-2.5a1.5 1.5 0 000 3h1a1.5 1.5 0 010 3H10"/><line x1="12" y1="10" x2="12" y2="11"/><line x1="12" y1="17" x2="12" y2="18"/>',
@@ -19933,6 +19937,7 @@ function _hzCss(){
     '.hz-slide>.hz-slc{height:100%;display:flex;flex-direction:column;cursor:pointer}',
     '.hz-slc .hz-dots{margin-top:auto;padding-top:10px}',
     '.hz-seg{margin:12px 10px 0}',
+    '.hz-gq{flex:none;width:22px;height:22px;border-radius:7px;border:none;background:rgba(255,255,255,.12);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}',
     '.hzA{padding:16px 10px 24px}',
     '.hzA-h{display:flex;align-items:center;gap:8px;margin:0 4px}.hzA-h b{font-size:15px;font-weight:600;flex:1}',
     '.hzA-sb{width:30px;height:30px;border-radius:9px;background:#fff;border:1px solid #ece9f5;display:flex;align-items:center;justify-content:center;color:#4b5563;cursor:pointer;padding:0}',
@@ -20122,8 +20127,8 @@ function _hzHeader(l, camp, acts){
   var h = '<div class="hz-bar">'
      + '<button class="hz-ib" style="background:none;width:28px" onclick="closeLead()" aria-label="Back">'+_hzI('back',20)+'</button>'
      + _hzTempIcon(l)
-     + '<div class="hz-nm"><div class="t">'+title+'</div><div class="s">'+sub+'</div></div>'
-     + '<button class="hz-ib" onclick="hzGoogle()" aria-label="Search company on Google">'+_hzI('google',16)+'</button>'
+     + '<div class="hz-nm"><div class="t" style="display:flex;align-items:center;gap:6px"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+title+'</span><button class="hz-gq" onclick="hzGoogle()" aria-label="Search company on Google">'+_hzI('google',13)+'</button></div><div class="s">'+sub+'</div></div>'
+     + '<button class="hz-ib" onclick="refreshCurrentLead(this)" aria-label="Refresh this lead">'+_hzI('refresh',17)+'</button>'
      + '<button class="hz-ib" onclick="openEditLead(curLid)" aria-label="Edit lead">'+_hzI('edit',16)+'</button>'
      + '</div>';
   h += '<div id="apHold_'+l.id+'" style="display:none"></div>';
@@ -20226,6 +20231,19 @@ function _hzHeardSlide(l, t){
     +'<div style="display:flex;gap:6px;margin-top:10px"><button class="hz-btn pri" onclick="fuTeamApprove('+t.id+',this)">Approve</button><button class="hz-btn" onclick="fuTeamPick('+t.id+')">Reschedule</button><button class="hz-btn red" onclick="markDone('+t.id+')">Cancel</button></div>';
 }
 // ── lead-hz-10: first slider card = "Next up" — whatever happens next for this lead ──
+// lead-hz-21: is this lead's automated plan paused (they replied / you paused it)?
+function _hzPbPaused(l){ var e=window._pbEnrState; return !!(e && e.lid===l.id && e.status==='paused'); }
+function _hzFill(t, l){ var f=String((l&&l.name)||'').split(' ')[0]||'there'; return String(t||'').replace(/\{(first_?name|name)\}/gi, f); }
+async function hzPbSet(act){
+  var e=window._pbEnrState, l=lsGetLead&&lsGetLead(); if(!e||!e.id||!l) return;
+  var patch=act==='pause'?{ status:'paused', pause_reason:'manual', paused_at:new Date().toISOString() }:{ status:'active', pause_reason:null, paused_at:null };
+  try{ var r=await sbFetch('/rest/v1/playbook_enrollments?id=eq.'+encodeURIComponent(e.id),{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body:JSON.stringify(patch) });
+    if(!r.ok && r.status!==204) throw 0;
+    e.status=patch.status; e.reason=patch.pause_reason||'';
+    showToast(act==='pause'?'Automated follow-ups paused until you resume':'Automated follow-ups resumed');
+    loadLeadActivity(l.id, l.dbId);
+  }catch(_e){ showToast('Could not change. Try again.'); }
+}
 function _hzNextList(l){
   var now=Date.now(), out=[];
   if(l.appointment_at && !l.meeting_outcome){ var md=new Date(l.appointment_at).getTime(); if(!isNaN(md)) out.push({k:'meet',t:md}); }
@@ -20244,7 +20262,7 @@ function _hzNextList(l){
     var w=typeof x._when==='number'?x._when:new Date(x._when).getTime(); if(isNaN(w)) return;
     if(x.type==='sched_smsman'||x.type==='sched_sms') out.push({k:'sms',t:w,s:x});
     else if(x.type==='sched_email') out.push({k:'email',t:w,s:x});
-    else if(x.type==='sched_pb') out.push({k:'pb',t:w,s:x});
+    else if(x.type==='sched_pb'){ if(!_hzPbPaused(l)) out.push({k:'pb',t:w,s:x}); }
   });
   // keep things that are still ahead (a meeting / follow-up up to a day overdue still needs you)
   out=out.filter(function(x){ return x.t > now-(x.k==='meet'||x.k==='fu'?864e5:36e5); });
@@ -20313,7 +20331,7 @@ function _hzNextBody(l){
     note=String(x.s.body||'').split('\n')[0];
     btns=(x.s._pbEnr?'<button class="hz-btn red" onclick="pbSkipOne(\''+x.s._pbEnr+'\','+Number(x.s._pbStep)+',this)">Skip this step</button>':'')+'<button class="hz-btn" onclick="openApSheet('+l.id+')">Autopilot settings</button>';
   }
-  note=_hzPlain(note.replace(/^[\p{Extended_Pictographic}️\s]+/u,''));
+  note=_hzFill(_hzPlain(note.replace(/^[\p{Extended_Pictographic}️\s]+/u,'')), l);
   return head+(note?'<div style="font-size:12.5px;color:#4b5563;margin-top:3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+_hzE(note)+'</div>':'')
     +'<div style="display:flex;gap:6px;margin-top:10px">'+btns+'</div>'+then+odLine;
 }
@@ -20421,12 +20439,14 @@ function _hzActivity(l, acts, sched){
     h+='<div class="hzA-wait">'+_hzI(w.comm==='call'?'phonein':w.comm==='sms'?'sms':'mail',17)+'<span style="flex:1;min-width:0"><b style="font-weight:600">'+_hzE(first)+' is waiting</b> · '+wk+' '+(isNaN(w.t)?'':_hzAgo(new Date(w.t)).toLowerCase())+'</span>'+wb+'</div>'; }
   // coming up
   var up=(typeof _hzNextList==='function'?_hzNextList(l):[]).filter(function(x){ return x.t>Date.now(); }).slice(0,4);
-  if(up.length){
+  var _pbP=_hzPbPaused(l), _pbR=(window._pbEnrState||{}).reason||'';
+  if(up.length || _pbP){
     h+='<div class="hzA-up"><div class="l">'+_hzI('clock',12)+' Coming up</div>';
+    if(_pbP) h+='<div class="r"><span class="hz-ei k-st" style="width:26px;height:26px;border-radius:8px">'+_hzI('robot',13)+'</span><div class="x" style="white-space:normal"><b style="font-weight:600">Automated follow-ups paused</b><div class="hz-sub" style="font-size:11px">'+(_pbR==='lead_replied'||_pbR==='ai_drafted'?'They replied, so we\u2019re waiting for them.':_pbR==='manual'?'Paused by you.':'Waiting for their reply.')+' Nothing automated goes out until you resume.</div><div class="hzA-ub"><button onclick="event.stopPropagation();hzPbSet(\'resume\')">Resume</button></div></div></div>';
     up.forEach(function(x){
       var ic={meet:['cal','meet'],fu:['clock','st'],ai:['spark','ai'],sms:['sms','sms'],email:['mail','em'],pb:['bolt','st']}[x.k]||['clock','st'];
       var sub=x.k==='meet'?_hzProduct(l)+' demo':x.k==='fu'?String(x.task&&x.task.note||''):(x.s&&x.s.body)?String(x.s.body):x.task?String(x.task.note||''):'';
-      sub=_hzPlain(sub.replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u,''));
+      sub=_hzFill(_hzPlain(sub.replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u,'')) , l);
       var d=new Date(x.t), tomorrow=d.toLocaleDateString('en-CA')===new Date(Date.now()+864e5).toLocaleDateString('en-CA');
       var when=_hzWhen(x.t)+' · '+(tomorrow?'tomorrow':_hzIn(x.t));
       h+='<div class="r"><span class="hz-ei k-'+ic[1]+'" style="width:26px;height:26px;border-radius:8px">'+_hzI(ic[0],13)+'</span><div class="x"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><b style="font-weight:600">'+_hzE(_hzNextLabel(x))+'</b>'+(sub?' <span class="hz-sub">· '+_hzE(sub.slice(0,60))+'</span>':'')+'</div>'
@@ -20468,7 +20488,7 @@ function _hzUpBtns(l, x){
   else if(x.k==='ai') o=x.task?(b('Reschedule','fuAiChange('+x.task.id+')')+b('Cancel','fuAiCancel('+x.task.id+',this)','red')):(b('Reschedule','aiCallReschedule('+l.id+')')+b('Cancel','aiCallCancel('+l.id+',this)','red'));
   else if(x.k==='sms') o=(x.s.type==='sched_smsman'&&x.s._schedId?b('Cancel','smsSchedCancel(\''+x.s._schedId+'\','+l.id+')','red'):'')+b('Open texts','openSmsSheet()');
   else if(x.k==='email') o=(x.s._schedId?b('Cancel','ceCancelSchedAnywhere(\''+x.s._schedId+'\','+l.id+')','red'):'')+b('Open email','openEmailInbox('+l.id+')');
-  else if(x.k==='pb') o=(x.s._pbEnr?b('Skip this step','pbSkipOne(\''+x.s._pbEnr+'\','+Number(x.s._pbStep)+',this)','red'):'')+b('Autopilot settings','openApSheet('+l.id+')');
+  else if(x.k==='pb') o=(x.s._pbEnr?b('Skip this step','pbSkipOne(\''+x.s._pbEnr+'\','+Number(x.s._pbStep)+',this)','red'):'')+b('Pause until they reply','hzPbSet(\'pause\')');
   return o?'<div class="hzA-ub">'+o+'</div>':'';
 }
 // lead-hz-14: email preview from the activity list
