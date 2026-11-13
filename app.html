@@ -5429,7 +5429,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-12 lead-hz-36';
+var APP_VERSION = 'v2026-11-12 lead-hz-37';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -19985,6 +19985,7 @@ function _hzCss(){
     '.hzV-ft{display:block;width:100%;border:none;border-top:1px solid #f0edf8;background:#fff;padding:10px;font-family:var(--f);font-size:12px;font-weight:600;color:#140c28;cursor:pointer}',
     '.hzV-go{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin-top:12px;border:1px solid #e6e0fb;background:#fff;border-radius:12px;padding:10px;font-family:var(--f);font-size:12.5px;font-weight:600;color:#140c28;cursor:pointer}',
     '#hzConvSlot .hzV{margin-top:0}',
+    '.hzN-acts .hz-btn{flex:1 1 calc(50% - 4px);padding:11px 8px}',
     '.hzV-em{width:88%;box-sizing:border-box;background:#fff;border:1px solid #f1dccd;border-radius:12px;overflow:hidden;cursor:pointer;box-shadow:0 1px 2px rgba(20,12,40,.05)}',
     '.hzV-em .hd{display:flex;gap:9px;align-items:center;padding:8px 11px;background:#fff8f3;border-bottom:1px solid #f6e6da}',
     '.hzV-em .ic{width:28px;height:28px;border-radius:8px;background:#fff;border:1px solid #f6e0cf;display:flex;align-items:center;justify-content:center;flex-shrink:0}',
@@ -20390,6 +20391,7 @@ function _hzNextLabel(x){
   return x.k==='meet'?'Meeting':x.k==='fu'?'Follow-up':x.k==='ai'?'AI call':x.k==='sms'?'Text':x.k==='email'?'Email':'Automated '+(String((x.s&&x.s.label)||'').indexOf('Email')>-1?'email':String((x.s&&x.s.label)||'').indexOf('Text')>-1?'text':'step');
 }
 function _hzNextBody(l){
+  window._hzNextX=null;
   // lead-hz-11: an upcoming meeting/call/text beats an overdue follow-up; overdue ones get their own small line
   var all=_hzNextList(l), now=Date.now();
   var pastMeet=all.filter(function(i){ return i.k==='meet' && i.t<=now; });
@@ -20419,7 +20421,7 @@ function _hzNextBody(l){
   var ic={fu:'clock',ai:'spark',sms:'sms',email:'mail',pb:'bolt'}[x.k]||'clock';
   var _isOd=x.t<=Date.now() && x.k==='fu'; // lead-hz-26: an old follow-up is labelled overdue, not "next up"
   var head='<div style="display:flex;justify-content:space-between;align-items:center"><span class="hz-lb" style="color:'+(_isOd?'#b45309':'#4000f3')+'">'+_hzI(ic,13)+(_isOd?' Overdue follow-up'+(odAll.length>1?'s · '+odAll.length:''):' Next up · '+_hzE(_hzNextLabel(x))+(x.k==='ai'||x.k==='sms'||x.k==='email'?' scheduled':''))+'</span>'
-    +(_isOd&&odAll.length>1?'<button class="hz-btn" style="flex:none;padding:3px 10px;font-size:11.5px" onclick="event.stopPropagation();hzFuAllDone()">Mark all done</button>':'')+'</div>'
+    +(_isOd&&odAll.length>1?'<button class="hz-btn" style="flex:none;padding:3px 10px;font-size:11.5px" onclick="event.stopPropagation();hzFuAllDone()">Mark all done</button>':'<button class="hz-ex" onclick="event.stopPropagation();hzNextOpen()" aria-label="Open">'+_hzI('expand',14)+'</button>')+'</div>'
     +'<div style="font-size:15px;font-weight:600;margin-top:3px">'+_hzE(_hzWhen(x.t))+' <span class="hz-sub" style="font-weight:400'+(_isOd?';color:#b45309':'')+'">· '+_hzE(_hzIn(x.t))+'</span></div>';
   var note='', btns='';
   if(x.k==='fu'){
@@ -20439,9 +20441,42 @@ function _hzNextBody(l){
     note=String(x.s.body||'').split('\n')[0];
     btns=(x.s._pbEnr?'<button class="hz-btn red" onclick="pbSkipOne(\''+x.s._pbEnr+'\','+Number(x.s._pbStep)+',this)">Skip this step</button>':'')+'<button class="hz-btn" onclick="openApSheet('+l.id+')">Autopilot settings</button>';
   }
+  // lead-hz-37: tapping the card opens the whole message with every action (hzNextOpen)
+  var _full=x.k==='pb'?String(x.s.body||''):note;
+  window._hzNextX={x:x, lid:l.id, full:_hzFill(String(_full||'').replace(/^[\p{Extended_Pictographic}️\s]+/u,''), l), btns:btns};
   note=_hzFill(_hzPlain(note.replace(/^[\p{Extended_Pictographic}️\s]+/u,'')), l);
   return head+(note?'<div style="font-size:12.5px;color:#4b5563;margin-top:3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+_hzE(note)+'</div>':'')
     +'<div style="display:flex;gap:6px;margin-top:10px">'+btns+'</div>'+then+odLine;
+}
+function hzNextOpen(){
+  var N=window._hzNextX, l=lsGetLead&&lsGetLead(); if(!N||!l||N.lid!==l.id) return;
+  var x=N.x, ic={fu:'clock',ai:'spark',sms:'sms',email:'mail',pb:'bolt'}[x.k]||'clock';
+  var ch=x.k==='pb'?String((x.s&&x.s.label)||''):'';
+  var isEm=x.k==='email'||/Email/.test(ch), isTx=x.k==='sms'||/Text/.test(ch), isCall=x.k==='ai'||/AI call/.test(ch);
+  var title=_hzNextLabel(x), body=String(N.full||''), subj='';
+  if(x.k==='pb' && isEm){ var i=body.indexOf('\n'); if(i>0){ subj=body.slice(0,i); body=body.slice(i+1); } }
+  body=String(body).replace(/<br\s*\/?>/gi,'\n').replace(/<[^>]+>/g,'').replace(/\n{3,}/g,'\n\n').trim();
+  var to=isEm?(l.em||''):(isTx||isCall)?_hzFmtPh(l.ph||''):'';
+  var acts='';
+  if(x.k==='pb'){
+    acts=(x.s._pbEnr?'<button class="hz-btn red" onclick="if(this.dataset.armed===\'1\')closeSheet(\'hzNextSh\');pbSkipOne(\''+x.s._pbEnr+'\','+Number(x.s._pbStep)+',this)">Skip this step</button>':'')
+      +'<button class="hz-btn" onclick="closeSheet(\'hzNextSh\');hzPbSet(\'pause\')">Pause until they reply</button>'
+      +'<button class="hz-btn" onclick="closeSheet(\'hzNextSh\');hzSchedAll()">See all scheduled</button>'
+      +'<button class="hz-btn" onclick="closeSheet(\'hzNextSh\');openApSheet('+l.id+')">Autopilot settings</button>'
+      +'<button class="hz-btn red" onclick="if(this.dataset.armed===\'1\')closeSheet(\'hzNextSh\');hzPbStop(this)">Stop all for this lead</button>';
+  } else acts=String(N.btns||'').replace(/onclick="(?!(?:pbSkipOne|fuAiCancel|aiCallCancel))/g,'onclick="closeSheet(\'hzNextSh\');');
+  var ov=document.getElementById('hzNextSh');
+  if(!ov){ ov=document.createElement('div'); ov.className='sheet-ov'; ov.id='hzNextSh'; ov.onclick=function(e){ if(e.target===ov) closeSheet('hzNextSh'); }; document.body.appendChild(ov); }
+  ov.innerHTML='<div class="sheet" style="max-height:88vh;display:flex;flex-direction:column"><div class="sh-head"><div class="sh-title" style="display:flex;align-items:center;gap:7px">'+_hzI(ic,16,'#4000f3')+_hzE(title)+'</div><button class="sh-x" onclick="closeSheet(\'hzNextSh\')">&#x2715;</button></div>'
+    +'<div style="padding:0 18px 4px;overflow-y:auto">'
+    +'<div style="font-size:15px;font-weight:600">'+_hzE(_hzWhen(x.t))+' <span class="hz-sub" style="font-weight:400">· '+_hzE(_hzIn(x.t))+'</span></div>'
+    +(to?'<div class="hz-sub" style="margin-top:2px">To '+_hzE(to)+'</div>':'')
+    +'<div class="hzV-em '+(isEm?'':isTx?'k-sms':'k-call')+'" style="width:100%;margin-top:12px;cursor:default">'
+    +(subj?'<div class="sb" style="padding-top:11px">'+_hzE(subj)+'</div>':'')
+    +'<div style="padding:'+(subj?'6':'11')+'px 12px 12px;font-size:13.5px;line-height:1.55;color:#1f2330;white-space:pre-wrap;word-break:break-word">'+(body?_hzE(body):'<span class="hz-sub">No message text — this step is done by the team or the AI caller.</span>')+'</div></div>'
+    +(x.k==='pb'?'<div class="hz-sub" style="font-size:11.5px;margin-top:8px">Sent automatically. It stops the moment they reply. Daily limits and waking hours on their clock can move it a little.</div>':'')
+    +'</div><div class="hzN-acts" style="display:flex;flex-wrap:wrap;gap:8px;padding:12px 18px calc(14px + var(--sb,0px))">'+acts+'</div></div>';
+  openSheet('hzNextSh');
 }
 function hzFuAllDone(){ // lead-hz-26: clear every overdue follow-up on this lead
   var l=lsGetLead&&lsGetLead(); if(!l) return; var now=Date.now(), n=0;
@@ -20884,6 +20919,7 @@ function _hzActMini(){ document.querySelectorAll('#hzAct audio[controls]').forEa
 // lead-hz-8: tapping anywhere on a slider card opens its details (same as the expand icon); buttons inside still do their own job
 function hzCardTap(e, el){
   if(e.target.closest('button,a,select,input,textarea')) return;
+  if(el.querySelector('#hzNext') && window._hzNextX && !el.querySelector('#hzNext [data-nu]')){ hzNextOpen(); return; } // lead-hz-37
   var ex=el.querySelector('.hz-ex'); if(ex) ex.click();
 }
 function _hzSlider(l, acts){
