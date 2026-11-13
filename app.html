@@ -5429,7 +5429,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-12 lead-hz-22';
+var APP_VERSION = 'v2026-11-12 lead-hz-23';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -20162,7 +20162,7 @@ function _hzHeader(l, camp, acts){
   var cTeam=cell('r','<span class="hz-k">Team</span>','',
       an?'<span style="font-weight:600">'+_hzE(an)+'</span>':'<span style="font-weight:600;color:#4000f3">+ Assign</span>',
       ' style="cursor:pointer" onclick="openAssignSheet('+l.id+')"');
-  var la=(acts||[])[0], laTxt='No activity yet';
+  var la=(acts||[]).filter(function(x){ return x && x.type!=='email_opened' && !_hzHidden(x); })[0], laTxt='No activity yet';
   if(la){ var _d=new Date(la._rawTime||''); laTxt=_hzStripEmo(la.label||la.type||'')+' · '+(isNaN(_d)?(la.time||''):_hzAgo(_d)); }
   var rLast='<div class="hz-lrow"><span style="display:flex">'+_hzI('bolt',13)+'</span><span>Last event</span><b>'+_hzE(laTxt)+'</b></div>';
   h += '<div class="hz-dc hz-dg">'+rEmail+cPhone+cPart+cEnq+cTeam+rLast+'</div>';
@@ -20349,7 +20349,7 @@ function _hzNextPaint(l){ var n=document.getElementById('hzNext'); if(n) n.inner
 
 // lead-hz-12: second card — the latest few events
 function _hzRecentSlide(l, acts){
-  var list=(acts||[]).filter(function(a){ return a && a.type!=='email_opened'; }).slice(0,3);
+  var list=(acts||[]).filter(function(a){ return a && a.type!=='email_opened' && !_hzHidden(a); }).slice(0,3);
   var h='<div style="display:flex;justify-content:space-between;align-items:center"><span class="hz-lb" style="color:#4000f3">'+_hzI('bolt',13)+' Recent events</span>'
     +'<button class="hz-ex" onclick="hzTab(\'a\');hzFullActivity()" aria-label="See all activity">'+_hzI('expand',14)+'</button></div>';
   if(!list.length) return h+'<div class="hz-sub" style="margin-top:8px">No activity yet</div>';
@@ -20375,6 +20375,9 @@ function _hzAutoSlide(){
   }, 5000);
 }
 // ══ lead-hz-13: new activity section for Adviuz leads (story, stats, waiting, coming up, filters, timeline) ══
+// lead-hz-23 (Ajax: "for text messaging you don't need to create notes"): the AI texting agent's own status notes
+// ("🤖💬 They texted in…", "…handed to the team") are hidden from the lead's activity — the texts themselves already show it.
+function _hzHidden(a){ return !!(a && a.type==='note' && /^\s*🤖\s*💬/.test(String(a.body||''))); }
 function _hzA(a, lid){
   var ty=String(a.type||''), r={who:'sys',ic:'bolt',k:'st',title:'',body:'',comm:'',inb:false};
   var b=_hzPlain(a.email_body||a.body||a.summary||a.call_note||a.note||'');
@@ -20393,6 +20396,7 @@ function _hzA(a, lid){
     r.body=_hzPlain(a.email_body||'')||(a.email_subject?'':b); var s=a.email_src||'';
     r.who=s==='ai'?'ai':(s==='auto'?'auto':'you'); if(r.who==='ai'){ r.k='ai'; r.ic='spark'; } }
   else if(ty==='note' && /Demo notes \(Gemini\)/.test(String(a.body||''))){ r.who='gem'; r.k='meet'; r.ic='cal'; r.title='Meeting notes'; r.meetNote=true; r.body=''; } // lead-hz-18: Gemini meeting notes keep their own card
+  else if(ty==='note' && /^\s*\uD83D\uDCDE\s*Team callback set/.test(String(a.body||''))){ r.who='ai'; r.k='call'; r.ic='phone'; r.title='Team callback set'; r.body=_hzPlain(String(a.body).replace(/^\s*\uD83D\uDCDE\s*Team callback set\s*(for)?\s*/,'')); }
   else if(ty==='note' && /^\W*Stage moved to /.test(String(a.body||''))){ var sm=String(a.body).match(/Stage moved to ([^(\n—]+)/); r.who='ai'; r.k='st'; r.ic='arrow'; r.title='Stage → '+(sm?sm[1].trim():''); r.body=_hzPlain(String(a.body).replace(/^[^—\n]*[—-]\s*/,'')); }
   else if(ty==='note'){ r.who='you'; r.k='note'; r.ic='note'; r.title='Note'+(a.by?' · '+a.by:''); r.body=b; r.note=true; }
   else if(ty==='ai_analysis'){ r.who='ai'; r.k='ai'; r.ic='spark'; r.title='AI call notes'; r.body=b; }
@@ -20405,7 +20409,7 @@ function _hzA(a, lid){
 }
 function _hzAgoShort(ms){ var m=Math.round(ms/60000); if(m<60) return Math.max(1,m)+'m'; var h=Math.round(m/60); if(h<48) return h+'h'; return Math.round(h/24)+'d'; }
 function _hzActCalc(l, acts){
-  var list=(acts||[]).filter(function(a){ return a && a.type!=='email_opened'; }).map(function(a,ix){ var x=_hzA(a,l.id); x.a=a; x.i=ix; x.t=new Date(a._rawTime||'').getTime(); return x; });
+  var list=(acts||[]).filter(function(a){ return a && a.type!=='email_opened' && !_hzHidden(a); }).map(function(a,ix){ var x=_hzA(a,l.id); x.a=a; x.i=ix; x.t=new Date(a._rawTime||'').getTime(); return x; });
   window._hzActList=list;
   // replies: for each message from our side, did the client answer before our next message?
   var asc=list.filter(function(x){ return x.comm && !isNaN(x.t); }).sort(function(p,q){ return p.t-q.t; });
@@ -20731,7 +20735,7 @@ function _hzKind(a){
 }
 function _hzStripEmo(s){ try{ return String(s||'').replace(/^[\p{Extended_Pictographic}️‍\s]+/u,''); }catch(_e){ return String(s||''); } }
 function _hzActRows(acts){
-  var list=(acts||[]).filter(function(a){ return a && a.type!=='email_opened'; }).slice(0,5);
+  var list=(acts||[]).filter(function(a){ return a && a.type!=='email_opened' && !_hzHidden(a); }).slice(0,5);
   if(!list.length) return '<div class="hz-row"><span class="hz-sub">No activity yet</span></div>';
   return list.map(function(a){
     var k=_hzKind(a);
