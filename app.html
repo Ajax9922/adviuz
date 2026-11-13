@@ -7238,6 +7238,7 @@ function mapLead(l, i) {
     campaign_name: l.campaign_name || null,
     // Custom-field support: raw jsonb bag + owning client (Phase 2/3)
     form_fields:   l.form_fields || {},
+    journey:       (l.journey && typeof l.journey==='object') ? l.journey : null, // lp-journey (2026-11-13)
     client_id:     l.client_id || null,
     proposal_pdf_url: l.proposal_pdf_url || null,
     proposal_pdf_at:  l.proposal_pdf_at || null,
@@ -9359,6 +9360,7 @@ function leadsHTML(){
     if(!(af.sources && af.sources.length) && _lfHideUp(l)) return false; // import-10zz8/10zzc: untouched uploaded-sheet leads hidden by default
     if(af.ages      && af.ages.length      && af.ages.indexOf(_leadCallWin(l))===-1) return false; // imp-smart-1
     if(!advMatch(af.services, l.svc||'')) return false;
+    if(!_ljMatch(af, l)) return false; // lp-journey
     if(af.clients   && af.clients.length   && af.clients.indexOf(l.company||'')===-1) return false;
     // Custom-field filters (keys shaped "cf:<field_key>")
     var _afKeys = Object.keys(af);
@@ -9553,6 +9555,7 @@ function leadsHTML(){
     if(af.sources   && af.sources.length   && af.sources.indexOf(srcLabel(l.src||''))===-1) return;
     if(!(af.sources && af.sources.length) && _lfHideUp(l)) return; // import-10zz8/10zzc
     if(!advMatch(af.services, l.svc||'')) return;
+    if(!_ljMatch(af, l)) return; // lp-journey
     if(af.clients   && af.clients.length   && af.clients.indexOf(l.company||'')===-1) return;
     var _afK = Object.keys(af);
     for(var _cj=0; _cj<_afK.length; _cj++){
@@ -9617,6 +9620,7 @@ function _lfActiveCount(af){
   af=af||{}; var n=0;
   ['campaigns','sources','locations','services'].forEach(function(k){ if(af[k]&&af[k].length) n++; });
   if(af._lfTime||af.dateFrom||af.dateTo) n++;
+  if(af.journey&&af.journey.length) n++; // lp-journey
   if((af.telecallers&&af.telecallers.length)||(af.managers&&af.managers.length)||(af.partners&&af.partners.length)||(af.clients&&af.clients.length)) n++;
   Object.keys(af).forEach(function(k){ if(k.indexOf('cf:')===0 && af[k] && af[k].length) n++; });
   return n;
@@ -9652,6 +9656,7 @@ function lfFiltersSheet(){
   ];
   if(hasLoc||ls.length) rows.push(['loc','Location', ls.length===1?ls[0]:(ls.length?ls.length+' locations':'All locations'), !!ls.length]);
   if(hasSvc||vs.length) rows.push(['svc','Service', vs.length===1?vs[0]:(vs.length?vs.length+' services':'All services'), !!vs.length]);
+  var js=(af.journey||[]); if(js.length || (leads||[]).some(function(l){ return l.journey; })) rows.push(['jrn','Landing page journey', js.length===1?((_LJ_OPTS.find(function(o){return o[0]===js[0];})||[0,'1 step'])[1]):(js.length?js.length+' steps':'Anyone'), !!js.length]); // lp-journey
   if(window._isAdviuzStaff) rows.push(['team','Team & more', staffOn?'On':'All', staffOn]);
   var chev='<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true" style="color:var(--sub);flex:none"><path d="M9 6l6 6-6 6"/></svg>';
   var bolt='<svg width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>';
@@ -9763,6 +9768,10 @@ function lfPick(kind){
     scope.forEach(function(l){ var k=srcLabel(l.src||''); m2[k]=(m2[k]||0)+1; });
     opts=Object.keys(m2).map(function(k){ return {v:k,t:k,n:m2[k]}; }).sort(function(a,b){ return b.n-a.n; });
     cur=(af.sources||[]).slice();
+  } else if(kind==='jrn'){ // lp-journey: who watched / saw plans / started checkout / paid
+    title='Landing page journey';
+    opts=_LJ_OPTS.map(function(o){ var n=scope.filter(function(l){ return _ljTags(l).indexOf(o[0])>=0; }).length; return {v:o[0],t:o[1],n:n}; });
+    cur=(af.journey||[]).slice();
   } else if(kind==='loc' || kind==='svc'){
     title=kind==='loc'?'Location':'Service'; var m3={}, disp={};
     scope.forEach(function(l){ var raw=String((kind==='loc'?l.location:l.svc)||'').trim(); if(!raw) return; var k=advNorm(raw); if(!disp[k]) disp[k]=raw; m3[k]=(m3[k]||0)+1; });
@@ -9789,6 +9798,7 @@ function lfPick(kind){
     else if(kind==='src') af.sources=cur.slice();
     else if(kind==='loc') af.locations=cur.slice();
     else if(kind==='svc') af.services=cur.slice();
+    else if(kind==='jrn') af.journey=cur.slice();
     else {
       var k=cur[0]||''; af._lfTime=k; af.dateTo='';
       if(!k) af.dateFrom='';
@@ -13618,6 +13628,7 @@ function gfLeadInScope(lead){
     if(af.sources.indexOf(_s)===-1) return false;
   }
   if(!advMatch(af.services, lead.svc||lead.service||'')) return false;
+  if(!_ljMatch(af, lead)) return false; // lp-journey
   // Custom-field filters (keys shaped "cf:<field_key>")
   var _k2 = Object.keys(af);
   for(var _j=0; _j<_k2.length; _j++){
@@ -20199,6 +20210,90 @@ function _hzDay(d, tz){
 }
 function _hzTime(d, tz){ try{ return d.toLocaleTimeString('en-US',{timeZone:tz,hour:'numeric',minute:'2-digit',hour12:true}); }catch(_e){ return ''; } }
 function _hzShort(iso){ try{ var d=new Date(iso); if(isNaN(d)) return ''; return d.toLocaleDateString('en-CA',{month:'short',day:'numeric'}); }catch(_e){ return ''; } }
+
+// ── lp-journey (Ajax 2026-11-13): "Landing page journey — one more sliding card" + filters.
+// Data: leads.journey (filled by the database from website_visitors + online checkout/payment).
+function _ljPlan(k){ k=String(k||'').trim(); if(!k) return ''; return k.replace(/-/g,' ').replace(/\b(ai|ce)\b/gi,function(m){return m.toUpperCase();}).replace(/\b[a-z]/g,function(c){return c.toUpperCase();}); }
+function _ljWhen(iso){ try{ var d=new Date(iso); if(isNaN(d)) return ''; var m=Math.round((Date.now()-d)/60000); if(m<1) return 'just now'; if(m<60) return m+' min ago'; if(m<1440) return Math.round(m/60)+' h ago'; return d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}); }catch(_e){ return ''; } }
+function _ljSteps(j){
+  j=j||{}; var v=(j.video!=null)?Number(j.video):null;
+  return [
+    {k:'video', t:'Video', on:v!=null && v>0, sub:v!=null?(v>=100?'All of it':(v>0?v+'%':'Started')):''},
+    {k:'plans', t:'Plans', on:!!j.plans_at, sub:j.plans_at?'Seen':''},
+    {k:'plan',  t:'Picked', on:!!j.plan || !!j.plan_clicks, sub:j.plan?_ljPlan(j.plan):''},
+    {k:'checkout', t:'Checkout', on:!!(j.checkout_at||j.pay_click), sub:(j.checkout_total?'$'+Math.round(Number(j.checkout_total)).toLocaleString('en-CA'):'')||(j.pay_click?'Pressed pay':'')},
+    {k:'paid',  t:'Paid', on:!!j.paid_at, sub:j.paid_at?(j.paid_total?'$'+Math.round(Number(j.paid_total)).toLocaleString('en-CA'):'Online'):''}
+  ];
+}
+function _ljTags(l){
+  var j=l&&l.journey; if(!j) return [];
+  var t=['any'], v=(j.video!=null)?Number(j.video):-1;
+  if(v>=0) t.push('vid_any'); if(v>=100) t.push('vid_full');
+  if(j.plans_at) t.push('plans'); if(j.plan||j.plan_clicks) t.push('plan_click');
+  if(j.checkout_at||j.pay_click) t.push('checkout');
+  if((j.checkout_at||j.pay_click) && !j.paid_at) t.push('no_pay');
+  if(j.paid_at) t.push('paid');
+  return t;
+}
+var _LJ_OPTS=[['any','Visited the landing page'],['vid_any','Watched the video'],['vid_full','Watched the full video'],['plans','Saw plans & prices'],['plan_click','Clicked a plan'],['checkout','Started checkout'],['no_pay','Started checkout, didn’t pay'],['paid','Paid online']];
+function _ljMatch(af, l){ var f=af&&af.journey; if(!f||!f.length) return true; var t=_ljTags(l); for(var i=0;i<f.length;i++) if(t.indexOf(f[i])>=0) return true; return false; }
+function _hzJourneySlide(l){
+  var j=l.journey||{}, st=_ljSteps(j), done=st.filter(function(x){return x.on;}).length;
+  var ico='<svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>';
+  var h='<div style="display:flex;justify-content:space-between;align-items:center"><span class="hz-lb" style="color:#140c28">'+ico+' Landing page journey</span><button class="hz-ex" onclick="hzJourneyOpen()" aria-label="Open journey">'+_hzI('expand',14)+'</button></div>';
+  h+='<div style="display:flex;align-items:flex-start;margin-top:9px">';
+  st.forEach(function(x,i){
+    var c=x.on?(x.k==='paid'?'#16a34a':'#4000f3'):'#d9d3ef';
+    h+='<div style="flex:1;min-width:0;text-align:center;position:relative">'
+      +(i?'<span style="position:absolute;z-index:0;top:8px;right:50%;width:100%;height:2px;background:'+(x.on?'#b9a6ff':'#ece9f5')+'"></span>':'')
+      +'<span style="position:relative;z-index:1;vertical-align:top;box-sizing:border-box;display:inline-flex;width:18px;height:18px;border-radius:50%;background:'+(x.on?c:'#fff')+';border:2px solid '+c+';align-items:center;justify-content:center">'
+      +(x.on?'<svg width="10" height="10" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>':'')+'</span>'
+      +'<div style="font-size:11px;font-weight:600;color:'+(x.on?'#140c28':'#9aa0b4')+';margin-top:3px">'+x.t+'</div>'
+      +'<div style="font-size:10px;color:#8a8fa3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 2px">'+_hzE(x.sub||' ')+'</div></div>';
+  });
+  h+='</div>';
+  var bits=[];
+  if(j.aud) bits.push(j.aud==='b2b'?'Advertises to businesses':'Advertises to consumers');
+  if(j.visits) bits.push(j.visits+(Number(j.visits)===1?' visit':' visits'));
+  if(j.last_seen) bits.push('last seen '+_ljWhen(j.last_seen));
+  h+='<div class="hz-sub" style="margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_hzE(bits.join(' · ')||(done+' of 5 steps'))+'</div>';
+  return h;
+}
+function hzJourneyOpen(){
+  var l=lsGetLead&&lsGetLead(); if(!l||!l.journey) return;
+  var j=l.journey, st=_ljSteps(j);
+  var row=function(on,t,d,w){ return '<div style="display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--border)">'
+    +'<span style="flex:none;width:20px;height:20px;border-radius:50%;margin-top:1px;background:'+(on?'#4000f3':'#fff')+';border:2px solid '+(on?'#4000f3':'#d9d3ef')+';display:inline-flex;align-items:center;justify-content:center">'+(on?'<svg width="11" height="11" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>':'')+'</span>'
+    +'<div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:600;color:'+(on?'var(--text)':'#9aa0b4')+'">'+t+'</div>'+(d?'<div style="font-size:13px;color:var(--sub);margin-top:2px">'+_hzE(d)+'</div>':'')+'</div>'
+    +(w?'<div style="font-size:12px;color:var(--sub);white-space:nowrap">'+_hzE(w)+'</div>':'')+'</div>'; };
+  var v=(j.video!=null)?Number(j.video):null;
+  var b='';
+  b+=row(v!=null&&v>0,'Watched the video', v==null?'Not yet':(v>=100?'All the way to the end':(v>0?v+'% of the video':'Pressed play')),'');
+  b+=row(!!j.aud,'Picked who they advertise to', j.aud?(j.aud==='b2b'?'Business owners (B2B)':'Consumers (B2C)'):'Not yet','');
+  b+=row(!!j.plans_at,'Saw plans & prices', j.plans_at?'':'Not yet', j.plans_at?_ljWhen(j.plans_at):'');
+  b+=row(!!(j.plan||j.plan_clicks),'Clicked a plan', j.plan?(_ljPlan(j.plan)+(j.plan_clicks>1?' · '+j.plan_clicks+' plan clicks':'')):'Not yet','');
+  b+=row(!!(j.checkout_at||j.pay_click),'Started checkout', j.checkout_at?((j.checkout_plan||'')+(j.checkout_total?' · $'+Number(j.checkout_total).toLocaleString('en-CA',{minimumFractionDigits:2,maximumFractionDigits:2}):'')):(j.pay_click?'Pressed the pay button':'Not yet'), j.checkout_at?_ljWhen(j.checkout_at):'');
+  b+=row(!!j.paid_at,'Paid online', j.paid_at?(j.paid_plan||''):'Not yet', j.paid_at?_ljWhen(j.paid_at):'');
+  var more=[];
+  if(j.visits) more.push(j.visits+(Number(j.visits)===1?' visit':' visits'));
+  if(j.chats) more.push(j.chats+' chat'+(j.chats>1?'s':'')+' with Amber');
+  if(j.voice) more.push(j.voice+' voice call'+(j.voice>1?'s':'')+' with Amber on the page');
+  if(j.first_seen) more.push('first seen '+_ljWhen(j.first_seen));
+  var EVT={visit:'Visited',video:'Video',aud:'Picked audience',plans:'Saw plans',checkout:'Clicked plan',pay:'Pressed pay',chat:'Chatted with Amber',voice:'Talked to Amber',checkout_started:'Started checkout',paid:'Paid'};
+  var ev=(Array.isArray(j.ev)?j.ev.slice():[]).reverse().slice(0,15);
+  var evh=ev.map(function(x){ var d=x.d||''; if(x.e==='video'&&d) d=d+'%'; if(x.e==='checkout'||x.e==='pay') d=_ljPlan(d); if(x.e==='aud') d=d==='b2b'?'B2B':(d==='b2c'?'B2C':d); if(x.e==='visit') d='';
+    return '<div style="display:flex;gap:10px;font-size:13px;padding:6px 0"><span style="flex:1;color:var(--text)">'+_hzE((EVT[x.e]||x.e)+(d?' · '+d:''))+'</span><span style="color:var(--sub);white-space:nowrap">'+_hzE(_ljWhen(x.t))+'</span></div>'; }).join('');
+  var ov=document.createElement('div'); ov.className='sheet-ov open'; ov.style.zIndex='880';
+  ov.innerHTML='<div class="sheet" style="max-height:85vh;display:flex;flex-direction:column"><div class="sheet-handle"></div>'
+    +'<div class="sheet-head"><div class="sheet-title">Landing page journey</div><button class="sheet-x" data-x aria-label="Close">&#x2715;</button></div>'
+    +'<div class="sh-body" style="padding:2px 16px calc(24px + env(safe-area-inset-bottom,0px));overflow-y:auto">'
+    +'<div style="font-size:13px;color:var(--sub);margin:2px 0 4px">What '+_hzE(String(l.name||'this lead').split(' ')[0])+' did on adviuz.com/start</div>'+b
+    +(more.length?'<div style="font-size:13px;color:var(--sub);margin-top:10px">'+_hzE(more.join(' · '))+'</div>':'')
+    +(evh?'<div class="hz-lb" style="margin-top:16px">Recent steps</div>'+evh:'')
+    +'</div></div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click',function(e){ if(e.target===ov||e.target.closest('[data-x]')) ov.remove(); });
+}
 function _hzProduct(l){
   var s=String(l.svc||'').trim();
   if(/flyer/i.test(s)) return 'Digital Flyers';
@@ -20962,6 +21057,7 @@ function _hzSlider(l, acts){
   var sl=[];
   if(heard) sl.push(['<div>'+_hzHeardSlide(l,heard)+'</div>','background:#fffbeb;border-color:#f59e0b']);
   sl.push(['<div id="hzNext">'+_hzNextBody(l)+'</div>','']); // lead-hz-10: Next up
+  if(l.journey) sl.push(['<div>'+_hzJourneySlide(l)+'</div>','background:#faf8ff']); // lp-journey (Ajax 2026-11-13)
   // lead-hz-35: Recent events slide removed (Ajax) — the Conversation box shows it
   sl.push(['<div>'+_hzSummarySlide(l)+'</div>','background:#faf8ff']);
   sl.push(['<div id="hzSlCompany">'+_hzBriefBody('company')+'</div>','']);
