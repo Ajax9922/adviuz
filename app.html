@@ -5429,7 +5429,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-12 lead-hz-37';
+var APP_VERSION = 'v2026-11-12 lead-hz-38';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -20742,7 +20742,23 @@ function hzEmPrev(ix){
     +'<iframe id="hzEmPrevF" sandbox="" style="flex:1;width:100%;min-height:60vh;border:none;border-top:1px solid #ece9f5;background:#fff"></iframe>'
     +'<div style="display:flex;gap:8px;padding:10px 16px calc(12px + var(--sb,0px))"><button class="hz-btn" style="flex:1" onclick="closeSheet(\'hzEmPrevSh\')">Close</button><button class="hz-btn pri" style="flex:1" onclick="closeSheet(\'hzEmPrevSh\');openEmailInbox('+(window._hzActCtx&&window._hzActCtx.lid)+')">Open email box</button></div></div>';
   openSheet('hzEmPrevSh');
-  var f=document.getElementById('hzEmPrevF'); if(f) f.srcdoc=doc;
+  var f=document.getElementById('hzEmPrevF');
+  // lead-hz-38: show the REAL email — the designed copy the provider kept (email-body), else the template render
+  // from client-email (preview mode, sends nothing); plain text only as a last resort.
+  var plain='<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font-family:Inter,-apple-system,Segoe UI,Arial,sans-serif;font-size:14px;line-height:1.65;color:#1f2330;margin:18px;word-break:break-word;white-space:pre-wrap}</style></head><body>'+(isHtml?body:_hzE(String(body).replace(/\[button:([^|\]]+)\|([^\]]+)\]/g,'$1: $2')))+'</body></html>';
+  if(x.inb){ if(f) f.srcdoc=plain; return; }
+  if(f) f.srcdoc='<div style="font-family:Inter,Arial,sans-serif;color:#8a8fa3;font-size:13px;text-align:center;padding:60px 20px">Loading the email…</div>';
+  var lid=window._hzActCtx&&window._hzActCtx.lid, l=(typeof leads!=='undefined'?leads:[]).find(function(y){ return y.id===lid; })||{};
+  var put=function(h){ var g=document.getElementById('hzEmPrevF'); if(g) g.srcdoc=h; };
+  window._hzEmHtml=window._hzEmHtml||{};
+  (async function(){
+    var eid=String(a.email_id||'');
+    if(eid && window._hzEmHtml[eid]){ put(window._hzEmHtml[eid]); return; }
+    try{ if(eid){ var r=await sbFetch('/functions/v1/email-body',{ method:'POST', body: JSON.stringify({ email_id: eid }) }); var d=r.ok?await r.json():{}; if(d&&d.ok&&d.html){ window._hzEmHtml[eid]=String(d.html); put(window._hzEmHtml[eid]); return; } } }catch(_e){}
+    try{ var r2=await sbFetch('/functions/v1/client-email',{ method:'POST', body: JSON.stringify({ preview:true, client_id: l.client_id||window._clientId||null, lead_id: l.dbId||null, campaign_id: l.campaign_id||null, to: l.em||'preview@adviuz.com', subject: subj, message: isHtml?'':String(body), message_html: isHtml?String(body):undefined }) });
+      var d2=await r2.json().catch(function(){return {};}); if(r2.ok && d2 && d2.html){ put(String(d2.html)); return; } }catch(_e){}
+    put(doc||plain);
+  })();
 }
 // lead-hz-22: stop every automated follow-up for this one lead (two taps, no pop-up)
 async function hzPbStop(btn){
