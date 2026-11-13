@@ -5429,7 +5429,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-12 lead-hz-23';
+var APP_VERSION = 'v2026-11-12 lead-hz-24';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -19937,6 +19937,16 @@ function _hzCss(){
     '.hz-slide>.hz-slc{height:100%;display:flex;flex-direction:column;cursor:pointer}',
     '.hz-slc .hz-dots{margin-top:auto;padding-top:10px}',
     '.hz-seg{margin:12px 10px 0}',
+    '.hzA-what{margin-top:6px;background:#faf8ff;border-left:3px solid #8b2bf7;border-radius:0 10px 10px 0;padding:7px 10px}',
+    '.hzA-what b{display:block;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#8b2bf7;font-weight:600;margin-bottom:2px}',
+    '.hzA-what .w{font-size:12.5px;color:#374151;line-height:1.5;white-space:pre-line;overflow:hidden;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical}',
+    '.hzA-c.open .hzA-what .w{display:block;-webkit-line-clamp:unset}',
+    '.hzP{margin-top:8px;background:#fff;border:1px solid #ece6ff;border-radius:12px;padding:6px 10px 4px;cursor:default}',
+    '.hzP .hz-pbar{margin-top:4px}',
+    '.hzP .hz-play{width:40px;height:40px;box-shadow:0 4px 12px rgba(139,43,247,.3)}',
+    '.hzP .hz-pctl2{gap:20px}',
+    '.hzA-c .ac button.on{background:#f3efff}',
+    '.hzA-tx{white-space:pre-wrap;font-size:12px;color:#4b5563;line-height:1.6;margin-top:8px;max-height:300px;overflow:auto;background:#fafafe;border:1px solid #ece9f5;border-radius:10px;padding:8px 10px}',
     '.hz-gq{flex:none;width:22px;height:22px;border-radius:7px;border:none;background:rgba(255,255,255,.12);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}',
     '.hzA{padding:16px 10px 24px}',
     '.hzA-h{display:flex;align-items:center;gap:8px;margin:0 4px}.hzA-h b{font-size:15px;font-weight:600;flex:1}',
@@ -20411,6 +20421,11 @@ function _hzAgoShort(ms){ var m=Math.round(ms/60000); if(m<60) return Math.max(1
 function _hzActCalc(l, acts){
   var list=(acts||[]).filter(function(a){ return a && a.type!=='email_opened' && !_hzHidden(a); }).map(function(a,ix){ var x=_hzA(a,l.id); x.a=a; x.i=ix; x.t=new Date(a._rawTime||'').getTime(); return x; });
   window._hzActList=list;
+  // lead-hz-24: "AI call notes" belong to the call they describe — fold them into that call's card
+  list.forEach(function(x){ if(x.a.type!=='ai_analysis'||isNaN(x.t)) return;
+    var best=null; list.forEach(function(y){ if(y.comm!=='call'||y.notes||isNaN(y.t)) return; var d=Math.abs(y.t-x.t); if(d<=15*60000 && (!best||d<Math.abs(best.t-x.t))) best=y; });
+    if(best){ best.notes=_hzPlain(x.a.body||'')||x.body; x.skip=true; } });
+  list=list.filter(function(x){ return !x.skip; });
   // replies: for each message from our side, did the client answer before our next message?
   var asc=list.filter(function(x){ return x.comm && !isNaN(x.t); }).sort(function(p,q){ return p.t-q.t; });
   var outs=0, replied=0, gaps=[];
@@ -20544,6 +20559,38 @@ function _hzUpAuto(){
   window._hzUpT=setInterval(function(){ var w=document.getElementById('hzUpV'); if(!w||!w.isConnected){ stop(); return; } if(document.hidden) return;
     var n=w.children.length, ix=Math.round(w.scrollTop/Math.max(1,w.clientHeight)); w.scrollTo({top:((ix+1)%n)*w.clientHeight, behavior:'smooth'}); },4000);
 }
+// lead-hz-24: the same brand player as the top of the lead (drag bar, ±5 s, speed) for every call in the activity
+function _hzPlayerHTML(src, dur){
+  return '<div class="hzP" onclick="event.stopPropagation()"><audio preload="none" src="'+src+'"></audio>'
+    +'<div class="hz-pbar"><div class="tr"><i></i></div><b></b></div>'
+    +'<div class="hz-ptm"><span class="c">0:00</span><span class="r">'+_hzE(dur||'')+'</span></div>'
+    +'<div class="hz-pctl2"><span style="width:34px"></span>'
+    +'<button class="hz-skp" data-sk="-5" aria-label="Back 5 seconds">'+_hzSkip(-1,26)+'</button>'
+    +'<button class="hz-play" aria-label="Play">'+_hzI('play',17)+'</button>'
+    +'<button class="hz-skp" data-sk="5" aria-label="Forward 5 seconds">'+_hzSkip(1,26)+'</button>'
+    +'<button class="hz-chipb sp" style="width:34px;justify-content:center;padding:4px 0" aria-label="Playback speed">1×</button></div></div>';
+}
+function _hzWirePlayers(){
+  document.querySelectorAll('#lsBody .hzP:not([data-w])').forEach(function(el){
+    el.setAttribute('data-w','1');
+    var au=el.querySelector('audio'), bar=el.querySelector('.hz-pbar'), fill=el.querySelector('.tr i'), kn=el.querySelector('.hz-pbar b'), c=el.querySelector('.c'), r=el.querySelector('.r'), pb=el.querySelector('.hz-play'), sp=el.querySelector('.sp');
+    var drag=false;
+    var show=function(p){ fill.style.width=(p*100)+'%'; kn.style.left=(p*100)+'%'; };
+    var paint=function(){ if(drag) return; var d=au.duration; if(!d||!isFinite(d)) return; show(au.currentTime/d); c.textContent=_hzClock(au.currentTime); r.textContent='−'+_hzClock(d-au.currentTime); };
+    var sync=function(){ pb.innerHTML=_hzI(au.paused?'play':'pause',17); pb.style.paddingLeft=au.paused?'2px':'0'; };
+    au.addEventListener('timeupdate',paint); au.addEventListener('loadedmetadata',paint); au.addEventListener('seeked',paint);
+    au.addEventListener('play',sync); au.addEventListener('pause',sync); au.addEventListener('ended',sync);
+    au.addEventListener('error',function(){ if(au.getAttribute('src')) showToast('This recording could not be loaded'); });
+    pb.onclick=function(){ if(au.paused){ document.querySelectorAll('#lsBody audio').forEach(function(x){ if(x!==au&&!x.paused) x.pause(); }); au.play().catch(function(){ showToast('Could not play this recording'); }); } else au.pause(); };
+    el.querySelectorAll('[data-sk]').forEach(function(b){ b.onclick=function(){ var n=Number(b.getAttribute('data-sk')); _hzReady(au,function(){ au.currentTime=Math.max(0,Math.min(au.duration||0,au.currentTime+n)); }); }; });
+    sp.onclick=function(){ var v=au.playbackRate>=2?1:au.playbackRate>=1.5?2:1.5; au.playbackRate=v; sp.textContent=(v===1?'1':v)+'×'; };
+    var pct=function(e){ var rc=bar.getBoundingClientRect(); return Math.min(1,Math.max(0,(e.clientX-rc.left)/Math.max(1,rc.width))); };
+    bar.addEventListener('pointerdown',function(e){ drag=true; try{ bar.setPointerCapture(e.pointerId); }catch(_e){} show(pct(e)); e.preventDefault(); });
+    bar.addEventListener('pointermove',function(e){ if(drag) show(pct(e)); });
+    bar.addEventListener('pointerup',function(e){ if(!drag) return; drag=false; var p=pct(e); _hzReady(au,function(){ au.currentTime=p*au.duration; }); });
+    bar.addEventListener('pointercancel',function(){ drag=false; });
+  });
+}
 function _hzClockT(t){ return isNaN(t)?'':new Date(t).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}); }
 function _hzActRow(l, x){
   var a=x.a, tag={cl:String(l.name||'Client').split(' ')[0],you:'You',ai:'AI',auto:'Auto',sys:''}[x.who]||'';
@@ -20557,8 +20604,12 @@ function _hzActRow(l, x){
   }
   h+='<div class="hzA-c'+(x.inb?' in':'')+(x.note?' note':'')+'" onclick="if(!event.target.closest(\'button,audio,a\'))this.classList.toggle(\'open\')">'
     +'<div class="tt">'+(tag?'<span class="who w-'+x.who+'">'+_hzE(tag)+'</span>':'')+'<span class="ttx">'+_hzE(x.title)+'</span></div>'
-    +(x.body?'<div class="d">'+_hzE(x.body)+'</div>':'');
-  if(a.recording_url) h+='<audio controls preload="none" src="'+recUrl(a.recording_url)+'"></audio>';
+    +(x.comm!=='call'&&x.body?'<div class="d">'+_hzE(x.body)+'</div>':'');
+  if(x.comm==='call'){ // lead-hz-24: what happened → player → transcript
+    var what=String(x.notes||x.body||'').replace(/^What happened:\s*/i,'').replace(/\s*[•·]\s*/g,'\n• ').replace(/^\n/,'').trim();
+    if(what) h+='<div class="hzA-what"><b>What happened</b><div class="w">'+_hzE(what)+'</div></div>';
+    if(a.recording_url) h+=_hzPlayerHTML(recUrl(a.recording_url), (a.dur&&a.dur!=='—')?a.dur:'');
+  }
   var bd='';
   if(x.opens) bd+='<button class="bd" onclick="showEmailOpens('+l.id+',\''+_jsq(a.email_id||'')+'\',\''+_jsq(a.email_subject||'')+'\')">'+_hzI('eye',11)+'Opened '+x.opens+'× ›</button>';
   if(x.replyIn) bd+='<span class="bd">'+_hzI('check',11)+'Replied in '+_hzAgoShort(x.replyIn)+'</span>';
@@ -20568,9 +20619,9 @@ function _hzActRow(l, x){
   if(x.inb && x.comm==='email') ac+='<button onclick="openEmailInbox('+l.id+')">'+_hzI('mail',12)+'Reply</button>';
   if(x.inb && x.comm==='call') ac+='<button onclick="lsDoIvrCall()">'+_hzI('phone',12)+'Call back</button>';
   if(x.comm==='email') ac+='<button onclick="hzEmPrev('+x.i+')">'+_hzI('eye',12)+'Preview</button>';
-  if(a.transcript) ac+='<button onclick="var n=this.parentNode.nextElementSibling;n.style.display=n.style.display===\'none\'?\'\':\'none\'">'+_hzI('doc',12)+'Transcript</button>';
+  if(a.transcript) ac+='<button onclick="var n=this.parentNode.nextElementSibling;var o=n.style.display===\'none\';n.style.display=o?\'\':\'none\';this.classList.toggle(\'on\',o)">'+_hzI('doc',12)+'Transcript</button>';
   if(ac) h+='<div class="ac">'+ac+'</div>';
-  if(a.transcript) h+='<div style="display:none;white-space:pre-wrap;font-size:12px;color:#4b5563;line-height:1.55;margin-top:8px;max-height:260px;overflow:auto">'+_hzE(a.transcript)+'</div>';
+  if(a.transcript) h+='<div class="hzA-tx" style="display:none">'+_hzE(a.transcript)+'</div>';
   return h+'</div></div>';
 }
 function hzActFilter(k){ window._hzActF=k; window._hzActN=30; hzActRedraw(); }
@@ -20580,7 +20631,7 @@ function hzActRedraw(){
   var l=leads.find(function(y){ return y.id===x.lid; }); if(!l) return;
   var hadFocus=document.activeElement && document.activeElement.closest && document.activeElement.closest('#hzActQ');
   el.outerHTML=_hzActivity(l, x.acts, x.sched);
-  _hzActMini(); _hzUpAuto();
+  _hzActMini(); _hzUpAuto(); _hzWirePlayers();
   if(hadFocus){ var i=document.querySelector('#hzActQ input'); if(i){ i.focus(); var v=i.value; i.value=''; i.value=v; } }
 }
 function _hzActMini(){ document.querySelectorAll('#hzAct audio[controls]').forEach(_hzMini); }
@@ -20797,6 +20848,7 @@ function _hzAfterRender(l){
   try{ _hzActPolish(); }catch(_e){ console.warn('[hz act]', _e); }
   try{ _hzActMini(); }catch(_e){}
   try{ _hzUpAuto(); }catch(_e){}
+  try{ _hzWirePlayers(); }catch(_e){}
 }
 function _hzClock(s){ s=Math.max(0,Math.floor(s||0)); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
 // Load the audio's length first if needed, then run fn (seeking needs the length).
