@@ -5429,7 +5429,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-12 lead-hz-17';
+var APP_VERSION = 'v2026-11-12 lead-hz-18';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -19965,6 +19965,7 @@ function _hzCss(){
     '.hzA-c.in{background:#f3fcf8;border-color:#cdeedf}.hzA-c.note{background:#fffbeb;border-color:#f6e3b4}',
     '.hzA-c .tt{font-size:12.5px;font-weight:600;display:flex;align-items:center;min-width:0}.hzA-c .ttx{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
     '.hzA-c .who{font-size:10px;font-weight:600;border-radius:6px;padding:1px 6px;margin-right:6px;flex-shrink:0}',
+    '.w-gem{background:#fdf2ff;color:#c026d3}.hzA-c.mtg{background:#fff;border:1.5px solid #f0c8fb;cursor:default}.hzA-c.mtg .ld-act-body{padding:0}',
     '.w-you{background:#f3efff;color:#4000f3}.w-ai{background:linear-gradient(135deg,#4000f3,#e65afc);color:#fff}.w-cl{background:#d6f3e6;color:#047857}.w-auto{background:#f3f4f6;color:#6b7280}',
     '.hzA-c .d{font-size:12px;color:#4b5563;line-height:1.45;margin-top:3px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;white-space:pre-wrap;word-break:break-word}',
     '.hzA-c.open .d{display:block;-webkit-line-clamp:unset}',
@@ -20368,6 +20369,8 @@ function _hzA(a, lid){
   else if(ty==='email_sent'||ty==='email'){ r.comm='email'; r.k='em'; r.ic='mail'; r.title=a.email_subject||_hzStripEmo(a.label||'Email');
     r.body=_hzPlain(a.email_body||'')||(a.email_subject?'':b); var s=a.email_src||'';
     r.who=s==='ai'?'ai':(s==='auto'?'auto':'you'); if(r.who==='ai'){ r.k='ai'; r.ic='spark'; } }
+  else if(ty==='note' && /Demo notes \(Gemini\)/.test(String(a.body||''))){ r.who='gem'; r.k='meet'; r.ic='cal'; r.title='Meeting notes'; r.meetNote=true; r.body=''; } // lead-hz-18: Gemini meeting notes keep their own card
+  else if(ty==='note' && /^\W*Stage moved to /.test(String(a.body||''))){ var sm=String(a.body).match(/Stage moved to ([^(\n—]+)/); r.who='ai'; r.k='st'; r.ic='arrow'; r.title='Stage → '+(sm?sm[1].trim():''); r.body=_hzPlain(String(a.body).replace(/^[^—\n]*[—-]\s*/,'')); }
   else if(ty==='note'){ r.who='you'; r.k='note'; r.ic='note'; r.title='Note'+(a.by?' · '+a.by:''); r.body=b; r.note=true; }
   else if(ty==='ai_analysis'){ r.who='ai'; r.k='ai'; r.ic='spark'; r.title='AI call notes'; r.body=b; }
   else if(ty==='stage_change'){ r.title=_hzStripEmo(a.label||'Stage changed'); r.body=b; r.sys=true; r.ic='arrow'; }
@@ -20432,11 +20435,11 @@ function _hzActivity(l, acts, sched){
     h+='</div>';
   }
   // filters
-  var cnt={all:c.list.length,cl:c.list.filter(function(x){ return x.inb; }).length,call:c.list.filter(function(x){ return x.comm==='call'; }).length,email:c.list.filter(function(x){ return x.comm==='email'; }).length,sms:c.list.filter(function(x){ return x.comm==='sms'; }).length,note:c.list.filter(function(x){ return x.note; }).length};
+  var cnt={all:c.list.length,cl:c.list.filter(function(x){ return x.inb; }).length,call:c.list.filter(function(x){ return x.comm==='call'; }).length,email:c.list.filter(function(x){ return x.comm==='email'; }).length,sms:c.list.filter(function(x){ return x.comm==='sms'; }).length,note:c.list.filter(function(x){ return x.note||x.meetNote; }).length};
   var chip=function(k,lbl,ic){ return '<button class="hzA-f'+(F===k?' on':'')+'" onclick="hzActFilter(\''+k+'\')">'+(ic?_hzI(ic,12):'')+_hzE(lbl)+' '+cnt[k]+'</button>'; };
   h+='<div class="hzA-fc">'+chip('all','All','')+chip('cl','From '+first,'user')+chip('call','Calls','phone')+chip('email','Email','mail')+chip('sms','Text','sms')+chip('note','Notes','note')+'</div>';
   var items=c.list.filter(function(x){
-    if(F==='cl'&&!x.inb) return false; if(F==='call'&&x.comm!=='call') return false; if(F==='email'&&x.comm!=='email') return false; if(F==='sms'&&x.comm!=='sms') return false; if(F==='note'&&!x.note) return false;
+    if(F==='cl'&&!x.inb) return false; if(F==='call'&&x.comm!=='call') return false; if(F==='email'&&x.comm!=='email') return false; if(F==='sms'&&x.comm!=='sms') return false; if(F==='note'&&!(x.note||x.meetNote)) return false;
     if(Q && (x.title+' '+x.body).toLowerCase().indexOf(Q)<0) return false; return true; });
   var N=window._hzActN||30, shown=items.slice(0,N);
   if(!shown.length) h+='<div class="hz-sub" style="text-align:center;margin:18px 0">Nothing here yet.</div>';
@@ -20490,6 +20493,10 @@ function _hzActRow(l, x){
   var icm={phonein:'phone',phoneout:'phone'}; var ic=icm[x.ic]||x.ic;
   var h='<div class="hzA-it"><div class="t">'+_hzE(_hzClockT(x.t))+'</div><div class="ln"><span class="dot k-'+x.k+'">'+_hzI(ic,12)+'</span></div>';
   if(x.sys){ return h+'<div class="hzA-sys">'+_hzE(x.title)+(x.body&&x.body!==x.title?' <span>· '+_hzE(x.body.slice(0,80))+'</span>':'')+'</div></div>'; }
+  if(x.meetNote){
+    var mn=''; try{ mn=mnActHTML(a, l, x.i).replace(/^<div class="ld-act-dot">[\s\S]*?<\/div>/,'').replace(/<span class="ld-act-label">[\s\S]*?<\/span><span class="ld-act-time">[\s\S]*?<\/span>/,''); }catch(_e){ mn='<div class="d">'+_hzE(_hzPlain(a.body))+'</div>'; }
+    return h+'<div class="hzA-c mtg"><div class="tt"><span class="who w-gem">Gemini</span><span class="ttx">Meeting notes</span></div>'+mn+'</div></div>';
+  }
   h+='<div class="hzA-c'+(x.inb?' in':'')+(x.note?' note':'')+'" onclick="if(!event.target.closest(\'button,audio,a\'))this.classList.toggle(\'open\')">'
     +'<div class="tt">'+(tag?'<span class="who w-'+x.who+'">'+_hzE(tag)+'</span>':'')+'<span class="ttx">'+_hzE(x.title)+'</span></div>'
     +(x.body?'<div class="d">'+_hzE(x.body)+'</div>':'');
