@@ -5429,7 +5429,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-12 lead-hz-35';
+var APP_VERSION = 'v2026-11-12 lead-hz-36';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -17750,42 +17750,58 @@ async function loadLeadActivity(localId, dbId) {
       var en = _enr[0] || null;
       window._pbEnrState = en ? { lid: localId, id: en.id, status: en.status, reason: en.pause_reason||'' } : { lid: localId };
       if (en){
-        var _st = await sbFetch('/rest/v1/playbook_steps?campaign_id=eq.'+en.campaign_id+'&stage_key=eq.'+encodeURIComponent(en.stage_key)+'&active=eq.true&select=step_no,delay_hours,channel,subject,body,send_at_local&order=delay_hours.asc,step_no.asc');
+        var _st = await sbFetch('/rest/v1/playbook_steps?campaign_id=eq.'+en.campaign_id+'&stage_key=eq.'+encodeURIComponent(en.stage_key)+'&active=eq.true&select=step_no,delay_hours,channel,subject,body,send_at_local,label&order=delay_hours.asc,step_no.asc');
         var _steps = _st.ok ? await _st.json() : [];
+        var _tzL = (typeof leads!=='undefined'?leads:[]).find(function(x){ return x.id === localId; });
+        // lead-hz-36: same track rule as playbook-engine — Adviuz "Meeting Done": proposal steps (v3) only once a proposal
+        // has been SENT; the after-meeting steps only while none has. (The preview used to list both tracks.)
+        var _HOUSE='7d315d20-00af-4e7f-8d79-c89b3f2b5cf7';
+        var _isHouse = String((_tzL&&_tzL.client_id)||window._clientId||'')===_HOUSE;
+        if (_isHouse && String(en.stage_key)==='6'){
+          var _hp=false; try{ var _pr=await sbFetch('/rest/v1/proposals?lead_id=eq.'+dbId+'&sent_at=not.is.null&select=id&limit=1'); _hp=_pr.ok && (await _pr.json()).length>0; }catch(_e){}
+          _steps=_steps.filter(function(s){ return _hp ? s.label==='v3' : s.label!=='v3'; });
+        }
         var _i0 = _steps.findIndex(function(s){ return Number(s.step_no)===Number(en.next_step_no); });
+        if (_i0 < 0 && en.next_step_no!=null) _i0 = 0;
         if (_i0 >= 0){
           var _skips = Array.isArray(en.skipped_steps) ? en.skipped_steps.map(Number) : [];
-          // Honest timing: the engine has fixed ONLY the next step's exact
-          // moment (next_at, already shifted past quiet hours). Later steps
-          // are ESTIMATES: raw offset, then the step's pinned local time,
-          // then clamped into the 9 AM\u20137 PM window on the lead's clock.
-          var _tzL = (typeof leads!=='undefined'?leads:[]).find(function(x){ return x.id === localId; });
           var _pbEff = (typeof effLeadTz==='function' && _tzL) ? effLeadTz(_tzL) : {tz:'America/Toronto',clinic:false};
-          var _proj = function(rawMs, pin, minMs){
-            var t=rawMs;
-            try{
-              if(t<Date.now()) t=Date.now()+120000;
-              if(minMs && t<minMs+3600000) t=minMs+3600000;
-              var p=isoToZonedParts(new Date(t).toISOString(), _pbEff.tz);
-              var hm=String(p.time||'09:30').split(':'); var lm=(parseInt(hm[0],10)||0)*60+(parseInt(hm[1],10)||0);
-              var pp=String(pin||'').match(/^(\d{1,2}):(\d{2})/);
-              if(pp){ var pm=((parseInt(pp[1],10)||0)%24)*60+(parseInt(pp[2],10)||0); if(lm<pm){ t=new Date(zonedToUtcISO(p.date,('0'+pp[1]).slice(-2)+':'+pp[2],_pbEff.tz)).getTime(); lm=pm; } }
-              if(lm<9*60){ t=new Date(zonedToUtcISO(p.date,'09:30',_pbEff.tz)).getTime(); }
-              else if(lm>=19*60){ var p2=isoToZonedParts(new Date(t+86400000).toISOString(),_pbEff.tz); t=new Date(zonedToUtcISO(p2.date,'09:30',_pbEff.tz)).getTime(); }
-            }catch(e){}
+          // lead-hz-36: simulate the engine's rules so the preview matches what will really happen:
+          // waking hours (Adviuz 8 AM–7 PM, clients 9 AM–7 PM, lead's clock), no Sundays, pinned send times,
+          // daily limit = 1 per channel and 2 in total (steps within 2 h of the stage start are exempt), one step at a time.
+          var _wS=_isHouse?8:9, _wE=19, _tz=_pbEff.tz;
+          var _parts=function(t){ return isoToZonedParts(new Date(t).toISOString(), _tz); };
+          var _at=function(date,hhmm){ return new Date(zonedToUtcISO(date,hhmm,_tz)).getTime(); };
+          var _nextMorning=function(t){ var d=_parts(t).date; for(var i=0;i<8;i++){ var nd=_parts(_at(d,'12:00')+86400000*(i+1)).date; if(new Date(nd+'T12:00:00Z').getUTCDay()!==0) return _at(nd,('0'+_wS).slice(-2)+':30'); } return t+86400000; };
+          var _used={};
+          var _sim=function(t, s){
+            for(var g=0; g<20; g++){
+              var p=_parts(t), hm=String(p.time||'00:00').split(':'), lm=(parseInt(hm[0],10)||0)*60+(parseInt(hm[1],10)||0);
+              var cap=(s.channel==='sms'||s.channel==='email'||s.channel==='call');
+              if(!cap) return t;
+              if(new Date(p.date+'T12:00:00Z').getUTCDay()===0){ t=_nextMorning(t); continue; }
+              var pp=String(s.send_at_local||'').match(/^(\d{1,2}):(\d{2})/);
+              if(pp){ var pm=((parseInt(pp[1],10)||0)%24)*60+(parseInt(pp[2],10)||0); if(lm<pm){ t=_at(p.date,('0'+(parseInt(pp[1],10)%24)).slice(-2)+':'+pp[2]); continue; } }
+              if(lm<_wS*60){ t=_at(p.date,('0'+_wS).slice(-2)+':30'); continue; }
+              if(lm>=_wE*60){ t=_nextMorning(t); continue; }
+              var u=_used[p.date]||{sms:0,email:0,call:0,total:0};
+              if(Number(s.delay_hours)>2 && (u[s.channel]>=1 || u.total>=2)){ t=_nextMorning(t); continue; }
+              u[s.channel]++; u.total++; _used[p.date]=u; return t;
+            }
             return t;
           };
-          var _prevT=0;
-          window._pbSched = _steps.slice(_i0).map(function(s,si){
+          var _cur=0;
+          window._pbSched = _steps.slice(_i0).filter(function(s){ return _skips.indexOf(Number(s.step_no))<0; }).map(function(s,si){
             var raw = new Date(en.entered_at).getTime() + Number(s.delay_hours)*3600000;
             var exact = (si===0 && en.next_at) ? true : false;
-            var due = exact ? new Date(en.next_at).getTime() : _proj(raw, s.send_at_local, _prevT);
-            _prevT = due;
+            var base = exact ? new Date(en.next_at).getTime() : Math.max(raw, _cur ? _cur+120000 : Date.now()+120000);
+            var due = _sim(Math.max(base, Date.now()-60000), s);
+            _cur = due;
             return { enr: en.id, step_no: Number(s.step_no), channel: s.channel,
                      subject: s.subject||'', body: s.body||'',
-                     due: due, exact: exact, tz: _pbEff.tz, clinic: _pbEff.clinic,
+                     due: due, exact: exact && due===new Date(en.next_at).getTime(), tz: _tz, clinic: _pbEff.clinic,
                      day: Math.round(Number(s.delay_hours)/24),
-                     skipped: _skips.indexOf(Number(s.step_no)) > -1 };
+                     skipped: false };
           });
         }
       }
@@ -21901,7 +21917,7 @@ function renderLeadScreen(id) {
       var _pT='';
       try{ _pT=isNaN(d)?'':((p.exact?'':'\u2248 ')+d.toLocaleDateString('en-CA',(p.tz?{timeZone:p.tz,month:'short',day:'numeric'}:{month:'short',day:'numeric'}))+' '+d.toLocaleTimeString('en-CA',(p.tz?{timeZone:p.tz,hour:'numeric',minute:'2-digit'}:{hour:'numeric',minute:'2-digit'}))+(p.tz?(' ('+(p.clinic?'clinic time':((typeof tzShortLabel==='function')?tzShortLabel(p.tz):p.tz))+')'):'')); }
       catch(_pe){ _pT=isNaN(d)?'':d.toLocaleDateString('en-CA',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-CA',{hour:'numeric',minute:'2-digit'}); }
-      var _pH=_pbHint?('\n\u23F1 The engine spaces these out by itself \u2014 daily limits and quiet hours (9 AM\u20137 PM on the lead\u2019s clock) can move a step; \u2248 means estimated.'):'';
+      var _pH=''; if(0) _pH=_pbHint?('\n\u23F1 The engine spaces these out by itself \u2014 daily limits and quiet hours (9 AM\u20137 PM on the lead\u2019s clock) can move a step; \u2248 means estimated.'):'';
       _pbHint=false;
       _schedItems.push({ type:'sched_pb', _when:p.due, _pbEnr:p.enr, _pbStep:p.step_no,
         label: icon+' Automated follow-up \u00b7 '+kind+(p.day?' \u00b7 Day '+p.day:''),
