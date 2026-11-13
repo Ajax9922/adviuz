@@ -5429,7 +5429,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-12 lead-hz-30';
+var APP_VERSION = 'v2026-11-12 lead-hz-31';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -19949,7 +19949,8 @@ function _hzCss(){
     '.hzV-dv:before,.hzV-dv:after{content:"";flex:1;height:1px;background:#ebe8f3}',
     '.hzV-it{margin-top:11px;display:flex;flex-direction:column;min-width:0}.hzV-it.r{align-items:flex-end}.hzV-it.l{align-items:flex-start}.hzV-it.w{align-items:stretch}',
     '.hzV-mt{font-size:10.5px;color:#8a8fa3;margin-bottom:3px;display:flex;gap:5px;align-items:center;flex-wrap:wrap}.hzV-mt b{font-weight:600;color:#4b5563}.hzV-mt .ok{color:#047857;font-weight:600}',
-    '.hzV-tg{font-size:9.5px;font-weight:600;border-radius:5px;padding:1px 5px}',
+    '.hzV-tg{font-size:9.5px;font-weight:600;border-radius:5px;padding:1px 5px;display:inline-flex;align-items:center;gap:3px}',
+    '.hzV-mt b.ch{display:inline-flex;align-items:center;gap:3px}',
     '.hzV-tg.ai{background:#f3efff;color:#6d28d9}.hzV-tg.you{background:#eef2ff;color:#140c28}.hzV-tg.cl{background:#ecfdf5;color:#047857}.hzV-tg.au{background:#f1f0f5;color:#6b7280}.hzV-tg.mt{background:#fdf2fb;color:#be185d}',
     '.hzV-bb{max-width:82%;box-sizing:border-box;padding:8px 11px;font-size:13px;line-height:1.5;border-radius:12px;border:1px solid #ece9f5;background:#fff;color:#1f2330;cursor:pointer;min-width:0}',
     '.hzV-it.r .hzV-bb{background:#f4f1ff;border-color:#e4dcff}',
@@ -20479,6 +20480,9 @@ function _hzA(a, lid){
   else if(ty.indexOf('quote')>-1||ty==='proposal'){ r.who='you'; r.k='meet'; r.ic='quote'; r.title=_hzStripEmo(a.label||'Quote'); r.body=b; }
   else if(ty.indexOf('invoice')>-1||ty.indexOf('pay')>-1){ r.who='you'; r.k='sms'; r.ic='receipt'; r.title=_hzStripEmo(a.label||'Invoice'); r.body=b; }
   else { r.title=_hzStripEmo(a.label||ty||'Update'); r.body=b===r.title?'':b; r.sys=true; }
+  // lead-hz-31: "📩 Reply from Wayne French: \"…\"" is an email reply the system copied into the texts — show it as an email
+  if(r.inb && r.comm==='sms'){ var _rm=String(r.body||'').match(/^[\p{Extended_Pictographic}\uFE0F\s]*Reply from [^:]{1,60}:\s*([\s\S]*)$/u);
+    if(_rm){ r.comm='email'; r.k='em'; r.ic='inbox'; r.title='Email'; r.viaRelay=true; r.body=_rm[1].trim().replace(/^["“]\s*/,'').replace(/\s*["”]\s*$/,''); } }
   return r;
 }
 function _hzAgoShort(ms){ var m=Math.round(ms/60000); if(m<60) return Math.max(1,m)+'m'; var h=Math.round(m/60); if(h<48) return h+'h'; return Math.round(h/24)+'d'; }
@@ -20573,14 +20577,16 @@ function _hzConvBox(l, c){
 function _hzConvRow(l, x){
   var a=x.a, first=String(l.name||'Client').split(' ')[0], tm=_hzE(_hzClockT(x.t));
   var tg=function(cls,t){ return '<span class="hzV-tg '+cls+'">'+_hzE(t)+'</span>'; };
-  var meta=function(tag,ch,extra){ return '<div class="hzV-mt">'+tag+'<b>'+_hzE(ch)+'</b>'+(tm?'<span>· '+tm+'</span>':'')+(extra||'')+'</div>'; };
+  var _CI={Text:['sms','#0f766e'],Email:['mail','#c2410c'],Call:['phone','#4000f3'],Voicemail:['vm','#047857'],Note:['note','#b45309'],'Meeting notes':['cal','#be185d']};
+  var meta=function(tag,ch,extra){ var ci=_CI[ch]; return '<div class="hzV-mt">'+tag+'<b class="ch"'+(ci?' style="color:'+ci[1]+'"':'')+'>'+(ci?_hzI(ci[0],12,ci[1]):'')+_hzE(ch)+'</b>'+(tm?'<span>· '+tm+'</span>':'')+(extra||'')+'</div>'; };
   if(x.meetNote){
     var mn=''; try{ mn=mnActHTML(a, l, x.i).replace(/^<div class="ld-act-dot">[\s\S]*?<\/div>/,'').replace(/<span class="ld-act-label">[\s\S]*?<\/span><span class="ld-act-time">[\s\S]*?<\/span>/,''); }catch(_e){ mn='<div class="d">'+_hzE(_hzPlain(a.body))+'</div>'; }
     var _o=(mn.match(/<div\b/gi)||[]).length-(mn.match(/<\/div>/gi)||[]).length; while(_o-->0) mn+='</div>';
     return '<div class="hzV-it w">'+meta(tg('mt','Meeting'),'Meeting notes')+'<div class="hzV-cd mtg"><div class="hzV-ch" style="color:#be185d">'+_hzI('cal',14)+'Meeting notes</div>'+mn+'</div></div>';
   }
   var left=!!x.inb, side=left?'l':'r';
-  var tag=left?tg('cl',first):x.note?tg('you','You'):x.who==='ai'?tg('ai','AI'):x.who==='auto'?tg('au','Auto'):tg('you','You');
+  var tg2=function(cls,ic,t){ return '<span class="hzV-tg '+cls+'">'+_hzI(ic,10)+_hzE(t)+'</span>'; };
+  var tag=left?tg2('cl','user',first):x.note?tg2('you','user','You'):x.who==='ai'?tg2('ai','spark','AI'):x.who==='auto'?tg2('au','robot','Auto'):tg2('you','user','You');
   if(x.note) return '<div class="hzV-it r">'+meta(tag,'Note',a.by?'<span>· '+_hzE(a.by)+'</span>':'')+'<div class="hzV-nt">'+_hzE(x.body)+'</div></div>';
   var acts='';
   var trBtn=a.transcript?'<button class="hzV-lk" onclick="event.stopPropagation();var n=this.parentNode.parentNode.querySelector(\'.hzA-tx\');var o=n.style.display===\'none\';n.style.display=o?\'\':\'none\';this.textContent=o?\'Hide transcript\':\'Transcript\'">Transcript</button>':'';
