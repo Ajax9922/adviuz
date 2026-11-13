@@ -5429,7 +5429,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-13 fu-1';
+var APP_VERSION = 'v2026-11-13 fu-2';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -20600,48 +20600,90 @@ function hzFuAllDone(){ // lead-hz-26: clear every overdue follow-up on this lea
   showToast(n?(n+' overdue follow-up'+(n>1?'s':'')+' marked done'):'Nothing overdue'); setTimeout(function(){ renderLeadScreen(l.id); },200);
 }
 function hzFuFocus(){ var lid=(typeof curLid!=='undefined'&&curLid!=null)?curLid:window._hzLid; if(lid!=null) hzFuOpen(lid); }
-// fu-1 (Ajax: "only lock the follow-up after date AND time, with a tick button"): a sheet with a date box,
-// a time box and a ✓ button. Nothing is saved until ✓ is tapped.
+// fu-2 (Ajax: "one calendar with date and time together, with a tick to finalize"): our own picker in a
+// bottom sheet — month calendar + time chips on one screen. Nothing is saved until the ✓ button.
 function hzFuOpen(lid){
   window._hzLid=lid;
   var cur=(document.getElementById('lsFuDatetime')||{}).value||'';
-  var t=new Date(Date.now()+864e5), pad=function(n){ return (n<10?'0':'')+n; };
-  var dv=cur?cur.slice(0,10):'', tv=cur?cur.slice(11,16):'';
+  var base=cur?new Date(cur):new Date(Date.now()+864e5);
+  window._fuP={y:base.getFullYear(), m:base.getMonth(), d:cur?cur.slice(0,10):'', t:cur?cur.slice(11,16):''};
   var sh=document.getElementById('hzFuSh'); if(sh) sh.remove();
-  var inp='width:100%;box-sizing:border-box;padding:12px;border:1.5px solid var(--border);border-radius:11px;font-family:var(--f);font-size:16px;color:var(--text);background:var(--white);min-height:46px;-webkit-appearance:none;appearance:none';
-  var q=function(lbl,d,h){ return '<button type="button" onclick="hzFuQuick(\''+d+'\',\''+h+'\')" style="padding:7px 11px;border-radius:99px;border:1.5px solid var(--border);background:var(--white);font-family:var(--f);font-size:12.5px;color:var(--text);cursor:pointer;white-space:nowrap">'+lbl+'</button>'; };
-  var ymd=function(x){ return x.getFullYear()+'-'+pad(x.getMonth()+1)+'-'+pad(x.getDate()); };
-  var in2=new Date(Date.now()+2*864e5), mon=new Date(); mon.setDate(mon.getDate()+((8-mon.getDay())%7||7));
   document.body.insertAdjacentHTML('beforeend',
-    '<div class="sheet-ov" id="hzFuSh" onclick="if(event.target===this)closeSheet(\'hzFuSh\')" style="z-index:900"><div class="sheet">'
+    '<div class="sheet-ov" id="hzFuSh" onclick="if(event.target===this)closeSheet(\'hzFuSh\')" style="z-index:900"><div class="sheet" style="max-height:92dvh">'
     +'<div class="sheet-handle"></div><div class="sheet-head"><div class="sheet-title">Follow-up</div><button class="sheet-x" onclick="closeSheet(\'hzFuSh\')">&#x2715;</button></div>'
-    +'<div class="sh-body" style="padding:6px 16px calc(22px + env(safe-area-inset-bottom,0px))">'
-    +'<div style="display:flex;gap:7px;overflow-x:auto;padding-bottom:10px">'+q('Tomorrow 10 AM',ymd(t),'10:00')+q('In 2 days',ymd(in2),'10:00')+q('Monday 10 AM',ymd(mon),'10:00')+'</div>'
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
-    +'<label style="font-size:12px;font-weight:600;color:var(--sub)">Date<input type="date" id="hzFuD" value="'+dv+'" min="'+ymd(new Date())+'" oninput="hzFuChk()" onchange="hzFuChk()" style="'+inp+';margin-top:5px"></label>'
-    +'<label style="font-size:12px;font-weight:600;color:var(--sub)">Time<input type="time" id="hzFuT" value="'+tv+'" step="300" oninput="hzFuChk()" onchange="hzFuChk()" style="'+inp+';margin-top:5px"></label></div>'
-    +'<div id="hzFuMsg" style="font-size:12.5px;color:var(--sub);margin:12px 2px 0;min-height:18px"></div>'
-    +'<button id="hzFuOk" onclick="hzFuSave()" style="margin-top:10px;width:100%;padding:13px;border:none;border-radius:12px;font-family:var(--f);font-size:15px;font-weight:600;color:#fff;background:linear-gradient(118deg,#4000f3,#8b2bf7,#e65afc);display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer">'
-    +'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Save follow-up</button>'
-    +'</div></div></div>');
-  openSheet('hzFuSh'); hzFuChk();
+    +'<div class="sh-body" id="hzFuBody" style="padding:4px 16px calc(18px + env(safe-area-inset-bottom,0px))"></div></div></div>');
+  _hzFuPaint(); openSheet('hzFuSh');
 }
-function hzFuQuick(d,h){ var a=document.getElementById('hzFuD'), b=document.getElementById('hzFuT'); if(a) a.value=d; if(b) b.value=h; hzFuChk(); }
-function hzFuChk(){
-  var d=(document.getElementById('hzFuD')||{}).value||'', t=(document.getElementById('hzFuT')||{}).value||'';
-  var ok=!!(d&&t), m=document.getElementById('hzFuMsg'), b=document.getElementById('hzFuOk');
-  var past=ok && new Date(d+'T'+t).getTime()<Date.now();
-  if(m) m.textContent=!d?'Pick a date.':!t?'Now pick a time.':past?'That time has already passed.':'Follow-up: '+_hzFuLabel(d+'T'+t)+'. Tap Save to confirm.';
-  if(b){ b.disabled=!ok||past; b.style.opacity=(ok&&!past)?'1':'.45'; }
-  return ok&&!past;
+function _hzFuYmd(x){ var p=function(n){ return (n<10?'0':'')+n; }; return x.getFullYear()+'-'+p(x.getMonth()+1)+'-'+p(x.getDate()); }
+function _hzFuT12(t){ var h=+t.slice(0,2), m=t.slice(3,5); return (h%12||12)+':'+m+' '+(h<12?'AM':'PM'); }
+function _hzFuPaint(){
+  var P=window._fuP, b=document.getElementById('hzFuBody'); if(!P||!b) return;
+  var today=_hzFuYmd(new Date()), first=new Date(P.y,P.m,1), days=new Date(P.y,P.m+1,0).getDate(), lead=first.getDay();
+  var nowM=new Date(); var isCurMonth=(P.y===nowM.getFullYear()&&P.m===nowM.getMonth());
+  var h='<div style="display:flex;align-items:center;justify-content:space-between;margin:2px 0 8px">'
+    +'<button onclick="hzFuMon(-1)" '+(isCurMonth?'disabled style="opacity:.3;':'style="')+'width:36px;height:36px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);font-size:18px;color:var(--text);cursor:pointer">&#8249;</button>'
+    +'<div style="font-size:15px;font-weight:600;color:var(--text)">'+first.toLocaleDateString('en-US',{month:'long',year:'numeric'})+'</div>'
+    +'<button onclick="hzFuMon(1)" style="width:36px;height:36px;border-radius:10px;border:1.5px solid var(--border);background:var(--white);font-size:18px;color:var(--text);cursor:pointer">&#8250;</button></div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center">';
+  ['S','M','T','W','T','F','S'].forEach(function(w){ h+='<div style="font-size:11px;font-weight:600;color:var(--sub);padding:2px 0">'+w+'</div>'; });
+  for(var i=0;i<lead;i++) h+='<div></div>';
+  for(var d=1;d<=days;d++){
+    var ymd=_hzFuYmd(new Date(P.y,P.m,d)), past=ymd<today, on=ymd===P.d, isT=ymd===today;
+    h+='<button '+(past?'disabled ':'')+'onclick="hzFuDay(\''+ymd+'\')" style="height:38px;border-radius:10px;border:'+(isT&&!on?'1.5px solid #8b2bf7':'1.5px solid transparent')+';font-family:var(--f);font-size:14px;cursor:'+(past?'default':'pointer')+';'
+      +(on?'background:linear-gradient(118deg,#4000f3,#8b2bf7);color:#fff;font-weight:600':past?'background:none;color:#c9c5d6':'background:var(--bg);color:var(--text)')+'">'+d+'</button>';
+  }
+  h+='</div>';
+  h+='<div style="font-size:12px;font-weight:600;color:var(--sub);margin:14px 2px 6px">Time</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">';
+  var nowHm=(P.d===today)?(function(){ var n=new Date(); return (n.getHours()<10?'0':'')+n.getHours()+':'+(n.getMinutes()<10?'0':'')+n.getMinutes(); })():'';
+  for(var m=8*60;m<=20*60;m+=30){
+    var t=(m/60<10?'0':'')+Math.floor(m/60)+':'+(m%60?'30':'00'), gone=nowHm&&t<=nowHm, sel=t===P.t;
+    h+='<button '+(gone?'disabled ':'')+'onclick="hzFuTime(\''+t+'\')" style="padding:9px 2px;border-radius:10px;font-family:var(--f);font-size:12.5px;cursor:'+(gone?'default':'pointer')+';'
+      +(sel?'border:1.5px solid transparent;background:linear-gradient(118deg,#4000f3,#8b2bf7);color:#fff;font-weight:600':gone?'border:1.5px solid var(--border);background:none;color:#c9c5d6':'border:1.5px solid var(--border);background:var(--white);color:var(--text)')+'">'+_hzFuT12(t)+'</button>';
+  }
+  h+='</div>';
+  var ok=!!(P.d&&P.t)&&!(nowHm&&P.t<=nowHm);
+  h+='<div style="font-size:13px;color:'+(ok?'var(--text)':'var(--sub)')+';margin:14px 2px 0;text-align:center">'+(!P.d?'Pick a day':!P.t?'Now pick a time':ok?'<b>'+_hzFuLabel(P.d+'T'+P.t)+'</b>':'That time has passed')+'</div>'
+    +'<button id="hzFuOk" onclick="hzFuSave()" '+(ok?'':'disabled ')+'style="margin-top:10px;width:100%;padding:13px;border:none;border-radius:12px;font-family:var(--f);font-size:15px;font-weight:600;color:#fff;background:linear-gradient(118deg,#4000f3,#8b2bf7,#e65afc);display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;opacity:'+(ok?'1':'.45')+'">'
+    +'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Save follow-up</button>';
+  b.innerHTML=h;
 }
+function hzFuMon(n){ var P=window._fuP; if(!P) return; var d=new Date(P.y,P.m+n,1); P.y=d.getFullYear(); P.m=d.getMonth(); _hzFuPaint(); }
+function hzFuDay(ymd){ var P=window._fuP; if(!P) return; P.d=ymd; _hzFuPaint(); }
+function hzFuTime(t){ var P=window._fuP; if(!P) return; P.t=t; _hzFuPaint(); }
 function hzFuSave(){
-  if(!hzFuChk()) return;
-  var v=document.getElementById('hzFuD').value+'T'+document.getElementById('hzFuT').value;
+  var P=window._fuP; if(!P||!P.d||!P.t) return;
+  var v=P.d+'T'+P.t; if(new Date(v).getTime()<Date.now()) return;
   var h=document.getElementById('lsFuDatetime'); if(h) h.value=v;
   hzFuShow(v); closeSheet('hzFuSh');
   window._lsFuLast=null; window._lsFuTouched=true; lsFuBlur(window._hzLid);
 }
+// fu-2: iPhone Safari has no "scroll anchoring", so when a box ABOVE the reading point changes height
+// (lead screen repaints, Video review card loading, conversation box refilling) the page appears to slide.
+// Keep the reader's place: remember which section is at the top of the screen and re-pin it after changes.
+(function(){
+  var IDS=['hzAct','hzConv','hzConvHome','hzConvSlot','hzPaneA','hzPaneC','hzNext','hzSl'];
+  var anc=null, busy=false;
+  function body(){ return document.getElementById('lsBody'); }
+  function pick(){
+    var b=body(); if(!b||b.scrollTop<40){ anc=null; return; }
+    var top=b.getBoundingClientRect().top, best=null;
+    for(var i=0;i<IDS.length;i++){ var e=document.getElementById(IDS[i]); if(!e||!b.contains(e)) continue; var r=e.getBoundingClientRect(); if(r.height&&r.top<=top+120&&r.bottom>top){ if(!best||r.top>best.t) best={id:IDS[i],t:r.top}; } }
+    anc=best?{id:best.id,off:best.t-top}:null;
+  }
+  function fix(){
+    busy=false; var b=body(); if(!b||!anc) return;
+    var e=document.getElementById(anc.id); if(!e||!b.contains(e)) return;
+    var d=(e.getBoundingClientRect().top-b.getBoundingClientRect().top)-anc.off;
+    if(Math.abs(d)>2) b.scrollTop+=d;
+  }
+  function init(){
+    var b=body(); if(!b||b._fuAnc) return; b._fuAnc=true;
+    var raf=0; b.addEventListener('scroll',function(){ if(!raf) raf=requestAnimationFrame(function(){ raf=0; pick(); }); },{passive:true});
+    new MutationObserver(function(){ if(busy||!anc) return; busy=true; requestAnimationFrame(function(){ fix(); setTimeout(fix,120); }); }).observe(b,{childList:true,subtree:true});
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',init); else init();
+  setTimeout(init,1500);
+})();
 function _hzNextPaint(l){ var n=document.getElementById('hzNext'); if(n) n.innerHTML=_hzNextBody(l); }
 
 // lead-hz-12: second card — the latest few events
