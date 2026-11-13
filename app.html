@@ -5429,7 +5429,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-13 fu-2';
+var APP_VERSION = 'v2026-11-13 fu-3';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -20657,33 +20657,6 @@ function hzFuSave(){
   hzFuShow(v); closeSheet('hzFuSh');
   window._lsFuLast=null; window._lsFuTouched=true; lsFuBlur(window._hzLid);
 }
-// fu-2: iPhone Safari has no "scroll anchoring", so when a box ABOVE the reading point changes height
-// (lead screen repaints, Video review card loading, conversation box refilling) the page appears to slide.
-// Keep the reader's place: remember which section is at the top of the screen and re-pin it after changes.
-(function(){
-  var IDS=['hzAct','hzConv','hzConvHome','hzConvSlot','hzPaneA','hzPaneC','hzNext','hzSl'];
-  var anc=null, busy=false;
-  function body(){ return document.getElementById('lsBody'); }
-  function pick(){
-    var b=body(); if(!b||b.scrollTop<40){ anc=null; return; }
-    var top=b.getBoundingClientRect().top, best=null;
-    for(var i=0;i<IDS.length;i++){ var e=document.getElementById(IDS[i]); if(!e||!b.contains(e)) continue; var r=e.getBoundingClientRect(); if(r.height&&r.top<=top+120&&r.bottom>top){ if(!best||r.top>best.t) best={id:IDS[i],t:r.top}; } }
-    anc=best?{id:best.id,off:best.t-top}:null;
-  }
-  function fix(){
-    busy=false; var b=body(); if(!b||!anc) return;
-    var e=document.getElementById(anc.id); if(!e||!b.contains(e)) return;
-    var d=(e.getBoundingClientRect().top-b.getBoundingClientRect().top)-anc.off;
-    if(Math.abs(d)>2) b.scrollTop+=d;
-  }
-  function init(){
-    var b=body(); if(!b||b._fuAnc) return; b._fuAnc=true;
-    var raf=0; b.addEventListener('scroll',function(){ if(!raf) raf=requestAnimationFrame(function(){ raf=0; pick(); }); },{passive:true});
-    new MutationObserver(function(){ if(busy||!anc) return; busy=true; requestAnimationFrame(function(){ fix(); setTimeout(fix,120); }); }).observe(b,{childList:true,subtree:true});
-  }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',init); else init();
-  setTimeout(init,1500);
-})();
 function _hzNextPaint(l){ var n=document.getElementById('hzNext'); if(n) n.innerHTML=_hzNextBody(l); }
 
 // lead-hz-12: second card — the latest few events
@@ -21989,7 +21962,7 @@ function renderLeadScreen(id) {
   // vr-1: Video review card — filled in right after render (Deal Closed leads,
   // or any lead that already sent a review).
   h += '<div id="ldVr"></div>';
-  setTimeout(function(){ try{ vrLeadCard(l); }catch(_e){} }, 0);
+  Promise.resolve().then(function(){ try{ vrLeadCard(l); }catch(_e){} }); // fu-3: before paint, not after
 
   // ══ CONVERT TO CLIENT BANNER (Deal Closed only) ══
   // DISABLED 2026-05-28: keep code for future, restore by removing `false && `
@@ -22489,8 +22462,21 @@ filteredActs.slice(0,showCount).forEach(function(item,i){
 
   var _hzOldAu=_HZ?document.getElementById('recAudio0'):null, _hzWasPlaying=false;
   if(_hzOldAu && (!_hzOldAu.paused || _hzOldAu.currentTime>0)){ _hzWasPlaying=!_hzOldAu.paused; } else _hzOldAu=null;
-  document.getElementById('lsBody').innerHTML = h;
-  if(_hzOldAu){ var _hzNa=document.getElementById('recAudio0'); if(_hzNa && _hzNa.getAttribute('data-rec')===_hzOldAu.getAttribute('data-rec')){ _hzNa.replaceWith(_hzOldAu); if(_hzWasPlaying && _hzOldAu.paused) _hzOldAu.play().catch(function(){}); } }
+  // fu-3: smooth lead page. (a) If nothing changed, don't rebuild at all. (b) When it does rebuild, keep the
+  // page height and the scroll position, so boxes that refill a moment later (video review, payments,
+  // conversation) never shrink the page under the reader's finger — iPhone Safari has no scroll anchoring.
+  var _lsB=document.getElementById('lsBody');
+  var _lsKeep=(window._lsLastLid===l.id && window._lsLastHtml===h && _lsB.childElementCount>0);
+  var _lsSame=window._lsLastLid===l.id, _lsSt=_lsB.scrollTop, _lsSh=_lsB.scrollHeight;
+  window._lsLastLid=l.id; window._lsLastHtml=h;
+  if(!_lsKeep) _lsB.innerHTML = h;
+  if(!_lsKeep && _lsSame && _lsSt>0){
+    var _gap=_lsSh-_lsB.scrollHeight;
+    if(_gap>0){ var _hold=document.createElement('div'); _hold.id='lsHold'; _hold.style.height=_gap+'px'; _lsB.appendChild(_hold);
+      clearTimeout(window._lsHoldT); window._lsHoldT=setTimeout(function(){ var x=document.getElementById('lsHold'); if(x) x.remove(); }, 2500); }
+    if(_lsB.scrollTop!==_lsSt) _lsB.scrollTop=_lsSt;
+  }
+  if(_hzOldAu && !_lsKeep){ var _hzNa=document.getElementById('recAudio0'); if(_hzNa && _hzNa.getAttribute('data-rec')===_hzOldAu.getAttribute('data-rec')){ _hzNa.replaceWith(_hzOldAu); if(_hzWasPlaying && _hzOldAu.paused) _hzOldAu.play().catch(function(){}); } }
   try{ _hzAfterRender(l); }catch(_e){ console.warn('[hz]', _e); }
   if (typeof loadLeadPayments === 'function') loadLeadPayments(l.dbId);
   loadLeadCustomFields(l);
