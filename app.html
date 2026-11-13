@@ -5429,7 +5429,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-12 lead-hz-21';
+var APP_VERSION = 'v2026-11-12 lead-hz-22';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -19955,6 +19955,11 @@ function _hzCss(){
     '.hzA-up .cd{font-size:11px;font-weight:600;border-radius:8px;padding:2px 7px;white-space:nowrap}',
     '.hzA-up .r{align-items:flex-start}.hzA-up .x{white-space:normal}',
     '.hzA-ub{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}',
+    '.hzA-upv{height:96px;overflow-y:auto;scroll-snap-type:y mandatory;scrollbar-width:none;margin-top:4px}.hzA-upv::-webkit-scrollbar{display:none}',
+    '.hzA-upv>.r{height:96px;box-sizing:border-box;scroll-snap-align:start;border-bottom:none!important;padding:8px 0!important;overflow:hidden}',
+    '.hzA-upd{display:flex;justify-content:center;gap:4px;margin-top:2px}.hzA-upd i{width:5px;height:5px;border-radius:50%;background:#d9d3ef}.hzA-upd i.on{width:14px;border-radius:3px;background:#4000f3}',
+    '.hzA-stop{font-size:11px;font-weight:600;color:#c0392b;background:#fff;border:1px solid #f3d0d0;border-radius:8px;padding:3px 8px;cursor:pointer;font-family:var(--f);letter-spacing:0;text-transform:none}',
+    '.hzA-stop.armed{background:#c0392b;color:#fff;border-color:#c0392b}',
     '.hzA-ub button{font-size:11.5px;font-weight:600;color:#4000f3;background:#fff;border:1px solid #e6e0fb;border-radius:9px;padding:4px 9px;cursor:pointer;font-family:var(--f)}',
     '.hzA-ub button.red{color:#c0392b;border-color:#f3d0d0}',
     'button.bd{border:none;cursor:pointer;font-family:var(--f)}',
@@ -20441,7 +20446,10 @@ function _hzActivity(l, acts, sched){
   var up=(typeof _hzNextList==='function'?_hzNextList(l):[]).filter(function(x){ return x.t>Date.now(); }).slice(0,4);
   var _pbP=_hzPbPaused(l), _pbR=(window._pbEnrState||{}).reason||'';
   if(up.length || _pbP){
-    h+='<div class="hzA-up"><div class="l">'+_hzI('clock',12)+' Coming up</div>';
+    var _pbE=window._pbEnrState||{}, _canStop=!!(_pbE.id && _pbE.lid===l.id && _pbE.status!=='stopped');
+    var _nC=up.length+(_pbP?1:0);
+    h+='<div class="hzA-up"><div class="l" style="display:flex;align-items:center"><span style="flex:1;display:flex;align-items:center;gap:5px">'+_hzI('clock',12)+' Coming up'+(_nC>1?' · '+_nC:'')+'</span>'
+      +(_canStop?'<button class="hzA-stop" onclick="hzPbStop(this)">Stop all for this lead</button>':'')+'</div><div class="hzA-upv" id="hzUpV">';
     if(_pbP) h+='<div class="r"><span class="hz-ei k-st" style="width:26px;height:26px;border-radius:8px">'+_hzI('robot',13)+'</span><div class="x" style="white-space:normal"><b style="font-weight:600">Automated follow-ups paused</b><div class="hz-sub" style="font-size:11px">'+(_pbR==='lead_replied'||_pbR==='ai_drafted'?'They replied, so we\u2019re waiting for them.':_pbR==='manual'?'Paused by you.':'Waiting for their reply.')+' Nothing automated goes out until you resume.</div><div class="hzA-ub"><button onclick="event.stopPropagation();hzPbSet(\'resume\')">Resume</button></div></div></div>';
     up.forEach(function(x){
       var ic={meet:['cal','meet'],fu:['clock','st'],ai:['spark','ai'],sms:['sms','sms'],email:['mail','em'],pb:['bolt','st']}[x.k]||['clock','st'];
@@ -20452,7 +20460,7 @@ function _hzActivity(l, acts, sched){
       h+='<div class="r"><span class="hz-ei k-'+ic[1]+'" style="width:26px;height:26px;border-radius:8px">'+_hzI(ic[0],13)+'</span><div class="x"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><b style="font-weight:600">'+_hzE(_hzNextLabel(x))+'</b>'+(sub?' <span class="hz-sub">· '+_hzE(sub.slice(0,60))+'</span>':'')+'</div>'
         +'<div class="hz-sub" style="font-size:11px">'+_hzE(when)+'</div>'+_hzUpBtns(l,x)+'</div></div>';
     });
-    h+='</div>';
+    h+='</div>'+(_nC>1?'<div class="hzA-upd" id="hzUpD">'+new Array(_nC+1).join('<i></i>')+'</div>':'')+'</div>';
   }
   // filters
   var cnt={all:c.list.length,cl:c.list.filter(function(x){ return x.inb; }).length,call:c.list.filter(function(x){ return x.comm==='call'; }).length,email:c.list.filter(function(x){ return x.comm==='email'; }).length,sms:c.list.filter(function(x){ return x.comm==='sms'; }).length,note:c.list.filter(function(x){ return x.note||x.meetNote; }).length};
@@ -20507,6 +20515,31 @@ function hzEmPrev(ix){
   openSheet('hzEmPrevSh');
   var f=document.getElementById('hzEmPrevF'); if(f) f.srcdoc=doc;
 }
+// lead-hz-22: stop every automated follow-up for this one lead (two taps, no pop-up)
+async function hzPbStop(btn){
+  var e=window._pbEnrState, l=lsGetLead&&lsGetLead(); if(!e||!e.id||!l) return;
+  if(btn && !btn.dataset.armed){ btn.dataset.armed='1'; btn.textContent='Tap again to stop'; btn.classList.add('armed'); setTimeout(function(){ if(btn.isConnected){ btn.dataset.armed=''; btn.textContent='Stop all for this lead'; btn.classList.remove('armed'); } },3500); return; }
+  try{
+    var r=await sbFetch('/rest/v1/playbook_enrollments?id=eq.'+encodeURIComponent(e.id),{ method:'PATCH', headers:{'Prefer':'return=minimal'}, body:JSON.stringify({ status:'stopped', pause_reason:'manual_exit', next_at:null }) });
+    if(!r.ok && r.status!==204) throw 0;
+    e.status='stopped'; window._pbSched=[];
+    try{ if(typeof logActivity==='function') logActivity({ lead_id:l.id, db_lead_id:l.dbId, client_id:l.client_id||window._clientId||null, type:'note', label:'Automated follow-ups stopped', body:'Automated follow-ups stopped for this lead (not a fit).', skipLocal:true }); }catch(_e){}
+    showToast('Automated follow-ups stopped for this lead');
+    loadLeadActivity(l.id, l.dbId);
+  }catch(_e){ showToast('Could not stop. Try again.'); }
+}
+// lead-hz-22: Coming up cards slide up by themselves until touched
+function _hzUpAuto(){
+  if(window._hzUpT){ clearInterval(window._hzUpT); window._hzUpT=null; }
+  var v=document.getElementById('hzUpV'); if(!v) return;
+  var dots=function(){ var d=document.getElementById('hzUpD'); if(!d) return; var ix=Math.round(v.scrollTop/Math.max(1,v.clientHeight)); for(var i=0;i<d.children.length;i++) d.children[i].className=i===ix?'on':''; };
+  dots(); v.addEventListener('scroll',function(){ requestAnimationFrame(dots); },{passive:true});
+  if(v.children.length<2) return;
+  var stop=function(){ if(window._hzUpT){ clearInterval(window._hzUpT); window._hzUpT=null; } };
+  v.addEventListener('touchstart',stop,{passive:true}); v.addEventListener('pointerdown',stop); v.addEventListener('wheel',stop,{passive:true});
+  window._hzUpT=setInterval(function(){ var w=document.getElementById('hzUpV'); if(!w||!w.isConnected){ stop(); return; } if(document.hidden) return;
+    var n=w.children.length, ix=Math.round(w.scrollTop/Math.max(1,w.clientHeight)); w.scrollTo({top:((ix+1)%n)*w.clientHeight, behavior:'smooth'}); },4000);
+}
 function _hzClockT(t){ return isNaN(t)?'':new Date(t).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}); }
 function _hzActRow(l, x){
   var a=x.a, tag={cl:String(l.name||'Client').split(' ')[0],you:'You',ai:'AI',auto:'Auto',sys:''}[x.who]||'';
@@ -20543,7 +20576,7 @@ function hzActRedraw(){
   var l=leads.find(function(y){ return y.id===x.lid; }); if(!l) return;
   var hadFocus=document.activeElement && document.activeElement.closest && document.activeElement.closest('#hzActQ');
   el.outerHTML=_hzActivity(l, x.acts, x.sched);
-  _hzActMini();
+  _hzActMini(); _hzUpAuto();
   if(hadFocus){ var i=document.querySelector('#hzActQ input'); if(i){ i.focus(); var v=i.value; i.value=''; i.value=v; } }
 }
 function _hzActMini(){ document.querySelectorAll('#hzAct audio[controls]').forEach(_hzMini); }
@@ -20759,6 +20792,7 @@ function _hzAfterRender(l){
   }
   try{ _hzActPolish(); }catch(_e){ console.warn('[hz act]', _e); }
   try{ _hzActMini(); }catch(_e){}
+  try{ _hzUpAuto(); }catch(_e){}
 }
 function _hzClock(s){ s=Math.max(0,Math.floor(s||0)); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
 // Load the audio's length first if needed, then run fn (seeking needs the length).
