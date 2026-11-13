@@ -5429,7 +5429,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-12 lead-hz-39';
+var APP_VERSION = 'v2026-11-13 pk-2';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -7683,6 +7683,20 @@ function _ntfCollect(seen){
   function push(it){ if(dis.indexOf(it.key)!==-1) return; out.push(it); }
   function ini(n){ return String(n||'L').charAt(0).toUpperCase(); }
   try{ _pjBellItems(seen).forEach(push); }catch(e){}   // proj-1: open questions/approvals for the client
+  // pk-2: AI drafts waiting for a yes (texts, emails, calls…) — tap opens Approvals.
+  if(!_isPartnerBell()){
+    (window._apprItems||[]).forEach(function(it){
+      if(!it || it.status!=='pending') return;
+      var ts=it.created_at?new Date(it.created_at).getTime():0;
+      if(!ts || ts<cap7) return;
+      var w=String(it.lead_name||'a lead');
+      var t=it.action_type==='sms'?'text':it.action_type==='email'?'email':it.action_type==='call'?'call':'action';
+      var pl=it.payload||{}, msg=String(pl.message||pl.suggestion||pl.body||pl.subject||'').replace(/\s+/g,' ').slice(0,90);
+      push({key:'ap:'+it.id, kind:'reply', ts:ts, unread:ts>seen, initial:ini(w), badge:[t==='email'?'mail':t==='call'?'phone':'msg','amber'],
+        t:'Approve '+t+' to <b>'+esc(w)+'</b>', sub:msg?'<span style="color:var(--sub)">\u201c'+esc(msg)+'\u201d</span>':'Waiting for your OK',
+        on:'window.openApprByPush()'});
+    });
+  }
   // Replies & opt-outs — several replies from one lead stack into ONE card
   if(prefs.sms!==false){
     var reps=[];
@@ -7905,7 +7919,7 @@ async function openNotifPanel(){
   _ntfPaint();
   openSheet('notifSh');
   _notifSetSeen();
-  try{ await Promise.all([loadAdminNotifs(), loadSmsReplies(), loadCallActs()]); }catch(e){}
+  try{ await Promise.all([loadAdminNotifs(), loadSmsReplies(), loadCallActs(), (window._apprLoading?null:loadApprovals())]); }catch(e){}
   window._ntfItems=_ntfCollect(seen);
   _ntfPaint();
   // Operator platform notifications marked read on open, best-effort
@@ -51226,6 +51240,20 @@ document.addEventListener('click', function(ev){
       if (tries > 40) clearInterval(iv);
     }, 600);
   };
+  // pk-2: "Approve morning text" push → the Approvals list (waits until the app is ready).
+  window.openApprByPush = function () {
+    var tries = 0;
+    var iv = setInterval(function () {
+      tries++;
+      if (typeof currentUser !== 'undefined' && currentUser && typeof apprOpenInbox === 'function' && document.getElementById('tab-calls')) {
+        clearInterval(iv);
+        window._apprType = 'all'; try { _apprSeg = 'pending'; } catch (e) {}
+        try { apprOpenInbox(); } catch (e) {}
+        return;
+      }
+      if (tries > 40) clearInterval(iv);
+    }, 500);
+  };
   // import-10zzk: "AI Outreach round finished" alert → that round's report.
   window.openRoundReport = function (rid) {
     if (!rid || !/^[0-9a-f-]{36}$/i.test(String(rid))) return;
@@ -51284,6 +51312,7 @@ document.addEventListener('click', function(ev){
       var cr = p.get('ca_review'); var cg = p.get('campaign');
       var lv = p.get('live'); // import-10za: live-call push tap while app is open
       var rn = p.get('round'); if (rn) { window.openRoundReport(rn); return; }
+      if (p.get('appr')) { window.openApprByPush(); return; }
       if (lv && typeof openLiveCall === 'function') {
         try { goTab('calls', document.getElementById('tab-calls')); } catch (e) {}
         window._liveDetailAllow = 12;
@@ -51309,6 +51338,7 @@ document.addEventListener('click', function(ev){
     var cr = sp.get('ca_review');
     var cg = sp.get('campaign');
     var rnd = sp.get('round'); if (rnd) window.openRoundReport(rnd);
+    var apq = sp.get('appr'); if (apq) window.openApprByPush();
     if (rv) window.openReviewByDbId(rv);
     if (sm) window.openSmsByDbId(sm);
     else if (ld) window.openLeadByDbId(ld);
@@ -51320,7 +51350,7 @@ document.addEventListener('click', function(ev){
     var tai = sp.get('aitopup');
     if (tai === 'success') { setTimeout(function(){ try{ window.openAiTopupDoneSheet(); }catch(_t){ try{ showToast('Payment received \u2014 your AI minutes are being added'); }catch(_t2){} } }, 600); }
     else if (tai === 'cancel') { setTimeout(function(){ try{ showToast('Payment cancelled \u2014 nothing was charged'); }catch(_t){} }, 900); }
-    if (ld || rv || sm || tp || cr || cg || tai || rnd) history.replaceState(null, '', window.location.pathname);
+    if (ld || rv || sm || tp || cr || cg || tai || rnd || apq) history.replaceState(null, '', window.location.pathname);
   } catch (e) {}
 
   // When the app is ALREADY open and a notification is tapped, the service worker
