@@ -5429,7 +5429,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-13 fu-3b';
+var APP_VERSION = 'v2026-11-13 fu-4';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -9124,6 +9124,7 @@ async function loadLeadPayments(dbId){
     rows.forEach(function(p){ window._lpById[p.id]=p; });
     var tot=0; rows.forEach(function(p){ tot += Number(p.amount_cad)||0; });
     var _cl=(leads||[]).find(function(x){return String(x.dbId)===String(dbId);});
+    var _lpPrev=_cl?Number(_cl.deal_value)||0:0; // fu-4: only repaint when the total actually changed
     if(_cl) _cl.deal_value = tot;
     if(box){
       if(!rows.length){ box.innerHTML='<div style="font-size:12px;color:var(--sub)">No payments recorded yet.</div>'; }
@@ -9145,7 +9146,10 @@ async function loadLeadPayments(dbId){
         var t=document.getElementById('lpTotal'); if(t) t.textContent='CAD $'+tot.toLocaleString('en-CA',{minimumFractionDigits:2});
       }
     }
-    if (rows.length && typeof curLid!=='undefined' && curLid && !document.querySelector('[data-filter="payment"]')){
+    // fu-4: this used to repaint the whole lead every time payments loaded — and every repaint loads payments
+    // again, so leads with payments (e.g. Simon) repainted forever (sliding / flicker / freeze). Repaint once,
+    // only when the total actually changed (a second load finds the same total and stops).
+    if (rows.length && Math.abs(tot-_lpPrev)>0.004 && typeof curLid!=='undefined' && curLid && !document.querySelector('[data-filter="payment"]')){
       if(_cl && _cl.id===curLid) renderLeadScreen(curLid);
     }
   }catch(e){ if(box) box.innerHTML='<div style="font-size:12px;color:var(--sub)">Could not load payments.</div>'; }
