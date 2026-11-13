@@ -1,6 +1,6 @@
 /* plans-link.js (2026-11-09, Ajax: SMS + email templates that send "how it works" with each lead's own link).
    Adds a merge field for templates:  SMS {plans_link}   ·   Email {{plans_link}}
-   -> https://adviuz.com/start?lead=<this lead's id>
+   -> https://adviuz.com/w/<short code of this lead>  (was /start?lead=<id> until 2026-11-13)
    On that link the lead watches the how-it-works video, skips the details form, sees the plans with the checkout
    already filled in, and Amber greets them by name. Loaded by operator-console; app.html / desktop.html unchanged.
    v2 (2026-11-10, Ajax: "a button ... send plans and pricing ... the moment I click on it, it should automatically send an
@@ -21,7 +21,9 @@
   function link(l) {
     l = l || {};
     var id = l.dbId != null ? String(l.dbId) : (UUID.test(String(l.id || '')) ? String(l.id) : '');
-    return id ? 'https://adviuz.com/start?lead=' + id : 'https://adviuz.com/start';
+    /* 2026-11-13 (Ajax: "shorten the link for sms"): adviuz.com/w/<first 12 characters of the lead id> — the website
+       turns it back into the lead, so tracking, journey and pre-filled checkout all still work */
+    return id ? 'https://adviuz.com/w/' + id.replace(/-/g, '').slice(0, 12).toLowerCase() : 'https://adviuz.com/start';
   }
   window.advPlansLink = link;
 
