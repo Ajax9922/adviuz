@@ -5429,7 +5429,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-13 pk-2';
+var APP_VERSION = 'v2026-11-13 fu-1';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -20084,8 +20084,9 @@ function _hzCss(){
     '.hzA-up .cd{font-size:11px;font-weight:600;border-radius:8px;padding:2px 7px;white-space:nowrap}',
     '.hzA-up .r{align-items:flex-start}.hzA-up .x{white-space:normal}',
     '.hzA-ub{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}',
-    '.hzA-upv{height:96px;overflow-y:auto;scroll-snap-type:y mandatory;scrollbar-width:none;margin-top:4px}.hzA-upv::-webkit-scrollbar{display:none}',
-    '.hzA-upv>.r{height:96px;box-sizing:border-box;scroll-snap-align:start;border-bottom:none!important;padding:8px 0!important;overflow:hidden}',
+    '.hzA-upv{height:96px;overflow:hidden;margin-top:4px;position:relative}',
+    '.hzA-upv>.r{height:96px;box-sizing:border-box;border-bottom:none!important;padding:8px 0!important;overflow:hidden;transform:translateY(calc(var(--i,0) * -96px));transition:transform .45s ease}',
+    '.hzA-upd i{cursor:pointer}',
     '.hzA-upd{display:flex;justify-content:center;gap:4px;margin-top:2px}.hzA-upd i{width:5px;height:5px;border-radius:50%;background:#d9d3ef}.hzA-upd i.on{width:14px;border-radius:3px;background:#4000f3}',
     '.hzA-stop{font-size:11px;font-weight:600;color:#c0392b;background:#fff;border:1px solid #f3d0d0;border-radius:8px;padding:3px 8px;cursor:pointer;font-family:var(--f);letter-spacing:0;text-transform:none}',
     '.hzA-stop.armed{background:#c0392b;color:#fff;border-color:#c0392b}',
@@ -20598,10 +20599,48 @@ function hzFuAllDone(){ // lead-hz-26: clear every overdue follow-up on this lea
     var ms=t.dueIso?new Date(t.dueIso).getTime():new Date((t.date||'')+'T'+String(t.time||'09:00').slice(0,5)).getTime(); if(!isNaN(ms)&&ms<=now){ markDone(t.id); n++; } });
   showToast(n?(n+' overdue follow-up'+(n>1?'s':'')+' marked done'):'Nothing overdue'); setTimeout(function(){ renderLeadScreen(l.id); },200);
 }
-function hzFuFocus(){
-  var i=document.getElementById('lsFuDatetime'); if(!i) return;
-  hzTab('c'); i.scrollIntoView({behavior:'smooth',block:'center'});
-  setTimeout(function(){ try{ i.focus(); i.showPicker(); }catch(e){ try{ i.click(); }catch(_e){} } }, 350);
+function hzFuFocus(){ var lid=(typeof curLid!=='undefined'&&curLid!=null)?curLid:window._hzLid; if(lid!=null) hzFuOpen(lid); }
+// fu-1 (Ajax: "only lock the follow-up after date AND time, with a tick button"): a sheet with a date box,
+// a time box and a ✓ button. Nothing is saved until ✓ is tapped.
+function hzFuOpen(lid){
+  window._hzLid=lid;
+  var cur=(document.getElementById('lsFuDatetime')||{}).value||'';
+  var t=new Date(Date.now()+864e5), pad=function(n){ return (n<10?'0':'')+n; };
+  var dv=cur?cur.slice(0,10):'', tv=cur?cur.slice(11,16):'';
+  var sh=document.getElementById('hzFuSh'); if(sh) sh.remove();
+  var inp='width:100%;box-sizing:border-box;padding:12px;border:1.5px solid var(--border);border-radius:11px;font-family:var(--f);font-size:16px;color:var(--text);background:var(--white);min-height:46px;-webkit-appearance:none;appearance:none';
+  var q=function(lbl,d,h){ return '<button type="button" onclick="hzFuQuick(\''+d+'\',\''+h+'\')" style="padding:7px 11px;border-radius:99px;border:1.5px solid var(--border);background:var(--white);font-family:var(--f);font-size:12.5px;color:var(--text);cursor:pointer;white-space:nowrap">'+lbl+'</button>'; };
+  var ymd=function(x){ return x.getFullYear()+'-'+pad(x.getMonth()+1)+'-'+pad(x.getDate()); };
+  var in2=new Date(Date.now()+2*864e5), mon=new Date(); mon.setDate(mon.getDate()+((8-mon.getDay())%7||7));
+  document.body.insertAdjacentHTML('beforeend',
+    '<div class="sheet-ov" id="hzFuSh" onclick="if(event.target===this)closeSheet(\'hzFuSh\')" style="z-index:900"><div class="sheet">'
+    +'<div class="sheet-handle"></div><div class="sheet-head"><div class="sheet-title">Follow-up</div><button class="sheet-x" onclick="closeSheet(\'hzFuSh\')">&#x2715;</button></div>'
+    +'<div class="sh-body" style="padding:6px 16px calc(22px + env(safe-area-inset-bottom,0px))">'
+    +'<div style="display:flex;gap:7px;overflow-x:auto;padding-bottom:10px">'+q('Tomorrow 10 AM',ymd(t),'10:00')+q('In 2 days',ymd(in2),'10:00')+q('Monday 10 AM',ymd(mon),'10:00')+'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    +'<label style="font-size:12px;font-weight:600;color:var(--sub)">Date<input type="date" id="hzFuD" value="'+dv+'" min="'+ymd(new Date())+'" oninput="hzFuChk()" onchange="hzFuChk()" style="'+inp+';margin-top:5px"></label>'
+    +'<label style="font-size:12px;font-weight:600;color:var(--sub)">Time<input type="time" id="hzFuT" value="'+tv+'" step="300" oninput="hzFuChk()" onchange="hzFuChk()" style="'+inp+';margin-top:5px"></label></div>'
+    +'<div id="hzFuMsg" style="font-size:12.5px;color:var(--sub);margin:12px 2px 0;min-height:18px"></div>'
+    +'<button id="hzFuOk" onclick="hzFuSave()" style="margin-top:10px;width:100%;padding:13px;border:none;border-radius:12px;font-family:var(--f);font-size:15px;font-weight:600;color:#fff;background:linear-gradient(118deg,#4000f3,#8b2bf7,#e65afc);display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer">'
+    +'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Save follow-up</button>'
+    +'</div></div></div>');
+  openSheet('hzFuSh'); hzFuChk();
+}
+function hzFuQuick(d,h){ var a=document.getElementById('hzFuD'), b=document.getElementById('hzFuT'); if(a) a.value=d; if(b) b.value=h; hzFuChk(); }
+function hzFuChk(){
+  var d=(document.getElementById('hzFuD')||{}).value||'', t=(document.getElementById('hzFuT')||{}).value||'';
+  var ok=!!(d&&t), m=document.getElementById('hzFuMsg'), b=document.getElementById('hzFuOk');
+  var past=ok && new Date(d+'T'+t).getTime()<Date.now();
+  if(m) m.textContent=!d?'Pick a date.':!t?'Now pick a time.':past?'That time has already passed.':'Follow-up: '+_hzFuLabel(d+'T'+t)+'. Tap Save to confirm.';
+  if(b){ b.disabled=!ok||past; b.style.opacity=(ok&&!past)?'1':'.45'; }
+  return ok&&!past;
+}
+function hzFuSave(){
+  if(!hzFuChk()) return;
+  var v=document.getElementById('hzFuD').value+'T'+document.getElementById('hzFuT').value;
+  var h=document.getElementById('lsFuDatetime'); if(h) h.value=v;
+  hzFuShow(v); closeSheet('hzFuSh');
+  window._lsFuLast=null; window._lsFuTouched=true; lsFuBlur(window._hzLid);
 }
 function _hzNextPaint(l){ var n=document.getElementById('hzNext'); if(n) n.innerHTML=_hzNextBody(l); }
 
@@ -20889,15 +20928,19 @@ async function hzPbStop(btn){
 }
 // lead-hz-22: Coming up cards slide up by themselves until touched
 function _hzUpAuto(){
+  // fu-1: no scrolling box any more (an inner scroller made iPhones drag the whole page down).
+  // The rows slide with a CSS transform; dots can be tapped; touching it stops the auto-slide.
   if(window._hzUpT){ clearInterval(window._hzUpT); window._hzUpT=null; }
   var v=document.getElementById('hzUpV'); if(!v) return;
-  var dots=function(){ var d=document.getElementById('hzUpD'); if(!d) return; var ix=Math.round(v.scrollTop/Math.max(1,v.clientHeight)); for(var i=0;i<d.children.length;i++) d.children[i].className=i===ix?'on':''; };
-  dots(); v.addEventListener('scroll',function(){ requestAnimationFrame(dots); },{passive:true});
-  if(v.children.length<2) return;
+  var n=v.children.length, ix=0;
+  var go=function(i){ ix=((i%n)+n)%n; v.style.setProperty('--i', ix); var d=document.getElementById('hzUpD'); if(d) for(var k=0;k<d.children.length;k++) d.children[k].className=k===ix?'on':''; };
+  go(0);
+  if(n<2) return;
   var stop=function(){ if(window._hzUpT){ clearInterval(window._hzUpT); window._hzUpT=null; } };
-  v.addEventListener('touchstart',stop,{passive:true}); v.addEventListener('pointerdown',stop); v.addEventListener('wheel',stop,{passive:true});
-  window._hzUpT=setInterval(function(){ var w=document.getElementById('hzUpV'); if(!w||!w.isConnected){ stop(); return; } if(document.hidden) return;
-    var n=w.children.length, ix=Math.round(w.scrollTop/Math.max(1,w.clientHeight)); w.scrollTo({top:((ix+1)%n)*w.clientHeight, behavior:'smooth'}); },4000);
+  v.addEventListener('pointerdown',stop);
+  var d=document.getElementById('hzUpD');
+  if(d) d.addEventListener('click',function(e){ var t=e.target; if(t&&t.tagName==='I'){ stop(); go(Array.prototype.indexOf.call(d.children,t)); } });
+  window._hzUpT=setInterval(function(){ var w=document.getElementById('hzUpV'); if(!w||!w.isConnected){ stop(); return; } if(document.hidden) return; go(ix+1); },4000);
 }
 // lead-hz-24: the same brand player as the top of the lead (drag bar, ±5 s, speed) for every call in the activity
 function _hzPlayerHTML(src, dur){
@@ -21146,8 +21189,8 @@ function _hzComm(l, acts, fuItems, camp){
   var fuVal=nx?(nx.date+'T'+String(nx.time||'10:00').slice(0,5)):'';
   h+='<div class="hz-panel"><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
     +'<div style="min-width:0"><div class="hz-fl">Sales stage</div><select id="lsStageSelect" class="hz-fd" style="color:#140c28;font-weight:600" onchange="hzStagePick(this.value)">'+opts+'</select></div>'
-    +'<div style="min-width:0"><div class="hz-fl">Follow-up</div><div class="hz-fd hz-fu"><span style="color:#140c28;display:flex">'+_hzI('clock',15)+'</span><span id="lsFuHint" class="'+(fuVal?'':'ph')+'">'+(fuVal?_hzE(_hzFuLabel(fuVal)):'Pick date &amp; time')+'</span>'
-    +'<input type="datetime-local" id="lsFuDatetime" value="'+fuVal+'" aria-label="Follow-up date and time" onclick="try{this.showPicker()}catch(e){}" oninput="hzFuPicked(this,'+l.id+')" onchange="hzFuPicked(this,'+l.id+')" onblur="clearTimeout(window._hzFuT);lsFuBlur('+l.id+')"></div>'
+    +'<div style="min-width:0"><div class="hz-fl">Follow-up</div><div class="hz-fd hz-fu" role="button" tabindex="0" onclick="hzFuOpen('+l.id+')"><span style="color:#140c28;display:flex">'+_hzI('clock',15)+'</span><span id="lsFuHint" class="'+(fuVal?'':'ph')+'">'+(fuVal?_hzE(_hzFuLabel(fuVal)):'Pick date &amp; time')+'</span>'
+    +'<input type="hidden" id="lsFuDatetime" value="'+fuVal+'"></div>'
     +'</div>'
     +'</div><div class="hz-hr"></div>'+_tiles;
   // quote / invoice / proposal
