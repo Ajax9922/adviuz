@@ -5429,7 +5429,7 @@ Reply to this email or give us a call any time.
 // ═══════════════════════════════════════
 // SUPABASE AUTH
 // ═══════════════════════════════════════
-var APP_VERSION = 'v2026-11-12 lead-hz-34';
+var APP_VERSION = 'v2026-11-12 lead-hz-35';
 // Deep link: a push notification can land the owner straight on a campaign's
 // AI Employee settings page (used by "notify owner to turn on AI calling").
 (function(){
@@ -15448,7 +15448,7 @@ function ibResolveMsg(tpl, l, apptMs, tz){
   var cp=ibCampaignFor(l);
   var cd=window._clientData||{};
   var ctx={
-    name:(l.name||'there').split(' ')[0],
+    name:_firstNm(l.name),
     when:d.toLocaleString('en-US',{timeZone:tz,weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}),
     time:d.toLocaleTimeString('en-US',{timeZone:tz,hour:'numeric',minute:'2-digit'}),
     date:d.toLocaleDateString('en-US',{timeZone:tz,weekday:'long',month:'long',day:'numeric'}),
@@ -18520,7 +18520,7 @@ function pickSmsTplIdx(el, i){
   document.querySelectorAll('#smsTplBar .sms-tpl-chip').forEach(function(c){ c.classList.remove('on'); });
   el.classList.add('on');
   var l = window._smsLead || {};
-  var first = l.name ? l.name.split(' ')[0] : 'there';
+  var first = _firstNm(l.name);
   var msg = (t.text||'').replace(/\{name\}/g, first).replace(/\{service\}/g, l.svc || 'our services');
   var ta = document.getElementById('smsCompose');
   if(ta){ ta.value = msg; smsGrow(ta); ta.focus(); }
@@ -18575,7 +18575,7 @@ function useTplFromList(i){
   var t=(window._smsAllTpls||[])[i]; if(!t) return;
   closeSheet('smsTplListSh');
   var l = window._smsLead || {};
-  var first = l.name ? l.name.split(' ')[0] : 'there';
+  var first = _firstNm(l.name);
   var msg = (t.text||'').replace(/\{name\}/g, first).replace(/\{service\}/g, l.svc || 'our services');
   var ta = document.getElementById('smsCompose');
   if(ta){ ta.value = msg; smsGrow(ta); ta.focus(); }
@@ -20320,7 +20320,9 @@ function _hzHeardSlide(l, t){
 // ── lead-hz-10: first slider card = "Next up" — whatever happens next for this lead ──
 // lead-hz-21: is this lead's automated plan paused (they replied / you paused it)?
 function _hzPbPaused(l){ var e=window._pbEnrState; return !!(e && e.lid===l.id && e.status==='paused'); }
-function _hzFill(t, l){ var f=String((l&&l.name)||'').split(' ')[0]||'there'; return String(t||'').replace(/\{(first_?name|name)\}/gi, f); }
+// lead-hz-35: placeholder names (Caller +1…, Unknown, a phone number…) never reach a greeting — same rule as playbook-engine firstNameOf
+function _firstNm(name){ var n=String(name||'').trim(); if(!n || /^(inbound|unknown|caller\b|facebook lead|new caller|customer|client|lead)/i.test(n) || /^\+?[\d ()\-]{6,}$/.test(n)) return 'there'; return n.split(/\s+/)[0]; }
+function _hzFill(t, l){ var f=_firstNm(l&&l.name); return String(t||'').replace(/\{(first_?name|name)\}/gi, f); }
 async function hzPbSet(act){
   var e=window._pbEnrState, l=lsGetLead&&lsGetLead(); if(!e||!e.id||!l) return;
   var patch=act==='pause'?{ status:'paused', pause_reason:'manual', paused_at:new Date().toISOString() }:{ status:'active', pause_reason:null, paused_at:null };
@@ -20873,7 +20875,7 @@ function _hzSlider(l, acts){
   var sl=[];
   if(heard) sl.push(['<div>'+_hzHeardSlide(l,heard)+'</div>','background:#fffbeb;border-color:#f59e0b']);
   sl.push(['<div id="hzNext">'+_hzNextBody(l)+'</div>','']); // lead-hz-10: Next up
-  sl.push(['<div>'+_hzRecentSlide(l, acts)+'</div>','']); // lead-hz-12: recent events
+  // lead-hz-35: Recent events slide removed (Ajax) — the Conversation box shows it
   sl.push(['<div>'+_hzSummarySlide(l)+'</div>','background:#faf8ff']);
   sl.push(['<div id="hzSlCompany">'+_hzBriefBody('company')+'</div>','']);
   sl.push(['<div id="hzSlStrategy">'+_hzBriefBody('strategy')+'</div>','']);
@@ -21530,7 +21532,7 @@ function renderLeadScreen(id) {
   // \uD83E\uDD16 Next automated step — read from the live sequence enrollment, so the
   //    team can always answer "what happens to this lead next?"
   var _sqIt=(window._seqUp||[]).find(function(s){ return String(s.lead_db)===String(l.dbId); });
-  if(_sqIt && _sqIt.next_at){
+  if(_sqIt && _sqIt.next_at && !_HZ){ // lead-hz-35: new lead screen shows this inside the Next up card
     var _sqD=new Date(_sqIt.next_at);
     var _sqWhen=isNaN(_sqD.getTime())?'':_sqD.toLocaleString('en-CA',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
     var _sqCh=({sms:'\uD83D\uDCAC Text',email:'\uD83D\uDCE7 Email',call:'\uD83D\uDCDE AI Call',task:'\uD83D\uDC64 Task for the team'})[_sqIt.channel]||_sqIt.channel;
@@ -24381,7 +24383,7 @@ function aiCsConfirm(){
   var l=window._aiCsLead; if(!l) return;
   closeAiCallSheet();
   var nm=String(l.name||'').trim();
-  startAiCall(l.id, l.ph, 'sarah', nm ? nm.split(' ')[0] : 'there');
+  startAiCall(l.id, l.ph, 'sarah', _firstNm(nm));
 }
 async function aiCsNotifyOwner(campId){
   var btn=document.getElementById('aiCsNotifyBtn');
@@ -24471,7 +24473,7 @@ function openClientEmail(id, replySubj){
   }catch(_e){}
   // Prefill
   var toEl=document.getElementById('ceTo'); if(toEl){ toEl.value = l.em || ''; toEl.readOnly = window._maskContacts===true; }
-  var nm=String(l.name||'').trim(); var first = nm ? nm.split(' ')[0] : 'there';
+  var nm=String(l.name||'').trim(); var first = _firstNm(nm);
   // Replying keeps the original subject with a single "Re:" in front.
   var subEl=document.getElementById('ceSubj');
   if(subEl){
@@ -24539,7 +24541,7 @@ function paintCeFrom(){
   var b2=document.getElementById('ceSendBtn'); if(b2){ b2.disabled=false; b2.style.opacity=''; }
 }
 function ceTemplate(kind){
-  var l=window._ceLead||{}; var nm=String(l.name||'').trim(); var first=nm?nm.split(' ')[0]:'there';
+  var l=window._ceLead||{}; var nm=String(l.name||'').trim(); var first=_firstNm(nm);
   var biz=(window._ceFrom&&window._ceFrom.from_name)||(window._clientData&&window._clientData.business_name)||'our clinic';
   var subEl=document.getElementById('ceSubj'), bodyEl=document.getElementById('ceBody');
   var T={
@@ -24744,7 +24746,7 @@ function _emxAiOpen(isClient){
    +'</div>';
   if(!st.msgs.length){
     st.ts=Date.now();
-    st.msgs.push({who:'ai',text:'Tell me what this email should say — or tap a quick start above. I already know '+(l.name?String(l.name).split(' ')[0]:'this lead')+'\u2019s whole story — calls, texts, emails, notes and the business details — so just describe the goal, then refine with me until it\u2019s right.'});
+    st.msgs.push({who:'ai',text:'Tell me what this email should say — or tap a quick start above. I already know '+(_firstNm(l.name)!=='there'?_firstNm(l.name):'this lead')+'\u2019s whole story — calls, texts, emails, notes and the business details — so just describe the goal, then refine with me until it\u2019s right.'});
   }
   _emxAiPaint();
   setTimeout(function(){ var t=document.getElementById('emxAiIn'); if(t) t.focus(); },80);
@@ -26254,7 +26256,7 @@ function _jsq(s){ return encodeURIComponent(String(s||'')).replace(/'/g,'%27'); 
 // {{date}}, {{time}} (appointment), plus any landing-page custom field by its key.
 function _ceMerge(str, lead){
   var l=lead||window._ceLead||{};
-  var nm=String(l.name||'').trim(); var first=nm?nm.split(' ')[0]:'there';
+  var nm=String(l.name||'').trim(); var first=_firstNm(nm);
   var apptRaw=l.appointment_at||l.meeting_date||null;
   var d=apptRaw?new Date(apptRaw):null;
   var dateStr=(d&&!isNaN(d))?d.toLocaleDateString('en-CA',{weekday:'long',month:'long',day:'numeric'}):'';
@@ -28640,7 +28642,7 @@ function openEmail(id){
   _emailLeadId = id;
   // Defensive first-name extract — l.name can be null, empty, or just whitespace.
   var nm = String(l.name || '').trim();
-  var firstName = nm ? nm.split(' ')[0] : 'there';
+  var firstName = _firstNm(nm);
   var company = l.company || l.name || '';
   // Fresh draft for THIS lead — reset the parts that must never carry over, before anything else runs.
   window._emAiDraft=false; window._slMode='hub';
@@ -28795,7 +28797,7 @@ function emColorPop(id, btn){
 function emClearBody(){
   var el=document.getElementById('emailBody'); if(!el) return;
   var l=_emailLeadId?leads.find(function(x){return x.id===_emailLeadId;}):null;
-  var nm=String((l&&l.name)||'').trim(); var first=nm?nm.split(' ')[0]:'there';
+  var nm=String((l&&l.name)||'').trim(); var first=_firstNm(nm);
   el.value='Hi '+first+',\n\n'; window._emAiChat=[]; window._useCustomHtmlTpl=null;
   var ts=document.getElementById('emTplSel'); if(ts) ts.value='';
   el.focus();
@@ -29752,7 +29754,7 @@ function openDesignCompletePrompt() {
   var l = _emailLeadId ? leads.find(function(x){return x.id===_emailLeadId;}) : null;
   var company = l ? (l.company || l.name || '') : '';
   var fullName = l ? (l.name || 'Valued Client') : 'Valued Client';
-  var firstName = l ? (l.name||'there').split(' ')[0] : 'there';
+  var firstName = _firstNm(l&&l.name);
   var campaign  = l ? (l.company || l.name || 'your campaign') : 'your campaign';
 
   // Set subject immediately on template selection
@@ -29787,7 +29789,7 @@ function applyDesignCompleteTemplate() {
   var designUrl = (document.getElementById('designUrlInput').value || '').trim();
 
   var l = _emailLeadId ? leads.find(function(x){return x.id===_emailLeadId;}) : null;
-  var firstName = l ? (l.name||'there').split(' ')[0] : 'there';
+  var firstName = _firstNm(l&&l.name);
   var fullName  = l ? (l.name||'Valued Client') : 'Valued Client';
   var campaign  = l ? (l.company || l.name || 'your campaign') : 'your campaign';
 
